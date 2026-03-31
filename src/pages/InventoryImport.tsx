@@ -480,6 +480,14 @@ export default function InventoryImport() {
                         <TableCell className="text-xs">{p.tipo_produto ?? "—"}</TableCell>
                         <TableCell className="text-xs">{p.variacao ?? "—"}</TableCell>
                         <TableCell className="text-xs">{p.unidade_medida ?? "—"}</TableCell>
+                        <TableCell className="text-xs font-mono">{p.codigo_barras ?? "—"}</TableCell>
+                        <TableCell className="text-xs">
+                          <Badge variant={p.controla_lote ? "default" : "secondary"} className="text-xs">
+                            {p.controla_lote ? "Sim" : "Não"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">{p.classificacao_fiscal ?? "—"}</TableCell>
+                        <TableCell className="text-xs">{p.tipo_produto_fiscal ?? "—"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
