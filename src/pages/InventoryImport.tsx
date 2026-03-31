@@ -78,7 +78,22 @@ export default function InventoryImport() {
         .order("codigo_produto")
         .range(from, from + batchSize - 1);
       if (data && data.length > 0) {
-        all = all.concat(data as StockProduct[]);
+        all = all.concat(data.map((d: any) => ({
+          id: d.id,
+          codigo_produto: d.codigo_produto,
+          codigo_reduzido: d.codigo_reduzido ?? null,
+          codigo_alternativo: d.codigo_alternativo ?? null,
+          nome_produto: d.nome_produto,
+          tipo_produto: d.tipo_produto ?? null,
+          familia_codigo: d.familia_codigo ?? null,
+          variacao: d.variacao ?? null,
+          unidade_medida: d.unidade_medida ?? null,
+          ativo: d.ativo,
+          codigo_barras: d.codigo_barras ?? null,
+          controla_lote: d.controla_lote ?? false,
+          classificacao_fiscal: d.classificacao_fiscal ?? null,
+          tipo_produto_fiscal: d.tipo_produto_fiscal ?? null,
+        } as StockProduct)));
         from += batchSize;
         if (data.length < batchSize) done = true;
       } else {
