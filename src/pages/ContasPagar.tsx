@@ -306,6 +306,7 @@ export default function ContasPagar() {
     }
   };
 
+  const handleOpenPedidoModal = async (numeroPedido: string) => {
     setPedidoModalOpen(true);
     setPedidoModalLoading(true);
     setPedidoModalData(null);
