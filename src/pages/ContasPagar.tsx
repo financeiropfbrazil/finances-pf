@@ -586,7 +586,7 @@ export default function ContasPagar() {
 
       // Upsert em batches de 200
       setSyncMsg("Gravando no banco...");
-      const mapped = allItems.map(mapRow);
+      const mapped = allItems.map(mapRow).filter(r => r.projecao !== 'Sim');
       for (let i = 0; i < mapped.length; i += 200) {
         const batch = mapped.slice(i, i + 200);
         const { error } = await supabase
