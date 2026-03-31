@@ -9,7 +9,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { seedStockProductsFromBuffer } from "@/services/stockProductsSeed";
 import { supabase } from "@/integrations/supabase/client";
