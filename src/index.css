@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 232 36% 13%;
+    --foreground: 210 40% 92%;
+
+    --card: 225 45% 15%;
+    --card-foreground: 210 40% 92%;
+
+    --popover: 225 45% 15%;
+    --popover-foreground: 210 40% 92%;
+
+    --primary: 210 65% 45%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 225 30% 20%;
+    --secondary-foreground: 210 40% 92%;
+
+    --muted: 225 25% 18%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 210 55% 35%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 3 80% 50%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 225 20% 22%;
+    --input: 225 20% 22%;
+    --ring: 210 65% 45%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 232 40% 10%;
+    --sidebar-foreground: 210 30% 75%;
+    --sidebar-primary: 210 65% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 225 30% 18%;
+    --sidebar-accent-foreground: 210 40% 92%;
+    --sidebar-border: 225 20% 18%;
+    --sidebar-ring: 210 65% 50%;
+
+    --success: 168 80% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 45 98% 71%;
+    --warning-foreground: 232 36% 13%;
+    --danger: 3 80% 50%;
+    --danger-foreground: 0 0% 100%;
+
+    --closed-glow: 168 80% 36%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Inventory calendar: dot indicator for dates with draft data */
+.inventory-draft-dot {
+  position: relative;
+}
+.inventory-draft-dot::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 4px hsl(var(--primary) / 0.6);
+}
+.inventory-draft-dot[aria-selected="true"]::after {
+  background: hsl(var(--primary-foreground));
+  box-shadow: 0 0 4px hsl(var(--primary-foreground) / 0.6);
+}
