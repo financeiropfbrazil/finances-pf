@@ -152,6 +152,25 @@ export default function InventoryImport() {
     }
   };
 
+  const handleSyncERP = async () => {
+    setSyncingERP(true);
+    toast({ title: "Sincronizando produtos do ERP..." });
+    try {
+      const result = await sincronizarProdutosDoERP((msg) => {
+        toast({ title: msg });
+      });
+      toast({
+        title: `✅ Sincronização concluída: ${result.novos} novos, ${result.ignorados} existentes.`,
+        description: result.erros.length > 0 ? `${result.erros.length} erros` : undefined,
+      });
+      fetchProducts();
+    } catch (err: any) {
+      toast({ title: "❌ Erro na sincronização", description: err.message, variant: "destructive" });
+    } finally {
+      setSyncingERP(false);
+    }
+  };
+
   // --- External Code Import Logic ---
   const resetExtDialog = () => {
     setExtPreview(null);
