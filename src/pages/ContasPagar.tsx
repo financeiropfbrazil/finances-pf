@@ -172,7 +172,7 @@ export default function ContasPagar() {
   const [syncMsg, setSyncMsg] = useState("");
   const [filtroSituacao, setFiltroSituacao] = useState("all");
   const [filtroEspecie, setFiltroEspecie] = useState("all");
-  const [filtroProjecao, setFiltroProjecao] = useState("all");
+  
   const [filtroTipoPag, setFiltroTipoPag] = useState("all");
   const [filtroTipoCobranca, setFiltroTipoCobranca] = useState("all");
   const [filtroFornecedor, setFiltroFornecedor] = useState("");
