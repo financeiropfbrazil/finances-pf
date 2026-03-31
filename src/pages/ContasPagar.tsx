@@ -185,8 +185,127 @@ export default function ContasPagar() {
   const [pedidoModalData, setPedidoModalData] = useState<any>(null);
   const [pedidoModalLoading, setPedidoModalLoading] = useState(false);
   const [pedidoNfseList, setPedidoNfseList] = useState<any[]>([]);
+  const [nfOrigemModalOpen, setNfOrigemModalOpen] = useState(false);
+  const [nfOrigemModalData, setNfOrigemModalData] = useState<any>(null);
+  const [nfOrigemModalLoading, setNfOrigemModalLoading] = useState(false);
 
-  const handleOpenPedidoModal = async (numeroPedido: string) => {
+  const handleOpenNfOrigemModal = async (chaveMovEstq: number, empresaFilial: string) => {
+    setNfOrigemModalOpen(true);
+    setNfOrigemModalLoading(true);
+    setNfOrigemModalData(null);
+    try {
+      // Try Supabase first
+      const { data: nfSupa } = await (supabase as any)
+        .from("nf_entrada")
+        .select("*")
+        .eq("erp_chave", chaveMovEstq)
+        .maybeSingle();
+
+      if (nfSupa) {
+        const { data: rateioSupa } = await (supabase as any)
+          .from("nf_entrada_rateio")
+          .select("*")
+          .eq("erp_chave", chaveMovEstq);
+
+        // Supabase has limited data — we'll still fetch from ERP for full details
+        // but show what we have immediately
+        setNfOrigemModalData({
+          source: "supabase_partial",
+          especie: nfSupa.especie,
+          numero: nfSupa.numero,
+          serie: nfSupa.serie,
+          dataEmissao: nfSupa.data_emissao,
+          dataMovimento: nfSupa.data_movimento,
+          fornecedorNome: nfSupa.fornecedor_nome,
+          fornecedorCnpj: nfSupa.fornecedor_cnpj,
+          valorDocumento: nfSupa.valor_documento,
+          observacao: nfSupa.observacao,
+          rateioSupa: rateioSupa || [],
+        });
+      }
+
+      // Always try ERP for full detail (itens, parcelas, etc.)
+      let auth = await authenticateAlvo();
+      if (!auth.success || !auth.token) {
+        if (!nfSupa) {
+          setNfOrigemModalData({ error: "Falha na autenticação ERP e NF não encontrada no cache." });
+        }
+        return;
+      }
+
+      let currentToken = auth.token;
+      let erpData: any = null;
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const resp = await fetch(
+          `${ERP_BASE_URL}/MovEstq/Load?codigoEmpresaFilial=${encodeURIComponent(empresaFilial)}&chave=${chaveMovEstq}&loadChild=All`,
+          { headers: { "Content-Type": "application/json", "riosoft-token": currentToken } }
+        );
+
+        if (resp.status === 409) {
+          clearAlvoToken();
+          await new Promise(r => setTimeout(r, 1000 * attempt));
+          const reAuth = await authenticateAlvo();
+          if (!reAuth.success || !reAuth.token) break;
+          currentToken = reAuth.token;
+          continue;
+        }
+
+        if (!resp.ok) {
+          console.error(`MovEstq/Load HTTP ${resp.status}`);
+          break;
+        }
+
+        erpData = await resp.json();
+        break;
+      }
+
+      if (erpData) {
+        const itens = erpData.ItemMovEstqChildList || [];
+        const classeRateio = erpData.MovEstqClasseRecDespChildList || [];
+        const parcelas = erpData.ParcPagMovEstqChildList || [];
+        const pedidos = erpData.MovEstqPedCompChildList || [];
+
+        setNfOrigemModalData({
+          source: "erp",
+          especie: erpData.Especie,
+          numero: erpData.Numero,
+          serie: erpData.Serie,
+          dataEmissao: erpData.DataEmissao,
+          dataMovimento: erpData.DataMovimento,
+          dataEntrada: erpData.DataEntrada,
+          fornecedorNome: erpData.NomeEntidade,
+          fornecedorCnpj: erpData.CPFCNPJEntidade,
+          valorDocumento: erpData.ValorDocumento,
+          valorServico: erpData.ValorTotalServico,
+          valorMercadoria: erpData.ValorMercadoria,
+          condPagamento: erpData.CodigoCondPag,
+          origem: erpData.OrigemModulo || erpData.Origem,
+          usuario: erpData.CodigoUsuario,
+          tipoLanc: erpData.CodigoTipoLanc,
+          observacao: erpData.Observacao,
+          itens,
+          classeRateio,
+          parcelas,
+          pedidosCompra: pedidos,
+          impostos: {
+            iss: erpData.ValorISS || 0,
+            irrf: erpData.ValorIRRF || 0,
+            inss: erpData.ValorINSS || 0,
+            pis: erpData.ValorPISRFServico || 0,
+            cofins: erpData.ValorCOFINSRFServico || 0,
+            csll: erpData.ValorCSLLRFServico || 0,
+          },
+        });
+      }
+    } catch (err: any) {
+      console.error("Erro ao carregar NF de Origem:", err);
+      toast({ title: "Erro ao carregar NF de Origem", description: err.message, variant: "destructive" });
+    } finally {
+      setNfOrigemModalLoading(false);
+    }
+  };
+
     setPedidoModalOpen(true);
     setPedidoModalLoading(true);
     setPedidoModalData(null);
@@ -846,7 +965,7 @@ export default function ContasPagar() {
                                     className="gap-1.5 text-xs"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      navigate(`/nf-entrada?chave=${row.chave_movestq}&empresa=${row.codigo_empresa_filial_movestq || "1.01"}`);
+                                      handleOpenNfOrigemModal(row.chave_movestq!, row.codigo_empresa_filial_movestq || "1.01");
                                     }}
                                   >
                                     <FileText className="h-3.5 w-3.5" />
@@ -1147,6 +1266,227 @@ export default function ContasPagar() {
                     <h4 className="text-xs font-semibold text-muted-foreground mb-2">Observações</h4>
                     <div className="max-h-[100px] overflow-auto rounded border border-border p-2 text-xs text-foreground whitespace-pre-wrap">
                       {pedidoModalData.texto}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal NF de Origem */}
+      <Dialog open={nfOrigemModalOpen} onOpenChange={setNfOrigemModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              NF de Origem — {nfOrigemModalData?.especie} {nfOrigemModalData?.numero}
+            </DialogTitle>
+          </DialogHeader>
+
+          {nfOrigemModalLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin mr-2" />
+              <span className="text-sm text-muted-foreground">Carregando NF de Origem...</span>
+            </div>
+          ) : !nfOrigemModalData ? (
+            <p className="text-sm text-muted-foreground text-center py-8">NF de Origem não encontrada.</p>
+          ) : nfOrigemModalData.error ? (
+            <p className="text-sm text-destructive text-center py-8">{nfOrigemModalData.error}</p>
+          ) : (
+            <div className="space-y-4">
+              {/* Seção 1 — Dados Básicos */}
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground mb-2">Dados Básicos</h4>
+                <div className="grid grid-cols-4 gap-x-4 gap-y-1 text-xs">
+                  <Detail label="Espécie" value={nfOrigemModalData.especie} />
+                  <Detail label="Número" value={nfOrigemModalData.numero} />
+                  <Detail label="Série" value={nfOrigemModalData.serie} />
+                  <Detail label="Data Emissão" value={fmtDate(nfOrigemModalData.dataEmissao?.split?.("T")?.[0] || nfOrigemModalData.dataEmissao)} />
+                  <Detail label="Data Movimento" value={fmtDate(nfOrigemModalData.dataMovimento?.split?.("T")?.[0] || nfOrigemModalData.dataMovimento)} />
+                  <Detail label="Data Entrada" value={fmtDate(nfOrigemModalData.dataEntrada?.split?.("T")?.[0] || nfOrigemModalData.dataEntrada)} />
+                  <div className="col-span-2"><Detail label="Fornecedor" value={nfOrigemModalData.fornecedorNome} /></div>
+                  <Detail label="CNPJ" value={nfOrigemModalData.fornecedorCnpj} />
+                  <div><span className="text-muted-foreground">Valor Documento: </span><span className="font-semibold text-foreground">{fmtBRL(nfOrigemModalData.valorDocumento || 0)}</span></div>
+                  <Detail label="Valor Serviço" value={nfOrigemModalData.valorServico != null ? fmtBRL(nfOrigemModalData.valorServico) : "—"} />
+                  <Detail label="Valor Mercadoria" value={nfOrigemModalData.valorMercadoria != null ? fmtBRL(nfOrigemModalData.valorMercadoria) : "—"} />
+                  <Detail label="Cond. Pagamento" value={nfOrigemModalData.condPagamento} />
+                  <Detail label="Origem" value={nfOrigemModalData.origem} />
+                  <Detail label="Tipo Lançamento" value={nfOrigemModalData.tipoLanc} />
+                  <Detail label="Usuário" value={nfOrigemModalData.usuario} />
+                </div>
+              </div>
+
+              {nfOrigemModalData.source === "supabase_partial" && (
+                <p className="text-xs text-muted-foreground italic">Dados detalhados (itens, parcelas) não disponíveis no cache. Carregando do ERP...</p>
+              )}
+
+              {/* Seção 2 — Itens */}
+              {nfOrigemModalData.itens && (
+                <>
+                  <Separator />
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">Itens</h4>
+                    {nfOrigemModalData.itens.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">Sem itens</p>
+                    ) : (
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b text-muted-foreground">
+                          <th className="py-1 text-left w-8">#</th>
+                          <th className="py-1 text-left">Produto</th>
+                          <th className="py-1 text-left">Descrição</th>
+                          <th className="py-1 text-left w-12">Unid.</th>
+                          <th className="py-1 text-right w-14">Qtd</th>
+                          <th className="py-1 text-right w-20">Vlr Unit</th>
+                          <th className="py-1 text-right w-20">Vlr Total</th>
+                          <th className="py-1 text-center w-16">Serviço</th>
+                        </tr></thead>
+                        <tbody>
+                          {nfOrigemModalData.itens.map((it: any, i: number) => (
+                            <tr key={i} className="border-b border-muted/50">
+                              <td className="py-1">{it.Sequencia || i + 1}</td>
+                              <td className="py-1">{it.CodigoProduto}</td>
+                              <td className="py-1">{it.NomeProduto}</td>
+                              <td className="py-1">{it.CodigoProdUnidMed}</td>
+                              <td className="py-1 text-right font-mono">{it.QuantidadeProdUnidMedPrincipal}</td>
+                              <td className="py-1 text-right font-mono">{fmtBRL(it.ValorUnitario || 0)}</td>
+                              <td className="py-1 text-right font-mono">{fmtBRL(it.ValorProduto || 0)}</td>
+                              <td className="py-1 text-center">
+                                {it.ItemServico === "Sim" && <Badge variant="outline" className="text-[10px] bg-blue-100 text-blue-800 border-blue-200">Serviço</Badge>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Seção 3 — Classe / Centro de Custo */}
+              {nfOrigemModalData.classeRateio && (
+                <>
+                  <Separator />
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">Classe / Centro de Custo</h4>
+                    {nfOrigemModalData.classeRateio.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">Sem rateio</p>
+                    ) : (
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b text-muted-foreground">
+                          <th className="py-1 text-left">Classe</th>
+                          <th className="py-1 text-left">Centro Custo</th>
+                          <th className="py-1 text-right w-16">%</th>
+                          <th className="py-1 text-right w-24">Valor</th>
+                        </tr></thead>
+                        <tbody>
+                          {nfOrigemModalData.classeRateio.map((c: any, i: number) => {
+                            const rateios = c.RateioMovEstqChildList || [];
+                            const cc = rateios.map((r: any) => r.CodigoCentroCtrl).filter(Boolean).join(", ");
+                            return (
+                              <tr key={i} className="border-b border-muted/50">
+                                <td className="py-1">{c.CodigoClasseRecDesp}</td>
+                                <td className="py-1">{cc || "—"}</td>
+                                <td className="py-1 text-right font-mono">{c.Percentual != null ? `${c.Percentual}%` : "—"}</td>
+                                <td className="py-1 text-right font-mono">{fmtBRL(c.Valor || 0)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Seção 4 — Parcelas */}
+              {nfOrigemModalData.parcelas && (
+                <>
+                  <Separator />
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">Parcelas</h4>
+                    {nfOrigemModalData.parcelas.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">Sem parcelas</p>
+                    ) : (
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b text-muted-foreground">
+                          <th className="py-1 text-left w-8">#</th>
+                          <th className="py-1 text-left">Duplicata</th>
+                          <th className="py-1 text-left w-24">Emissão</th>
+                          <th className="py-1 text-left w-24">Vencimento</th>
+                          <th className="py-1 text-right w-24">Valor</th>
+                        </tr></thead>
+                        <tbody>
+                          {nfOrigemModalData.parcelas.map((p: any, i: number) => (
+                            <tr key={i} className="border-b border-muted/50">
+                              <td className="py-1">{p.Sequencia || i + 1}</td>
+                              <td className="py-1">{p.NumeroDuplicata || "—"}</td>
+                              <td className="py-1">{fmtDate(p.DataEmissao?.split?.("T")?.[0])}</td>
+                              <td className="py-1">{fmtDate(p.DataVencimento?.split?.("T")?.[0])}</td>
+                              <td className="py-1 text-right font-mono">{fmtBRL(p.ValorParcela || 0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Seção 5 — Pedido de Compra Vinculado */}
+              {nfOrigemModalData.pedidosCompra && nfOrigemModalData.pedidosCompra.length > 0 && (
+                <>
+                  <Separator />
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">Pedido de Compra Vinculado</h4>
+                    {nfOrigemModalData.pedidosCompra.map((pc: any, i: number) => (
+                      <div key={i} className="flex items-center gap-3 text-xs">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-xs"
+                          onClick={() => {
+                            setNfOrigemModalOpen(false);
+                            handleOpenPedidoModal(String(pc.NumeroPedComp));
+                          }}
+                        >
+                          <Package className="h-3.5 w-3.5" />
+                          Pedido: {pc.NumeroPedComp}
+                        </Button>
+                        <span className="text-muted-foreground">Valor: {fmtBRL(pc.ValorItens || 0)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Seção 6 — Impostos */}
+              {nfOrigemModalData.impostos && (
+                <>
+                  <Separator />
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">Impostos</h4>
+                    <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs sm:grid-cols-6">
+                      <Detail label="ISS" value={fmtBRL(nfOrigemModalData.impostos.iss)} />
+                      <Detail label="IRRF" value={fmtBRL(nfOrigemModalData.impostos.irrf)} />
+                      <Detail label="INSS" value={fmtBRL(nfOrigemModalData.impostos.inss)} />
+                      <Detail label="PIS RF" value={fmtBRL(nfOrigemModalData.impostos.pis)} />
+                      <Detail label="COFINS RF" value={fmtBRL(nfOrigemModalData.impostos.cofins)} />
+                      <Detail label="CSLL RF" value={fmtBRL(nfOrigemModalData.impostos.csll)} />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Seção 7 — Observação */}
+              {nfOrigemModalData.observacao && (
+                <>
+                  <Separator />
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">Observação</h4>
+                    <div className="max-h-[100px] overflow-auto rounded border border-border p-2 text-xs text-foreground whitespace-pre-wrap">
+                      {nfOrigemModalData.observacao}
                     </div>
                   </div>
                 </>
