@@ -838,17 +838,6 @@ export default function ContasPagar() {
               </SelectContent>
             </Select>
           </div>
-          <div className="w-[70px] shrink-0">
-            <label className="mb-0.5 block text-[10px] text-muted-foreground">Projeção</label>
-            <Select value={filtroProjecao} onValueChange={v => { setFiltroProjecao(v); setPage(1); }}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                <SelectItem value="Sim">Sim</SelectItem>
-                <SelectItem value="Não">Não</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
           <div className="w-[100px] shrink-0">
             <label className="mb-0.5 block text-[10px] text-muted-foreground">Tp Pagamento</label>
             <Select value={filtroTipoPag} onValueChange={v => { setFiltroTipoPag(v); setPage(1); }}>
