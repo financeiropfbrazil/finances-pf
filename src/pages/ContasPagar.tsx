@@ -717,7 +717,7 @@ export default function ContasPagar() {
         "Tipo Pag/Rec": r.nome_tipo_pag_rec || "",
         "Tipo Cobrança": r.nome_tipo_cobranca || "",
         "Cond. Pagamento": r.nome_cond_pagamento || "",
-        "Projeção": r.projecao || "",
+        
         "Classe Rec/Desp": r.classe_rec_desp || "",
         "Centro Custo": r.centro_custo || "",
         "Categorias": r.categorias || "",
