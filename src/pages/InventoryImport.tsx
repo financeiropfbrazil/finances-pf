@@ -389,6 +389,16 @@ export default function InventoryImport() {
             {importing ? "Importando..." : "Importar XLSX"}
           </Button>
           <Button
+            onClick={handleSyncERP}
+            disabled={syncingERP}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            {syncingERP ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {syncingERP ? "Sincronizando..." : "Sincronizar do ERP"}
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             className="gap-2"
