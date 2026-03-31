@@ -27,6 +27,10 @@ interface StockProduct {
   variacao: string | null;
   unidade_medida: string | null;
   ativo: boolean;
+  codigo_barras: string | null;
+  controla_lote: boolean;
+  classificacao_fiscal: string | null;
+  tipo_produto_fiscal: string | null;
 }
 
 interface ExternalCodePreview {
