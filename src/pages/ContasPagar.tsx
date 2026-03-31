@@ -889,7 +889,7 @@ export default function ContasPagar() {
                   <TableHead className="w-[16%] px-1 text-xs">Fornecedor</TableHead>
                   <TableHead className="w-[8%] px-1 text-right text-xs">Vl. Bruto</TableHead>
                   <TableHead className="w-[7.5%] px-1 text-right text-xs">Saldo</TableHead>
-                  <TableHead className="w-[2.5%] px-0.5 text-center text-xs">Pr</TableHead>
+                  
                   <TableHead className="w-[10%] px-1 text-xs">Tp Pag</TableHead>
                   <TableHead className="w-[10%] px-1 text-xs">Tp Cobr</TableHead>
                 </TableRow>
