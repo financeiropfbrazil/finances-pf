@@ -660,7 +660,7 @@ export default function ContasPagar() {
       );
     }
     return result;
-  }, [rows, filtroSituacao, filtroEspecie, filtroProjecao, filtroTipoPag, filtroTipoCobranca, filtroFornecedor]);
+  }, [rows, filtroSituacao, filtroEspecie, filtroTipoPag, filtroTipoCobranca, filtroFornecedor]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
