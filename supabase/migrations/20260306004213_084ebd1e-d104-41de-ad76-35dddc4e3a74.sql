@@ -1,0 +1,1 @@
+ALTER TABLE public.intercompany_alvo_docs ADD COLUMN IF NOT EXISTS raw_json_new jsonb DEFAULT NULL;

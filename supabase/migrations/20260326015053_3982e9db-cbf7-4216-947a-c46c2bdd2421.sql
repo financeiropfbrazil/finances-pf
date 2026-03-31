@@ -1,0 +1,1 @@
+ALTER TABLE compras_nfse ADD COLUMN IF NOT EXISTS erp_chave_movestq integer;

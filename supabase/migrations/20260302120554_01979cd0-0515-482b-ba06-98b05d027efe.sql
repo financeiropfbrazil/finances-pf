@@ -1,0 +1,1 @@
+ALTER TABLE public.bank_statement_transactions DROP CONSTRAINT bank_statement_transactions_period_id_fit_id_key;

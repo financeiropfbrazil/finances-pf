@@ -1,0 +1,16 @@
+project_id = "vbrxxvzkbehzgcztxrit"
+
+[functions.alvo-proxy]
+verify_jwt = false
+
+[functions.alvo-auth]
+verify_jwt = false
+
+[functions.proxy-test]
+verify_jwt = false
+
+[functions.erp-health-check]
+verify_jwt = false
+
+[functions.alvo-sync-worker]
+verify_jwt = false
