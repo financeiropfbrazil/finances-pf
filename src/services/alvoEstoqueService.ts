@@ -50,6 +50,8 @@ const TIPO_LABELS: Record<string, string> = {
   "01": "01-Acabado",
   "02": "02-Semi-Acabado",
   "03": "03-Matéria Prima",
+  "04": "04-Serviço",
+  "05": "05-Revenda",
   "06": "06-Material de Embalagem",
   "44": "44-Insumos",
 };
@@ -76,78 +78,75 @@ export async function sincronizarProdutosDoERP(
   }
   let token = auth.token;
 
-  const tipos = ["01", "02", "03", "06", "44"];
   const allProducts: any[] = [];
+  let pageIndex = 1;
+  let hasMore = true;
 
-  for (const tipo of tipos) {
-    let pageIndex = 1;
-    let hasMore = true;
-    while (hasMore) {
-      onProgress?.(`Sincronizando tipo ${tipo} (página ${pageIndex})...`);
-      try {
-        const { data, newToken } = await fetchWithRetryAuth(
-          `${ERP_BASE_URL}/produto/GetListForComponents`,
-          {
-            FormName: "produto",
-            ClassInput: "produto",
-            ControllerForm: "produto",
-            TypeObject: "rsSearch",
-            BindingName: "",
-            ClassVinculo: "produto",
-            DisabledCache: false,
-            Filter: `CodigoTipoProduto = '${tipo}'`,
-            Input: "defaultSearch",
-            IsGroupBy: false,
-            Order: "Codigo ASC",
-            OrderUser: "",
-            PageIndex: pageIndex,
-            PageSize: 500,
-            Shortcut: "prod",
-            Type: "GridTable",
-          },
-          token
-        );
-        if (newToken) token = newToken;
+  while (hasMore) {
+    onProgress?.(`Sincronizando produtos (página ${pageIndex})...`);
+    try {
+      const { data, newToken } = await fetchWithRetryAuth(
+        `${ERP_BASE_URL}/produto/GetListForComponents`,
+        {
+          FormName: "produto",
+          ClassInput: "produto",
+          ControllerForm: "produto",
+          TypeObject: "rsSearch",
+          BindingName: "",
+          ClassVinculo: "produto",
+          DisabledCache: false,
+          Filter: "Status = 'Ativado'",
+          Input: "defaultSearch",
+          IsGroupBy: false,
+          Order: "Codigo ASC",
+          OrderUser: "",
+          PageIndex: pageIndex,
+          PageSize: 500,
+          Shortcut: "prod",
+          Type: "GridTable",
+        },
+        token
+      );
+      if (newToken) token = newToken;
 
-        const items: any[] = Array.isArray(data) ? data : (data?.lista ?? data?.Registros ?? []);
-        if (items.length === 0) {
+      const items: any[] = Array.isArray(data) ? data : (data?.lista ?? data?.Registros ?? []);
+      if (items.length === 0) {
+        hasMore = false;
+      } else {
+        for (const item of items) {
+          const codigo = item.Codigo ?? "";
+          const nivel = item.Nivel ?? "";
+
+          // Filtrar nós de grupo/categoria (sem nível ou código = nível)
+          if (!nivel || nivel === "" || codigo === nivel || item.Grupo === "T") continue;
+
+          const tipoCodigo = item.CodigoTipoProduto ?? "";
+          allProducts.push({
+            codigo_produto: codigo,
+            codigo_reduzido: item.Reduzido ?? null,
+            codigo_alternativo: item.Alternativo ?? null,
+            nome_produto: item.Nome ?? "",
+            tipo_produto: TIPO_LABELS[tipoCodigo] ?? (tipoCodigo || "Outros"),
+            familia_codigo: nivel,
+            variacao: item.NomeAlternativo3 ?? null,
+            unidade_medida: null,
+            ativo: true,
+            codigo_barras: item.CodigoBarras ?? null,
+            controla_lote: item.ControlaLote === "Sim",
+            classificacao_fiscal: item.CodigoClasFiscal ?? null,
+            tipo_produto_fiscal: item.CodigoTipoProdFisc ?? null,
+            data_cadastro: item.DataCadastro ? item.DataCadastro.split("T")[0] : null,
+          });
+        }
+        if (items.length < 500) {
           hasMore = false;
         } else {
-          for (const item of items) {
-            const codigo = item.Codigo ?? "";
-            const nivel = item.Nivel ?? "";
-
-            // Filtrar nós de grupo/categoria (sem nível ou código = nível)
-            if (!nivel || nivel === "" || codigo === nivel || item.Grupo === "T") continue;
-
-
-            allProducts.push({
-              codigo_produto: codigo,
-              codigo_reduzido: item.Reduzido ?? null,
-              codigo_alternativo: item.Alternativo ?? null,
-              nome_produto: item.Nome ?? "",
-              tipo_produto: TIPO_LABELS[tipo] ?? tipo,
-              familia_codigo: nivel,
-              variacao: item.NomeAlternativo3 ?? null,
-              unidade_medida: null,
-              ativo: item.Status === "Ativado",
-              codigo_barras: item.CodigoBarras ?? null,
-              controla_lote: item.ControlaLote === "Sim",
-              classificacao_fiscal: item.CodigoClasFiscal ?? null,
-              tipo_produto_fiscal: item.CodigoTipoProdFisc ?? null,
-              data_cadastro: item.DataCadastro ? item.DataCadastro.split("T")[0] : null,
-            });
-          }
-          if (items.length < 500) {
-            hasMore = false;
-          } else {
-            pageIndex++;
-          }
+          pageIndex++;
         }
-      } catch (e: any) {
-        result.erros.push(`Tipo ${tipo} página ${pageIndex}: ${e.message}`);
-        hasMore = false;
       }
+    } catch (e: any) {
+      result.erros.push(`Página ${pageIndex}: ${e.message}`);
+      hasMore = false;
     }
   }
 
