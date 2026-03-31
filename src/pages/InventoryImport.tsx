@@ -464,6 +464,10 @@ export default function InventoryImport() {
                       <TableHead className="w-[140px]">Tipo</TableHead>
                       <TableHead className="w-[100px]">Variação</TableHead>
                       <TableHead className="w-[60px]">Unid.</TableHead>
+                      <TableHead className="w-[120px]">Cód. Barras</TableHead>
+                      <TableHead className="w-[60px]">Lote</TableHead>
+                      <TableHead className="w-[100px]">Clas. Fiscal</TableHead>
+                      <TableHead className="w-[80px]">Tp Fiscal</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
