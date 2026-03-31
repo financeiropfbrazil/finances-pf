@@ -126,7 +126,7 @@ export async function sincronizarProdutosDoERP(
             codigo_reduzido: item.Reduzido ?? null,
             codigo_alternativo: item.Alternativo ?? null,
             nome_produto: item.Nome ?? "",
-            tipo_produto: TIPO_LABELS[tipoCodigo] ?? tipoCodigo || "Outros",
+            tipo_produto: TIPO_LABELS[tipoCodigo] ?? (tipoCodigo || "Outros"),
             familia_codigo: nivel,
             variacao: item.NomeAlternativo3 ?? null,
             unidade_medida: null,
