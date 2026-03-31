@@ -133,6 +133,11 @@ export async function sincronizarProdutosDoERP(
               variacao: item.NomeAlternativo3 ?? null,
               unidade_medida: null,
               ativo: item.Status === "Ativado",
+              codigo_barras: item.CodigoBarras ?? null,
+              controla_lote: item.ControlaLote === "Sim",
+              classificacao_fiscal: item.CodigoClasFiscal ?? null,
+              tipo_produto_fiscal: item.CodigoTipoProdFisc ?? null,
+              data_cadastro: item.DataCadastro ? item.DataCadastro.split("T")[0] : null,
             });
           }
           if (items.length < 500) {

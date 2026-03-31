@@ -9,9 +9,10 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { seedStockProductsFromBuffer } from "@/services/stockProductsSeed";
+import { sincronizarProdutosDoERP } from "@/services/alvoEstoqueService";
 import { supabase } from "@/integrations/supabase/client";
 import * as XLSX from "xlsx";
 
@@ -26,6 +27,10 @@ interface StockProduct {
   variacao: string | null;
   unidade_medida: string | null;
   ativo: boolean;
+  codigo_barras: string | null;
+  controla_lote: boolean;
+  classificacao_fiscal: string | null;
+  tipo_produto_fiscal: string | null;
 }
 
 interface ExternalCodePreview {
@@ -48,6 +53,7 @@ export default function InventoryImport() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const [filterTipo, setFilterTipo] = useState("all");
+  const [syncingERP, setSyncingERP] = useState(false);
 
   // External code dialog state
   const [extDialogOpen, setExtDialogOpen] = useState(false);
@@ -72,7 +78,22 @@ export default function InventoryImport() {
         .order("codigo_produto")
         .range(from, from + batchSize - 1);
       if (data && data.length > 0) {
-        all = all.concat(data as StockProduct[]);
+        all = all.concat(data.map((d: any) => ({
+          id: d.id,
+          codigo_produto: d.codigo_produto,
+          codigo_reduzido: d.codigo_reduzido ?? null,
+          codigo_alternativo: d.codigo_alternativo ?? null,
+          nome_produto: d.nome_produto,
+          tipo_produto: d.tipo_produto ?? null,
+          familia_codigo: d.familia_codigo ?? null,
+          variacao: d.variacao ?? null,
+          unidade_medida: d.unidade_medida ?? null,
+          ativo: d.ativo,
+          codigo_barras: d.codigo_barras ?? null,
+          controla_lote: d.controla_lote ?? false,
+          classificacao_fiscal: d.classificacao_fiscal ?? null,
+          tipo_produto_fiscal: d.tipo_produto_fiscal ?? null,
+        } as StockProduct)));
         from += batchSize;
         if (data.length < batchSize) done = true;
       } else {
@@ -128,6 +149,25 @@ export default function InventoryImport() {
       fetchProducts();
     } else {
       toast({ title: "❌ Erro na importação", description: result.error, variant: "destructive" });
+    }
+  };
+
+  const handleSyncERP = async () => {
+    setSyncingERP(true);
+    toast({ title: "Sincronizando produtos do ERP..." });
+    try {
+      const result = await sincronizarProdutosDoERP((msg) => {
+        toast({ title: msg });
+      });
+      toast({
+        title: `✅ Sincronização concluída: ${result.novos} novos, ${result.ignorados} existentes.`,
+        description: result.erros.length > 0 ? `${result.erros.length} erros` : undefined,
+      });
+      fetchProducts();
+    } catch (err: any) {
+      toast({ title: "❌ Erro na sincronização", description: err.message, variant: "destructive" });
+    } finally {
+      setSyncingERP(false);
     }
   };
 
@@ -349,6 +389,16 @@ export default function InventoryImport() {
             {importing ? "Importando..." : "Importar XLSX"}
           </Button>
           <Button
+            onClick={handleSyncERP}
+            disabled={syncingERP}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            {syncingERP ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {syncingERP ? "Sincronizando..." : "Sincronizar do ERP"}
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             className="gap-2"
@@ -414,6 +464,10 @@ export default function InventoryImport() {
                       <TableHead className="w-[140px]">Tipo</TableHead>
                       <TableHead className="w-[100px]">Variação</TableHead>
                       <TableHead className="w-[60px]">Unid.</TableHead>
+                      <TableHead className="w-[120px]">Cód. Barras</TableHead>
+                      <TableHead className="w-[60px]">Lote</TableHead>
+                      <TableHead className="w-[100px]">Clas. Fiscal</TableHead>
+                      <TableHead className="w-[80px]">Tp Fiscal</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -426,6 +480,14 @@ export default function InventoryImport() {
                         <TableCell className="text-xs">{p.tipo_produto ?? "—"}</TableCell>
                         <TableCell className="text-xs">{p.variacao ?? "—"}</TableCell>
                         <TableCell className="text-xs">{p.unidade_medida ?? "—"}</TableCell>
+                        <TableCell className="text-xs font-mono">{p.codigo_barras ?? "—"}</TableCell>
+                        <TableCell className="text-xs">
+                          <Badge variant={p.controla_lote ? "default" : "secondary"} className="text-xs">
+                            {p.controla_lote ? "Sim" : "Não"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">{p.classificacao_fiscal ?? "—"}</TableCell>
+                        <TableCell className="text-xs">{p.tipo_produto_fiscal ?? "—"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
