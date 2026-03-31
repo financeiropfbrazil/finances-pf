@@ -965,7 +965,7 @@ export default function ContasPagar() {
                                     className="gap-1.5 text-xs"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      navigate(`/nf-entrada?chave=${row.chave_movestq}&empresa=${row.codigo_empresa_filial_movestq || "1.01"}`);
+                                      handleOpenNfOrigemModal(row.chave_movestq!, row.codigo_empresa_filial_movestq || "1.01");
                                     }}
                                   >
                                     <FileText className="h-3.5 w-3.5" />
