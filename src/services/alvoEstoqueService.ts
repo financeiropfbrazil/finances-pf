@@ -50,6 +50,8 @@ const TIPO_LABELS: Record<string, string> = {
   "01": "01-Acabado",
   "02": "02-Semi-Acabado",
   "03": "03-Matéria Prima",
+  "04": "04-Serviço",
+  "05": "05-Revenda",
   "06": "06-Material de Embalagem",
   "44": "44-Insumos",
 };
