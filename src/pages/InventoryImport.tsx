@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { seedStockProductsFromBuffer } from "@/services/stockProductsSeed";
+import { sincronizarProdutosDoERP } from "@/services/alvoEstoqueService";
 import { supabase } from "@/integrations/supabase/client";
 import * as XLSX from "xlsx";
 
