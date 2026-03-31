@@ -185,6 +185,9 @@ export default function ContasPagar() {
   const [pedidoModalData, setPedidoModalData] = useState<any>(null);
   const [pedidoModalLoading, setPedidoModalLoading] = useState(false);
   const [pedidoNfseList, setPedidoNfseList] = useState<any[]>([]);
+  const [nfOrigemModalOpen, setNfOrigemModalOpen] = useState(false);
+  const [nfOrigemModalData, setNfOrigemModalData] = useState<any>(null);
+  const [nfOrigemModalLoading, setNfOrigemModalLoading] = useState(false);
 
   const handleOpenPedidoModal = async (numeroPedido: string) => {
     setPedidoModalOpen(true);
