@@ -645,9 +645,6 @@ export default function ContasPagar() {
     if (filtroEspecie !== "all") {
       result = result.filter(r => r.especie === filtroEspecie);
     }
-    if (filtroProjecao !== "all") {
-      result = result.filter(r => r.projecao === filtroProjecao);
-    }
     if (filtroTipoPag !== "all") {
       result = result.filter(r => r.nome_tipo_pag_rec === filtroTipoPag);
     }
