@@ -53,6 +53,7 @@ export default function InventoryImport() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const [filterTipo, setFilterTipo] = useState("all");
+  const [syncingERP, setSyncingERP] = useState(false);
 
   // External code dialog state
   const [extDialogOpen, setExtDialogOpen] = useState(false);
