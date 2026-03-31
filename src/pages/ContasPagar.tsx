@@ -172,7 +172,7 @@ export default function ContasPagar() {
   const [syncMsg, setSyncMsg] = useState("");
   const [filtroSituacao, setFiltroSituacao] = useState("all");
   const [filtroEspecie, setFiltroEspecie] = useState("all");
-  const [filtroProjecao, setFiltroProjecao] = useState("all");
+  
   const [filtroTipoPag, setFiltroTipoPag] = useState("all");
   const [filtroTipoCobranca, setFiltroTipoCobranca] = useState("all");
   const [filtroFornecedor, setFiltroFornecedor] = useState("");
@@ -645,9 +645,6 @@ export default function ContasPagar() {
     if (filtroEspecie !== "all") {
       result = result.filter(r => r.especie === filtroEspecie);
     }
-    if (filtroProjecao !== "all") {
-      result = result.filter(r => r.projecao === filtroProjecao);
-    }
     if (filtroTipoPag !== "all") {
       result = result.filter(r => r.nome_tipo_pag_rec === filtroTipoPag);
     }
@@ -663,7 +660,7 @@ export default function ContasPagar() {
       );
     }
     return result;
-  }, [rows, filtroSituacao, filtroEspecie, filtroProjecao, filtroTipoPag, filtroTipoCobranca, filtroFornecedor]);
+  }, [rows, filtroSituacao, filtroEspecie, filtroTipoPag, filtroTipoCobranca, filtroFornecedor]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -720,7 +717,7 @@ export default function ContasPagar() {
         "Tipo Pag/Rec": r.nome_tipo_pag_rec || "",
         "Tipo Cobrança": r.nome_tipo_cobranca || "",
         "Cond. Pagamento": r.nome_cond_pagamento || "",
-        "Projeção": r.projecao || "",
+        
         "Classe Rec/Desp": r.classe_rec_desp || "",
         "Centro Custo": r.centro_custo || "",
         "Categorias": r.categorias || "",
@@ -841,17 +838,6 @@ export default function ContasPagar() {
               </SelectContent>
             </Select>
           </div>
-          <div className="w-[70px] shrink-0">
-            <label className="mb-0.5 block text-[10px] text-muted-foreground">Projeção</label>
-            <Select value={filtroProjecao} onValueChange={v => { setFiltroProjecao(v); setPage(1); }}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                <SelectItem value="Sim">Sim</SelectItem>
-                <SelectItem value="Não">Não</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
           <div className="w-[100px] shrink-0">
             <label className="mb-0.5 block text-[10px] text-muted-foreground">Tp Pagamento</label>
             <Select value={filtroTipoPag} onValueChange={v => { setFiltroTipoPag(v); setPage(1); }}>
@@ -881,7 +867,7 @@ export default function ContasPagar() {
               className="h-8 text-xs"
             />
           </div>
-          <Button variant="ghost" size="sm" className="h-8 shrink-0 px-2" onClick={() => { setFiltroSituacao("all"); setFiltroEspecie("all"); setFiltroProjecao("all"); setFiltroTipoPag("all"); setFiltroTipoCobranca("all"); setFiltroFornecedor(""); setPage(1); }}>
+          <Button variant="ghost" size="sm" className="h-8 shrink-0 px-2" onClick={() => { setFiltroSituacao("all"); setFiltroEspecie("all"); setFiltroTipoPag("all"); setFiltroTipoCobranca("all"); setFiltroFornecedor(""); setPage(1); }}>
             <XCircle className="mr-1 h-3.5 w-3.5" /> Limpar
           </Button>
         </div>
@@ -903,7 +889,7 @@ export default function ContasPagar() {
                   <TableHead className="w-[16%] px-1 text-xs">Fornecedor</TableHead>
                   <TableHead className="w-[8%] px-1 text-right text-xs">Vl. Bruto</TableHead>
                   <TableHead className="w-[7.5%] px-1 text-right text-xs">Saldo</TableHead>
-                  <TableHead className="w-[2.5%] px-0.5 text-center text-xs">Pr</TableHead>
+                  
                   <TableHead className="w-[10%] px-1 text-xs">Tp Pag</TableHead>
                   <TableHead className="w-[10%] px-1 text-xs">Tp Cobr</TableHead>
                 </TableRow>
@@ -944,11 +930,6 @@ export default function ContasPagar() {
                           <TableCell className="whitespace-nowrap px-1 text-right text-xs font-medium">{fmtBRL(row.valor_bruto)}</TableCell>
                           <TableCell className={`whitespace-nowrap px-1 text-right text-xs font-medium ${saldo > 0 ? "text-amber-600" : "text-emerald-600"}`}>
                             {fmtBRL(saldo)}
-                          </TableCell>
-                          <TableCell className="px-0.5 text-center text-xs">
-                            {row.projecao === "Sim"
-                              ? <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200 px-0.5 text-[8px] leading-none">P</Badge>
-                              : ""}
                           </TableCell>
                           <TableCell className="truncate px-1 text-xs" title={row.nome_tipo_pag_rec || ""}>{row.nome_tipo_pag_rec || "—"}</TableCell>
                           <TableCell className="truncate px-1 text-xs" title={row.nome_tipo_cobranca || ""}>{row.nome_tipo_cobranca || "—"}</TableCell>
