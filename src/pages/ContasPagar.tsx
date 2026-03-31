@@ -931,11 +931,6 @@ export default function ContasPagar() {
                           <TableCell className={`whitespace-nowrap px-1 text-right text-xs font-medium ${saldo > 0 ? "text-amber-600" : "text-emerald-600"}`}>
                             {fmtBRL(saldo)}
                           </TableCell>
-                          <TableCell className="px-0.5 text-center text-xs">
-                            {row.projecao === "Sim"
-                              ? <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200 px-0.5 text-[8px] leading-none">P</Badge>
-                              : ""}
-                          </TableCell>
                           <TableCell className="truncate px-1 text-xs" title={row.nome_tipo_pag_rec || ""}>{row.nome_tipo_pag_rec || "—"}</TableCell>
                           <TableCell className="truncate px-1 text-xs" title={row.nome_tipo_cobranca || ""}>{row.nome_tipo_cobranca || "—"}</TableCell>
                         </TableRow>
