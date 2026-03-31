@@ -189,7 +189,123 @@ export default function ContasPagar() {
   const [nfOrigemModalData, setNfOrigemModalData] = useState<any>(null);
   const [nfOrigemModalLoading, setNfOrigemModalLoading] = useState(false);
 
-  const handleOpenPedidoModal = async (numeroPedido: string) => {
+  const handleOpenNfOrigemModal = async (chaveMovEstq: number, empresaFilial: string) => {
+    setNfOrigemModalOpen(true);
+    setNfOrigemModalLoading(true);
+    setNfOrigemModalData(null);
+    try {
+      // Try Supabase first
+      const { data: nfSupa } = await (supabase as any)
+        .from("nf_entrada")
+        .select("*")
+        .eq("erp_chave", chaveMovEstq)
+        .maybeSingle();
+
+      if (nfSupa) {
+        const { data: rateioSupa } = await (supabase as any)
+          .from("nf_entrada_rateio")
+          .select("*")
+          .eq("erp_chave", chaveMovEstq);
+
+        // Supabase has limited data — we'll still fetch from ERP for full details
+        // but show what we have immediately
+        setNfOrigemModalData({
+          source: "supabase_partial",
+          especie: nfSupa.especie,
+          numero: nfSupa.numero,
+          serie: nfSupa.serie,
+          dataEmissao: nfSupa.data_emissao,
+          dataMovimento: nfSupa.data_movimento,
+          fornecedorNome: nfSupa.fornecedor_nome,
+          fornecedorCnpj: nfSupa.fornecedor_cnpj,
+          valorDocumento: nfSupa.valor_documento,
+          observacao: nfSupa.observacao,
+          rateioSupa: rateioSupa || [],
+        });
+      }
+
+      // Always try ERP for full detail (itens, parcelas, etc.)
+      let auth = await authenticateAlvo();
+      if (!auth.success || !auth.token) {
+        if (!nfSupa) {
+          setNfOrigemModalData({ error: "Falha na autenticação ERP e NF não encontrada no cache." });
+        }
+        return;
+      }
+
+      let currentToken = auth.token;
+      let erpData: any = null;
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const resp = await fetch(
+          `${ERP_BASE_URL}/MovEstq/Load?codigoEmpresaFilial=${encodeURIComponent(empresaFilial)}&chave=${chaveMovEstq}&loadChild=All`,
+          { headers: { "Content-Type": "application/json", "riosoft-token": currentToken } }
+        );
+
+        if (resp.status === 409) {
+          clearAlvoToken();
+          await new Promise(r => setTimeout(r, 1000 * attempt));
+          const reAuth = await authenticateAlvo();
+          if (!reAuth.success || !reAuth.token) break;
+          currentToken = reAuth.token;
+          continue;
+        }
+
+        if (!resp.ok) {
+          console.error(`MovEstq/Load HTTP ${resp.status}`);
+          break;
+        }
+
+        erpData = await resp.json();
+        break;
+      }
+
+      if (erpData) {
+        const itens = erpData.ItemMovEstqChildList || [];
+        const classeRateio = erpData.MovEstqClasseRecDespChildList || [];
+        const parcelas = erpData.ParcPagMovEstqChildList || [];
+        const pedidos = erpData.MovEstqPedCompChildList || [];
+
+        setNfOrigemModalData({
+          source: "erp",
+          especie: erpData.Especie,
+          numero: erpData.Numero,
+          serie: erpData.Serie,
+          dataEmissao: erpData.DataEmissao,
+          dataMovimento: erpData.DataMovimento,
+          dataEntrada: erpData.DataEntrada,
+          fornecedorNome: erpData.NomeEntidade,
+          fornecedorCnpj: erpData.CPFCNPJEntidade,
+          valorDocumento: erpData.ValorDocumento,
+          valorServico: erpData.ValorTotalServico,
+          valorMercadoria: erpData.ValorMercadoria,
+          condPagamento: erpData.CodigoCondPag,
+          origem: erpData.OrigemModulo || erpData.Origem,
+          usuario: erpData.CodigoUsuario,
+          tipoLanc: erpData.CodigoTipoLanc,
+          observacao: erpData.Observacao,
+          itens,
+          classeRateio,
+          parcelas,
+          pedidosCompra: pedidos,
+          impostos: {
+            iss: erpData.ValorISS || 0,
+            irrf: erpData.ValorIRRF || 0,
+            inss: erpData.ValorINSS || 0,
+            pis: erpData.ValorPISRFServico || 0,
+            cofins: erpData.ValorCOFINSRFServico || 0,
+            csll: erpData.ValorCSLLRFServico || 0,
+          },
+        });
+      }
+    } catch (err: any) {
+      console.error("Erro ao carregar NF de Origem:", err);
+      toast({ title: "Erro ao carregar NF de Origem", description: err.message, variant: "destructive" });
+    } finally {
+      setNfOrigemModalLoading(false);
+    }
+  };
+
     setPedidoModalOpen(true);
     setPedidoModalLoading(true);
     setPedidoModalData(null);
