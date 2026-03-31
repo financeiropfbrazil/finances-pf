@@ -867,7 +867,7 @@ export default function ContasPagar() {
               className="h-8 text-xs"
             />
           </div>
-          <Button variant="ghost" size="sm" className="h-8 shrink-0 px-2" onClick={() => { setFiltroSituacao("all"); setFiltroEspecie("all"); setFiltroProjecao("all"); setFiltroTipoPag("all"); setFiltroTipoCobranca("all"); setFiltroFornecedor(""); setPage(1); }}>
+          <Button variant="ghost" size="sm" className="h-8 shrink-0 px-2" onClick={() => { setFiltroSituacao("all"); setFiltroEspecie("all"); setFiltroTipoPag("all"); setFiltroTipoCobranca("all"); setFiltroFornecedor(""); setPage(1); }}>
             <XCircle className="mr-1 h-3.5 w-3.5" /> Limpar
           </Button>
         </div>
