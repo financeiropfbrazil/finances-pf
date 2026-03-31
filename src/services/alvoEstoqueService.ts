@@ -120,8 +120,6 @@ export async function sincronizarProdutosDoERP(
             // Filtrar nós de grupo/categoria (sem nível ou código = nível)
             if (!nivel || nivel === "" || codigo === nivel) continue;
 
-            // Filtrar produtos estruturados (composição)
-            if (item.BaixaEstoqueItensComposicao === "Sim") continue;
 
             allProducts.push({
               codigo_produto: codigo,
