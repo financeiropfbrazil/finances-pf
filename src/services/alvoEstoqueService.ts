@@ -118,7 +118,7 @@ export async function sincronizarProdutosDoERP(
             const nivel = item.Nivel ?? "";
 
             // Filtrar nós de grupo/categoria (sem nível ou código = nível)
-            if (!nivel || nivel === "" || codigo === nivel) continue;
+            if (!nivel || nivel === "" || codigo === nivel || item.Grupo === "T") continue;
 
 
             allProducts.push({
