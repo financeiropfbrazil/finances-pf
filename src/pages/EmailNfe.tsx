@@ -373,6 +373,11 @@ export default function EmailNfe() {
           </div>
         </>
       )}
+
+      <EmailNfeDetailSheet
+        selectedId={selectedNfId}
+        onClose={() => setSelectedNfId(null)}
+      />
     </div>
   );
 }
