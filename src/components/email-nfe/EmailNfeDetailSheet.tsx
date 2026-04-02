@@ -212,7 +212,7 @@ export default function EmailNfeDetailSheet({ selectedId, onClose }: Props) {
                         : null
                     }
                   />
-                  <DetailRow label="Data Emissão" value={fmtDateShort(nf.data_emissao)} />
+                  <DetailRow label="Data Emissão" value={fmtDateShort(nf.data_emissao, true)} />
                 </div>
 
                 {nf.chave_acesso && (
