@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Mail, FileText, FileDown, ChevronLeft, ChevronRight } from "lucide-react";
+import EmailNfeDetailSheet from "@/components/email-nfe/EmailNfeDetailSheet";
 import { format, subDays } from "date-fns";
 
 // ── Types ──
@@ -92,6 +93,7 @@ export default function EmailNfe() {
   const [filterModelo, setFilterModelo] = useState("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedNfId, setSelectedNfId] = useState<string | null>(null);
 
   // ── KPIs ──
   const { data: kpis } = useQuery({
@@ -284,7 +286,8 @@ export default function EmailNfe() {
                 return (
                   <TableRow
                     key={row.id}
-                    className={`${isErro ? "bg-red-50" : ""} ${isPendente ? "font-medium" : ""}`}
+                    className={`cursor-pointer hover:bg-muted/50 ${isErro ? "bg-red-50" : ""} ${isPendente ? "font-medium" : ""}`}
+                    onClick={() => setSelectedNfId(row.id)}
                   >
                     <TableCell>
                       <Badge variant="outline" className={`${sc.className} text-[10px] whitespace-nowrap`}>
@@ -369,6 +372,11 @@ export default function EmailNfe() {
           </div>
         </>
       )}
+
+      <EmailNfeDetailSheet
+        selectedId={selectedNfId}
+        onClose={() => setSelectedNfId(null)}
+      />
     </div>
   );
 }
