@@ -35,10 +35,11 @@ const fmtDateFull = (d: string | null) => {
   }
 };
 
-const fmtDateShort = (d: string | null) => {
+const fmtDateShort = (d: string | null, dateOnly = false) => {
   if (!d) return "—";
   try {
-    return format(new Date(d), "dd/MM/yyyy");
+    const raw = dateOnly && d.length === 10 ? d + "T12:00:00" : d;
+    return format(new Date(raw), "dd/MM/yyyy");
   } catch {
     return d;
   }
@@ -211,7 +212,7 @@ export default function EmailNfeDetailSheet({ selectedId, onClose }: Props) {
                         : null
                     }
                   />
-                  <DetailRow label="Data Emissão" value={fmtDateShort(nf.data_emissao)} />
+                  <DetailRow label="Data Emissão" value={fmtDateShort(nf.data_emissao, true)} />
                 </div>
 
                 {nf.chave_acesso && (
