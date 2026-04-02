@@ -93,6 +93,7 @@ export default function EmailNfe() {
   const [filterModelo, setFilterModelo] = useState("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedNfId, setSelectedNfId] = useState<string | null>(null);
 
   // ── KPIs ──
   const { data: kpis } = useQuery({
