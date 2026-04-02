@@ -126,6 +126,7 @@ function AppRoutes() {
         <Route path="/fixed-assets/items" element={<PermissionRoute permKey="fixed_assets"><FixedAssetsItems /></PermissionRoute>} />
         <Route path="/commodatum" element={<PermissionRoute permKey="commodatum"><Commodatum /></PermissionRoute>} />
         <Route path="/nf-entrada" element={<PermissionRoute permKey="nf_entrada"><NfEntrada /></PermissionRoute>} />
+        <Route path="/email-nfe" element={<PermissionRoute permKey="nf_entrada"><EmailNfe /></PermissionRoute>} />
         <Route path="/compras/notas-fiscais" element={<PermissionRoute permKey="compras"><ComprasNotasFiscais /></PermissionRoute>} />
         <Route path="/compras/notas-servico" element={<PermissionRoute permKey="compras"><ComprasNotasServico /></PermissionRoute>} />
         <Route path="/compras/certificado" element={<PermissionRoute permKey="compras"><ComprasCertificado /></PermissionRoute>} />
