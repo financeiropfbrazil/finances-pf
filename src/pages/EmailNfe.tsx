@@ -165,7 +165,7 @@ export default function EmailNfe() {
   const showTo = Math.min(offset + PAGE_SIZE, totalCount);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
       <h1 className="text-2xl font-bold text-foreground">Email NF-e</h1>
 
       {/* KPIs */}
