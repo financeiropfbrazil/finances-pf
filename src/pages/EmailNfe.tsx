@@ -132,7 +132,7 @@ export default function EmailNfe() {
   const { data: queryResult, isLoading } = useQuery({
     queryKey: ["email-nfe-list", dateFrom, dateTo, filterStatus, filterModelo, search, page],
     queryFn: async () => {
-      let q = supabase
+      let q = (supabase as any)
         .from("email_notas_fiscais")
         .select(
           "id, status, email_received_at, modelo, numero_nota, serie, emitente_nome, emitente_cnpj, empresa_filial, valor_total, tem_xml, tem_pdf",
@@ -140,17 +140,10 @@ export default function EmailNfe() {
         )
         .order("email_received_at", { ascending: false });
 
-      // Period filter
       if (dateFrom) q = q.gte("email_received_at", dateFrom + "T00:00:00");
       if (dateTo) q = q.lte("email_received_at", dateTo + "T23:59:59");
-
-      // Status filter
       if (filterStatus !== "all") q = q.eq("status", filterStatus);
-
-      // Modelo filter
       if (filterModelo !== "all") q = q.eq("modelo", filterModelo);
-
-      // Search
       if (search.trim()) {
         q = q.or(`emitente_nome.ilike.%${search.trim()}%,numero_nota.ilike.%${search.trim()}%`);
       }
