@@ -99,24 +99,24 @@ export default function EmailNfe() {
     queryFn: async () => {
       const counts = { total: 0, pendente: 0, processada: 0, erro: 0 };
 
-      const { count: total } = await supabase
+      const { count: total } = await (supabase as any)
         .from("email_notas_fiscais")
         .select("id", { count: "exact", head: true });
       counts.total = total || 0;
 
-      const { count: pendente } = await supabase
+      const { count: pendente } = await (supabase as any)
         .from("email_notas_fiscais")
         .select("id", { count: "exact", head: true })
         .eq("status", "pendente");
       counts.pendente = pendente || 0;
 
-      const { count: processada } = await supabase
+      const { count: processada } = await (supabase as any)
         .from("email_notas_fiscais")
         .select("id", { count: "exact", head: true })
         .eq("status", "processada");
       counts.processada = processada || 0;
 
-      const { count: erro } = await supabase
+      const { count: erro } = await (supabase as any)
         .from("email_notas_fiscais")
         .select("id", { count: "exact", head: true })
         .eq("status", "erro");
