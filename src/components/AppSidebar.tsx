@@ -62,7 +62,6 @@ const navItems = [
   // Fixed Assets handled separately as expandable
   { titleKey: "nav.commodatum", url: "/commodatum", icon: Handshake },
   { titleKey: "nav.nf_entrada", url: "/nf-entrada", icon: FileText },
-  { titleKey: "nav.email_nfe", url: "/email-nfe", icon: Mail },
   // Compras handled separately as expandable
   // Entidades handled separately as expandable
   // Contas a Pagar handled separately as expandable
