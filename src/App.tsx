@@ -48,6 +48,7 @@ import ProjetoRequisicoes from "./pages/ProjetoRequisicoes";
 import ContasPagar from "./pages/ContasPagar";
 import ContasPagarDashboard from "./pages/ContasPagarDashboard";
 import ConfigSyncJobs from "./pages/ConfigSyncJobs";
+import EmailNfe from "./pages/EmailNfe";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();

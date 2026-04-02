@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Users as UsersIcon,
   RefreshCw,
+  Mail,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
