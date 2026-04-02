@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Mail, FileText, FileDown, ChevronLeft, ChevronRight } from "lucide-react";
+import EmailNfeDetailSheet from "@/components/email-nfe/EmailNfeDetailSheet";
 import { format, subDays } from "date-fns";
 
 // ── Types ──
