@@ -289,7 +289,6 @@ export default function EmailNfe() {
                     className={`cursor-pointer hover:bg-muted/50 ${isErro ? "bg-red-50" : ""} ${isPendente ? "font-medium" : ""}`}
                     onClick={() => setSelectedNfId(row.id)}
                   >
-                  >
                     <TableCell>
                       <Badge variant="outline" className={`${sc.className} text-[10px] whitespace-nowrap`}>
                         {sc.label}
