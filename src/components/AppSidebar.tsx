@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Users as UsersIcon,
   RefreshCw,
+  Mail,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -79,6 +80,7 @@ const routePermMap: Record<string, string> = {
   "/sales": "sales",
   "/commodatum": "commodatum",
   "/nf-entrada": "nf_entrada",
+  "/email-nfe": "nf_entrada",
   "/entidades": "entidades",
   "/loans": "loans",
   "/taxes": "taxes",
@@ -229,6 +231,20 @@ export function AppSidebar() {
                           >
                             <item.icon className="h-4 w-4 shrink-0" />
                             <span>{t(item.titleKey as any)}</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+
+                      {/* Email NF-e item */}
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink
+                            to="/email-nfe"
+                            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                          >
+                            <Mail className="h-4 w-4 shrink-0" />
+                            <span>Email NF-e</span>
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
