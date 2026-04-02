@@ -80,6 +80,7 @@ const routePermMap: Record<string, string> = {
   "/sales": "sales",
   "/commodatum": "commodatum",
   "/nf-entrada": "nf_entrada",
+  "/email-nfe": "nf_entrada",
   "/entidades": "entidades",
   "/loans": "loans",
   "/taxes": "taxes",
