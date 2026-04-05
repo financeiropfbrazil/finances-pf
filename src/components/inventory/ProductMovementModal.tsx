@@ -25,7 +25,9 @@ const dash = (v: any) => (v == null || v === "" ? "—" : v);
 const formatDateBR = (v: string | null | undefined) => {
   if (!v) return "—";
   if (v.includes("/")) return v;
-  const [y, m, d] = v.split("-");
+  const dateOnly = v.includes("T") ? v.split("T")[0] : v;
+  const [y, m, d] = dateOnly.split("-");
+  if (!y || !m || !d) return v;
   return `${d}/${m}/${y}`;
 };
 
@@ -85,8 +87,17 @@ export function ProductMovementModal({
   }, [open, codigoProduto, dataReferencia, unidadeMedida]);
 
   const saldoAnterior = movements.length > 0 ? movements[0] : null;
-  const saldoFinal = movements.length > 0 ? movements[movements.length - 1] : null;
-  const movimentacoes = movements.length > 2 ? movements.slice(1, -1) : [];
+  const movimentacoes = movements.length > 1 ? movements.slice(1) : [];
+  const ultimoRegistro = movements.length > 0 ? movements[movements.length - 1] : null;
+
+  const saldoFinal = ultimoRegistro
+    ? {
+        Data: dataReferencia,
+        QtdSaldo: ultimoRegistro.QtdSaldo,
+        ValorSaldo: ultimoRegistro.ValorSaldo,
+        CustoMedio: ultimoRegistro.CustoMedio,
+      }
+    : null;
 
   const [y, m] = dataReferencia.split("-");
   const mesAnoLabel = `${MONTH_NAMES[parseInt(m, 10) - 1]}/${y}`;
@@ -104,7 +115,7 @@ export function ProductMovementModal({
               <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
                 <span className="font-mono">{codigoProduto}</span>
                 <span>·</span>
-                <span>Último movimento: {saldoAnterior ? formatDateBR(saldoAnterior.Data) : "—"}</span>
+                <span>Ref.: {formatDateBR(dataReferencia)}</span>
                 <span>·</span>
                 <span>{mesAnoLabel}</span>
               </p>
@@ -144,7 +155,10 @@ export function ProductMovementModal({
           {!loading && !error && movements.length > 0 && (
             <>
               {/* 1. Saldo Anterior */}
-              <SaldoSection label="Saldo Anterior" item={saldoAnterior} />
+              <SaldoSection label="Saldo Anterior" item={{
+                ...saldoAnterior,
+                Data: dataReferencia,
+              }} />
 
               <Separator />
 
