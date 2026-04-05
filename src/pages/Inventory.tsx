@@ -735,14 +735,13 @@ export default function Inventory() {
                           <TableCell className="text-sm">{r.nomeProduto}</TableCell>
                           <TableCell className="text-xs">{r.tipoProduto ?? "—"}</TableCell>
                           <TableCell className="text-xs">{r.variacao ?? "—"}</TableCell>
-                          <TableCell className="text-xs">{r.unidadeMedida ?? "—"}</TableCell>
                           <TableCell className="text-right">{renderQtyCell(r)}</TableCell>
                           <TableCell className="text-right text-sm">{renderValueCell(r, r.valorMedioUnitario)}</TableCell>
                           <TableCell className="text-right text-sm font-medium">{renderValueCell(r, r.valorTotalBrl)}</TableCell>
                         </TableRow>
                       ))}
                       <TableRow className="bg-muted/50 font-semibold">
-                        <TableCell colSpan={5}>Totais gerais ({filtered.length} SKUs)</TableCell>
+                        <TableCell colSpan={4}>Totais gerais ({filtered.length} SKUs)</TableCell>
                         <TableCell className="text-right">
                           {formatQty(filtered.reduce((s, r) => s + r.quantidade, 0))}
                         </TableCell>
