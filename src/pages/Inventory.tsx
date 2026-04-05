@@ -681,7 +681,6 @@ export default function Inventory() {
                                   <TableHead className="text-xs">Código</TableHead>
                                   <TableHead className="text-xs">Descrição</TableHead>
                                   <TableHead className="text-xs">Variação</TableHead>
-                                  <TableHead className="text-xs">Un.</TableHead>
                                   <TableHead className="text-xs text-right">Saldo Qtde</TableHead>
                                   <TableHead className="text-xs text-right">Valor Médio</TableHead>
                                   <TableHead className="text-xs text-right">Valor Total BRL</TableHead>
