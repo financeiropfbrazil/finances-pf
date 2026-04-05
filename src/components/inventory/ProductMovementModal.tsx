@@ -177,6 +177,8 @@ export function ProductMovementModal({
                         <TableRow>
                           <TableHead className="text-xs whitespace-nowrap">Data</TableHead>
                           <TableHead className="text-xs whitespace-nowrap">Operação</TableHead>
+                          <TableHead className="text-xs whitespace-nowrap">Tipo</TableHead>
+                          <TableHead className="text-xs whitespace-nowrap">Documento</TableHead>
                           <TableHead className="text-xs whitespace-nowrap">Entidade</TableHead>
                           <TableHead className="text-xs text-right whitespace-nowrap">Qtd Entrada</TableHead>
                           <TableHead className="text-xs text-right whitespace-nowrap">Qtd Saída</TableHead>
@@ -191,6 +193,8 @@ export function ProductMovementModal({
                               {formatDateBR(mov.Data)}
                             </TableCell>
                             <TableCell className="text-xs">{dash(mov.Operacao)}</TableCell>
+                            <TableCell className="text-xs">{dash(mov.TipoLanc)}</TableCell>
+                            <TableCell className="text-xs font-mono">{dash(mov.Documento)}</TableCell>
                             <TableCell className="text-xs">{dash(mov.Entidade)}</TableCell>
                             <TableCell className="text-xs text-right">
                               {mov.QtdEntrada != null && mov.QtdEntrada !== 0
