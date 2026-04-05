@@ -115,7 +115,7 @@ export function ProductMovementModal({
               <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
                 <span className="font-mono">{codigoProduto}</span>
                 <span>·</span>
-                <span>Último movimento: {saldoAnterior ? formatDateBR(saldoAnterior.Data) : "—"}</span>
+                <span>Ref.: {formatDateBR(dataReferencia)}</span>
                 <span>·</span>
                 <span>{mesAnoLabel}</span>
               </p>
