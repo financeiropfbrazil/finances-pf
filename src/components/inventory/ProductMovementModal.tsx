@@ -25,7 +25,9 @@ const dash = (v: any) => (v == null || v === "" ? "—" : v);
 const formatDateBR = (v: string | null | undefined) => {
   if (!v) return "—";
   if (v.includes("/")) return v;
-  const [y, m, d] = v.split("-");
+  const dateOnly = v.includes("T") ? v.split("T")[0] : v;
+  const [y, m, d] = dateOnly.split("-");
+  if (!y || !m || !d) return v;
   return `${d}/${m}/${y}`;
 };
 
