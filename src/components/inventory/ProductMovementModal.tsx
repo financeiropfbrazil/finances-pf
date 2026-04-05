@@ -155,7 +155,10 @@ export function ProductMovementModal({
           {!loading && !error && movements.length > 0 && (
             <>
               {/* 1. Saldo Anterior */}
-              <SaldoSection label="Saldo Anterior" item={saldoAnterior} />
+              <SaldoSection label="Saldo Anterior" item={{
+                ...saldoAnterior,
+                Data: dataReferencia,
+              }} />
 
               <Separator />
 
