@@ -28,35 +28,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session?.user) {
-        // Defer profile fetch to avoid deadlock
-        setTimeout(() => fetchProfile(session.user.id), 0);
+    let mounted = true;
+
+    const loadProfile = async (userId: string) => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (mounted) setProfile(data ?? null);
+      } catch (error) {
+        console.error("Failed to fetch profile", error);
+        if (mounted) setProfile(null);
+      }
+    };
+
+    const syncSession = async (nextSession: Session | null) => {
+      if (!mounted) return;
+
+      setSession(nextSession);
+
+      if (nextSession?.user) {
+        await loadProfile(nextSession.user.id);
       } else {
         setProfile(null);
       }
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      void syncSession(nextSession).finally(() => {
+        if (mounted) setLoading(false);
+      });
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        fetchProfile(session.user.id);
+    void (async () => {
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        await syncSession(currentSession);
+      } catch (error) {
+        console.error("Failed to restore auth session", error);
+        if (mounted) {
+          setSession(null);
+          setProfile(null);
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setLoading(false);
-    });
+    })();
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
-
-  const fetchProfile = async (userId: string) => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
-    if (data) setProfile(data);
-  };
 
   const signOut = async () => {
     await supabase.auth.signOut();
