@@ -87,8 +87,17 @@ export function ProductMovementModal({
   }, [open, codigoProduto, dataReferencia, unidadeMedida]);
 
   const saldoAnterior = movements.length > 0 ? movements[0] : null;
-  const saldoFinal = movements.length > 0 ? movements[movements.length - 1] : null;
-  const movimentacoes = movements.length > 2 ? movements.slice(1, -1) : [];
+  const movimentacoes = movements.length > 1 ? movements.slice(1) : [];
+  const ultimoRegistro = movements.length > 0 ? movements[movements.length - 1] : null;
+
+  const saldoFinal = ultimoRegistro
+    ? {
+        Data: dataReferencia,
+        QtdSaldo: ultimoRegistro.QtdSaldo,
+        ValorSaldo: ultimoRegistro.ValorSaldo,
+        CustoMedio: ultimoRegistro.CustoMedio,
+      }
+    : null;
 
   const [y, m] = dataReferencia.split("-");
   const mesAnoLabel = `${MONTH_NAMES[parseInt(m, 10) - 1]}/${y}`;
