@@ -426,7 +426,6 @@ export default function Inventory() {
           <TableCell className="font-mono text-xs">{r.codigoProduto}</TableCell>
           <TableCell className="text-sm">{r.nomeProduto}</TableCell>
           <TableCell className="text-xs">{r.variacao ?? "—"}</TableCell>
-          <TableCell className="text-xs">{r.unidadeMedida ?? "—"}</TableCell>
           <TableCell className="text-right">{renderQtyCell(r)}</TableCell>
           <TableCell className="text-right text-sm">{renderValueCell(r, r.valorMedioUnitario)}</TableCell>
           <TableCell className="text-right text-sm font-medium">{renderValueCell(r, r.valorTotalBrl)}</TableCell>
@@ -434,7 +433,7 @@ export default function Inventory() {
       ))}
       {showSubtotal && (
         <TableRow className="bg-muted/50 font-semibold">
-          <TableCell colSpan={4} className="text-xs">{showSubtotal.label}</TableCell>
+          <TableCell colSpan={3} className="text-xs">{showSubtotal.label}</TableCell>
           <TableCell className="text-right">{formatQty(items.reduce((s, r) => s + r.quantidade, 0))}</TableCell>
           <TableCell />
           <TableCell className="text-right">
