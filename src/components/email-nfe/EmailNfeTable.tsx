@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { invokeImportEmailNfe } from "@/services/importEmailNfeService";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -146,13 +146,7 @@ export default function EmailNfeTable({ rows, comprasStatus, onOpenDetail, onImp
   const handleImportOne = async (row: EmailNotaFiscal) => {
     setImportingId(row.id);
     try {
-      const { data, error } = await supabase.functions.invoke("import-email-nfe-to-compras", {
-        body: { action: "import", ids: [row.id] },
-      });
-      if (error) {
-        toast.error("Erro ao importar: " + (error.message || "Erro desconhecido"));
-        return;
-      }
+      const data = await invokeImportEmailNfe("import", [row.id]);
       const r = data?.results?.[0];
       if (r?.success || (r && !r.error)) {
         toast.success(`NF importada para ${r.destino || "Compras"}`);
