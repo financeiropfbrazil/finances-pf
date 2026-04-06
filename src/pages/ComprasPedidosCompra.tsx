@@ -25,6 +25,7 @@ import {
   Calendar,
   Paperclip,
   FileText,
+  CheckCircle2,
 } from "lucide-react";
 
 type Pedido = {
@@ -62,6 +63,9 @@ type Pedido = {
   anexos: any[] | null;
   detalhes_carregados: boolean | null;
   detalhes_carregados_em: string | null;
+  nf_vinculada: boolean | null;
+  nf_vinculada_em: string | null;
+  nf_vinculada_tipo: string | null;
 };
 
 const fmtBRL = (v: number | null | undefined) =>
@@ -143,7 +147,7 @@ export default function ComprasPedidosCompra() {
     if (error) {
       toast({ title: "Erro", description: error.message, variant: "destructive" });
     } else {
-      setRows((data ?? []) as Pedido[]);
+      setRows((data ?? []) as unknown as Pedido[]);
       // Batch fetch NFS-e counts
       const numeros = (data || []).map((r: any) => r.numero).filter(Boolean);
       if (numeros.length > 0) {
@@ -317,8 +321,8 @@ export default function ComprasPedidosCompra() {
         await carregarDetalhesPedido(r.numero);
         const { data } = await supabase.from("compras_pedidos").select("*").eq("id", r.id).single();
         if (data) {
-          setRows((prev) => prev.map((p) => (p.id === r.id ? (data as Pedido) : p)));
-          await Promise.all([resolveNames(data as Pedido), fetchNfseForPedido(r.numero)]);
+          setRows((prev) => prev.map((p) => (p.id === r.id ? (data as unknown as Pedido) : p)));
+          await Promise.all([resolveNames(data as unknown as Pedido), fetchNfseForPedido(r.numero)]);
         }
       } catch (err: any) {
         toast({ title: "Erro ao carregar detalhes", description: err.message, variant: "destructive" });
@@ -337,8 +341,8 @@ export default function ComprasPedidosCompra() {
         await carregarDetalhesPedido(r.numero);
         const { data } = await supabase.from("compras_pedidos").select("*").eq("id", r.id).single();
         if (data) {
-          setRows((prev) => prev.map((p) => (p.id === r.id ? (data as Pedido) : p)));
-          await resolveNames(data as Pedido);
+          setRows((prev) => prev.map((p) => (p.id === r.id ? (data as unknown as Pedido) : p)));
+          await resolveNames(data as unknown as Pedido);
         }
         toast({ title: "Detalhes atualizados" });
       } catch (err: any) {
@@ -533,6 +537,7 @@ export default function ComprasPedidosCompra() {
                 <TableHead>Tipo</TableHead>
                 <TableHead className="text-right">Valor Total</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="w-10 text-center">NF</TableHead>
                 <TableHead>Aprovado</TableHead>
                 <TableHead>Comprador</TableHead>
               </TableRow>
@@ -540,13 +545,13 @@ export default function ComprasPedidosCompra() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                   <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                     Carregando...
                   </TableCell>
                 </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                     Nenhum pedido encontrado no período.
                   </TableCell>
                 </TableRow>
@@ -582,12 +587,24 @@ export default function ComprasPedidosCompra() {
                           </Badge>
                         )}
                       </TableCell>
+                      <TableCell className="text-center">
+                        {r.nf_vinculada ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <CheckCircle2 className="h-4 w-4 text-green-600 inline-block" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              NF vinculada em {r.nf_vinculada_em ? new Date(r.nf_vinculada_em).toLocaleDateString("pt-BR") : "—"}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
+                      </TableCell>
                       <TableCell>{aprovBadge(r.aprovado)}</TableCell>
                       <TableCell className="text-xs">{r.codigo_usuario || "—"}</TableCell>
                     </TableRow>
                     {expandedId === r.id && (
                       <TableRow>
-                        <TableCell colSpan={10} className="bg-muted/30 p-4">
+                        <TableCell colSpan={11} className="bg-muted/30 p-4">
                           {loadingDetailsId === r.id ? (
                             <div className="flex items-center gap-3 py-6 justify-center">
                               <Loader2 className="h-5 w-5 animate-spin text-primary" />

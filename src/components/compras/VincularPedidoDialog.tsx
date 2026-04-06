@@ -360,6 +360,17 @@ export function VincularPedidoDialog({ open, onOpenChange, nfse, onVinculado }: 
 
       if (error) throw error;
 
+      // Mark pedido as having a linked NF
+      await supabase
+        .from("compras_pedidos")
+        .update({ 
+          nf_vinculada: true, 
+          nf_vinculada_em: new Date().toISOString(),
+          nf_vinculada_tipo: "compras_nfse"
+        } as any)
+        .eq("numero", pedido.numero)
+        .eq("codigo_empresa_filial", "1.01");
+
       toast({ title: `NFS-e vinculada ao Pedido ${pedido.numero}` });
       onOpenChange(false);
       onVinculado();
