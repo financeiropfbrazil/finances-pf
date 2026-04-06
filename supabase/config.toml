@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.alvo-sync-worker]
 verify_jwt = false
+
+[functions.import-email-nfe-to-compras]
+verify_jwt = false
