@@ -63,6 +63,9 @@ type Pedido = {
   anexos: any[] | null;
   detalhes_carregados: boolean | null;
   detalhes_carregados_em: string | null;
+  nf_vinculada: boolean | null;
+  nf_vinculada_em: string | null;
+  nf_vinculada_tipo: string | null;
 };
 
 const fmtBRL = (v: number | null | undefined) =>
