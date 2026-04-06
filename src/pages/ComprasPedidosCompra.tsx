@@ -147,7 +147,7 @@ export default function ComprasPedidosCompra() {
     if (error) {
       toast({ title: "Erro", description: error.message, variant: "destructive" });
     } else {
-      setRows((data ?? []) as Pedido[]);
+      setRows((data ?? []) as unknown as Pedido[]);
       // Batch fetch NFS-e counts
       const numeros = (data || []).map((r: any) => r.numero).filter(Boolean);
       if (numeros.length > 0) {
