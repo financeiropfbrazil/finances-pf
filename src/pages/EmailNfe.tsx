@@ -103,7 +103,8 @@ export default function EmailNfe() {
 
       const { count: total } = await (supabase as any)
         .from("email_notas_fiscais")
-        .select("id", { count: "exact", head: true });
+        .select("id", { count: "exact", head: true })
+        .neq("status", "ignorada");
       counts.total = total || 0;
 
       const { count: pendente } = await (supabase as any)
@@ -140,7 +141,8 @@ export default function EmailNfe() {
           "id, status, email_received_at, modelo, numero_nota, serie, emitente_nome, emitente_cnpj, empresa_filial, valor_total, tem_xml, tem_pdf",
           { count: "exact" }
         )
-        .order("email_received_at", { ascending: false });
+        .order("email_received_at", { ascending: false })
+        .neq("status", "ignorada");
 
       if (dateFrom) q = q.gte("email_received_at", dateFrom + "T00:00:00");
       if (dateTo) q = q.lte("email_received_at", dateTo + "T23:59:59");
@@ -220,7 +222,6 @@ export default function EmailNfe() {
               <SelectItem value="classificada">Classificada</SelectItem>
               <SelectItem value="processada">Processada</SelectItem>
               <SelectItem value="erro">Erro</SelectItem>
-              <SelectItem value="ignorada">Ignorada</SelectItem>
             </SelectContent>
           </Select>
         </div>
