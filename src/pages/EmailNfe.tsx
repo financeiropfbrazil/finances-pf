@@ -141,7 +141,7 @@ export default function EmailNfe() {
       let q = (supabase as any)
         .from("email_notas_fiscais")
         .select(
-          "id, status, email_received_at, modelo, numero_nota, serie, emitente_nome, emitente_cnpj, empresa_filial, valor_total, tem_xml, tem_pdf",
+          "id, status, email_received_at, modelo, numero_nota, serie, emitente_nome, emitente_cnpj, empresa_filial, valor_total, tem_xml, tem_pdf, xml_storage_path, pdf_storage_path",
           { count: "exact" }
         )
         .order("email_received_at", { ascending: false })
