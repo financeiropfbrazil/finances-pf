@@ -43,13 +43,9 @@ export default function MassImportDialog({ open, items, onClose }: Props) {
       setCurrent(i + 1);
 
       try {
-        const { data, error } = await supabase.functions.invoke("import-email-nfe-to-compras", {
-          body: { action: "import", ids: [item.id] },
-        });
+        const data = await invokeImportEmailNfe("import", [item.id]);
 
-        if (error) {
-          setResults((prev) => [...prev, { id: item.id, emitente_nome: item.emitente_nome, success: false, message: error.message || "Erro na requisição" }]);
-        } else if (data?.results?.[0]) {
+        if (data?.results?.[0]) {
           const r = data.results[0];
           const success = r.success ?? !r.error;
           if (success) hasImported = true;

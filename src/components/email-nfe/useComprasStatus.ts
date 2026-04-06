@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { invokeImportEmailNfe } from "@/services/importEmailNfeService";
 
 export interface ComprasInfo {
   already_in_compras: boolean;
@@ -14,13 +14,7 @@ export function useComprasStatus(rowIds: string[]) {
     if (ids.length === 0) return;
     setIsChecking(true);
     try {
-      const { data, error } = await supabase.functions.invoke("import-email-nfe-to-compras", {
-        body: { action: "check", ids },
-      });
-      if (error) {
-        console.error("Compras check error:", error);
-        return;
-      }
+      const data = await invokeImportEmailNfe("check", ids);
       if (data?.results) {
         const map: Record<string, ComprasInfo> = {};
         for (const r of data.results) {
