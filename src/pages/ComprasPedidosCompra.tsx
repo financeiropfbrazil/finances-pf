@@ -604,7 +604,7 @@ export default function ComprasPedidosCompra() {
                     </TableRow>
                     {expandedId === r.id && (
                       <TableRow>
-                        <TableCell colSpan={10} className="bg-muted/30 p-4">
+                        <TableCell colSpan={11} className="bg-muted/30 p-4">
                           {loadingDetailsId === r.id ? (
                             <div className="flex items-center gap-3 py-6 justify-center">
                               <Loader2 className="h-5 w-5 animate-spin text-primary" />
