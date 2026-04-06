@@ -1,7 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
 
-const SUPABASE_URL = supabase.supabaseUrl;
-const SUPABASE_ANON_KEY = supabase.supabaseKey;
+const { supabaseUrl: SUPABASE_URL, supabaseKey: SUPABASE_ANON_KEY } = supabase as unknown as {
+  supabaseUrl: string;
+  supabaseKey: string;
+};
 
 export async function invokeImportEmailNfe(action: "check" | "import", ids: string[]) {
   const response = await fetch(
