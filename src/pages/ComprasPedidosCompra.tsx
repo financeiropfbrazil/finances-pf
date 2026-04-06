@@ -587,6 +587,18 @@ export default function ComprasPedidosCompra() {
                           </Badge>
                         )}
                       </TableCell>
+                      <TableCell className="text-center">
+                        {r.nf_vinculada ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <CheckCircle2 className="h-4 w-4 text-green-600 inline-block" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              NF vinculada em {r.nf_vinculada_em ? new Date(r.nf_vinculada_em).toLocaleDateString("pt-BR") : "—"}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
+                      </TableCell>
                       <TableCell>{aprovBadge(r.aprovado)}</TableCell>
                       <TableCell className="text-xs">{r.codigo_usuario || "—"}</TableCell>
                     </TableRow>
