@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Mail, FileText, FileDown, ChevronLeft, ChevronRight } from "lucide-react";
 import EmailNfeDetailSheet from "@/components/email-nfe/EmailNfeDetailSheet";
+import { downloadStorageFile } from "@/utils/storageDownload";
 import { format, subDays } from "date-fns";
 
 // ── Types ──
