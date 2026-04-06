@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   FileText, Building2, Target, DollarSign, Tags, Info, Copy, Mail,
-  FileDown,
+  FileDown, Download,
 } from "lucide-react";
 import { format } from "date-fns";
+import { downloadStorageFile } from "@/utils/storageDownload";
 
 // ── Helpers ──
 
