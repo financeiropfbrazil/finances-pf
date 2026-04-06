@@ -10,7 +10,7 @@ const corsHeaders = {
  * Validates the JWT from the Authorization header.
  * Returns the authenticated user or null if invalid.
  */
-export async function validateAuth(req: Request): Promise<{ user: any } | null> {
+export async function validateAuth(req: Request): Promise<{ user: any; claims?: Record<string, unknown> } | null> {
   const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return null;
@@ -20,16 +20,26 @@ export async function validateAuth(req: Request): Promise<{ user: any } | null> 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) {
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+  if (!claimsError && claimsData?.claims?.sub) {
+    return {
+      user: {
+        id: claimsData.claims.sub,
+        email: claimsData.claims.email ?? null,
+        role: claimsData.claims.role ?? null,
+      },
+      claims: claimsData.claims as Record<string, unknown>,
+    };
+  }
+
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) {
     return null;
   }
 
-  return { user };
+  return { user: data.user };
 }
 
 /**
