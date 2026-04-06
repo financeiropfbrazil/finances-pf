@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Mail, FileText, FileDown, ChevronLeft, ChevronRight } from "lucide-react";
 import EmailNfeDetailSheet from "@/components/email-nfe/EmailNfeDetailSheet";
+import { downloadStorageFile } from "@/utils/storageDownload";
 import { format, subDays } from "date-fns";
 
 // ── Types ──
@@ -30,6 +31,8 @@ interface EmailNotaFiscal {
   valor_total: number | null;
   tem_xml: boolean;
   tem_pdf: boolean;
+  xml_storage_path: string | null;
+  pdf_storage_path: string | null;
 }
 
 // ── Helpers ──
@@ -138,7 +141,7 @@ export default function EmailNfe() {
       let q = (supabase as any)
         .from("email_notas_fiscais")
         .select(
-          "id, status, email_received_at, modelo, numero_nota, serie, emitente_nome, emitente_cnpj, empresa_filial, valor_total, tem_xml, tem_pdf",
+          "id, status, email_received_at, modelo, numero_nota, serie, emitente_nome, emitente_cnpj, empresa_filial, valor_total, tem_xml, tem_pdf, xml_storage_path, pdf_storage_path",
           { count: "exact" }
         )
         .order("email_received_at", { ascending: false })
@@ -337,17 +340,45 @@ export default function EmailNfe() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        {row.tem_xml && (
+                        {row.xml_storage_path && (
                           <Tooltip>
-                            <TooltipTrigger><FileText className="h-4 w-4 text-blue-500" /></TooltipTrigger>
-                            <TooltipContent>XML</TooltipContent>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadStorageFile(row.xml_storage_path!, `${row.numero_nota || "nf"}_${row.serie || ""}.xml`);
+                                }}
+                                className="p-1 rounded hover:bg-muted"
+                                title="Baixar XML"
+                              >
+                                <FileText className="h-4 w-4 text-blue-500" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Baixar XML</TooltipContent>
                           </Tooltip>
                         )}
-                        {row.tem_pdf && (
+                        {row.pdf_storage_path && (
                           <Tooltip>
-                            <TooltipTrigger><FileDown className="h-4 w-4 text-red-500" /></TooltipTrigger>
-                            <TooltipContent>PDF</TooltipContent>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadStorageFile(row.pdf_storage_path!, `${row.numero_nota || "nf"}_${row.serie || ""}.pdf`);
+                                }}
+                                className="p-1 rounded hover:bg-muted"
+                                title="Baixar PDF"
+                              >
+                                <FileDown className="h-4 w-4 text-red-500" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Baixar PDF</TooltipContent>
                           </Tooltip>
+                        )}
+                        {!row.xml_storage_path && row.tem_xml && (
+                          <FileText className="h-4 w-4 text-blue-500 opacity-30" />
+                        )}
+                        {!row.pdf_storage_path && row.tem_pdf && (
+                          <FileDown className="h-4 w-4 text-red-500 opacity-30" />
                         )}
                         {!row.tem_xml && !row.tem_pdf && <span className="text-muted-foreground">—</span>}
                       </div>
