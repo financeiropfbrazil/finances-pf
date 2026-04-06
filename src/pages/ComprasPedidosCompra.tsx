@@ -321,8 +321,8 @@ export default function ComprasPedidosCompra() {
         await carregarDetalhesPedido(r.numero);
         const { data } = await supabase.from("compras_pedidos").select("*").eq("id", r.id).single();
         if (data) {
-          setRows((prev) => prev.map((p) => (p.id === r.id ? (data as Pedido) : p)));
-          await Promise.all([resolveNames(data as Pedido), fetchNfseForPedido(r.numero)]);
+          setRows((prev) => prev.map((p) => (p.id === r.id ? (data as unknown as Pedido) : p)));
+          await Promise.all([resolveNames(data as unknown as Pedido), fetchNfseForPedido(r.numero)]);
         }
       } catch (err: any) {
         toast({ title: "Erro ao carregar detalhes", description: err.message, variant: "destructive" });
