@@ -1,92 +1,20 @@
 import React, { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Mail, FileText, FileDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Mail, ChevronLeft, ChevronRight } from "lucide-react";
 import EmailNfeDetailSheet from "@/components/email-nfe/EmailNfeDetailSheet";
-import { downloadStorageFile } from "@/utils/storageDownload";
+import EmailNfeTable, { type EmailNotaFiscal } from "@/components/email-nfe/EmailNfeTable";
+import { useComprasStatus } from "@/components/email-nfe/useComprasStatus";
 import { format, subDays } from "date-fns";
-
-// ── Types ──
-
-type EmailNfStatus = "pendente" | "classificada" | "processada" | "erro" | "ignorada";
-type EmailNfModelo = "nfe_55" | "nfse" | "nfcom_62" | "cte_57" | "outro" | "sem_xml";
-
-interface EmailNotaFiscal {
-  id: string;
-  status: EmailNfStatus;
-  email_received_at: string | null;
-  modelo: EmailNfModelo;
-  numero_nota: string | null;
-  serie: string | null;
-  emitente_nome: string | null;
-  emitente_cnpj: string | null;
-  empresa_filial: string | null;
-  valor_total: number | null;
-  tem_xml: boolean;
-  tem_pdf: boolean;
-  xml_storage_path: string | null;
-  pdf_storage_path: string | null;
-}
-
-// ── Helpers ──
 
 const PAGE_SIZE = 20;
 
-const statusConfig: Record<EmailNfStatus, { label: string; className: string }> = {
-  pendente: { label: "Pendente", className: "bg-amber-100 text-amber-800 border-amber-200" },
-  classificada: { label: "Classificada", className: "bg-blue-100 text-blue-800 border-blue-200" },
-  processada: { label: "Processada", className: "bg-emerald-100 text-emerald-800 border-emerald-200" },
-  erro: { label: "Erro", className: "bg-red-100 text-red-800 border-red-200" },
-  ignorada: { label: "Ignorada", className: "bg-muted text-muted-foreground border-border" },
-};
-
-const modeloConfig: Record<EmailNfModelo, { label: string; className: string }> = {
-  nfe_55: { label: "NF-e", className: "bg-blue-100 text-blue-800 border-blue-200" },
-  nfse: { label: "NFS-e", className: "bg-purple-100 text-purple-800 border-purple-200" },
-  nfcom_62: { label: "NFCOM", className: "bg-teal-100 text-teal-800 border-teal-200" },
-  cte_57: { label: "CT-e", className: "bg-amber-100 text-amber-800 border-amber-200" },
-  outro: { label: "Outro", className: "bg-muted text-muted-foreground border-border" },
-  sem_xml: { label: "Sem XML", className: "border-border text-muted-foreground" },
-};
-
-const empresaLabels: Record<string, string> = {
-  "1.01": "P&F",
-  "2.01": "Biocollagen",
-};
-
-const fmtCNPJ = (cnpj: string) => {
-  const d = cnpj.replace(/\D/g, "");
-  if (d.length !== 14) return cnpj;
-  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
-};
-
-const fmtBRL = (v: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
-
-const fmtDate = (d: string | null) => {
-  if (!d) return "—";
-  try {
-    const dt = new Date(d);
-    const now = new Date();
-    if (dt.getFullYear() !== now.getFullYear()) {
-      return format(dt, "dd/MM/yy HH:mm");
-    }
-    return format(dt, "dd/MM HH:mm");
-  } catch {
-    return d;
-  }
-};
-
-// ── Component ──
-
 export default function EmailNfe() {
+  const queryClient = useQueryClient();
   const today = new Date();
   const thirtyDaysAgo = subDays(today, 30);
 
@@ -102,7 +30,7 @@ export default function EmailNfe() {
   const { data: kpis } = useQuery({
     queryKey: ["email-nfe-kpis"],
     queryFn: async () => {
-      const counts = { total: 0, pendente: 0, processada: 0, erro: 0 };
+      const counts = { total: 0, pendente: 0, processada: 0, erro: 0, importadas: 0 };
 
       const { count: total } = await (supabase as any)
         .from("email_notas_fiscais")
@@ -121,6 +49,7 @@ export default function EmailNfe() {
         .select("id", { count: "exact", head: true })
         .eq("status", "processada");
       counts.processada = processada || 0;
+      counts.importadas = processada || 0;
 
       const { count: erro } = await (supabase as any)
         .from("email_notas_fiscais")
@@ -141,7 +70,7 @@ export default function EmailNfe() {
       let q = (supabase as any)
         .from("email_notas_fiscais")
         .select(
-          "id, status, email_received_at, modelo, numero_nota, serie, emitente_nome, emitente_cnpj, empresa_filial, valor_total, tem_xml, tem_pdf, xml_storage_path, pdf_storage_path",
+          "id, status, email_received_at, modelo, numero_nota, serie, emitente_nome, emitente_cnpj, empresa_filial, valor_total, tem_xml, tem_pdf, xml_storage_path, pdf_storage_path, chave_acesso",
           { count: "exact" }
         )
         .order("email_received_at", { ascending: false })
@@ -169,12 +98,22 @@ export default function EmailNfe() {
   const showFrom = totalCount === 0 ? 0 : offset + 1;
   const showTo = Math.min(offset + PAGE_SIZE, totalCount);
 
+  // ── Compras status check ──
+  const rowIds = useMemo(() => rows.map((r) => r.id), [rows]);
+  const { comprasStatus, refreshCheck } = useComprasStatus(rowIds);
+
+  const handleImportDone = () => {
+    queryClient.invalidateQueries({ queryKey: ["email-nfe-list"] });
+    queryClient.invalidateQueries({ queryKey: ["email-nfe-kpis"] });
+    refreshCheck(rowIds);
+  };
+
   return (
     <div className="space-y-6 p-6">
       <h1 className="text-2xl font-bold text-foreground">Email NF-e</h1>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">Total Recebidas</p>
@@ -193,6 +132,12 @@ export default function EmailNfe() {
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">Processadas</p>
             <p className="text-2xl font-bold text-emerald-600">{kpis?.processada ?? 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-muted-foreground">Importadas</p>
+            <p className="text-2xl font-bold text-emerald-600">{kpis?.importadas ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
@@ -267,127 +212,12 @@ export default function EmailNfe() {
         </div>
       ) : (
         <>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Status</TableHead>
-                <TableHead>Recebido</TableHead>
-                <TableHead>Modelo</TableHead>
-                <TableHead>Número</TableHead>
-                <TableHead>Emitente</TableHead>
-                <TableHead>Empresa</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
-                <TableHead>Anexos</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => {
-                const sc = statusConfig[row.status] || statusConfig.pendente;
-                const mc = modeloConfig[row.modelo] || modeloConfig.outro;
-                const isErro = row.status === "erro";
-                const isPendente = row.status === "pendente";
-
-                return (
-                  <TableRow
-                    key={row.id}
-                    className={`cursor-pointer hover:bg-muted/50 ${isErro ? "bg-red-50" : ""} ${isPendente ? "font-medium" : ""}`}
-                    onClick={() => setSelectedNfId(row.id)}
-                  >
-                    <TableCell>
-                      <Badge variant="outline" className={`${sc.className} text-[10px] whitespace-nowrap`}>
-                        {sc.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm">{fmtDate(row.email_received_at)}</TableCell>
-                    <TableCell>
-                      <Badge variant={row.modelo === "sem_xml" ? "outline" : "outline"} className={`${mc.className} text-[10px] whitespace-nowrap`}>
-                        {mc.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {row.numero_nota || row.serie
-                        ? `${row.numero_nota || ""}${row.serie ? "/" + row.serie : ""}`
-                        : <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-                    <TableCell>
-                      {row.emitente_nome ? (
-                        <div>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <p className="max-w-[200px] truncate text-sm">{row.emitente_nome}</p>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.emitente_nome}</TooltipContent>
-                          </Tooltip>
-                          {row.emitente_cnpj && (
-                            <p className="text-xs text-muted-foreground">{fmtCNPJ(row.emitente_cnpj)}</p>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {row.empresa_filial ? (
-                        <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                          {empresaLabels[row.empresa_filial] || row.empresa_filial}
-                        </Badge>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {row.valor_total ? fmtBRL(row.valor_total) : <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        {row.xml_storage_path && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  downloadStorageFile(row.xml_storage_path!, `${row.numero_nota || "nf"}_${row.serie || ""}.xml`);
-                                }}
-                                className="p-1 rounded hover:bg-muted"
-                                title="Baixar XML"
-                              >
-                                <FileText className="h-4 w-4 text-blue-500" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Baixar XML</TooltipContent>
-                          </Tooltip>
-                        )}
-                        {row.pdf_storage_path && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  downloadStorageFile(row.pdf_storage_path!, `${row.numero_nota || "nf"}_${row.serie || ""}.pdf`);
-                                }}
-                                className="p-1 rounded hover:bg-muted"
-                                title="Baixar PDF"
-                              >
-                                <FileDown className="h-4 w-4 text-red-500" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Baixar PDF</TooltipContent>
-                          </Tooltip>
-                        )}
-                        {!row.xml_storage_path && row.tem_xml && (
-                          <FileText className="h-4 w-4 text-blue-500 opacity-30" />
-                        )}
-                        {!row.pdf_storage_path && row.tem_pdf && (
-                          <FileDown className="h-4 w-4 text-red-500 opacity-30" />
-                        )}
-                        {!row.tem_xml && !row.tem_pdf && <span className="text-muted-foreground">—</span>}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <EmailNfeTable
+            rows={rows}
+            comprasStatus={comprasStatus}
+            onOpenDetail={setSelectedNfId}
+            onImportDone={handleImportDone}
+          />
 
           {/* Pagination */}
           <div className="flex items-center justify-between text-sm text-muted-foreground">
