@@ -222,7 +222,6 @@ export default function EmailNfe() {
               <SelectItem value="classificada">Classificada</SelectItem>
               <SelectItem value="processada">Processada</SelectItem>
               <SelectItem value="erro">Erro</SelectItem>
-              <SelectItem value="ignorada">Ignorada</SelectItem>
             </SelectContent>
           </Select>
         </div>
