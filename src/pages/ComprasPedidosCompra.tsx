@@ -537,6 +537,7 @@ export default function ComprasPedidosCompra() {
                 <TableHead>Tipo</TableHead>
                 <TableHead className="text-right">Valor Total</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="w-10 text-center">NF</TableHead>
                 <TableHead>Aprovado</TableHead>
                 <TableHead>Comprador</TableHead>
               </TableRow>
