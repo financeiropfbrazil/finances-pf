@@ -31,6 +31,8 @@ interface EmailNotaFiscal {
   valor_total: number | null;
   tem_xml: boolean;
   tem_pdf: boolean;
+  xml_storage_path: string | null;
+  pdf_storage_path: string | null;
 }
 
 // ── Helpers ──
