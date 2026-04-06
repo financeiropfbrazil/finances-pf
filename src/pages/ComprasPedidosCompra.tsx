@@ -341,8 +341,8 @@ export default function ComprasPedidosCompra() {
         await carregarDetalhesPedido(r.numero);
         const { data } = await supabase.from("compras_pedidos").select("*").eq("id", r.id).single();
         if (data) {
-          setRows((prev) => prev.map((p) => (p.id === r.id ? (data as Pedido) : p)));
-          await resolveNames(data as Pedido);
+          setRows((prev) => prev.map((p) => (p.id === r.id ? (data as unknown as Pedido) : p)));
+          await resolveNames(data as unknown as Pedido);
         }
         toast({ title: "Detalhes atualizados" });
       } catch (err: any) {

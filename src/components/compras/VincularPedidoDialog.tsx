@@ -367,7 +367,7 @@ export function VincularPedidoDialog({ open, onOpenChange, nfse, onVinculado }: 
           nf_vinculada: true, 
           nf_vinculada_em: new Date().toISOString(),
           nf_vinculada_tipo: "compras_nfse"
-        })
+        } as any)
         .eq("numero", pedido.numero)
         .eq("codigo_empresa_filial", "1.01");
 
