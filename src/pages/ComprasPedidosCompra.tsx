@@ -25,6 +25,7 @@ import {
   Calendar,
   Paperclip,
   FileText,
+  CheckCircle2,
 } from "lucide-react";
 
 type Pedido = {
