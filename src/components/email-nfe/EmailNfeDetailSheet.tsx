@@ -346,15 +346,33 @@ export default function EmailNfeDetailSheet({ selectedId, onClose }: Props) {
                   <DetailRow
                     label="Anexos"
                     value={
-                      nf.tem_xml || nf.tem_pdf ? (
-                        <div className="flex items-center gap-3">
-                          {nf.tem_xml && (
-                            <span className="flex items-center gap-1 text-sm">
+                      nf.xml_storage_path || nf.pdf_storage_path || nf.tem_xml || nf.tem_pdf ? (
+                        <div className="flex items-center gap-2">
+                          {nf.xml_storage_path && (
+                            <button
+                              onClick={() => downloadStorageFile(nf.xml_storage_path, `${nf.numero_nota || "nf"}_${nf.serie || ""}.xml`)}
+                              className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-muted text-sm"
+                            >
+                              <FileText className="h-4 w-4 text-blue-500" />
+                              Baixar XML
+                            </button>
+                          )}
+                          {nf.pdf_storage_path && (
+                            <button
+                              onClick={() => downloadStorageFile(nf.pdf_storage_path, `${nf.numero_nota || "nf"}_${nf.serie || ""}.pdf`)}
+                              className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-muted text-sm"
+                            >
+                              <FileDown className="h-4 w-4 text-red-500" />
+                              Baixar PDF
+                            </button>
+                          )}
+                          {!nf.xml_storage_path && nf.tem_xml && (
+                            <span className="flex items-center gap-1 text-sm opacity-50">
                               <FileText className="h-4 w-4 text-blue-500" /> XML
                             </span>
                           )}
-                          {nf.tem_pdf && (
-                            <span className="flex items-center gap-1 text-sm">
+                          {!nf.pdf_storage_path && nf.tem_pdf && (
+                            <span className="flex items-center gap-1 text-sm opacity-50">
                               <FileDown className="h-4 w-4 text-red-500" /> PDF
                             </span>
                           )}

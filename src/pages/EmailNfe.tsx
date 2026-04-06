@@ -340,17 +340,45 @@ export default function EmailNfe() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        {row.tem_xml && (
+                        {row.xml_storage_path && (
                           <Tooltip>
-                            <TooltipTrigger><FileText className="h-4 w-4 text-blue-500" /></TooltipTrigger>
-                            <TooltipContent>XML</TooltipContent>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadStorageFile(row.xml_storage_path!, `${row.numero_nota || "nf"}_${row.serie || ""}.xml`);
+                                }}
+                                className="p-1 rounded hover:bg-muted"
+                                title="Baixar XML"
+                              >
+                                <FileText className="h-4 w-4 text-blue-500" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Baixar XML</TooltipContent>
                           </Tooltip>
                         )}
-                        {row.tem_pdf && (
+                        {row.pdf_storage_path && (
                           <Tooltip>
-                            <TooltipTrigger><FileDown className="h-4 w-4 text-red-500" /></TooltipTrigger>
-                            <TooltipContent>PDF</TooltipContent>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadStorageFile(row.pdf_storage_path!, `${row.numero_nota || "nf"}_${row.serie || ""}.pdf`);
+                                }}
+                                className="p-1 rounded hover:bg-muted"
+                                title="Baixar PDF"
+                              >
+                                <FileDown className="h-4 w-4 text-red-500" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Baixar PDF</TooltipContent>
                           </Tooltip>
+                        )}
+                        {!row.xml_storage_path && row.tem_xml && (
+                          <FileText className="h-4 w-4 text-blue-500 opacity-30" />
+                        )}
+                        {!row.pdf_storage_path && row.tem_pdf && (
+                          <FileDown className="h-4 w-4 text-red-500 opacity-30" />
                         )}
                         {!row.tem_xml && !row.tem_pdf && <span className="text-muted-foreground">—</span>}
                       </div>
