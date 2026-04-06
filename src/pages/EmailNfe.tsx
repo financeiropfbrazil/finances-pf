@@ -103,7 +103,8 @@ export default function EmailNfe() {
 
       const { count: total } = await (supabase as any)
         .from("email_notas_fiscais")
-        .select("id", { count: "exact", head: true });
+        .select("id", { count: "exact", head: true })
+        .neq("status", "ignorada");
       counts.total = total || 0;
 
       const { count: pendente } = await (supabase as any)
