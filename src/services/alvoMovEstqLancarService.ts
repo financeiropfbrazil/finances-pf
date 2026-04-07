@@ -219,8 +219,18 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
     }],
     MovEstqClasseRecDespChildList: classesList,
     ParcPagMovEstqChildList: parcelasList,
-    MovEstqArquivoChildList: [],
-    UploadIdentify: "", filesToUpload: [],
+    MovEstqArquivoChildList: anexos.map(a => ({
+      CodigoEmpresaFilial: -1,
+      ChaveMovEstq: -1,
+      Sequencia: -1,
+      Arquivo: null,
+      UploadIdentify: a.uuid,
+    })),
+    UploadIdentify: "",
+    filesToUpload: anexos.map(a => ({
+      key: `${a.uuid}#Arquivo`,
+      file: {},
+    })),
   };
 }
 
