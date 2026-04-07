@@ -11,7 +11,7 @@ export async function syncCondicoesPagamento(): Promise<number> {
     const auth = await authenticateAlvo();
     if (!auth.token) throw new Error("Falha na autenticação");
 
-    const resp = await fetch(`${ERP_BASE_URL}/CondPag/Listar`, {
+    const resp = await fetch(`${ERP_BASE_URL}/condPag/GetListForComponents`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "riosoft-token": auth.token },
       body: JSON.stringify({}),
@@ -27,14 +27,20 @@ export async function syncCondicoesPagamento(): Promise<number> {
     const data = await resp.json();
     if (!Array.isArray(data)) throw new Error("Resposta inválida");
 
-    const records = data.map((c: any) => ({
-      codigo: c.Codigo,
-      nome: c.Nome,
-      quantidade_parcelas: c.QuantidadeParcela || 1,
-      dias_entre_parcelas: c.DiasEntreParcelas || 0,
-      primeiro_vencimento_apos: c.PrimeiroVencimentoApos || 0,
-      updated_at: new Date().toISOString(),
-    }));
+    // Filtrar apenas folhas (Grupo "F") com parcelas > 0, ignorando headers de grupo
+    const records = data
+      .filter((c: any) => c.Grupo === "F" && (c.QuantidadeParcela || 0) > 0)
+      .map((c: any) => ({
+        codigo: c.Codigo,
+        nome: c.Nome,
+        quantidade_parcelas: c.QuantidadeParcela || 1,
+        dias_entre_parcelas: c.DiasEntreParcelas || 0,
+        primeiro_vencimento_apos: c.PrimeiroVencimentoApos || 0,
+        updated_at: new Date().toISOString(),
+      }));
+
+    // Limpar registros antigos antes de re-popular
+    await supabase.from("condicoes_pagamento").delete().neq("codigo", "");
 
     const { error } = await supabase
       .from("condicoes_pagamento")
