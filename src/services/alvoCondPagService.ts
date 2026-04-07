@@ -14,7 +14,24 @@ export async function syncCondicoesPagamento(): Promise<number> {
     const resp = await fetch(`${ERP_BASE_URL}/condPag/GetListForComponents`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "riosoft-token": auth.token },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        FormName: "condPag",
+        ClassInput: "condPag",
+        ControllerForm: "condPag",
+        TypeObject: "rsSearch",
+        BindingName: "",
+        ClassVinculo: "condPag",
+        DisabledCache: false,
+        Filter: "(Estruturado == '002' OR Estruturado LIKE '002.%')",
+        Input: "defaultSearch",
+        IsGroupBy: false,
+        Order: "Estruturado ASC",
+        OrderUser: "",
+        PageIndex: 1,
+        PageSize: 500,
+        Shortcut: "condpag",
+        Type: "GridTable",
+      }),
     });
 
     if (resp.status === 409) {
