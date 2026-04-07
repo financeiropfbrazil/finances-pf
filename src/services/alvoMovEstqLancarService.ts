@@ -80,6 +80,12 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
     baseCSLL: 0, aliquotaCSLL: 0, valorCSLL: 0, deduzCSLLValorTotal: "Não",
   };
 
+  // Fallback defensivo: BaseISS NUNCA pode ser zero/null no Alvo.
+  // Mesmo quando ISS não é devido (NFS-e fora do município, alíquota N/D),
+  // o Alvo rejeita BaseISS = 0 com erro 'validasalvar'.
+  // A base de cálculo do ISS é sempre o valor do serviço.
+  const baseISSEfetiva = imp.baseISS && imp.baseISS > 0 ? imp.baseISS : v;
+
   // Parcelas — do modal ou fallback
   let parcelasList: any[];
   if (input.parcelas && input.parcelas.length > 0) {
@@ -166,7 +172,7 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
     ValorDescontoEspecialProduto: 0,
     ValorDescontoEspecialServico: 0,
     ValorServico: v,
-    BaseISS: imp.baseISS,
+    BaseISS: baseISSEfetiva,
     ValorISS: imp.valorISS,
     BaseIRRF: imp.baseIRRF,
     ValorIRRF: imp.valorIRRF,
@@ -506,7 +512,7 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
         CodigoNatOperacaoDestino: null,
         ControleEmpenho: null,
         ItemServico: "Sim",
-        BaseISS: imp.baseISS,
+        BaseISS: baseISSEfetiva,
         PercentualISS: imp.aliquotaISS,
         ValorISS: imp.valorISS,
         BaseIRRF: imp.baseIRRF,
