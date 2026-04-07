@@ -61,11 +61,10 @@ export interface LancarNfseResult {
   error?: string;
 }
 
-async function buildPayload(
+function buildPayload(
   input: LancarNfseInput, 
-  anexos: { uuid: string; tipo: 'pdf' | 'xml' }[],
-  token: string
-): Promise<any> {
+  anexos: { uuid: string; tipo: 'pdf' | 'xml' }[]
+): any {
   const hoje = new Date();
   hoje.setHours(3, 0, 0, 0);
   const hojeISO = hoje.toISOString();
@@ -74,34 +73,6 @@ async function buildPayload(
   const dtEmissaoISO = dtEmissao.toISOString();
   const v = input.valorServico;
   const cnpj = input.prestadorCnpj.replace(/\D/g, "");
-
-  // Buscar dados completos da entidade no Alvo (endereço, cidade, IBGE, IM)
-  // O Alvo nativo preenche esses campos quando o usuário seleciona a entidade no form.
-  // Sem eles, validasalvar pode rejeitar.
-  let entidadeData: any = {};
-  try {
-    const entidadeResp = await fetch(
-      `${ERP_BASE_URL}/entidade/Load?codigoEntidade=${input.codigoEntidade}&loadChild=All&loadOneToOne=All`,
-      { method: "GET", headers: { "riosoft-token": token } }
-    );
-    if (entidadeResp.ok) {
-      entidadeData = await entidadeResp.json();
-      console.log("🔍 Entidade carregada:", entidadeData?.NomeFantasia || entidadeData?.Nome);
-    } else {
-      console.warn("⚠️ Falha ao carregar entidade, prosseguindo com dados parciais");
-    }
-  } catch (e) {
-    console.warn("⚠️ Erro ao buscar entidade:", e);
-  }
-
-  // Extrair campos relevantes
-  const enderecoEntidade = entidadeData?.Endereco || null;
-  const numeroEnderecoEntidade = entidadeData?.NumeroEndereco || null;
-  const complementoEnderecoEntidade = entidadeData?.ComplementoEndereco || "";
-  const bairroEntidade = entidadeData?.Bairro || null;
-  const nomeCidadeEntidade = entidadeData?.NomeCidade || null;
-  const codigoCidadeEntidade = entidadeData?.CodigoCidade || null;
-  const rgIeEntidade = entidadeData?.InscricaoEstadual || entidadeData?.RG || null;
 
   // Impostos — do modal ou default zeros
   const imp: ImpostosMovEstqInput = input.impostos || {
@@ -112,12 +83,6 @@ async function buildPayload(
     baseCOFINS: 0, aliquotaCOFINS: 0, valorCOFINS: 0, deduzCOFINSValorTotal: "Não",
     baseCSLL: 0, aliquotaCSLL: 0, valorCSLL: 0, deduzCSLLValorTotal: "Não",
   };
-
-  // Fallback defensivo: BaseISS NUNCA pode ser zero/null no Alvo.
-  // Mesmo quando ISS não é devido (NFS-e fora do município, alíquota N/D),
-  // o Alvo rejeita BaseISS = 0 com erro 'validasalvar'.
-  // A base de cálculo do ISS é sempre o valor do serviço.
-  const baseISSEfetiva = imp.baseISS && imp.baseISS > 0 ? imp.baseISS : v;
 
   // Parcelas — do modal ou fallback
   let parcelasList: any[];
@@ -206,7 +171,7 @@ async function buildPayload(
     ValorDescontoEspecialProduto: 0,
     ValorDescontoEspecialServico: 0,
     ValorServico: v,
-    BaseISS: baseISSEfetiva,
+    BaseISS: imp.baseISS,
     ValorISS: imp.valorISS,
     BaseIRRF: imp.baseIRRF,
     ValorIRRF: imp.valorIRRF,
@@ -373,16 +338,16 @@ async function buildPayload(
     PesoCubado: 0,
     NomeEntidade: input.prestadorNome,
     CPFCNPJEntidade: cnpj,
-    RGIEEntidade: rgIeEntidade,
-    EnderecoEntidade: enderecoEntidade,
-    NumeroEnderecoEntidade: numeroEnderecoEntidade,
-    ComplementoEnderecoEntidade: complementoEnderecoEntidade,
-    BairroEntidade: bairroEntidade,
+    RGIEEntidade: null,
+    EnderecoEntidade: null,
+    NumeroEnderecoEntidade: null,
+    ComplementoEnderecoEntidade: "",
+    BairroEntidade: null,
     Suframa: null,
     SiglaPaisEntidade: "BRA",
-    NomeCidadeEntidade: nomeCidadeEntidade,
+    NomeCidadeEntidade: null,
     SiglaUnidFederacaoEntidade: "SP",
-    CodigoCidadeEntidade: codigoCidadeEntidade,
+    CodigoCidadeEntidade: null,
     DeduzValorPISParcelaPagamento: "Não",
     DeduzValorCOFINSParcelaPagamento: "Não",
     DeduzValorCSLLParcelaPagamento: "Não",
@@ -546,7 +511,7 @@ async function buildPayload(
         CodigoNatOperacaoDestino: null,
         ControleEmpenho: null,
         ItemServico: "Sim",
-        BaseISS: baseISSEfetiva,
+        BaseISS: imp.baseISS,
         PercentualISS: imp.aliquotaISS,
         ValorISS: imp.valorISS,
         BaseIRRF: imp.baseIRRF,
@@ -1050,7 +1015,7 @@ export async function lancarNfseNoAlvo(
     if (!auth.success || !auth.token)
       return { success: false, error: "Falha na autenticação ERP" };
 
-    const payload = await buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })), auth.token);
+    const payload = buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })));
 
     // 🔍 DEBUG TEMPORÁRIO — REMOVER APÓS DIAGNÓSTICO
     console.log("🔍 NFS-e Launch Payload:", JSON.stringify(payload, null, 2));
