@@ -237,7 +237,29 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
 export async function lancarNfseNoAlvo(
   input: LancarNfseInput
 ): Promise<LancarNfseResult> {
-  const payload = buildPayload(input);
+  // Gerar UUIDs para os anexos disponíveis
+  const anexos: { uuid: string; tipo: 'pdf' | 'xml'; blob: Blob; filename: string }[] = [];
+
+  if (input.danfsePdfBlob) {
+    const safeNome = input.prestadorNome.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '_');
+    anexos.push({
+      uuid: crypto.randomUUID(),
+      tipo: 'pdf',
+      blob: input.danfsePdfBlob,
+      filename: `DANFSE_${input.numero}_${safeNome}.pdf`,
+    });
+  }
+
+  if (input.xmlBlob) {
+    anexos.push({
+      uuid: crypto.randomUUID(),
+      tipo: 'xml',
+      blob: input.xmlBlob,
+      filename: `NFSE_${input.numero}.xml`,
+    });
+  }
+
+  const payload = buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })));
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     if (attempt === 1) clearAlvoToken();
