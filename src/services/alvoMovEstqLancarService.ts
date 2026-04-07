@@ -52,6 +52,7 @@ export interface LancarNfseInput {
   parcelas?: ParcelaMovEstqInput[];
   danfsePdfBlob?: Blob;
   xmlBlob?: Blob;
+  chaveAcesso?: string;
 }
 
 export interface LancarNfseResult {
@@ -60,7 +61,11 @@ export interface LancarNfseResult {
   error?: string;
 }
 
-function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf' | 'xml' }[]): any {
+async function buildPayload(
+  input: LancarNfseInput, 
+  anexos: { uuid: string; tipo: 'pdf' | 'xml' }[],
+  token: string
+): Promise<any> {
   const hoje = new Date();
   hoje.setHours(3, 0, 0, 0);
   const hojeISO = hoje.toISOString();
@@ -69,6 +74,34 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
   const dtEmissaoISO = dtEmissao.toISOString();
   const v = input.valorServico;
   const cnpj = input.prestadorCnpj.replace(/\D/g, "");
+
+  // Buscar dados completos da entidade no Alvo (endereço, cidade, IBGE, IM)
+  // O Alvo nativo preenche esses campos quando o usuário seleciona a entidade no form.
+  // Sem eles, validasalvar pode rejeitar.
+  let entidadeData: any = {};
+  try {
+    const entidadeResp = await fetch(
+      `${ERP_BASE_URL}/entidade/Load?codigoEntidade=${input.codigoEntidade}&loadChild=All&loadOneToOne=All`,
+      { method: "GET", headers: { "riosoft-token": token } }
+    );
+    if (entidadeResp.ok) {
+      entidadeData = await entidadeResp.json();
+      console.log("🔍 Entidade carregada:", entidadeData?.NomeFantasia || entidadeData?.Nome);
+    } else {
+      console.warn("⚠️ Falha ao carregar entidade, prosseguindo com dados parciais");
+    }
+  } catch (e) {
+    console.warn("⚠️ Erro ao buscar entidade:", e);
+  }
+
+  // Extrair campos relevantes
+  const enderecoEntidade = entidadeData?.Endereco || null;
+  const numeroEnderecoEntidade = entidadeData?.NumeroEndereco || null;
+  const complementoEnderecoEntidade = entidadeData?.ComplementoEndereco || "";
+  const bairroEntidade = entidadeData?.Bairro || null;
+  const nomeCidadeEntidade = entidadeData?.NomeCidade || null;
+  const codigoCidadeEntidade = entidadeData?.CodigoCidade || null;
+  const rgIeEntidade = entidadeData?.InscricaoEstadual || entidadeData?.RG || null;
 
   // Impostos — do modal ou default zeros
   const imp: ImpostosMovEstqInput = input.impostos || {
@@ -148,9 +181,10 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
   }));
 
   return {
-    Chamou: null,
-    ChamouClasse: null,
-    NumeroPedComp: null,
+    Chamou: "SaveChild",
+    ChamouClasse: "Servico",
+    IPIInclusoBaseICMS: "Não",
+    NumeroPedComp: input.pedidoNumero,
     CodigoEmpresaFilial: "1.01",
     Chave: 0,
     CodigoTipoLanc: "E0000091",
@@ -339,16 +373,16 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
     PesoCubado: 0,
     NomeEntidade: input.prestadorNome,
     CPFCNPJEntidade: cnpj,
-    RGIEEntidade: null,
-    EnderecoEntidade: null,
-    NumeroEnderecoEntidade: null,
-    ComplementoEnderecoEntidade: null,
-    BairroEntidade: null,
+    RGIEEntidade: rgIeEntidade,
+    EnderecoEntidade: enderecoEntidade,
+    NumeroEnderecoEntidade: numeroEnderecoEntidade,
+    ComplementoEnderecoEntidade: complementoEnderecoEntidade,
+    BairroEntidade: bairroEntidade,
     Suframa: null,
     SiglaPaisEntidade: "BRA",
-    NomeCidadeEntidade: null,
+    NomeCidadeEntidade: nomeCidadeEntidade,
     SiglaUnidFederacaoEntidade: "SP",
-    CodigoCidadeEntidade: null,
+    CodigoCidadeEntidade: codigoCidadeEntidade,
     DeduzValorPISParcelaPagamento: "Não",
     DeduzValorCOFINSParcelaPagamento: "Não",
     DeduzValorCSLLParcelaPagamento: "Não",
@@ -829,7 +863,7 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
         PercentualSuspensaoICMSImportacao: 0,
         ValorSuspensaoICMSImportacao: 0,
         ValorICMSRecuperadoFiscal: 0,
-        DeduzICMSISSBasePISCOFINS: "Não",
+        DeduzICMSISSBasePISCOFINS: "Sim",
         DeduzICMSDIFALBasePISCOFINS: "Não",
         DeduzICMSSTBasePISCOFINS: "Não",
         BaseIOF: 0,
@@ -884,7 +918,7 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
         ValorAnteriorExecucaoOrcamentaria: v,
         AvisoRetorno: null,
         IDGeraNumSerie: 0,
-        ItemValorCompararClasseReceitaDespesa: 0,
+        ItemValorCompararClasseReceitaDespesa: v,
         Quantidade2Old: 0,
         UploadIdentify: "",
       },
@@ -902,28 +936,24 @@ function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf
     MovEstqClasseRecDespChildList: classesList,
     MovEstqDocComplemChildList: [],
     MovEstqEmpChildList: [],
-    MovEstqNfEletronicaChildList: [],
-    MovEstqPedCompChildList: [
+    MovEstqNfEletronicaChildList: input.chaveAcesso ? [
       {
         CodigoEmpresaFilial: "1.01",
         ChaveMovEstq: 1,
-        CodigoEmpresaFilialPedComp: "1.01",
-        NumeroPedComp: input.pedidoNumero,
-        ValorItens: v,
-        ValorLiberado: 0,
-        ValorOriginal: 0,
-        CodigoEmpresaFilialDocFin: null,
-        ChaveDocFin: null,
-        MovEstqPedCompNecNovaProj: "Não",
-        MovEstqPedCompValDocSaldo: v,
-        MovEstqPedCompUserFieldsObject: {},
+        CodigoUsuario: "PEDRO.SCRIGNOLI",
+        DataImportacao: hojeISO,
+        ChaveNFEletronica: input.chaveAcesso,
+        Status: "Manual",
+        XML: null,
+        MovEstqNfEletronicaUserFieldsObject: {},
         UploadIdentify: "",
-      },
-    ],
+      }
+    ] : [],
+    MovEstqPedCompChildList: [],
     ParcPagMovEstqChildList: parcelasList,
     TipoFormulario: "Normal",
     ListaMensagens: [],
-    ChaveAcessoNFe: null,
+    ChaveAcessoNFe: input.chaveAcesso || null,
     SiglaPaisEmpresa: null,
     SiglaUnidFederacaoEmpresa: null,
     ZerouImpostos: false,
@@ -1013,13 +1043,14 @@ export async function lancarNfseNoAlvo(
     });
   }
 
-  const payload = buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })));
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     if (attempt === 1) clearAlvoToken();
     const auth = await authenticateAlvo();
     if (!auth.success || !auth.token)
       return { success: false, error: "Falha na autenticação ERP" };
+
+    const payload = await buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })), auth.token);
 
     // 🔍 DEBUG TEMPORÁRIO — REMOVER APÓS DIAGNÓSTICO
     console.log("🔍 NFS-e Launch Payload:", JSON.stringify(payload, null, 2));

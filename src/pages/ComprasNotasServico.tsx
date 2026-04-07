@@ -479,6 +479,7 @@ const ComprasNotasServico = () => {
         parcelas: dados.parcelas,
         danfsePdfBlob,
         xmlBlob,
+        chaveAcesso: nfse.chave_acesso,
       };
 
       const result = await lancarNfseNoAlvo(input);
