@@ -61,11 +61,10 @@ export interface LancarNfseResult {
   error?: string;
 }
 
-async function buildPayload(
+function buildPayload(
   input: LancarNfseInput, 
-  anexos: { uuid: string; tipo: 'pdf' | 'xml' }[],
-  token: string
-): Promise<any> {
+  anexos: { uuid: string; tipo: 'pdf' | 'xml' }[]
+): any {
   const hoje = new Date();
   hoje.setHours(3, 0, 0, 0);
   const hojeISO = hoje.toISOString();
@@ -206,7 +205,7 @@ async function buildPayload(
     ValorDescontoEspecialProduto: 0,
     ValorDescontoEspecialServico: 0,
     ValorServico: v,
-    BaseISS: baseISSEfetiva,
+    BaseISS: imp.baseISS,
     ValorISS: imp.valorISS,
     BaseIRRF: imp.baseIRRF,
     ValorIRRF: imp.valorIRRF,
@@ -373,16 +372,16 @@ async function buildPayload(
     PesoCubado: 0,
     NomeEntidade: input.prestadorNome,
     CPFCNPJEntidade: cnpj,
-    RGIEEntidade: rgIeEntidade,
-    EnderecoEntidade: enderecoEntidade,
-    NumeroEnderecoEntidade: numeroEnderecoEntidade,
-    ComplementoEnderecoEntidade: complementoEnderecoEntidade,
-    BairroEntidade: bairroEntidade,
+    RGIEEntidade: null,
+    EnderecoEntidade: null,
+    NumeroEnderecoEntidade: null,
+    ComplementoEnderecoEntidade: "",
+    BairroEntidade: null,
     Suframa: null,
     SiglaPaisEntidade: "BRA",
-    NomeCidadeEntidade: nomeCidadeEntidade,
+    NomeCidadeEntidade: null,
     SiglaUnidFederacaoEntidade: "SP",
-    CodigoCidadeEntidade: codigoCidadeEntidade,
+    CodigoCidadeEntidade: null,
     DeduzValorPISParcelaPagamento: "Não",
     DeduzValorCOFINSParcelaPagamento: "Não",
     DeduzValorCSLLParcelaPagamento: "Não",
@@ -546,7 +545,7 @@ async function buildPayload(
         CodigoNatOperacaoDestino: null,
         ControleEmpenho: null,
         ItemServico: "Sim",
-        BaseISS: baseISSEfetiva,
+        BaseISS: imp.baseISS,
         PercentualISS: imp.aliquotaISS,
         ValorISS: imp.valorISS,
         BaseIRRF: imp.baseIRRF,
@@ -1050,7 +1049,7 @@ export async function lancarNfseNoAlvo(
     if (!auth.success || !auth.token)
       return { success: false, error: "Falha na autenticação ERP" };
 
-    const payload = await buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })), auth.token);
+    const payload = buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })));
 
     // 🔍 DEBUG TEMPORÁRIO — REMOVER APÓS DIAGNÓSTICO
     console.log("🔍 NFS-e Launch Payload:", JSON.stringify(payload, null, 2));
