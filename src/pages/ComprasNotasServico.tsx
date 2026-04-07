@@ -455,6 +455,12 @@ const ComprasNotasServico = () => {
         }
       }
 
+      // Criar XML blob a partir do raw_xml
+      let xmlBlob: Blob | undefined;
+      if (nfse.raw_xml) {
+        xmlBlob = new Blob([nfse.raw_xml], { type: "application/xml" });
+      }
+
       const input: LancarNfseInput = {
         numero: nfse.numero || "",
         serie: "1",
@@ -472,6 +478,7 @@ const ComprasNotasServico = () => {
         impostos: impostosInput,
         parcelas: dados.parcelas,
         danfsePdfBlob,
+        xmlBlob,
       };
 
       const result = await lancarNfseNoAlvo(input);

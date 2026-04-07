@@ -302,10 +302,9 @@ export async function lancarNfeNoAlvo(
     const formData = new FormData();
     formData.append("obj", JSON.stringify(payload));
 
-    // Anexar PDF da DANFE se disponível
-    if (input.danfePdfBlob) {
-      const nomeArquivo = `DANFE_${input.numero}_${input.fornecedorNome.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-      formData.append("file", input.danfePdfBlob, nomeArquivo);
+    // Anexar arquivos com nome de campo {uuid}#Arquivo
+    for (const anexo of anexos) {
+      formData.append(`${anexo.uuid}#Arquivo`, anexo.blob, anexo.filename);
     }
 
     const resp = await fetch(
