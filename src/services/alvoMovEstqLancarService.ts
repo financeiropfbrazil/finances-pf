@@ -51,6 +51,7 @@ export interface LancarNfseInput {
   impostos?: ImpostosMovEstqInput;
   parcelas?: ParcelaMovEstqInput[];
   danfsePdfBlob?: Blob;
+  xmlBlob?: Blob;
 }
 
 export interface LancarNfseResult {
