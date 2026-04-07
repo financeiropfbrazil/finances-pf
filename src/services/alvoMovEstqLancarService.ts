@@ -267,6 +267,16 @@ export async function lancarNfseNoAlvo(
     if (!auth.success || !auth.token)
       return { success: false, error: "Falha na autenticação ERP" };
 
+    // 🔍 DEBUG TEMPORÁRIO — REMOVER APÓS DIAGNÓSTICO
+    console.log("🔍 NFS-e Launch Payload:", JSON.stringify(payload, null, 2));
+    console.log("🔍 NFS-e Anexos:", anexos);
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      console.log("✅ Payload copiado para clipboard");
+    } catch (e) {
+      console.log("⚠️ Não foi possível copiar para clipboard:", e);
+    }
+
     const formData = new FormData();
     formData.append("obj", JSON.stringify(payload));
 
