@@ -1043,13 +1043,14 @@ export async function lancarNfseNoAlvo(
     });
   }
 
-  const payload = buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })));
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     if (attempt === 1) clearAlvoToken();
     const auth = await authenticateAlvo();
     if (!auth.success || !auth.token)
       return { success: false, error: "Falha na autenticação ERP" };
+
+    const payload = await buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })), auth.token);
 
     // 🔍 DEBUG TEMPORÁRIO — REMOVER APÓS DIAGNÓSTICO
     console.log("🔍 NFS-e Launch Payload:", JSON.stringify(payload, null, 2));
