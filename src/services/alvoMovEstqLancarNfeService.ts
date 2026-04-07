@@ -43,6 +43,7 @@ export interface LancarNfeInput {
   icmsPercentual: number;
   icmsValor: number;
   danfePdfBlob?: Blob;
+  xmlBlob?: Blob;
 }
 
 export interface LancarNfeResult {
@@ -51,7 +52,7 @@ export interface LancarNfeResult {
   error?: string;
 }
 
-function buildPayload(input: LancarNfeInput): any {
+function buildPayload(input: LancarNfeInput, anexos: { uuid: string; tipo: 'pdf' | 'xml' }[]): any {
   const hoje = new Date();
   hoje.setHours(3, 0, 0, 0);
   const hojeISO = hoje.toISOString();
@@ -251,16 +252,46 @@ function buildPayload(input: LancarNfeInput): any {
     ItemMovEstqChildList: itemsList,
     MovEstqClasseRecDespChildList: classesList,
     ParcPagMovEstqChildList: parcelasList,
-    MovEstqArquivoChildList: [],
+    MovEstqArquivoChildList: anexos.map(a => ({
+      CodigoEmpresaFilial: -1,
+      ChaveMovEstq: -1,
+      Sequencia: -1,
+      Arquivo: null,
+      UploadIdentify: a.uuid,
+    })),
     UploadIdentify: "",
-    filesToUpload: [],
+    filesToUpload: anexos.map(a => ({
+      key: `${a.uuid}#Arquivo`,
+      file: {},
+    })),
   };
 }
 
 export async function lancarNfeNoAlvo(
   input: LancarNfeInput
 ): Promise<LancarNfeResult> {
-  const payload = buildPayload(input);
+  const anexos: { uuid: string; tipo: 'pdf' | 'xml'; blob: Blob; filename: string }[] = [];
+
+  if (input.danfePdfBlob) {
+    const safeNome = input.fornecedorNome.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '_');
+    anexos.push({
+      uuid: crypto.randomUUID(),
+      tipo: 'pdf',
+      blob: input.danfePdfBlob,
+      filename: `DANFE_${input.numero}_${safeNome}.pdf`,
+    });
+  }
+
+  if (input.xmlBlob) {
+    anexos.push({
+      uuid: crypto.randomUUID(),
+      tipo: 'xml',
+      blob: input.xmlBlob,
+      filename: `NFE_${input.numero}.xml`,
+    });
+  }
+
+  const payload = buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })));
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     if (attempt === 1) clearAlvoToken();
@@ -271,10 +302,9 @@ export async function lancarNfeNoAlvo(
     const formData = new FormData();
     formData.append("obj", JSON.stringify(payload));
 
-    // Anexar PDF da DANFE se disponível
-    if (input.danfePdfBlob) {
-      const nomeArquivo = `DANFE_${input.numero}_${input.fornecedorNome.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-      formData.append("file", input.danfePdfBlob, nomeArquivo);
+    // Anexar arquivos com nome de campo {uuid}#Arquivo
+    for (const anexo of anexos) {
+      formData.append(`${anexo.uuid}#Arquivo`, anexo.blob, anexo.filename);
     }
 
     const resp = await fetch(
