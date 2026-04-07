@@ -14,6 +14,7 @@ export async function syncCondicoesPagamento(): Promise<number> {
     const resp = await fetch(`${ERP_BASE_URL}/CondPag/Listar`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "riosoft-token": auth.token },
+      body: JSON.stringify({}),
     });
 
     if (resp.status === 409) {
