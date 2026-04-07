@@ -60,7 +60,7 @@ export interface LancarNfseResult {
   error?: string;
 }
 
-function buildPayload(input: LancarNfseInput): any {
+function buildPayload(input: LancarNfseInput, anexos: { uuid: string; tipo: 'pdf' | 'xml' }[]): any {
   const hoje = new Date();
   hoje.setHours(3, 0, 0, 0);
   const hojeISO = hoje.toISOString();
