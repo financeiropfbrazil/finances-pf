@@ -43,6 +43,7 @@ export interface LancarNfeInput {
   icmsPercentual: number;
   icmsValor: number;
   danfePdfBlob?: Blob;
+  xmlBlob?: Blob;
 }
 
 export interface LancarNfeResult {
