@@ -98,194 +98,109 @@ async function fetchCidade(codigo: string, token: string): Promise<CidadeData> {
 
 // ── Build payload ──
 
-async function buildPayload(input: LancarNfseInput, token: string): Promise<any> {
-  const cnpj = input.prestadorCnpj.replace(/\D/g, "");
+async function buildPayload(input: LancarNfseInput, _token: string): Promise<any> {
   const v = input.valorServico;
-  const dataEmissaoFmt = fmtAlvoDate(input.dataEmissao);
-  const hojeFmt = fmtAlvoDate(new Date());
 
-  const entidade = await fetchEntidade(input.codigoEntidade, token);
-  const cidade = entidade.CodigoCidade
-    ? await fetchCidade(entidade.CodigoCidade, token)
-    : { NomeCompleto: null, SiglaUnidFederacao: null, SiglaPais: null };
-
-  const imp: ImpostosMovEstqInput = input.impostos || {
-    baseISS: 0, aliquotaISS: 0, valorISS: 0, deduzISSValorTotal: "Não",
-    baseIRRF: 0, aliquotaIRRF: 0, valorIRRF: 0, deduzIRRFValorTotal: "Não",
-    baseINSS: 0, aliquotaINSS: 0, valorINSS: 0, deduzINSSValorTotal: "Não",
-    basePIS: 0, aliquotaPIS: 0, valorPIS: 0, deduzPISValorTotal: "Não",
-    baseCOFINS: 0, aliquotaCOFINS: 0, valorCOFINS: 0, deduzCOFINSValorTotal: "Não",
-    baseCSLL: 0, aliquotaCSLL: 0, valorCSLL: 0, deduzCSLLValorTotal: "Não",
-  };
-
-  let parcelasList: any[];
-  if (input.parcelas && input.parcelas.length > 0) {
-    parcelasList = input.parcelas.map(p => ({
-      CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1, Sequencia: p.sequencia,
-      EspecieDocumento: "NFS-e", SerieDocumento: input.serie || "1",
-      NumeroDuplicata: p.numeroDuplicata,
-      DataEmissao: fmtAlvoDateFromYMD(p.dataEmissao),
-      ValorParcela: p.valorParcela,
-      DataVencimento: fmtAlvoDateFromYMD(p.dataVencimento),
-      DataProrrogacao: fmtAlvoDateFromYMD(p.dataVencimento),
-      CodigoTipoCobranca: "0000001",
-    }));
-  } else {
-    const dt = new Date(input.dataEmissao);
-    dt.setDate(dt.getDate() + 30);
-    parcelasList = [{
-      CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1, Sequencia: 1,
-      EspecieDocumento: "NFS-e", SerieDocumento: input.serie || "1",
-      NumeroDuplicata: `${input.numero}/1-1`,
-      DataEmissao: dataEmissaoFmt, ValorParcela: v,
-      DataVencimento: fmtAlvoDate(dt), DataProrrogacao: fmtAlvoDate(dt),
-      CodigoTipoCobranca: "0000001",
-    }];
-  }
-
+  // Rateio do cabeçalho (vem do pedido cacheado)
   const classesList = input.classes.map(c => ({
-    CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1,
+    CodigoEmpresaFilial: "1.01",
+    ChaveMovEstq: 1,
     CodigoClasseRecDesp: c.codigoClasseRecDesp,
-    Valor: c.valor, Percentual: c.percentual,
+    Valor: c.valor,
+    Percentual: c.percentual,
     RateioMovEstqChildList: c.centrosCusto.map(cc => ({
-      CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1,
+      CodigoEmpresaFilial: "1.01",
+      ChaveMovEstq: 1,
       CodigoClasseRecDesp: "",
       CodigoCentroCtrl: cc.codigoCentroCtrl,
-      Valor: cc.valor, Percentual: cc.percentual,
+      Valor: cc.valor,
+      Percentual: cc.percentual,
     })),
   }));
 
+  // Item de serviço — apenas o essencial
   const item: any = {
-    CodigoEmpresaFilial: "1.01", CodigoProduto: input.codigoProduto,
-    ChaveMovEstq: 0, Sequencia: 0, DataMovimento: hojeFmt,
-    CodigoTipoLanc: "E0000091", CodigoEmpresaFilialPedComp: "1.01",
+    CodigoEmpresaFilial: "1.01",
+    CodigoProduto: input.codigoProduto,
+    ChaveMovEstq: 0,
+    Sequencia: 0,
     NumeroPedComp: input.pedidoNumero,
-    QuantidadeProdUnidMedPrincipal: 1, Quantidade2: 1, QuantidadePatrimonio: 1,
-    ValorProduto: v, ValorUnitario: v,
-    CodigoProdUnidMed: "UNID", CodigoProdUnidMedValor: "UNID",
-    PosicaoProdUnidMed: 1, Peso: 1,
-    ItemServico: "Sim", ControlaEstoque: "Não",
-    CodigoNatOperacao: "1.933",
-    CodigoTributA: "0", CodigoTributB: "90",
-    CodigoEmpresaFilialContratoOrcam: "1.01",
-    CodigoClasFiscal: "0000002", CodigoSitTributariaIBSCBS: "",
-    CodigoEntidade: input.codigoEntidade,
-    NomeProduto: input.nomeProduto,
-    CodigoProdutoPedComp: input.codigoProduto,
+    CodigoEmpresaFilialPedComp: "1.01",
     SequenciaItemPedComp: input.sequenciaItemPedComp,
-    DesmembramentoSequenciaParcelaItemContratoOrcam: 0,
-    DeduzICMSISSBasePISCOFINS: "Sim",
-    TipoConfigTributPIS: "PIS", TipoConfigTributCOFINS: "COFINS",
-    CodigoConfigTributIPI: "03", CodigoConfigTributPIS: "98", CodigoConfigTributCOFINS: "98",
-    BasePISRF: imp.basePIS, PercentualPISRF: imp.aliquotaPIS, ValorPISRF: imp.valorPIS,
-    BaseCOFINSRF: imp.baseCOFINS, PercentualCOFINSRF: imp.aliquotaCOFINS, ValorCOFINSRF: imp.valorCOFINS,
-    BaseCSLLRF: imp.baseCSLL, PercentualCSLLRF: imp.aliquotaCSLL, ValorCSLLRF: imp.valorCSLL,
-    ItemValorCompararClasseReceitaDespesa: v,
-    ItemMovEstqUserFieldsObject: {},
-    ItemMovEstqClasseRecdespChildList: input.classes.map(c => ({
-      CodigoEmpresaFilial: "",
-      CodigoProduto: "",
-      ChaveMovEstq: 1,
-      SequenciaItemMovEstq: 1,
-      CodigoClasseRecDesp: c.codigoClasseRecDesp,
-      Valor: c.valor,
-      Percentual: c.percentual,
-      RateioItemMovEstqChildList: c.centrosCusto.map(cc => ({
-        CodigoEmpresaFilial: "",
-        CodigoProduto: "",
-        ChaveMovEstq: 1,
-        SequenciaItemMovEstq: 1,
-        CodigoClasseRecDesp: "",
-        CodigoCentroCtrl: cc.codigoCentroCtrl,
-        Valor: cc.valor,
-        Percentual: cc.percentual,
-      })),
-    })),
+    QuantidadeProdUnidMedPrincipal: 1,
+    ValorUnitario: v,
+    ValorProduto: v,
+    ItemServico: "Sim",
   };
 
+  // Impostos vêm do modal (semântica que o backend não tem como adivinhar)
+  const imp = input.impostos;
+
+  // Cabeçalho — apenas o que o usuário preenche no Alvo nativo
   const classObject: any = {
-    Chamou: "SaveChild", ChamouClasse: "Servico",
-    NumeroPedComp: input.pedidoNumero,
-    IPIInclusoBaseICMS: "Não",
-    CodigoEmpresaFilial: "1.01", Chave: 0,
+    CodigoEmpresaFilial: "1.01",
+    Chave: 0,
     CodigoTipoLanc: "E0000091",
-    DataMovimento: hojeFmt, DataEmissao: dataEmissaoFmt, DataEntrada: hojeFmt,
-    CodigoEmpresaFilialDocumento: "1.01",
-    Especie: "NFS-e", EspecieSelectBox: "NFS-e",
-    Serie: input.serie || "1", SerieSelectBox: input.serie || "1",
-    Numero: input.numero,
     CodigoEntidade: input.codigoEntidade,
-    CodigoEntidadeEmpresaFilial: null,
-    NomeEntidade: input.prestadorNome,
-    CPFCNPJEntidade: cnpj,
-    RGIEEntidade: entidade.RGIE,
-    EnderecoEntidade: entidade.Endereco,
-    NumeroEnderecoEntidade: entidade.NumeroEndereco,
-    ComplementoEnderecoEntidade: entidade.ComplementoEndereco || "",
-    BairroEntidade: entidade.Bairro,
-    CodigoCidadeEntidade: entidade.CodigoCidade,
-    NomeCidadeEntidade: cidade.NomeCompleto,
-    SiglaUnidFederacaoEntidade: cidade.SiglaUnidFederacao,
-    SiglaPaisEntidade: cidade.SiglaPais,
-    SiglaPaisEmpresa: "BRA", SiglaUnidFederacaoEmpresa: "SP",
-    ZonaFrancaEmpresa: "Não",
-    ValorServico: v, ValorTotalServico: v, ValorDocumento: v,
-    ValorLiberado: v, ValorOriginal: v, ValorLiquidoDocumento: v,
-    ValorCompararClasseReceitaDespesa: v, ValorCompoeFinanceiro: v, ValorTotalParcelas: v,
-    BaseISS: imp.baseISS, PercentualISS: imp.aliquotaISS, ValorISS: imp.valorISS,
-    BaseIRRF: imp.baseIRRF, PercentualIRRF: imp.aliquotaIRRF, ValorIRRF: imp.valorIRRF,
-    BaseINSS: imp.baseINSS, PercentualINSS: imp.aliquotaINSS, ValorINSS: imp.valorINSS,
-    BasePISRFServico: imp.basePIS, ValorPISRFServico: imp.valorPIS, PercentualPISRFServico: imp.aliquotaPIS,
-    BaseCOFINSRFServico: imp.baseCOFINS, ValorCOFINSRFServico: imp.valorCOFINS, PercentualCOFINSRFServico: imp.aliquotaCOFINS,
-    BaseCSLLRFServico: imp.baseCSLL, ValorCSLLRFServico: imp.valorCSLL, PercentualCSLLRFServico: imp.aliquotaCSLL,
-    DeduzISSValorTotal: imp.deduzISSValorTotal,
-    DeduzIRRFValorTotal: imp.deduzIRRFValorTotal,
-    DeduzINSSValorTotal: imp.deduzINSSValorTotal,
-    DeduzPISProdutoValorTotal: "Não", DeduzCOFINSProdutoValorTotal: "Não",
-    CodigoCondPag: input.codigoCondPag,
-    CodigoCondPagAnterior: input.codigoCondPag,
-    CodigoTipoPagRec: "0000016",
-    CodigoIndEconomicoDocumento: "0000001", ValorCambioDocumento: 1,
-    IntegradoFinanceiro: "Sim",
-    RateioAutomaticoDespesasDiversas: "Sim",
-    CalculaRateioClasseRecDesp: "Não",
-    LiberaST: "Não",
-    CasasDecimaisValorUnitario: 5,
-    DiferencaMaiorDesconto: 0, ValorFatorICMSST: 0,
-    ChaveMovimentacaoCusto: false, ChaveTransferenciaEntreEmpresa: false,
-    ConfiguracaoAlteraMovEstqLaudoConcluido: false,
-    DeletarClasseMovEstq: false, ExisteFinanceiroRealizado: 0,
-    Importacao: false, IndustrializacaoConjunta: false,
-    IsSuppressVerificationOfRulesAndIntegration: false,
-    InscricaoSuframaEmpresa: null,
-    RecalcularImpostos: false, ZerouImpostos: false,
-    DataMovimentoAnterior: null, ValorDocumentoAnterior: -1,
-    CodigoLocArmazLancamento: null, ChaveAcessoNFe: null,
-    TipoFormulario: "Normal", TipoOrdemContrato: "", UploadIdentify: "",
-    TipoLancamento: "Compra",
-    EspecieLancamento: "Consumo",
-    OperacaoLancamento: "Entrada",
-    TipoCompra: 1,
-    TipoComplemento: 0, TipoDevolucao: 0, TipoRemessa: 0,
-    TipoRetorno: 0, TipoTransferencia: 0, TipoVenda: 0,
-    EspecieFrete: 0, EspecieImportacao: 0, EspeciePreco: 0,
-    TipoLancamentoIntegraCompras: 1,
-    TipoLancamentoIntegraFinanceiro: 1,
-    TipoLancamentoNecessitaCentroControle: 1,
-    TipoLancamentoIntegraContrato: 0,
-    TipoLancamentoIntegraContratoOrcamentario: 0,
-    TipoLancamentoIntegraProjeto: 0,
-    TipoLancamentoIntegraSC: 0,
-    TipoLancamentoIntregraExecucaoOrcamentaria: 0,
-    TipoLancamentoGeraControleEstoque: 0,
-    TipoLancamentoGeraControleEstoqueTerceiros: 0,
-    TipoLancamentoRelacionaMovimentoEstoqueOrdemServico: 0,
-    TipoLancamentoRepasseTerceiros: 0,
-    IcmsMovEstqChildList: [{ CodigoEmpresaFilial: "", Chave: 1, PercentualICMS: 0 }],
+    Especie: "NFS-e",
+    Serie: input.serie || "1",
+    Numero: input.numero,
+    ChaveAcessoNFe: input.chaveAcesso || null,
+    NumeroPedComp: input.pedidoNumero,
+    ValorServico: v,
+    ValorDocumento: v,
     ItemMovEstqChildList: [item],
     MovEstqClasseRecDespChildList: classesList,
-    ParcPagMovEstqChildList: parcelasList,
   };
+
+  // Se há impostos declarados na NFS-e, anexa ao cabeçalho
+  if (imp) {
+    if (imp.valorISS > 0) {
+      classObject.BaseISS = imp.baseISS;
+      classObject.PercentualISS = imp.aliquotaISS;
+      classObject.ValorISS = imp.valorISS;
+    }
+    if (imp.valorIRRF > 0) {
+      classObject.BaseIRRF = imp.baseIRRF;
+      classObject.ValorIRRF = imp.valorIRRF;
+    }
+    if (imp.valorINSS > 0) {
+      classObject.BaseINSS = imp.baseINSS;
+      classObject.ValorINSS = imp.valorINSS;
+    }
+    if (imp.valorPIS > 0) {
+      classObject.BasePISRFServico = imp.basePIS;
+      classObject.PercentualPISRFServico = imp.aliquotaPIS;
+      classObject.ValorPISRFServico = imp.valorPIS;
+    }
+    if (imp.valorCOFINS > 0) {
+      classObject.BaseCOFINSRFServico = imp.baseCOFINS;
+      classObject.PercentualCOFINSRFServico = imp.aliquotaCOFINS;
+      classObject.ValorCOFINSRFServico = imp.valorCOFINS;
+    }
+    if (imp.valorCSLL > 0) {
+      classObject.BaseCSLLRFServico = imp.baseCSLL;
+      classObject.PercentualCSLLRFServico = imp.aliquotaCSLL;
+      classObject.ValorCSLLRFServico = imp.valorCSLL;
+    }
+  }
+
+  // Parcelas — só envia se vieram do modal (caso contrário deixa o backend calcular)
+  if (input.parcelas && input.parcelas.length > 0) {
+    classObject.ParcPagMovEstqChildList = input.parcelas.map(p => ({
+      CodigoEmpresaFilial: "1.01",
+      ChaveMovEstq: 1,
+      Sequencia: p.sequencia,
+      EspecieDocumento: "NFS-e",
+      SerieDocumento: input.serie || "1",
+      NumeroDuplicata: p.numeroDuplicata,
+      DataEmissao: `${p.dataEmissao}T00:00:00`,
+      ValorParcela: p.valorParcela,
+      DataVencimento: `${p.dataVencimento}T00:00:00`,
+      DataProrrogacao: `${p.dataVencimento}T00:00:00`,
+      CodigoTipoCobranca: "0000001",
+    }));
+  }
 
   return { Action: "Insert", ClassObject: classObject };
 }
