@@ -573,6 +573,105 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
                 </div>
               </section>
 
+              {/* ── Seção: Classes e Centros de Custo ── */}
+              <section className="rounded-lg border p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Classes e Centros de Custo</h4>
+                  <Button variant="outline" size="sm" className="text-xs h-7" onClick={addClasse}>
+                    <Plus className="h-3 w-3 mr-1" /> Classe
+                  </Button>
+                </div>
+
+                <div className="space-y-3">
+                  {classes.map((classe) => {
+                    const totCC = Math.round(classe.centrosCusto.reduce((s, cc) => s + cc.valor, 0) * 100) / 100;
+                    const difCC = Math.round((classe.valor - totCC) * 100) / 100;
+                    return (
+                      <div key={classe.id} className="rounded-md border bg-muted/20 p-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Classe</Label>
+                            <SearchableSelect
+                              value={classe.codigoClasseRecDesp}
+                              onValueChange={(cod, nome) => updateClasseCodigo(classe.id, cod, nome)}
+                              options={classeOptions}
+                              placeholder="Selecione classe..."
+                              className="h-8 text-xs w-full"
+                            />
+                          </div>
+                          <div className="w-32 space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Valor (R$)</Label>
+                            <Input type="number" step="0.01"
+                              className="h-8 text-xs text-right tabular-nums"
+                              value={classe.valor || ""}
+                              onChange={e => updateClasseValor(classe.id, parseFloat(e.target.value) || 0)} />
+                          </div>
+                          <Button variant="ghost" size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive mt-5"
+                            onClick={() => removeClasse(classe.id)}
+                            disabled={classes.length <= 1}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+
+                        <div className="pl-4 border-l-2 border-border space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-[11px] text-muted-foreground">Centros de Custo</Label>
+                            <Button variant="ghost" size="sm" className="text-[11px] h-6 px-2" onClick={() => addCC(classe.id)}>
+                              <Plus className="h-3 w-3 mr-1" /> CC
+                            </Button>
+                          </div>
+
+                          {classe.centrosCusto.map((cc) => (
+                            <div key={cc.id} className="flex items-start gap-2">
+                              <div className="flex-1">
+                                <SearchableSelect
+                                  value={cc.codigo}
+                                  onValueChange={(cod, nome) => updateCCCodigo(classe.id, cc.id, cod, nome)}
+                                  options={ccOptions}
+                                  placeholder="Selecione centro..."
+                                  className="h-8 text-xs w-full"
+                                />
+                              </div>
+                              <div className="w-32">
+                                <Input type="number" step="0.01"
+                                  className="h-8 text-xs text-right tabular-nums"
+                                  value={cc.valor || ""}
+                                  onChange={e => updateCCValor(classe.id, cc.id, parseFloat(e.target.value) || 0)} />
+                              </div>
+                              <Button variant="ghost" size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                onClick={() => removeCC(classe.id, cc.id)}
+                                disabled={classe.centrosCusto.length <= 1}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+
+                          {difCC !== 0 && (
+                            <p className="text-[11px] text-destructive font-medium">
+                              Soma dos CCs ({fmt(totCC)}) não bate com valor da classe ({fmt(classe.valor)}) — dif: {fmt(difCC)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between px-1 pt-2 border-t">
+                  <span className="text-xs font-medium text-muted-foreground">Total Classes</span>
+                  <div className="flex items-center gap-3">
+                    <span className={cn("text-sm font-semibold tabular-nums", difClasses !== 0 ? "text-destructive" : "text-foreground")}>
+                      {fmt(totalClasses)}
+                    </span>
+                    <span className={cn("text-xs tabular-nums", difClasses !== 0 ? "text-destructive font-medium" : "text-muted-foreground")}>
+                      {difClasses !== 0 ? `(dif: ${fmt(difClasses)})` : `= ${fmt(valorNfse)}`}
+                    </span>
+                  </div>
+                </div>
+              </section>
+
               {/* ── Seção 2: Impostos e Deduções ── */}
               <section className="rounded-lg border p-4 space-y-3">
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Impostos e Deduções</h4>
