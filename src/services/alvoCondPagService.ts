@@ -122,7 +122,7 @@ export async function syncCondicoesPagamento(
   if (errH) throw new Error(`Erro Supabase headers: ${errH.message}`);
 
   // 4. Limpa e re-popula condicoes_pagamento_parcelas (children)
-  await supabase.from("condicoes_pagamento_parcelas").delete().neq("codigo_cond_pag", "");
+  await (supabase as any).from("condicoes_pagamento_parcelas").delete().neq("codigo_cond_pag", "");
   const parcelasPayload: any[] = [];
   for (const [codigo, parcelas] of Object.entries(childrenByCod)) {
     for (const p of parcelas) {
@@ -136,7 +136,7 @@ export async function syncCondicoesPagamento(
     }
   }
   if (parcelasPayload.length > 0) {
-    const { error: errP } = await supabase
+    const { error: errP } = await (supabase as any)
       .from("condicoes_pagamento_parcelas")
       .upsert(parcelasPayload, { onConflict: "codigo_cond_pag,numero" });
     if (errP) throw new Error(`Erro Supabase parcelas: ${errP.message}`);
