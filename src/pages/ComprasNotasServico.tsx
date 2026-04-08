@@ -461,6 +461,21 @@ const ComprasNotasServico = () => {
         xmlBlob = new Blob([nfse.raw_xml], { type: "application/xml" });
       }
 
+      // Busca cidade/UF da entidade no cache local (para enriquecer o payload do Alvo)
+      let nomeCidadeEntidade: string | undefined;
+      let siglaUfEntidade: string | undefined;
+      if (dados.codigoEntidade) {
+        const { data: entidadeCache } = await supabase
+          .from("compras_entidades_cache")
+          .select("municipio, uf")
+          .eq("codigo_entidade", dados.codigoEntidade)
+          .maybeSingle();
+        if (entidadeCache) {
+          nomeCidadeEntidade = entidadeCache.municipio || undefined;
+          siglaUfEntidade = entidadeCache.uf || undefined;
+        }
+      }
+
       const input: LancarNfseInput = {
         numero: nfse.numero || "",
         serie: "1",
@@ -480,6 +495,8 @@ const ComprasNotasServico = () => {
         danfsePdfBlob,
         xmlBlob,
         chaveAcesso: nfse.chave_acesso,
+        nomeCidadeEntidade,
+        siglaUfEntidade,
       };
 
       const result = await lancarNfseNoAlvo(input);

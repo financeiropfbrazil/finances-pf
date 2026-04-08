@@ -258,8 +258,11 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
           ? Math.round((valorNfse - acumulado) * 100) / 100
           : Math.round(valorNfse * (pc.percentual_fracao || 0) / 100 * 100) / 100;
       } else {
-        const valorBase = Math.floor(valorNfse / qtd * 100) / 100;
-        val = isLast ? Math.round((valorNfse - valorBase * (qtd - 1)) * 100) / 100 : valorBase;
+        // Padrão brasileiro: arredonda PARA CIMA as primeiras, última absorve o resto (ou fica menor).
+        // Ex: 232,25 / 6 = 38,70833 → 5× 38,71 + última 38,70 (NÃO 5× 38,70 + última 38,75).
+        const valorBase = Math.round(valorNfse / qtd * 100) / 100;
+        const somaAnteriores = valorBase * (qtd - 1);
+        val = isLast ? Math.round((valorNfse - somaAnteriores) * 100) / 100 : valorBase;
       }
       acumulado += val;
 
