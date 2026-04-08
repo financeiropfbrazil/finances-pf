@@ -552,7 +552,7 @@ async function buildPayload(input: LancarNfseInput, token: string): Promise<any>
     BaseCOFINSOperacao: 0,
     PercentualCOFINSOperacao: 0,
     ValorCOFINSOperacao: 0,
-    CodigoAlternativoProduto: input.codigoAlternativoProduto || null,
+    CodigoAlternativoProduto: input.codigoAlternativoProduto || "890074",
     ValorContribuicaoPrevidenciaria: 0,
     PercentualContribuicaoPrevidenciaria: 0,
     ValorContribuicaoDestinadaFinanciamento: 0,
