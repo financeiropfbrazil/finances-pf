@@ -165,6 +165,8 @@ function SearchableSelect({ value, onValueChange, options, placeholder = "Seleci
 interface CondPagOption { codigo: string; nome: string }
 interface CondPagRow { codigo: string; nome: string; quantidade_parcelas: number | null; dias_entre_parcelas: number | null; primeiro_vencimento_apos: number | null }
 interface PedidoItem { codigoProduto: string; nomeProduto: string; sequencia: number }
+interface ClasseOption { codigo: string; nome: string; }
+interface CCOption { codigo: string; nome: string; }
 
 // ── Component ──────────────────────────────────────────────────────────
 
@@ -180,6 +182,8 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
 
   const [condPagOptions, setCondPagOptions] = useState<CondPagOption[]>([]);
   const [condPagFull, setCondPagFull] = useState<CondPagRow[]>([]);
+  const [classeOptions, setClasseOptions] = useState<ClasseOption[]>([]);
+  const [ccOptions, setCcOptions] = useState<CCOption[]>([]);
 
   const [impostos, setImpostos] = useState<ImpostosInput>({
     baseISS: 0, aliquotaISS: 0, valorISS: 0, deduzISSValorTotal: false,
@@ -238,16 +242,17 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
     const load = async () => {
       setLoading(true);
 
-      const [pedidoRes, condRes] = await Promise.all([
+      const [pedidoRes, condRes, classeRes, ccRes] = await Promise.all([
         nfse.pedido_compra_numero
-          ? supabase
-              .from("compras_pedidos")
+          ? supabase.from("compras_pedidos")
               .select("itens, classe_rateio, codigo_cond_pag, nome_cond_pag, codigo_entidade")
               .eq("numero", nfse.pedido_compra_numero)
               .eq("codigo_empresa_filial", "1.01")
               .maybeSingle()
           : Promise.resolve({ data: null }),
         supabase.from("condicoes_pagamento").select("codigo, nome, quantidade_parcelas, dias_entre_parcelas, primeiro_vencimento_apos").order("codigo"),
+        supabase.from("classes_rec_desp").select("codigo, nome").eq("grupo", "F").eq("is_active", true).order("codigo"),
+        supabase.from("cost_centers").select("erp_code, name").eq("group_type", "F").eq("is_active", true).order("erp_code"),
       ]);
 
       if (cancelled) return;
@@ -255,6 +260,11 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
       const condRows = (condRes.data as CondPagRow[]) || [];
       setCondPagFull(condRows);
       setCondPagOptions(condRows.map(c => ({ codigo: c.codigo, nome: c.nome })));
+
+      const classeRows = (classeRes.data as { codigo: string; nome: string }[]) || [];
+      setClasseOptions(classeRows);
+      const ccRows = (ccRes.data as { erp_code: string; name: string }[]) || [];
+      setCcOptions(ccRows.map(c => ({ codigo: c.erp_code, nome: c.name })));
 
       const pedido = pedidoRes.data as any;
 
@@ -305,47 +315,18 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
         dadosOriginais.current = { classes: JSON.parse(JSON.stringify(defaultClasses)), codigoCondPag: cpCod, nomeCondPag: cpNome, codigoProduto: prodCod, nomeProduto: prodNom };
       }
 
-      // Impostos from NFS-e
-      // Regra: só preencher base e alíquota quando há retenção real declarada.
-      // Se o valor da retenção é zero/nulo, base e alíquota também devem ser zero,
-      // para evitar inconsistência fiscal (base × alíquota ≠ valor) que faz o Alvo rejeitar.
-      const valorPisNfse = nfse.valor_pis || 0;
-      const valorCofinsNfse = nfse.valor_cofins || 0;
-      const valorCsllNfse = nfse.valor_retencao_csll || 0;
-      const valorIrrfNfse = nfse.valor_retencao_irrf || 0;
-      const valorInssNfse = nfse.valor_retencao_inss || 0;
-      const valorIssNfse = nfse.valor_iss || 0;
-
+      // Só carrega ISS se iss_retido === true; demais retenções zeradas.
+      const issRet = nfse.iss_retido === true;
       setImpostos({
-        baseISS: valorIssNfse > 0 ? (nfse.base_calculo_iss || 0) : 0,
-        aliquotaISS: valorIssNfse > 0 ? (nfse.aliquota_iss || 0) : 0,
-        valorISS: valorIssNfse,
+        baseISS: issRet ? (nfse.base_calculo_iss || 0) : 0,
+        aliquotaISS: issRet ? (nfse.aliquota_iss || 0) : 0,
+        valorISS: issRet ? (nfse.valor_iss || 0) : 0,
         deduzISSValorTotal: false,
-
-        baseIRRF: 0,
-        aliquotaIRRF: 0,
-        valorIRRF: valorIrrfNfse,
-        deduzIRRFValorTotal: false,
-
-        baseINSS: 0,
-        aliquotaINSS: 0,
-        valorINSS: valorInssNfse,
-        deduzINSSValorTotal: false,
-
-        basePIS: valorPisNfse > 0 ? valorNfse : 0,
-        aliquotaPIS: valorPisNfse > 0 ? 0.65 : 0,
-        valorPIS: valorPisNfse,
-        deduzPISValorTotal: false,
-
-        baseCOFINS: valorCofinsNfse > 0 ? valorNfse : 0,
-        aliquotaCOFINS: valorCofinsNfse > 0 ? 3 : 0,
-        valorCOFINS: valorCofinsNfse,
-        deduzCOFINSValorTotal: false,
-
-        baseCSLL: valorCsllNfse > 0 ? valorNfse : 0,
-        aliquotaCSLL: valorCsllNfse > 0 ? 1 : 0,
-        valorCSLL: valorCsllNfse,
-        deduzCSLLValorTotal: false,
+        baseIRRF: 0, aliquotaIRRF: 0, valorIRRF: 0, deduzIRRFValorTotal: false,
+        baseINSS: 0, aliquotaINSS: 0, valorINSS: 0, deduzINSSValorTotal: false,
+        basePIS: 0, aliquotaPIS: 0, valorPIS: 0, deduzPISValorTotal: false,
+        baseCOFINS: 0, aliquotaCOFINS: 0, valorCOFINS: 0, deduzCOFINSValorTotal: false,
+        baseCSLL: 0, aliquotaCSLL: 0, valorCSLL: 0, deduzCSLLValorTotal: false,
       });
 
       // Parcelas
@@ -409,6 +390,62 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
     });
   }, [nfse.data_emissao, nfse.numero]);
 
+  const addClasse = useCallback(() => {
+    setClasses(prev => [...prev, {
+      id: uid(), codigoClasseRecDesp: "", nomeClasse: "",
+      percentual: 0, valor: 0,
+      centrosCusto: [{ id: uid(), codigo: "", nome: "", percentual: 100, valor: 0 }],
+    }]);
+  }, []);
+
+  const removeClasse = useCallback((classeId: string) => {
+    setClasses(prev => prev.filter(c => c.id !== classeId));
+  }, []);
+
+  const updateClasseCodigo = useCallback((classeId: string, codigo: string, nome: string) => {
+    setClasses(prev => prev.map(c => c.id === classeId ? { ...c, codigoClasseRecDesp: codigo, nomeClasse: nome } : c));
+  }, []);
+
+  const updateClasseValor = useCallback((classeId: string, valor: number) => {
+    setClasses(prev => prev.map(c => {
+      if (c.id !== classeId) return c;
+      const pct = valorNfse > 0 ? Math.round(valor / valorNfse * 10000) / 100 : 0;
+      return { ...c, valor, percentual: pct };
+    }));
+  }, [valorNfse]);
+
+  const addCC = useCallback((classeId: string) => {
+    setClasses(prev => prev.map(c => c.id === classeId
+      ? { ...c, centrosCusto: [...c.centrosCusto, { id: uid(), codigo: "", nome: "", percentual: 0, valor: 0 }] }
+      : c));
+  }, []);
+
+  const removeCC = useCallback((classeId: string, ccId: string) => {
+    setClasses(prev => prev.map(c => c.id === classeId
+      ? { ...c, centrosCusto: c.centrosCusto.filter(cc => cc.id !== ccId) }
+      : c));
+  }, []);
+
+  const updateCCCodigo = useCallback((classeId: string, ccId: string, codigo: string, nome: string) => {
+    setClasses(prev => prev.map(c => c.id === classeId
+      ? { ...c, centrosCusto: c.centrosCusto.map(cc => cc.id === ccId ? { ...cc, codigo, nome } : cc) }
+      : c));
+  }, []);
+
+  const updateCCValor = useCallback((classeId: string, ccId: string, valor: number) => {
+    setClasses(prev => prev.map(c => {
+      if (c.id !== classeId) return c;
+      return {
+        ...c,
+        centrosCusto: c.centrosCusto.map(cc => {
+          if (cc.id !== ccId) return cc;
+          const pct = c.valor > 0 ? Math.round(valor / c.valor * 10000) / 100 : 0;
+          return { ...cc, valor, percentual: pct };
+        }),
+      };
+    }));
+  }, []);
+
   const removeParcela = useCallback((seq: number) => {
     setParcelas(prev => prev.filter(p => p.sequencia !== seq).map((p, i) => ({ ...p, sequencia: i + 1 })));
   }, []);
@@ -422,11 +459,23 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
   const totalParcelas = useMemo(() => Math.round(parcelas.reduce((s, p) => s + p.valorParcela, 0) * 100) / 100, [parcelas]);
   const difParcelas = useMemo(() => Math.round((valorNfse - totalParcelas) * 100) / 100, [valorNfse, totalParcelas]);
 
-  const podeLancar = classes.length > 0
-    && !!codigoCondPag
-    && difParcelas === 0
-    && parcelas.length > 0
-    && !loading;
+  const totalClasses = useMemo(() => Math.round(classes.reduce((s, c) => s + c.valor, 0) * 100) / 100, [classes]);
+  const difClasses = useMemo(() => Math.round((valorNfse - totalClasses) * 100) / 100, [valorNfse, totalClasses]);
+
+  const classesValidas = useMemo(() => {
+    if (classes.length === 0) return false;
+    for (const c of classes) {
+      if (!c.codigoClasseRecDesp) return false;
+      if (c.centrosCusto.length === 0) return false;
+      const totCC = Math.round(c.centrosCusto.reduce((s, cc) => s + cc.valor, 0) * 100) / 100;
+      if (Math.abs(totCC - c.valor) > 0.01) return false;
+      for (const cc of c.centrosCusto) { if (!cc.codigo) return false; }
+    }
+    return true;
+  }, [classes]);
+
+  const podeLancar = classesValidas && difClasses === 0 && !!codigoCondPag
+    && difParcelas === 0 && parcelas.length > 0 && !loading;
 
   // ── Audit ─────────────────────────────────────────────────────────
 
