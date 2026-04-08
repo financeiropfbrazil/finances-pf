@@ -192,6 +192,25 @@ async function buildPayload(input: LancarNfseInput, token: string): Promise<any>
     CasasDecimaisValorUnitario: 5,
     IntegradoFinanceiro: "Sim",
 
+    // Dados expandidos da entidade (backend espera receber, não busca sozinho)
+    NomeEntidade: input.prestadorNome,
+    CPFCNPJEntidade: cnpj,
+    RGIEEntidade: entidade.RGIE,
+    EnderecoEntidade: entidade.Endereco,
+    NumeroEnderecoEntidade: entidade.NumeroEndereco,
+    ComplementoEnderecoEntidade: entidade.ComplementoEndereco || "",
+    BairroEntidade: entidade.Bairro,
+    CodigoCidadeEntidade: entidade.CodigoCidade,
+    NomeCidadeEntidade: cidade.NomeCompleto,
+    SiglaUnidFederacaoEntidade: cidade.SiglaUnidFederacao,
+    SiglaPaisEntidade: cidade.SiglaPais,
+    SiglaPaisEmpresa: "BRA",
+    SiglaUnidFederacaoEmpresa: "SP",
+
+    // Condição de pagamento
+    CodigoCondPag: input.codigoCondPag,
+    CodigoTipoPagRec: "0000016",
+
     // Estruturas filho
     ItemMovEstqChildList: [item],
     MovEstqClasseRecDespChildList: classesList,
