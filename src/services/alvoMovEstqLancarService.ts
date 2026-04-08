@@ -195,7 +195,7 @@ function buildPayload(input: LancarNfseInput, uploadUuid: string): any {
     }],
     MovEstqClasseRecDespChildList: classesChild,
     ParcPagMovEstqChildList: parcelasChild,
-    TipoFormulario: "Normal", ChaveAcessoNFe: input.chaveAcesso || null,
+    TipoFormulario: "Normal", ChaveAcessoNFe: null,
     SiglaPaisEmpresa: "BRA", SiglaUnidFederacaoEmpresa: "SP",
     ZerouImpostos: false, RecalcularImpostos: false,
     TipoLancamento: "Compra", EspecieLancamento: "Consumo", OperacaoLancamento: "Entrada",
