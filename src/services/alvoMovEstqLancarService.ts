@@ -182,6 +182,25 @@ async function buildPayload(input: LancarNfseInput, token: string): Promise<any>
     BaseCSLLRF: imp.baseCSLL, PercentualCSLLRF: imp.aliquotaCSLL, ValorCSLLRF: imp.valorCSLL,
     ItemValorCompararClasseReceitaDespesa: v,
     ItemMovEstqUserFieldsObject: {},
+    ItemMovEstqClasseRecdespChildList: input.classes.map(c => ({
+      CodigoEmpresaFilial: "",
+      CodigoProduto: "",
+      ChaveMovEstq: 1,
+      SequenciaItemMovEstq: 1,
+      CodigoClasseRecDesp: c.codigoClasseRecDesp,
+      Valor: c.valor,
+      Percentual: c.percentual,
+      RateioItemMovEstqChildList: c.centrosCusto.map(cc => ({
+        CodigoEmpresaFilial: "",
+        CodigoProduto: "",
+        ChaveMovEstq: 1,
+        SequenciaItemMovEstq: 1,
+        CodigoClasseRecDesp: "",
+        CodigoCentroCtrl: cc.codigoCentroCtrl,
+        Valor: cc.valor,
+        Percentual: cc.percentual,
+      })),
+    })),
   };
 
   const classObject: any = {
