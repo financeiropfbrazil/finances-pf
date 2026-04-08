@@ -96,10 +96,111 @@ async function fetchCidade(codigo: string, token: string): Promise<CidadeData> {
   }
 }
 
-// ── Stub buildPayload ──
+// ── Build payload ──
 
 async function buildPayload(input: LancarNfseInput, token: string): Promise<any> {
-  throw new Error("buildPayload não implementado — aplicar prompts 3B e 3C");
+  const cnpj = input.prestadorCnpj.replace(/\D/g, "");
+  const v = input.valorServico;
+  const dataEmissaoFmt = fmtAlvoDate(input.dataEmissao);
+  const hojeFmt = fmtAlvoDate(new Date());
+
+  const entidade = await fetchEntidade(input.codigoEntidade, token);
+  const cidade = entidade.CodigoCidade
+    ? await fetchCidade(entidade.CodigoCidade, token)
+    : { NomeCompleto: null, SiglaUnidFederacao: null, SiglaPais: null };
+
+  const imp: ImpostosMovEstqInput = input.impostos || {
+    baseISS: 0, aliquotaISS: 0, valorISS: 0, deduzISSValorTotal: "Não",
+    baseIRRF: 0, aliquotaIRRF: 0, valorIRRF: 0, deduzIRRFValorTotal: "Não",
+    baseINSS: 0, aliquotaINSS: 0, valorINSS: 0, deduzINSSValorTotal: "Não",
+    basePIS: 0, aliquotaPIS: 0, valorPIS: 0, deduzPISValorTotal: "Não",
+    baseCOFINS: 0, aliquotaCOFINS: 0, valorCOFINS: 0, deduzCOFINSValorTotal: "Não",
+    baseCSLL: 0, aliquotaCSLL: 0, valorCSLL: 0, deduzCSLLValorTotal: "Não",
+  };
+
+  let parcelasList: any[];
+  if (input.parcelas && input.parcelas.length > 0) {
+    parcelasList = input.parcelas.map(p => ({
+      CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1, Sequencia: p.sequencia,
+      EspecieDocumento: "NFS-e", SerieDocumento: input.serie || "1",
+      NumeroDuplicata: p.numeroDuplicata,
+      DataEmissao: fmtAlvoDateFromYMD(p.dataEmissao),
+      ValorParcela: p.valorParcela,
+      DataVencimento: fmtAlvoDateFromYMD(p.dataVencimento),
+      DataProrrogacao: fmtAlvoDateFromYMD(p.dataVencimento),
+      CodigoTipoCobranca: "0000001",
+    }));
+  } else {
+    const dt = new Date(input.dataEmissao);
+    dt.setDate(dt.getDate() + 30);
+    parcelasList = [{
+      CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1, Sequencia: 1,
+      EspecieDocumento: "NFS-e", SerieDocumento: input.serie || "1",
+      NumeroDuplicata: `${input.numero}/1-1`,
+      DataEmissao: dataEmissaoFmt, ValorParcela: v,
+      DataVencimento: fmtAlvoDate(dt), DataProrrogacao: fmtAlvoDate(dt),
+      CodigoTipoCobranca: "0000001",
+    }];
+  }
+
+  const classesList = input.classes.map(c => ({
+    CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1,
+    CodigoClasseRecDesp: c.codigoClasseRecDesp,
+    Valor: c.valor, Percentual: c.percentual,
+    RateioMovEstqChildList: c.centrosCusto.map(cc => ({
+      CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1,
+      CodigoClasseRecDesp: c.codigoClasseRecDesp,
+      CodigoCentroCtrl: cc.codigoCentroCtrl,
+      Valor: cc.valor, Percentual: cc.percentual,
+    })),
+  }));
+
+  const item: any = {
+    CodigoEmpresaFilial: "1.01", CodigoProduto: input.codigoProduto,
+    ChaveMovEstq: 0, Sequencia: 0, DataMovimento: hojeFmt,
+    CodigoTipoLanc: "E0000091", CodigoEmpresaFilialPedComp: "1.01",
+    NumeroPedComp: input.pedidoNumero,
+    QuantidadeProdUnidMedPrincipal: 1, Quantidade2: 1, QuantidadePatrimonio: 1,
+    ValorProduto: v, ValorUnitario: v,
+    CodigoProdUnidMed: "UNID", CodigoProdUnidMedValor: "UNID",
+    PosicaoProdUnidMed: 1, Peso: 1,
+    ItemServico: "Sim", ControlaEstoque: "Não",
+    CodigoNatOperacao: "1.933",
+    CodigoTributA: "0", CodigoTributB: "90",
+    CodigoEmpresaFilialContratoOrcam: "1.01",
+    CodigoClasFiscal: "0000002", CodigoSitTributariaIBSCBS: "",
+    CodigoEntidade: input.codigoEntidade,
+    NomeProduto: input.nomeProduto,
+    CodigoProdutoPedComp: input.codigoProduto,
+    SequenciaItemPedComp: input.sequenciaItemPedComp,
+    DesmembramentoSequenciaParcelaItemContratoOrcam: 0,
+    DeduzICMSISSBasePISCOFINS: "Sim",
+    TipoConfigTributPIS: "PIS", TipoConfigTributCOFINS: "COFINS",
+    CodigoConfigTributIPI: "03", CodigoConfigTributPIS: "98", CodigoConfigTributCOFINS: "98",
+    BasePISRF: imp.basePIS, PercentualPISRF: imp.aliquotaPIS, ValorPISRF: imp.valorPIS,
+    BaseCOFINSRF: imp.baseCOFINS, PercentualCOFINSRF: imp.aliquotaCOFINS, ValorCOFINSRF: imp.valorCOFINS,
+    BaseCSLLRF: imp.baseCSLL, PercentualCSLLRF: imp.aliquotaCSLL, ValorCSLLRF: imp.valorCSLL,
+    ItemValorCompararClasseReceitaDespesa: v,
+    ItemMovEstqUserFieldsObject: {},
+  };
+
+  // ─── ClassObject preenchido pelo prompt 3C ───
+  const classObject: any = {
+    __pendente: "preencher no prompt 3C",
+    __item: item,
+    __classesList: classesList,
+    __parcelasList: parcelasList,
+    __entidade: entidade,
+    __cidade: cidade,
+    __imp: imp,
+    __cnpj: cnpj,
+    __v: v,
+    __hojeFmt: hojeFmt,
+    __dataEmissaoFmt: dataEmissaoFmt,
+    __input: input,
+  };
+
+  return { Action: "Insert", ClassObject: classObject };
 }
 
 // ── Caller ──
