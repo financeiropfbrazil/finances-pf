@@ -217,7 +217,12 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
 
     if (parcelasDaCond.length === 0) {
       // Fallback: parcela única no dia da emissão
-      const dt = nfse.data_emissao ? new Date(nfse.data_emissao + "T12:00:00") : new Date();
+      const dt = (() => {
+        if (!nfse.data_emissao) return new Date();
+        const ymd = nfse.data_emissao.slice(0, 10);
+        const parsed = new Date(ymd + "T12:00:00");
+        return isNaN(parsed.getTime()) ? new Date() : parsed;
+      })();
       setParcelas([{
         sequencia: 1,
         numeroDuplicata: `${nfse.numero || "0"}/1-1`,
@@ -229,7 +234,12 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
     }
 
     const qtd = parcelasDaCond.length;
-    const dtEmissao = nfse.data_emissao ? new Date(nfse.data_emissao + "T12:00:00") : new Date();
+    const dtEmissao = (() => {
+      if (!nfse.data_emissao) return new Date();
+      const ymd = nfse.data_emissao.slice(0, 10);
+      const parsed = new Date(ymd + "T12:00:00");
+      return isNaN(parsed.getTime()) ? new Date() : parsed;
+    })();
 
     // Determina se usa percentual_fracao explícito ou fração igual
     const somaPct = parcelasDaCond.reduce((s, p) => s + (p.percentual_fracao || 0), 0);
