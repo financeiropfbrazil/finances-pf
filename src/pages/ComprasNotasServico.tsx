@@ -464,13 +464,15 @@ const ComprasNotasServico = () => {
       // Busca cidade/UF da entidade no cache local (para enriquecer o payload do Alvo)
       let nomeCidadeEntidade: string | undefined;
       let siglaUfEntidade: string | undefined;
+      let nomeEntidadeCadastro: string | undefined;
       if (dados.codigoEntidade) {
         const { data: entidadeCache } = await supabase
           .from("compras_entidades_cache")
-          .select("municipio, uf")
+          .select("nome, municipio, uf")
           .eq("codigo_entidade", dados.codigoEntidade)
           .maybeSingle();
         if (entidadeCache) {
+          nomeEntidadeCadastro = entidadeCache.nome || undefined;
           nomeCidadeEntidade = entidadeCache.municipio || undefined;
           siglaUfEntidade = entidadeCache.uf || undefined;
         }
@@ -482,7 +484,7 @@ const ComprasNotasServico = () => {
         dataEmissao: nfse.data_emissao || new Date().toISOString(),
         valorServico: valorTotal,
         prestadorCnpj: cnpjLimpo,
-        prestadorNome: nfse.prestador_nome || "",
+        prestadorNome: nomeEntidadeCadastro || nfse.prestador_nome || "",
         pedidoNumero: nfse.pedido_compra_numero || "",
         classes: classesInput,
         codigoCondPag: dados.codigoCondPag,
