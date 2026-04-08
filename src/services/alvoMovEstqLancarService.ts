@@ -98,8 +98,15 @@ async function fetchCidade(codigo: string, token: string): Promise<CidadeData> {
 
 // ── Build payload ──
 
-async function buildPayload(input: LancarNfseInput, _token: string): Promise<any> {
+async function buildPayload(input: LancarNfseInput, token: string): Promise<any> {
   const v = input.valorServico;
+  const cnpj = input.prestadorCnpj.replace(/\D/g, "");
+
+  // Buscar dados expandidos da entidade e cidade
+  const entidade = await fetchEntidade(input.codigoEntidade, token);
+  const cidade = entidade.CodigoCidade
+    ? await fetchCidade(entidade.CodigoCidade, token)
+    : { NomeCompleto: null, SiglaUnidFederacao: null, SiglaPais: null };
 
   // Rateio do cabeçalho (vem do pedido cacheado)
   const classesList = input.classes.map(c => ({
@@ -184,6 +191,25 @@ async function buildPayload(input: LancarNfseInput, _token: string): Promise<any
     // Configuração padrão
     CasasDecimaisValorUnitario: 5,
     IntegradoFinanceiro: "Sim",
+
+    // Dados expandidos da entidade (backend espera receber, não busca sozinho)
+    NomeEntidade: input.prestadorNome,
+    CPFCNPJEntidade: cnpj,
+    RGIEEntidade: entidade.RGIE,
+    EnderecoEntidade: entidade.Endereco,
+    NumeroEnderecoEntidade: entidade.NumeroEndereco,
+    ComplementoEnderecoEntidade: entidade.ComplementoEndereco || "",
+    BairroEntidade: entidade.Bairro,
+    CodigoCidadeEntidade: entidade.CodigoCidade,
+    NomeCidadeEntidade: cidade.NomeCompleto,
+    SiglaUnidFederacaoEntidade: cidade.SiglaUnidFederacao,
+    SiglaPaisEntidade: cidade.SiglaPais,
+    SiglaPaisEmpresa: "BRA",
+    SiglaUnidFederacaoEmpresa: "SP",
+
+    // Condição de pagamento
+    CodigoCondPag: input.codigoCondPag,
+    CodigoTipoPagRec: "0000016",
 
     // Estruturas filho
     ItemMovEstqChildList: [item],
