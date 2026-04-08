@@ -125,8 +125,44 @@ function buildPayload(input: LancarNfseInput, uploadUuid: string): any {
     })),
   }));
 
-  // Placeholder do item — o PART2B vai substituir por um objeto completo
-  const item: any = { __placeholder: true };
+  const item: any = {
+    CodigoEmpresaFilial: "1.01",
+    CodigoProduto: input.codigoProduto,
+    ChaveMovEstq: 0, Sequencia: 0,
+    DataMovimento: hoje,
+    CodigoTipoLanc: "E0000091",
+    CodigoNatOperacao: "1.933",
+    CodigoEmpresaFilialPedComp: "1.01",
+    NumeroPedComp: input.pedidoNumero,
+    QuantidadeProdUnidMedPrincipal: 1,
+    ValorProduto: v,
+    CodigoProdUnidMed: "UNID",
+    PosicaoProdUnidMed: 1,
+    Peso: 1,
+    ItemServico: "Sim",
+    Quantidade2: 1,
+    ControlaEstoque: "Não",
+    DesmembramentoSequenciaParcelaItemContratoOrcam: 0,
+    CodigoTributA: "0",
+    CodigoTributB: "90",
+    CodigoEmpresaFilialContratoOrcam: "1.01",
+    CodigoClasFiscal: "0000002",
+    CodigoProdUnidMedValor: "UNID",
+    CodigoEntidade: input.codigoEntidade,
+    NomeProduto: input.nomeProduto,
+    CodigoProdutoPedComp: input.codigoProduto,
+    SequenciaItemPedComp: input.sequenciaItemPedComp,
+    QuantidadePatrimonio: 1,
+    TipoConfigTributPIS: "PIS",
+    TipoConfigTributCOFINS: "COFINS",
+    CodigoConfigTributIPI: "03",
+    CodigoConfigTributPIS: "98",
+    CodigoConfigTributCOFINS: "98",
+    ValorUnitario: v,
+    CodigoSitTributariaIBSCBS: "",
+    ItemMovEstqUserFieldsObject: {},
+    ItemValorCompararClasseReceitaDespesa: v,
+  };
 
   // Header do MovEstq
   const payload: any = {
@@ -185,6 +221,44 @@ function buildPayload(input: LancarNfseInput, uploadUuid: string): any {
     DeletarClasseMovEstq: false, UploadIdentify: "",
     filesToUpload: [{ key: `${uploadUuid}#Arquivo`, file: {} }],
   };
+
+  // Impostos — só inclui campos quando houver retenção real (valor > 0)
+  const imp = input.impostos;
+  if (imp) {
+    if (imp.valorISS > 0) {
+      payload.BaseISS = imp.baseISS; payload.ValorISS = imp.valorISS;
+      payload.DeduzISSValorTotal = imp.deduzISSValorTotal;
+      item.BaseISS = imp.baseISS; item.PercentualISS = imp.aliquotaISS; item.ValorISS = imp.valorISS;
+    }
+    if (imp.valorIRRF > 0) {
+      payload.BaseIRRF = imp.baseIRRF; payload.ValorIRRF = imp.valorIRRF;
+      payload.DeduzIRRFValorTotal = imp.deduzIRRFValorTotal;
+      item.BaseIRRF = imp.baseIRRF; item.PercentualIRRF = imp.aliquotaIRRF; item.ValorIRRF = imp.valorIRRF;
+    }
+    if (imp.valorINSS > 0) {
+      payload.BaseINSS = imp.baseINSS; payload.ValorINSS = imp.valorINSS;
+      payload.DeduzINSSValorTotal = imp.deduzINSSValorTotal;
+      item.BaseINSS = imp.baseINSS; item.PercentualINSS = imp.aliquotaINSS; item.ValorINSS = imp.valorINSS;
+    }
+    if (imp.valorPIS > 0) {
+      payload.BasePISRFServico = imp.basePIS; payload.ValorPISRFServico = imp.valorPIS;
+      payload.PercentualPISRFServico = imp.aliquotaPIS;
+      payload.DeduzPISValorTotal = imp.deduzPISValorTotal;
+      item.BasePISRF = imp.basePIS; item.PercentualPISRF = imp.aliquotaPIS; item.ValorPISRF = imp.valorPIS;
+    }
+    if (imp.valorCOFINS > 0) {
+      payload.BaseCOFINSRFServico = imp.baseCOFINS; payload.ValorCOFINSRFServico = imp.valorCOFINS;
+      payload.PercentualCOFINSRFServico = imp.aliquotaCOFINS;
+      payload.DeduzCOFINSValorTotal = imp.deduzCOFINSValorTotal;
+      item.BaseCOFINSRF = imp.baseCOFINS; item.PercentualCOFINSRF = imp.aliquotaCOFINS; item.ValorCOFINSRF = imp.valorCOFINS;
+    }
+    if (imp.valorCSLL > 0) {
+      payload.BaseCSLLRFServico = imp.baseCSLL; payload.ValorCSLLRFServico = imp.valorCSLL;
+      payload.PercentualCSLLRFServico = imp.aliquotaCSLL;
+      payload.DeduzCSLLValorTotal = imp.deduzCSLLValorTotal;
+      item.BaseCSLLRF = imp.baseCSLL; item.PercentualCSLLRF = imp.aliquotaCSLL; item.ValorCSLLRF = imp.valorCSLL;
+    }
+  }
 
   return payload;
 }
