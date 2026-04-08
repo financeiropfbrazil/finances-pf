@@ -306,13 +306,46 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
       }
 
       // Impostos from NFS-e
+      // Regra: só preencher base e alíquota quando há retenção real declarada.
+      // Se o valor da retenção é zero/nulo, base e alíquota também devem ser zero,
+      // para evitar inconsistência fiscal (base × alíquota ≠ valor) que faz o Alvo rejeitar.
+      const valorPisNfse = nfse.valor_pis || 0;
+      const valorCofinsNfse = nfse.valor_cofins || 0;
+      const valorCsllNfse = nfse.valor_retencao_csll || 0;
+      const valorIrrfNfse = nfse.valor_retencao_irrf || 0;
+      const valorInssNfse = nfse.valor_retencao_inss || 0;
+      const valorIssNfse = nfse.valor_iss || 0;
+
       setImpostos({
-        baseISS: nfse.base_calculo_iss || 0, aliquotaISS: nfse.aliquota_iss || 0, valorISS: nfse.valor_iss || 0, deduzISSValorTotal: false,
-        baseIRRF: 0, aliquotaIRRF: 0, valorIRRF: nfse.valor_retencao_irrf || 0, deduzIRRFValorTotal: false,
-        baseINSS: 0, aliquotaINSS: 0, valorINSS: nfse.valor_retencao_inss || 0, deduzINSSValorTotal: false,
-        basePIS: valorNfse, aliquotaPIS: 0.65, valorPIS: nfse.valor_pis || 0, deduzPISValorTotal: false,
-        baseCOFINS: valorNfse, aliquotaCOFINS: 3, valorCOFINS: nfse.valor_cofins || 0, deduzCOFINSValorTotal: false,
-        baseCSLL: valorNfse, aliquotaCSLL: 1, valorCSLL: nfse.valor_retencao_csll || 0, deduzCSLLValorTotal: false,
+        baseISS: valorIssNfse > 0 ? (nfse.base_calculo_iss || 0) : 0,
+        aliquotaISS: valorIssNfse > 0 ? (nfse.aliquota_iss || 0) : 0,
+        valorISS: valorIssNfse,
+        deduzISSValorTotal: false,
+
+        baseIRRF: 0,
+        aliquotaIRRF: 0,
+        valorIRRF: valorIrrfNfse,
+        deduzIRRFValorTotal: false,
+
+        baseINSS: 0,
+        aliquotaINSS: 0,
+        valorINSS: valorInssNfse,
+        deduzINSSValorTotal: false,
+
+        basePIS: valorPisNfse > 0 ? valorNfse : 0,
+        aliquotaPIS: valorPisNfse > 0 ? 0.65 : 0,
+        valorPIS: valorPisNfse,
+        deduzPISValorTotal: false,
+
+        baseCOFINS: valorCofinsNfse > 0 ? valorNfse : 0,
+        aliquotaCOFINS: valorCofinsNfse > 0 ? 3 : 0,
+        valorCOFINS: valorCofinsNfse,
+        deduzCOFINSValorTotal: false,
+
+        baseCSLL: valorCsllNfse > 0 ? valorNfse : 0,
+        aliquotaCSLL: valorCsllNfse > 0 ? 1 : 0,
+        valorCSLL: valorCsllNfse,
+        deduzCSLLValorTotal: false,
       });
 
       // Parcelas
