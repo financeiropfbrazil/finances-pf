@@ -125,8 +125,44 @@ function buildPayload(input: LancarNfseInput, uploadUuid: string): any {
     })),
   }));
 
-  // Placeholder do item — o PART2B vai substituir por um objeto completo
-  const item: any = { __placeholder: true };
+  const item: any = {
+    CodigoEmpresaFilial: "1.01",
+    CodigoProduto: input.codigoProduto,
+    ChaveMovEstq: 0, Sequencia: 0,
+    DataMovimento: hoje,
+    CodigoTipoLanc: "E0000091",
+    CodigoNatOperacao: "1.933",
+    CodigoEmpresaFilialPedComp: "1.01",
+    NumeroPedComp: input.pedidoNumero,
+    QuantidadeProdUnidMedPrincipal: 1,
+    ValorProduto: v,
+    CodigoProdUnidMed: "UNID",
+    PosicaoProdUnidMed: 1,
+    Peso: 1,
+    ItemServico: "Sim",
+    Quantidade2: 1,
+    ControlaEstoque: "Não",
+    DesmembramentoSequenciaParcelaItemContratoOrcam: 0,
+    CodigoTributA: "0",
+    CodigoTributB: "90",
+    CodigoEmpresaFilialContratoOrcam: "1.01",
+    CodigoClasFiscal: "0000002",
+    CodigoProdUnidMedValor: "UNID",
+    CodigoEntidade: input.codigoEntidade,
+    NomeProduto: input.nomeProduto,
+    CodigoProdutoPedComp: input.codigoProduto,
+    SequenciaItemPedComp: input.sequenciaItemPedComp,
+    QuantidadePatrimonio: 1,
+    TipoConfigTributPIS: "PIS",
+    TipoConfigTributCOFINS: "COFINS",
+    CodigoConfigTributIPI: "03",
+    CodigoConfigTributPIS: "98",
+    CodigoConfigTributCOFINS: "98",
+    ValorUnitario: v,
+    CodigoSitTributariaIBSCBS: "",
+    ItemMovEstqUserFieldsObject: {},
+    ItemValorCompararClasseReceitaDespesa: v,
+  };
 
   // Header do MovEstq
   const payload: any = {
