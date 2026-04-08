@@ -300,7 +300,6 @@ export async function lancarNfseNoAlvo(input: LancarNfseInput): Promise<LancarNf
 
     const formData = new FormData();
     formData.append("obj", JSON.stringify(payload));
-    formData.append("obj", payloadJson);
     formData.append(`${uploadUuid}#Arquivo`, arquivo, nomeArquivo);
 
     const resp = await fetch(
