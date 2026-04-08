@@ -4,26 +4,13 @@ const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
 const MAX_RETRIES = 3;
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-export interface CCRateioInput {
-  codigoCentroCtrl: string;
-  percentual: number;
-  valor: number;
-}
+// ── Tipos ──
 
-export interface ClasseRateioInput {
-  codigoClasseRecDesp: string;
-  percentual: number;
-  valor: number;
-  centrosCusto: CCRateioInput[];
-}
+export interface CCRateioInput { codigoCentroCtrl: string; percentual: number; valor: number; }
 
-export interface ParcelaMovEstqInput {
-  sequencia: number;
-  numeroDuplicata: string;
-  dataEmissao: string;
-  valorParcela: number;
-  dataVencimento: string;
-}
+export interface ClasseRateioInput { codigoClasseRecDesp: string; percentual: number; valor: number; centrosCusto: CCRateioInput[]; }
+
+export interface ParcelaMovEstqInput { sequencia: number; numeroDuplicata: string; dataEmissao: string; valorParcela: number; dataVencimento: string; }
 
 export interface ImpostosMovEstqInput {
   baseISS: number; aliquotaISS: number; valorISS: number; deduzISSValorTotal: string;
@@ -35,1005 +22,120 @@ export interface ImpostosMovEstqInput {
 }
 
 export interface LancarNfseInput {
-  numero: string;
-  serie: string;
-  dataEmissao: string;
-  valorServico: number;
-  prestadorCnpj: string;
-  prestadorNome: string;
-  pedidoNumero: string;
-  classes: ClasseRateioInput[];
-  codigoCondPag: string;
-  codigoEntidade: string;
-  codigoProduto: string;
-  nomeProduto: string;
-  sequenciaItemPedComp: number;
-  impostos?: ImpostosMovEstqInput;
-  parcelas?: ParcelaMovEstqInput[];
-  danfsePdfBlob?: Blob;
-  xmlBlob?: Blob;
-  chaveAcesso?: string;
+  numero: string; serie: string; dataEmissao: string; valorServico: number;
+  prestadorCnpj: string; prestadorNome: string;
+  pedidoNumero: string; classes: ClasseRateioInput[];
+  codigoCondPag: string; codigoEntidade: string;
+  codigoProduto: string; nomeProduto: string; sequenciaItemPedComp: number;
+  impostos?: ImpostosMovEstqInput; parcelas?: ParcelaMovEstqInput[];
+  danfsePdfBlob?: Blob; xmlBlob?: Blob; chaveAcesso?: string;
 }
 
-export interface LancarNfseResult {
-  success: boolean;
-  chave?: number;
-  error?: string;
+export interface LancarNfseResult { success: boolean; chave?: number; error?: string; }
+
+// ── Helpers de data ──
+
+function fmtAlvoDate(iso: string | Date): string {
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T00:00:00`;
 }
 
-function buildPayload(
-  input: LancarNfseInput, 
-  anexos: { uuid: string; tipo: 'pdf' | 'xml' }[]
-): any {
-  const hoje = new Date();
-  hoje.setHours(3, 0, 0, 0);
-  const hojeISO = hoje.toISOString();
-  const dtEmissao = new Date(input.dataEmissao);
-  dtEmissao.setHours(3, 0, 0, 0);
-  const dtEmissaoISO = dtEmissao.toISOString();
-  const v = input.valorServico;
-  const cnpj = input.prestadorCnpj.replace(/\D/g, "");
-
-  // Impostos — do modal ou default zeros
-  const imp: ImpostosMovEstqInput = input.impostos || {
-    baseISS: 0, aliquotaISS: 0, valorISS: 0, deduzISSValorTotal: "Não",
-    baseIRRF: 0, aliquotaIRRF: 0, valorIRRF: 0, deduzIRRFValorTotal: "Não",
-    baseINSS: 0, aliquotaINSS: 0, valorINSS: 0, deduzINSSValorTotal: "Não",
-    basePIS: 0, aliquotaPIS: 0, valorPIS: 0, deduzPISValorTotal: "Não",
-    baseCOFINS: 0, aliquotaCOFINS: 0, valorCOFINS: 0, deduzCOFINSValorTotal: "Não",
-    baseCSLL: 0, aliquotaCSLL: 0, valorCSLL: 0, deduzCSLLValorTotal: "Não",
-  };
-
-  // Parcelas — do modal ou fallback
-  let parcelasList: any[];
-  if (input.parcelas && input.parcelas.length > 0) {
-    parcelasList = input.parcelas.map(p => ({
-      CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1,
-      Sequencia: p.sequencia,
-      EspecieDocumento: "NFS-e",
-      SerieDocumento: input.serie || "1",
-      NumeroDuplicata: p.numeroDuplicata,
-      DataEmissao: dtEmissaoISO,
-      ValorParcela: p.valorParcela,
-      ValorPago: 0,
-      DataPagamento: null,
-      DataVencimento: new Date(p.dataVencimento + "T03:00:00.000Z").toISOString(),
-      DataProrrogacao: new Date(p.dataVencimento + "T03:00:00.000Z").toISOString(),
-      NumeroBanco: null,
-      NumeroAgBancaria: null,
-      CodigoTipoCobranca: "0000001",
-      ParcPagMovEstqUserFieldsObject: {},
-      UploadIdentify: "",
-    }));
-  } else {
-    const dtVenc = new Date(dtEmissao);
-    dtVenc.setDate(dtVenc.getDate() + 30);
-    dtVenc.setHours(3, 0, 0, 0);
-    parcelasList = [{
-      CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1,
-      Sequencia: 1, EspecieDocumento: "NFS-e",
-      SerieDocumento: input.serie || "1",
-      NumeroDuplicata: `${input.numero}/1-1`,
-      DataEmissao: dtEmissaoISO,
-      ValorParcela: v,
-      ValorPago: 0,
-      DataPagamento: null,
-      DataVencimento: dtVenc.toISOString(),
-      DataProrrogacao: dtVenc.toISOString(),
-      NumeroBanco: null,
-      NumeroAgBancaria: null,
-      CodigoTipoCobranca: "0000001",
-      ParcPagMovEstqUserFieldsObject: {},
-      UploadIdentify: "",
-    }];
-  }
-
-  const classesList = input.classes.map(c => ({
-    CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1,
-    CodigoClasseRecDesp: c.codigoClasseRecDesp,
-    Valor: c.valor, Percentual: c.percentual,
-    ExcluiCentroControleValorZero: "Sim",
-    MovEstqClasseRecDespUserFieldsObject: {},
-    RateioMovEstqChildList: c.centrosCusto.map(cc => ({
-      CodigoEmpresaFilial: "1.01", ChaveMovEstq: 1,
-      CodigoClasseRecDesp: c.codigoClasseRecDesp,
-      CodigoCentroCtrl: cc.codigoCentroCtrl,
-      Valor: cc.valor, Percentual: cc.percentual,
-      RateioMovEstqUserFieldsObject: {},
-      UploadIdentify: "",
-    })),
-    UploadIdentify: "",
-  }));
-
-  return {
-    Chamou: "SaveChild",
-    ChamouClasse: "Servico",
-    IPIInclusoBaseICMS: "Não",
-    NumeroPedComp: input.pedidoNumero,
-    CodigoEmpresaFilial: "1.01",
-    Chave: 0,
-    CodigoTipoLanc: "E0000091",
-    ChaveControle: null,
-    DataMovimento: hojeISO,
-    DataEmissao: dtEmissaoISO,
-    DataEntrada: hojeISO,
-    CodigoEmpresaFilialOrigem: null,
-    CodigoEmpresaFilialDestino: null,
-    CodigoEmpresaFilialDocumento: "1.01",
-    Especie: "NFS-e",
-    Serie: input.serie || "1",
-    Numero: input.numero,
-    Sequencia: null,
-    CodigoEntidade: input.codigoEntidade,
-    Observacao: "",
-    ValorAcrescimoFinanceiroProduto: 0,
-    ValorAcrescimoFinanceiroServico: 0,
-    ValorDescontoEspecialProduto: 0,
-    ValorDescontoEspecialServico: 0,
-    ValorServico: v,
-    BaseISS: imp.baseISS,
-    ValorISS: imp.valorISS,
-    BaseIRRF: imp.baseIRRF,
-    ValorIRRF: imp.valorIRRF,
-    ValorTotalServico: v,
-    CodigoNatOperacao: null,
-    ObservacaoServico: null,
-    ValorEmbalagem: 0,
-    ValorFrete: 0,
-    ValorSeguro: 0,
-    ValorOutrasDespesas: 0,
-    ValorDespesaDiversas: 0,
-    BaseICMS: 0,
-    ValorICMS: 0,
-    BaseICMSST: 0,
-    ValorICMSST: 0,
-    ValorICMSSTRetido: 0,
-    BaseIPI: 0,
-    ValorIPI: 0,
-    ValorMercadoria: 0,
-    ValorFinalMercadoria: 0,
-    ValorMercadoriaDiversa: 0,
-    ValorDocumento: v,
-    CodigoCondPag: input.codigoCondPag,
-    IntegradoFinanceiro: "Sim",
-    CodigoEntidadeContato: null,
-    RateioAutomaticoDespesasDiversas: "Sim",
-    CodigoUsuario: null,
-    DataHoraDigitacao: null,
-    BaseINSS: imp.baseINSS,
-    ValorINSS: imp.valorINSS,
-    IntegradoFiscal: "Não",
-    DeduzISSValorTotal: imp.deduzISSValorTotal,
-    DeduzINSSValorTotal: imp.deduzINSSValorTotal,
-    PercentualFreteEmbutidoValor: 0,
-    ValorFreteEmbutidoValor: 0,
-    PercentualFinanceiroEmbutidoValor: 0,
-    ValorFinanceiroEmbutidoValor: 0,
-    PercentualDescontoGeral: 0,
-    ValorDescontoGeral: 0,
-    PercentualDescontoGeralProduto: 0,
-    ValorDescontoGeralProduto: 0,
-    PercentualDescontoGeralServico: 0,
-    ValorDescontoGeralServico: 0,
-    ChaveReferencia: null,
-    CodigoIndEconomicoCustoMedio: null,
-    ValorCambioCustoMedio: 0,
-    ControlaEstoque: "Não",
-    CodigoFuncionario: null,
-    DeduzIRRFValorTotal: imp.deduzIRRFValorTotal,
-    ValorLiberado: v,
-    ValorOriginal: v,
-    Origem: "Estoque",
-    PossuiItensRejeitadosPatrimono: "Não",
-    BaseII: 0,
-    ValorII: 0,
-    DataConhecimentoTransporteImportacao: null,
-    CodigoIndEconomicoDocumento: "0000001",
-    ValorCambioDocumento: 1,
-    ValorMercadoriaDocumento: 0,
-    CodigoTipoPagRec: "0000016",
-    EntidadeFrete: null,
-    EspecieDocumentoFrete: null,
-    SerieDocumetoFrete: null,
-    NumeroDocumentoFrete: null,
-    DataDocumentoFrete: null,
-    ValorDocumentoFrete: 0,
-    CodigoIndEconomicoFrete: null,
-    CambioIndiceEconomicoFrete: 0,
-    CodigoCondPagFrete: null,
-    DataBaseVencimentoFrete: null,
-    CodigoEntidadeSeguro: null,
-    EspecieDocumentoSeguro: null,
-    SerieDocumentoSeguro: null,
-    NumeroDocumentoSeguro: null,
-    DataDocumentoSeguro: null,
-    ValorDocumentoSeguro: 0,
-    CodigoIndEconomicoSeguro: null,
-    CambioIndiceEconomicoSeguro: 0,
-    CodigoCondPagSeguro: null,
-    DataBaseVencimentoSeguro: null,
-    ValorDespesasAcessoriasImportacao: 0,
-    DataChegadaEmpresa: null,
-    CodigoEntidadeDespachante: null,
-    NumeroDeclaracaoImportacao: null,
-    ReferenciaComissaria: null,
-    ValorSISCOMEX: 0,
-    BasePIS: 0,
-    ValorPIS: 0,
-    BaseCOFINS: 0,
-    ValorCOFINS: 0,
-    ValorISSDeduzir: 0,
-    ValorICMSDIFAL: 0,
-    BaseCSLLRFServico: imp.baseCSLL,
-    ValorCSLLRFServico: imp.valorCSLL,
-    PercentualCSLLRFServico: imp.aliquotaCSLL,
-    DeduzCSLLValorTotal: imp.deduzCSLLValorTotal,
-    PercentualCOFINSRFServico: imp.aliquotaCOFINS,
-    ValorCOFINSRFServico: imp.valorCOFINS,
-    DeduzCOFINSValorTotal: imp.deduzCOFINSValorTotal,
-    PercentualPISRFServico: imp.aliquotaPIS,
-    ValorPISRFServico: imp.valorPIS,
-    DeduzPISValorTotal: imp.deduzPISValorTotal,
-    CodigoMotResultOrc: null,
-    ValorAtivo: 0,
-    ValorDescontoRepasseICMSDiferencial: 0,
-    ValorDescontoRepasseICMSReducao: 0,
-    BaseICMSProprioST: 0,
-    ValorICMSProprioST: 0,
-    BaseICMSSTPrecoLista: 0,
-    ValorICMSSTPrecoLista: 0,
-    BaseICMSSTMargemLucro: 0,
-    ValorICMSSTMargemLucro: 0,
-    SomaFreteBaseICMSST: "Não",
-    ValorMercadoriaST: 0,
-    PesoLiquido: 0,
-    PesoBruto: 0,
-    RateioFretePorPeso: "Não",
-    ValorCapatazia: 0,
-    RateioCapataziaPeso: "Não",
-    ValorICMSRecolhidoAntecipST: 0,
-    ValorICMSRecolhidoAntecipSTPago: "Não",
-    ValorDescontoICMS: 0,
-    ValorReembolso: 0,
-    ValorDiferimentoICMS: 0,
-    ValorICMSDevido: 0,
-    ValorCreditoPresumidoICMS: 0,
-    ValorICMSRecolher: 0,
-    Selecionado: "Não",
-    CodigoEmpresaFilialPedidoVenda: null,
-    NumeroPedVenda: null,
-    NumeroCtrlProjeto: null,
-    CodigoMatriz: null,
-    CodigoLinha: null,
-    CodigoColuna: null,
-    SequenciaVerbaCtrlProjeto: null,
-    IntegraFiscal: "Não",
-    ValorGlosa: 0,
-    ValorLiquidoDocumento: v,
-    ValorPedagio: 0,
-    CodigoEnderEnt: null,
-    CodigoEnderEntSeq: null,
-    BaseICMSOperacao: 0,
-    ValorICMSOperacao: 0,
-    PrecoVendaVarejo: 0,
-    ValorDespesasCompoeValorTotal: "Não",
-    DesabilitaRecalculoValores: "Não",
-    ValorSeloControle: 0,
-    DadosAdicionais: null,
-    ValorPISRFProduto: 0,
-    ValorCOFINSRFProduto: 0,
-    BasePISRFServico: imp.basePIS,
-    BaseCOFINSRFServico: imp.baseCOFINS,
-    BasePISRFProduto: 0,
-    BaseCOFINSRFProduto: 0,
-    ModalidadeFrete: "Sem Frete",
-    PercentualAcrescimoFinanceiro: 0,
-    ValorAcrescimoFinanceiro: 0,
-    CodigoConfConhecFrete: null,
-    DeduzPISProdutoValorTotal: "Não",
-    DeduzCOFINSProdutoValorTotal: "Não",
-    BaseFUNRURAL: 0,
-    ValorFUNRURAL: 0,
-    DeduzFUNRURALValorTotal: "Não",
-    PesoCubado: 0,
-    NomeEntidade: input.prestadorNome,
-    CPFCNPJEntidade: cnpj,
-    RGIEEntidade: null,
-    EnderecoEntidade: null,
-    NumeroEnderecoEntidade: null,
-    ComplementoEnderecoEntidade: "",
-    BairroEntidade: null,
-    Suframa: null,
-    SiglaPaisEntidade: "BRA",
-    NomeCidadeEntidade: null,
-    SiglaUnidFederacaoEntidade: "SP",
-    CodigoCidadeEntidade: null,
-    DeduzValorPISParcelaPagamento: "Não",
-    DeduzValorCOFINSParcelaPagamento: "Não",
-    DeduzValorCSLLParcelaPagamento: "Não",
-    NaturezaFrete: "N",
-    DataEntrega: null,
-    DescontoICMSZFM: 0,
-    DescontoPISZFM: 0,
-    DescontoCOFINSZFM: 0,
-    TaxaMarinhaMercante: 0,
-    TaxaMarinhaMercantePorPeso: "Não",
-    SISCOMEXPorPeso: "Não",
-    DespesasImportacaoPeso: "Não",
-    CodigoCidadeOrigem: null,
-    CodigoCidadeDestino: null,
-    ConferidoIntegracaoSistemas: "Regular",
-    CodigoObjeto: null,
-    BaseFCPICMS: 0,
-    ValorFCPICMS: 0,
-    BaseFCPICMSST: 0,
-    ValorFCPICMSST: 0,
-    BaseFCPICMSPartilha: 0,
-    CodigoCNOCEI: null,
-    CodigoCidadeInicio: null,
-    CodigoCidadeFinal: null,
-    ValorRetencaoEspecial15: 0,
-    ValorRetencaoEspecial20: 0,
-    ValorRetencaoEspecial25: 0,
-    ValorAdicionalREINF: 0,
-    ValorAdicionalNaoRetidoREINF: 0,
-    BaseNaoDevidoINSS: 0,
-    ValorNaoDevidoINSS: 0,
-    BaseNaoDevidoIRRF: 0,
-    ValorNaoDevidoIRRF: 0,
-    BaseNaoDevidoPIS: 0,
-    ValorNaoDevidoPIS: 0,
-    BaseNaoDevidoCOFINS: 0,
-    ValorNaoDevidoCOFINS: 0,
-    BaseNaoDevidoCSLL: 0,
-    ValorNaoDevidoCSLL: 0,
-    DataCompetencia: null,
-    NFEmissaoPropria: "Não",
-    ValorFCPRetidoST: 0,
-    OrigemModulo: "Estoque",
-    Operacao: "Entrada",
-    BaseIIOperacao: 0,
-    ValorIIOperacao: 0,
-    BaseIPIOperacao: 0,
-    ValorIPIOperacao: 0,
-    BasePISOperacao: 0,
-    ValorPISOperacao: 0,
-    BaseCofinsOperacao: 0,
-    ValorCofinsOperacao: 0,
-    NumeroControleComissao: null,
-    DocumentoHomologado: "Sim",
-    IdGerencProj: null,
-    IdVerbaGerencProj: null,
-    DocumentoConferido: "Não",
-    CodigoEntidadeTransportadora: null,
-    NomeTransportadora: null,
-    CodigoEntidadeMotorista: null,
-    NomeMotorista: null,
-    CNH: null,
-    ModeloVeiculo: null,
-    PlacaVeiculo: null,
-    DeduzIRRFPrimeiraParcela: "Não",
-    DeduzISSPrimeiraParcela: "Não",
-    DeduzINSSPrimeiraParcela: "Não",
-    DeduzPISPrimeiraParcela: "Não",
-    DeduzCOFINSPrimeiraParcela: "Não",
-    DeduzCSLLPrimeiraParcela: "Não",
-    ValorContribuicaoPrevidenciaria: 0,
-    ValorContribuicaoDestinadaFinanciamento: 0,
-    ValorSENAR: 0,
-    ValorContribuicaoPrevidenciariaNaoRetida: 0,
-    ValorGILRATNaoRetida: 0,
-    ValorSenarNaoRetida: 0,
-    Rascunho: "Não",
-    NumeroDocumentoReferencia: input.numero,
-    NumeroDocumentoReferencia1: null,
-    CasasDecimaisValorUnitario: 5,
-    DataDocumentoHomologado: null,
-    IntegradoExterno: "Não",
-    ValorSuspensaoICMSImportacao: 0,
-    RefazParcelas: "Sim",
-    LinkSEI: null,
-    BaseIOF: 0,
-    ValorIOF: 0,
-    BaseCIDE: 0,
-    ValorCIDE: 0,
-    CodigoEquipamento: null,
-    FinalidadeCTe: "0- CT-e Normal",
-    BaseSENAR: 0,
-    ValorGILRAT: 0,
-    BaseGILRAT: 0,
-    BaseCBS: 0,
-    ValorCBS: 0,
-    BaseIBSUF: 0,
-    ValorIBSUF: 0,
-    BaseIBSCidade: 0,
-    ValorIBSCidade: 0,
-    IndicadorPresenca: "Nenhum",
-    MovEstqUserFieldsObject: {},
-    IcmsMovEstqChildList: [
-      {
-        CodigoEmpresaFilial: "1.01",
-        Chave: 1,
-        PercentualICMS: 0,
-        BaseCalculoICMS: 0,
-        ValorICMS: 0,
-        IcmsMovEstqUserFieldsObject: {},
-        UploadIdentify: "",
-      },
-    ],
-    ItemMovEstqChildList: [
-      {
-        ValorUnitarioFOB: 0,
-        ControlaLote: "Não",
-        CodigoEmpresaFilial: "1.01",
-        CodigoProduto: input.codigoProduto,
-        ChaveMovEstq: 0,
-        Sequencia: 1,
-        DataMovimento: hojeISO,
-        CodigoTipoLanc: "E0000091",
-        CodigoNatOperacao: "1.933",
-        CodigoCentroCtrl: null,
-        CodigoEmpresaFilialPedComp: "1.01",
-        NumeroPedComp: input.pedidoNumero,
-        QuantidadeProdUnidMedPrincipal: 1,
-        ValorProduto: v,
-        CodigoProdUnidMed: "UNID",
-        PosicaoProdUnidMed: 1,
-        Peso: 1,
-        FatorDivisor: "Fator",
-        PercentualAcrescimoFinanceiro: 0,
-        ValorAcrescimoFinanceiro: 0,
-        PercentualDescontoEspecial: 0,
-        ValorDescontoEspecial: 0,
-        ValorEmbalagem: 0,
-        ValorFrete: 0,
-        ValorSeguro: 0,
-        ValorOutrasDespesas: 0,
-        ValorDespesasDiversas: 0,
-        ValorServico: 0,
-        BaseICMS: 0,
-        PercentualReducaoICMS: 0,
-        ValorReducaoICMS: 0,
-        BaseICMSReduzido: 0,
-        PercentualICMS: 0,
-        ValorICMS: 0,
-        ValorICMSRecuperado: 0,
-        CalculaST: "F",
-        ValorICMSSTRetido: 0,
-        ValorICMSSTRetidoRecuperado: 0,
-        BaseIPI: 0,
-        PercentualIPI: 0,
-        ValorIPI: 0,
-        IPIInclusoBaseICMS: "Não",
-        ValorIPIRecuperado: 0,
-        BaseCustoMedio: v,
-        CustoUnitario: v,
-        CodigoNatOperacaoDestino: null,
-        ControleEmpenho: null,
-        ItemServico: "Sim",
-        BaseISS: imp.baseISS,
-        PercentualISS: imp.aliquotaISS,
-        ValorISS: imp.valorISS,
-        BaseIRRF: imp.baseIRRF,
-        PercentualIRRF: imp.aliquotaIRRF,
-        ValorIRRF: imp.valorIRRF,
-        BaseINSS: imp.baseINSS,
-        PercentualINSS: imp.aliquotaINSS,
-        ValorINSS: imp.valorINSS,
-        CodigoSitTributaria: null,
-        CodigoNCM: null,
-        NomeProdutoDiverso: null,
-        QuantidadeProdDiv: 0,
-        CreditoIPICompraComercio: "Não",
-        PercentualCreditoIPICompraComercio: 0,
-        CalculaDiferencalICMS: "Não",
-        PercentualDiferencalICMS: 0,
-        Observacao: null,
-        EspecieDocumentoRelacionado: null,
-        SerieDocumentoRelacionado: null,
-        NumeroDocumentoRelacionado: null,
-        Quantidade2: 1,
-        CodigoGarantia: null,
-        DataInicioGarantia: null,
-        CustoUnitarioSegundaMoeda: null,
-        BaseCustoMedioOutraMoeda: null,
-        ControlaEstoque: "Não",
-        SequenciaItemOrigem: null,
-        SequenciaItemComposicaoOrigem: null,
-        QuantidadeDesmembradaProdUnidMedPrincipal: 0,
-        SequenciaItemRelacionadoOrigem: null,
-        NumeroDocumentoReferencia: null,
-        NumeroContrato: null,
-        SequenciaItemContratoOrcam: null,
-        SequenciaParcelaItemContratoOrcam: null,
-        DesmembramentoSequenciaParcelaItemContratoOrcam: 0,
-        RejeitadoPatrimonio: "Não",
-        BaseII: 0,
-        PercentualII: 0,
-        ValorII: 0,
-        ValorIIRecuperado: 0,
-        CodigoTributA: "0",
-        CodigoTributB: "90",
-        CodigoEmpresaFilialContratoOrcam: "1.01",
-        CodigoClasFiscal: "0000002",
-        ValorProdutoOriginalDocumento: 0,
-        CodigoProdUnidMedValor: "UNID",
-        PosicaoProdUnidMedValor: 1,
-        ValorFreteOriginalDocumento: 0,
-        ValorSeguroOriginalDocumento: 0,
-        ValorDespesaOriginalDocumento: 0,
-        ValorProdutoFOB: 0,
-        NumeroInvoice: null,
-        ValorSISCOMEX: 0,
-        BasePIS: 0,
-        PercentualPIS: 0,
-        ValorPIS: 0,
-        BaseCOFINS: 0,
-        PercentualCOFINS: 0,
-        ValorCOFINS: 0,
-        ValorISSDeduzirTotal: 0,
-        ValorICMSDIFAL: 0,
-        ValorPISRecuperado: 0,
-        ValorCOFINSRecuperado: 0,
-        BaseCSLLRF: imp.baseCSLL,
-        PercentualCSLLRF: imp.aliquotaCSLL,
-        ValorCSLLRF: imp.valorCSLL,
-        PercentualCOFINSRF: imp.aliquotaCOFINS,
-        ValorCOFINSRF: imp.valorCOFINS,
-        PercentualPISRF: imp.aliquotaPIS,
-        ValorPISRF: imp.valorPIS,
-        NumeroPedidoClienteOrigem: null,
-        CodigoEntidadeOrigem: null,
-        CodigoProdutoEntidadeOrigem: null,
-        NumeroOrdServ: null,
-        CodigoEntidade: input.codigoEntidade,
-        ChaveDocumentoRelacionado: null,
-        AcrescimoCustoComposicao: 0,
-        DescontoCustoComposicao: 0,
-        NomeProduto: input.nomeProduto,
-        ChaveOrdenacao: 0,
-        PercentualReducaoPIS: 0,
-        ValorReducaoPIS: 0,
-        BasePISReduzida: 0,
-        PercentualReducaoCOFINS: 0,
-        ValorReducaoCOFINS: 0,
-        BaseCOFINSReduzida: 0,
-        Patrimonio: "Não",
-        CodigoProdutoPedComp: input.codigoProduto,
-        SequenciaItemPedComp: input.sequenciaItemPedComp,
-        ValorDescontoGeral: 0,
-        PercentualDescontoRepasseICMS: 0,
-        ValorDescontoRepasseICMS: 0,
-        ValorReducaoDescontoRepasseICMS: 0,
-        CodigoClasseRecDesp: null,
-        CalculoICMSSTPrecoLista: "Não",
-        MargemLucroST: 0,
-        PrecoListaICMSST: 0,
-        PercentualReducaoICMSST: 0,
-        BaseICMSST: 0,
-        PercentualICMSST: 0,
-        ValorICMSST: 0,
-        ValorEmbalagemST: 0,
-        ValorICMSSTEmbalagem: 0,
-        ValorFreteST: 0,
-        ValorICMSSTFrete: 0,
-        ValorSeguroST: 0,
-        ValorICMSSTSeguro: 0,
-        ValorOutrasDespesaST: 0,
-        ValorICMSSTOutrasDespesas: 0,
-        ValorFreteEmbutidoST: 0,
-        ValorICMSSTFreteEmbutido: 0,
-        PesoLiquido: 0,
-        PesoBruto: 0,
-        CustoUnitarioLiquido: 0,
-        ValorCapatazia: 0,
-        PercentualReducaoINSS: 0,
-        ValorReducaoINSS: 0,
-        BaseINSSReduzida: 0,
-        RateiaValorICMSSTRecolhidoAntecipadamente: "Não",
-        ValorICMSSTRecolhidoAntecipadamente: 0,
-        ReducaoII: "Nenhum",
-        PercentualReducaoII: 0,
-        ValorReducaoII: 0,
-        BaseIIReduzida: 0,
-        ValorIIOriginal: 0,
-        ReducaoIPI: "Nenhum",
-        PercentualReducaoIPI: 0,
-        ValorReducaoIPI: 0,
-        BaseIPIReduzida: 0,
-        ValorIPIOriginal: 0,
-        ReducaoICMS: "Nenhum",
-        ValorICMSOriginal: 0,
-        ReducaoPIS: "Nenhum",
-        ValorPISOriginal: 0,
-        ReducaoCOFINS: "Nenhum",
-        ValorCOFINSOriginal: 0,
-        ReducaoISS: "Nenhum",
-        PercentualReducaoISS: 0,
-        ValorReducaoISS: 0,
-        BaseISSReduzida: 0,
-        ValorISSOriginal: 0,
-        ReducaoINSS: "Nenhum",
-        ValorINSSOriginal: 0,
-        ValorDescontoICMS: 0,
-        ValorReembolso: 0,
-        SequenciaParcPagContrato: null,
-        SequenciaItemContrato: 1,
-        NumeroVersaoContrato: 1,
-        PercentualDiferimentoICMS: 0,
-        ValorDiferimentoICMS: 0,
-        ValorICMSDevido: 0,
-        ValorCreditoPresumidoICMS: 0,
-        ValorICMSRecolher: 0,
-        QuantidadeSTProdUnidMedPrincipal: 0,
-        QuantidadeST2: 0,
-        DaeGNREPago: "Não",
-        DeduzICMSSTRetido: "Não",
-        NumeroCtrlProjeto: null,
-        GeraRMEspecificaLaudo: "Não",
-        CodigoFuncionarioAprovadorRMEspecificaLaudo: null,
-        ValorGlosa: 0,
-        ValorPedagio: 0,
-        PercentualICMSExonerado: 0,
-        BaseICMSOperacao: 0,
-        PercentualICMSOperacao: 0,
-        ValorICMSOperacao: 0,
-        PrecoVendaVarejo: 0,
-        ValorSeloControle: 0,
-        QuantidadePatrimonio: 1,
-        CodigoTributBModBc: null,
-        CodigoTributBModBcST: null,
-        TipoConfigTributIPI: null,
-        TipoConfigTributPIS: "PIS",
-        TipoConfigTributCOFINS: "COFINS",
-        CodigoConfigTributIPI: "03",
-        CodigoConfigTributPIS: "98",
-        CodigoConfigTributCOFINS: "98",
-        AtualizacaoFichaTecnica: "Nenhum",
-        ValorICMSSTRetidoRecuperadoX: 0,
-        ValorICMSRecuperadoX: 0,
-        BaseICMSX: 0,
-        BaseIPIPauta: 0,
-        ValorUnitarioIPIPauta: 0,
-        BasePISPauta: 0,
-        ValorUnitarioPISPauta: 0,
-        BaseCOFINSPauta: 0,
-        ValorUnitarioCOFINSPauta: 0,
-        NumeroNotaFiscalFabricante: null,
-        DataNotaFiscalFabricante: null,
-        CodigoEntidadeFabricante: null,
-        QuantidadeReducaoProdUnidMedPrincipal: 0,
-        QuantidadeReducao2: 0,
-        NomeFabricante: null,
-        QuantidadeDesmembrada2: 0,
-        BaseFUNRURAL: 0,
-        PercentualFUNRURAL: 0,
-        ValorFUNRURAL: 0,
-        EspecieNotaFabricante: null,
-        SerieNotaFiscalFabricante: null,
-        CodigoConfigTributSimpNacional: null,
-        QuantidadeMesesComodato: null,
-        FatorCalculoComodato: 0,
-        DescricaoAlternativaProduto: null,
-        NumeroContratoOrdemEncomenda: null,
-        CodigoVendedor: null,
-        BaseSegundoCustoMedio: 0,
-        CustoUnitarioSegundoCustoMedio: 0,
-        CustoUnitSegCustoMedioSegMoeda: 0,
-        BaseSegCustoMedioSegMoeda: 0,
-        CodigoTipoVenda: null,
-        PesoCubado: 0,
-        ValorDeducaoISS: 0,
-        BaseDeduzidaISS: 0,
-        ChaveSolicComp: null,
-        SequenciaItemSolicComp: null,
-        CodigoExecOrcam: null,
-        SequenciaItemExecOrcam: null,
-        ParcelaItemExecOrcam: null,
-        ParcelaItemExecOrcamDesmembrada: null,
-        ValorUnitario: v,
-        BasePISRF: imp.basePIS,
-        BaseCOFINSRF: imp.baseCOFINS,
-        NaturezaFrete: null,
-        ValorDescontoICMSZFM: 0,
-        ValorDescontoPISZFM: 0,
-        ValorDescontoCOFINSZFM: 0,
-        BaseReduzidaICMSDestino: 0,
-        PercentualReducaoICMSDestino: 0,
-        CodigoNBS: null,
-        DemonstrativoPercentualMargemLucroST: 0,
-        DemonstrativoPrecoListaST: 0,
-        DemonstrativoBaseICMSST: 0,
-        DemonstrativoPercentualICMSST: 0,
-        DemonstrativoValorICMSST: 0,
-        DemonstrativoValorICMSSTRetido: 0,
-        ValorMarinhaMercante: 0,
-        ValorICMSMarinhaMercante: 0,
-        NumeroFCI: null,
-        QuantidadeFCIProdUnidMedPrincipal: null,
-        QuantidadeFCI2: null,
-        QuantidadeRecebidaIntegracaoSistemas: null,
-        CodigoObjeto: null,
-        MotivoDesoneracaoICMS: "Nenhum",
-        CodigoEspecificadorST: null,
-        PercentualICMSInternoEstadoDestinatarioPartilha: 0,
-        PercentualICMSInterestadualPartilha: 0,
-        ValorICMSEstadoDestinatarioPartilha: 0,
-        ValorICMSEstadoRemetentePartilha: 0,
-        CodigoMotEnquadramentoLegalIPI: null,
-        CodigoTributC: null,
-        CustoUnitarioICMSRecuperado: 0,
-        SequenciaItemNotaFiscal: 1,
-        ChavePlanBaseContrato: null,
-        SequenciaItemPlanBaseContrato: null,
-        BaseFCPICMS: 0,
-        PercentualFCPICMS: 0,
-        ValorFCPICMS: 0,
-        BaseFCPICMSST: 0,
-        PercentualFCPICMSST: 0,
-        ValorFCPICMSST: 0,
-        BaseFCPICMSPartilha: 0,
-        ValorRetencaoEspecial15: 0,
-        ValorRetencaoEspecial20: 0,
-        ValorRetencaoEspecial25: 0,
-        ValorAdicionalREINF: 0,
-        ValorAdicionalNaoRetidoREINF: 0,
-        BaseNaoDevidoINSS: 0,
-        PercentualNaoDevidoINSS: 0,
-        ValorNaoDevidoINSS: 0,
-        BaseNaoDevidoIRRF: 0,
-        PercentualNaoDevidoIRRF: 0,
-        ValorNaoDevidoIRRF: 0,
-        BaseNaoDevidoPIS: 0,
-        PercentualNaoDevidoPIS: 0,
-        ValorNaoDevidoPIS: 0,
-        BaseNaoDevidoCOFINS: 0,
-        PercentualNaoDevidoCOFINS: 0,
-        ValorNaoDevidoCOFINS: 0,
-        BaseNaoDevidoCSLL: 0,
-        PercentualNaoDevidoCSLL: 0,
-        ValorNaoDevidoCSLL: 0,
-        ValorFCPRetidoST: 0,
-        Erro: null,
-        IndustrializacaoConjunta: "Não",
-        IDItemCronogramaExecucaoOrcamentaria: null,
-        IDItemExecucaoOrcamentaria: null,
-        Mensagem: null,
-        BaseIIOperacao: 0,
-        PercentualIIOperacao: 0,
-        ValorIIOperacao: 0,
-        BaseIPIOperacao: 0,
-        PercentualIPIOperacao: 0,
-        ValorIPIOperacao: 0,
-        BasePISOperacao: 0,
-        PercentualPISOperacao: 0,
-        ValorPISOperacao: 0,
-        BaseCOFINSOperacao: 0,
-        PercentualCOFINSOperacao: 0,
-        ValorCOFINSOperacao: 0,
-        IdProdutoId: null,
-        CodigoAlternativoProduto: null,
-        ValorContribuicaoPrevidenciaria: 0,
-        PercentualContribuicaoPrevidenciaria: 0,
-        ValorContribuicaoDestinadaFinanciamento: 0,
-        PercentualContribuicaoDestinadaFinanciamento: 0,
-        ValorSENAR: 0,
-        PercentualSENAR: 0,
-        ValorContribuicaoPrevidenciariaNaoRetida: 0,
-        ValorGILRATNaoRetida: 0,
-        ValorSenarNaoRetida: 0,
-        DescontoRepasseICMSPor: "Nenhum",
-        BasePISRecuperado: 0,
-        BaseCOFINSRecuperado: 0,
-        PercentualSuspensaoICMSImportacao: 0,
-        ValorSuspensaoICMSImportacao: 0,
-        ValorICMSRecuperadoFiscal: 0,
-        DeduzICMSISSBasePISCOFINS: "Sim",
-        DeduzICMSDIFALBasePISCOFINS: "Não",
-        DeduzICMSSTBasePISCOFINS: "Não",
-        BaseIOF: 0,
-        PercentualIOF: 0,
-        ValorIOF: 0,
-        BaseCIDE: 0,
-        PercentualCIDE: 0,
-        ValorCIDE: 0,
-        BaseSENAR: 0,
-        ValorGILRAT: 0,
-        PercentualGILRAT: 0,
-        BaseGILRAT: 0,
-        CodigoSitTributariaIBSCBS: null,
-        BaseCBS: 0,
-        PercentualCBS: 0,
-        ValorCBS: 0,
-        PercentualReducaoCBS: 0,
-        ReducaoSobreCBS: "Nenhum",
-        BaseIBSUF: 0,
-        PercentualIBSUF: 0,
-        ValorIBSUF: 0,
-        PercentualReducaoIBSUF: 0,
-        ReducaoSobreIBSUF: "Nenhum",
-        BaseIBSCidade: 0,
-        PercentualIBSCidade: 0,
-        ValorIBSCidade: 0,
-        PercentualReducaoIBSCidade: 0,
-        ReducaoSobreIBSCidade: "Nenhum",
-        PercentualCBSOriginal: 0,
-        PercentualIBSUFOriginal: 0,
-        PercentualIBSCidadeOriginal: 0,
-        ItemMovEstqUserFieldsObject: {
-          CodigoEmpresaFilial: "1.01",
-          CodigoProduto: input.codigoProduto,
-          ChaveMovEstq: 0,
-          Sequencia: 1,
-          UserDataValid: null,
-          UploadIdentify: "",
-        },
-        CompItemMovEstqChildList: [],
-        CtrlLoteItemMovEstqChildList: [],
-        ItMovEstqParcContrOrcamChildList: [],
-        ItemMovEstqBemPatChildList: [],
-        ItemMovEstqClasseRecdespChildList: [],
-        ItemMovEstqConfImpNfeChildList: [],
-        ItemMovEstqDocRelacChildList: [],
-        ItemMovEstqProcChildList: [],
-        ItemMovEstqSubcontChildList: [],
-        LocArmazItemMovEstqChildList: [],
-        MovEstqFifoChildList: [],
-        NumSerieItemMovEstqChildList: [],
-        ValorAnteriorExecucaoOrcamentaria: v,
-        AvisoRetorno: null,
-        IDGeraNumSerie: 0,
-        ItemValorCompararClasseReceitaDespesa: v,
-        Quantidade2Old: 0,
-        UploadIdentify: "",
-      },
-    ],
-    MovEstqAcordVendChildList: [],
-    MovEstqAdiantChildList: [],
-    MovEstqArquivoChildList: anexos.map(a => ({
-      CodigoEmpresaFilial: -1,
-      ChaveMovEstq: -1,
-      Sequencia: -1,
-      Arquivo: null,
-      UploadIdentify: a.uuid,
-    })),
-    MovEstqCctrlChildList: [],
-    MovEstqClasseRecDespChildList: classesList,
-    MovEstqDocComplemChildList: [],
-    MovEstqEmpChildList: [],
-    MovEstqNfEletronicaChildList: [],
-    MovEstqPedCompChildList: [],
-    ParcPagMovEstqChildList: parcelasList,
-    TipoFormulario: "Normal",
-    ListaMensagens: [],
-    ChaveAcessoNFe: null,
-    SiglaPaisEmpresa: null,
-    SiglaUnidFederacaoEmpresa: null,
-    ZerouImpostos: false,
-    RecalcularImpostos: false,
-    TipoLancamento: null,
-    EspecieLancamento: null,
-    OperacaoLancamento: null,
-    CodigoLocArmazLancamento: null,
-    IndustrializacaoConjunta: false,
-    Importacao: false,
-    CodigoEntidadeEmpresaFilial: null,
-    InscricaoSuframaEmpresa: null,
-    ZonaFrancaEmpresa: null,
-    DiferencaMaiorDesconto: 0,
-    ValorFatorICMSST: 0,
-    LiberaST: "Não",
-    CalculaRateioClasseRecDesp: "Não",
-    CodigoCondPagAnterior: null,
-    ValorTotalParcelas: 0,
-    TipoDevolucao: 0,
-    TipoRetorno: 0,
-    TipoComplemento: 0,
-    TipoTransferencia: 0,
-    TipoVenda: 0,
-    TipoRemessa: 0,
-    TipoCompra: 0,
-    EspecieImportacao: 0,
-    EspecieFrete: 0,
-    EspeciePreco: 0,
-    TipoLancamentoIntegraFinanceiro: 0,
-    TipoLancamentoIntegraCompras: 0,
-    TipoLancamentoIntegraContratoOrcamentario: 0,
-    TipoLancamentoIntegraContrato: 0,
-    TipoLancamentoNecessitaCentroControle: 0,
-    TipoLancamentoRepasseTerceiros: 0,
-    TipoLancamentoGeraControleEstoqueTerceiros: 0,
-    TipoLancamentoGeraControleEstoque: 0,
-    TipoLancamentoIntegraProjeto: 0,
-    TipoLancamentoIntegraSC: 0,
-    TipoLancamentoIntregraExecucaoOrcamentaria: 0,
-    TipoLancamentoRelacionaMovimentoEstoqueOrdemServico: 0,
-    DataMovimentoAnterior: "0001-01-01T00:00:00-02:00",
-    ValorDocumentoAnterior: -1,
-    EspecieSelectBox: "NFS-e",
-    SerieSelectBox: input.serie || "1",
-    TipoOrdemContrato: "",
-    ChaveMovimentacaoCusto: false,
-    IsSuppressVerificationOfRulesAndIntegration: false,
-    ConfiguracaoAlteraMovEstqLaudoConcluido: false,
-    ExisteFinanceiroRealizado: 0,
-    ValorCompararClasseReceitaDespesa: 0,
-    ValorCompoeFinanceiro: 0,
-    ChaveTransferenciaEntreEmpresa: false,
-    DeletarClasseMovEstq: false,
-    Reconciled: false,
-    InformationResult: [],
-    ExecuteWorkFlows: true,
-    UploadIdentify: "",
-    filesToUpload: anexos.map(a => ({
-      key: `${a.uuid}#Arquivo`,
-      file: {},
-    })),
-  };
+function fmtAlvoDateFromYMD(ymd: string): string {
+  return `${ymd}T00:00:00`;
 }
 
-export async function lancarNfseNoAlvo(
-  input: LancarNfseInput
-): Promise<LancarNfseResult> {
-  const anexos: { uuid: string; tipo: 'pdf' | 'xml'; blob: Blob; filename: string }[] = [];
+// ── Fetchers ──
 
-  if (input.danfsePdfBlob) {
-    const safeNome = input.prestadorNome.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '_');
-    anexos.push({
-      uuid: crypto.randomUUID(),
-      tipo: 'pdf',
-      blob: input.danfsePdfBlob,
-      filename: `DANFSE_${input.numero}_${safeNome}.pdf`,
-    });
+interface EntidadeData { Endereco: string|null; NumeroEndereco: string|null; ComplementoEndereco: string; Bairro: string|null; CodigoCidade: string|null; RGIE: string|null; }
+
+interface CidadeData { NomeCompleto: string|null; SiglaUnidFederacao: string|null; SiglaPais: string|null; }
+
+async function fetchEntidade(codigo: string, token: string): Promise<EntidadeData> {
+  try {
+    const url = `${ERP_BASE_URL}/entidade/Load?codigo=${codigo}&loadChild=All&loadOneToOne=All`;
+    const resp = await fetch(url, { headers: { "riosoft-token": token } });
+    if (!resp.ok) {
+      console.warn(`[fetchEntidade] HTTP ${resp.status} para ${codigo}`);
+      return { Endereco: null, NumeroEndereco: null, ComplementoEndereco: "", Bairro: null, CodigoCidade: null, RGIE: null };
+    }
+    const data = await resp.json();
+    return {
+      Endereco: data?.Endereco ?? null,
+      NumeroEndereco: data?.NumeroEndereco ?? null,
+      ComplementoEndereco: data?.ComplementoEndereco ?? "",
+      Bairro: data?.Bairro ?? null,
+      CodigoCidade: data?.CodigoCidade ?? null,
+      RGIE: data?.RGIE ?? null,
+    };
+  } catch (e) {
+    console.warn(`[fetchEntidade] erro:`, e);
+    return { Endereco: null, NumeroEndereco: null, ComplementoEndereco: "", Bairro: null, CodigoCidade: null, RGIE: null };
   }
+}
 
-  if (input.xmlBlob) {
-    anexos.push({
-      uuid: crypto.randomUUID(),
-      tipo: 'xml',
-      blob: input.xmlBlob,
-      filename: `NFSE_${input.numero}.xml`,
-    });
+async function fetchCidade(codigo: string, token: string): Promise<CidadeData> {
+  try {
+    const url = `${ERP_BASE_URL}/cidade/Load?codigo=${codigo}&loadChild=All&loadOneToOne=All`;
+    const resp = await fetch(url, { headers: { "riosoft-token": token } });
+    if (!resp.ok) {
+      console.warn(`[fetchCidade] HTTP ${resp.status} para ${codigo}`);
+      return { NomeCompleto: null, SiglaUnidFederacao: null, SiglaPais: null };
+    }
+    const data = await resp.json();
+    return {
+      NomeCompleto: data?.NomeCompleto ?? data?.Nome ?? null,
+      SiglaUnidFederacao: data?.SiglaUnidFederacao ?? null,
+      SiglaPais: data?.SiglaPais ?? null,
+    };
+  } catch (e) {
+    console.warn(`[fetchCidade] erro:`, e);
+    return { NomeCompleto: null, SiglaUnidFederacao: null, SiglaPais: null };
   }
+}
 
+// ── Stub buildPayload ──
 
+async function buildPayload(input: LancarNfseInput, token: string): Promise<any> {
+  throw new Error("buildPayload não implementado — aplicar prompts 3B e 3C");
+}
+
+// ── Caller ──
+
+export async function lancarNfseNoAlvo(input: LancarNfseInput): Promise<LancarNfseResult> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     if (attempt === 1) clearAlvoToken();
     const auth = await authenticateAlvo();
-    if (!auth.success || !auth.token)
+    if (!auth.success || !auth.token) {
       return { success: false, error: "Falha na autenticação ERP" };
+    }
 
-    const payload = buildPayload(input, anexos.map(a => ({ uuid: a.uuid, tipo: a.tipo })));
+    const payload = await buildPayload(input, auth.token);
 
-    // 🔍 DEBUG TEMPORÁRIO — REMOVER APÓS DIAGNÓSTICO
+    // 🔍 DEBUG TEMPORÁRIO
     console.log("🔍 NFS-e Launch Payload:", JSON.stringify(payload, null, 2));
-    console.log("🔍 NFS-e Anexos:", anexos);
     try {
       await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
       console.log("✅ Payload copiado para clipboard");
-    } catch (e) {
-      console.log("⚠️ Não foi possível copiar para clipboard:", e);
-    }
+    } catch {}
 
-    const formData = new FormData();
-    formData.append("obj", JSON.stringify(payload));
-
-    for (const anexo of anexos) {
-      formData.append(`${anexo.uuid}#Arquivo`, anexo.blob, anexo.filename);
-    }
-
-    const resp = await fetch(
-      `${ERP_BASE_URL}/MovEstq/SaveMovEstqMultPart?action=Insert`,
-      { method: "POST",
-        headers: { "riosoft-token": auth.token },
-        body: formData }
-    );
+    const resp = await fetch(`${ERP_BASE_URL}/MovEstq/SaveMovEstq`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "riosoft-token": auth.token,
+      },
+      body: JSON.stringify(payload),
+    });
 
     if (resp.status === 409) {
       clearAlvoToken();
       await delay(1000 * attempt);
       continue;
     }
+
     if (!resp.ok) {
       const t = await resp.text().catch(() => "");
       let msg = `HTTP ${resp.status}`;
@@ -1042,9 +144,12 @@ export async function lancarNfseNoAlvo(
     }
 
     const data = await resp.json();
-    if (!data?.Chave || data.Chave === 0)
-      return { success: false, error: "Resposta sem Chave" };
-    return { success: true, chave: data.Chave };
+    const chave = data?.Chave ?? data?.ClassObject?.Chave;
+    if (!chave || chave === 0) {
+      return { success: false, error: "Resposta sem Chave válida" };
+    }
+    return { success: true, chave };
   }
+
   return { success: false, error: "Conflito de sessão (409)" };
 }
