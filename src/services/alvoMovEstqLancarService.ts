@@ -55,6 +55,8 @@ export interface LancarNfseInput {
   danfsePdfBlob?: Blob;
   xmlBlob?: Blob;
   chaveAcesso?: string;
+  nomeCidadeEntidade?: string;
+  siglaUfEntidade?: string;
 }
 
 export interface LancarNfseResult {
@@ -177,6 +179,8 @@ function buildPayload(input: LancarNfseInput, uploadUuid: string): any {
     CodigoEntidade: input.codigoEntidade,
     NomeEntidade: input.prestadorNome, CPFCNPJEntidade: cnpj,
     SiglaPaisEntidade: "BRA",
+    NomeCidadeEntidade: input.nomeCidadeEntidade || null,
+    SiglaUnidFederacaoEntidade: input.siglaUfEntidade || null,
     ValorServico: v, ValorTotalServico: v, ValorDocumento: v,
     ValorLiberado: v, ValorOriginal: v, ValorLiquidoDocumento: v,
     ValorCompararClasseReceitaDespesa: v, ValorCompoeFinanceiro: v, ValorTotalParcelas: v,
