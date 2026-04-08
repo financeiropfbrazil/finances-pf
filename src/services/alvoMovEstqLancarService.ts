@@ -223,10 +223,6 @@ function buildPayload(input: LancarNfseInput, uploadUuid: string): any {
     ConfiguracaoAlteraMovEstqLaudoConcluido: false,
     ExisteFinanceiroRealizado: 0, ChaveTransferenciaEntreEmpresa: false,
     DeletarClasseMovEstq: false, UploadIdentify: "",
-    MovEstqNfEletronicaChildList: [],
-    IntegradoFiscal: "Não", DocumentoConferido: "Sim",
-    CalculaST: "Não", FatorDivisor: 1,
-    CodigoUsuario: null, DataHoraDigitacao: null,
     filesToUpload: [{ key: `${uploadUuid}#Arquivo`, file: {} }],
   };
 
@@ -302,12 +298,8 @@ export async function lancarNfseNoAlvo(input: LancarNfseInput): Promise<LancarNf
       return { success: false, error: "Falha na autenticação ERP" };
     }
 
-    const payloadJson = JSON.stringify(payload);
-    console.log("📋 [LANCAR] Payload JSON completo:", payloadJson);
-    // Copy to clipboard for easy diff
-    try { await navigator.clipboard.writeText(payloadJson); console.log("📋 Payload copiado para clipboard"); } catch {}
-
     const formData = new FormData();
+    formData.append("obj", JSON.stringify(payload));
     formData.append("obj", payloadJson);
     formData.append(`${uploadUuid}#Arquivo`, arquivo, nomeArquivo);
 
@@ -335,9 +327,7 @@ export async function lancarNfseNoAlvo(input: LancarNfseInput): Promise<LancarNf
     }
 
     if (!resp.ok) {
-      console.error("❌ [LANCAR] Resposta de erro completa:", text);
-      console.error("❌ [LANCAR] Status:", resp.status, "Headers:", Object.fromEntries(resp.headers.entries()));
-      const msg = data?.Message || data?.ExceptionMessage || text?.substring(0, 500) || `HTTP ${resp.status}`;
+      const msg = data?.Message || data?.ExceptionMessage || `HTTP ${resp.status}`;
       return { success: false, error: msg };
     }
 
