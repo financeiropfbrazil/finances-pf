@@ -222,6 +222,44 @@ function buildPayload(input: LancarNfseInput, uploadUuid: string): any {
     filesToUpload: [{ key: `${uploadUuid}#Arquivo`, file: {} }],
   };
 
+  // Impostos — só inclui campos quando houver retenção real (valor > 0)
+  const imp = input.impostos;
+  if (imp) {
+    if (imp.valorISS > 0) {
+      payload.BaseISS = imp.baseISS; payload.ValorISS = imp.valorISS;
+      payload.DeduzISSValorTotal = imp.deduzISSValorTotal;
+      item.BaseISS = imp.baseISS; item.PercentualISS = imp.aliquotaISS; item.ValorISS = imp.valorISS;
+    }
+    if (imp.valorIRRF > 0) {
+      payload.BaseIRRF = imp.baseIRRF; payload.ValorIRRF = imp.valorIRRF;
+      payload.DeduzIRRFValorTotal = imp.deduzIRRFValorTotal;
+      item.BaseIRRF = imp.baseIRRF; item.PercentualIRRF = imp.aliquotaIRRF; item.ValorIRRF = imp.valorIRRF;
+    }
+    if (imp.valorINSS > 0) {
+      payload.BaseINSS = imp.baseINSS; payload.ValorINSS = imp.valorINSS;
+      payload.DeduzINSSValorTotal = imp.deduzINSSValorTotal;
+      item.BaseINSS = imp.baseINSS; item.PercentualINSS = imp.aliquotaINSS; item.ValorINSS = imp.valorINSS;
+    }
+    if (imp.valorPIS > 0) {
+      payload.BasePISRFServico = imp.basePIS; payload.ValorPISRFServico = imp.valorPIS;
+      payload.PercentualPISRFServico = imp.aliquotaPIS;
+      payload.DeduzPISValorTotal = imp.deduzPISValorTotal;
+      item.BasePISRF = imp.basePIS; item.PercentualPISRF = imp.aliquotaPIS; item.ValorPISRF = imp.valorPIS;
+    }
+    if (imp.valorCOFINS > 0) {
+      payload.BaseCOFINSRFServico = imp.baseCOFINS; payload.ValorCOFINSRFServico = imp.valorCOFINS;
+      payload.PercentualCOFINSRFServico = imp.aliquotaCOFINS;
+      payload.DeduzCOFINSValorTotal = imp.deduzCOFINSValorTotal;
+      item.BaseCOFINSRF = imp.baseCOFINS; item.PercentualCOFINSRF = imp.aliquotaCOFINS; item.ValorCOFINSRF = imp.valorCOFINS;
+    }
+    if (imp.valorCSLL > 0) {
+      payload.BaseCSLLRFServico = imp.baseCSLL; payload.ValorCSLLRFServico = imp.valorCSLL;
+      payload.PercentualCSLLRFServico = imp.aliquotaCSLL;
+      payload.DeduzCSLLValorTotal = imp.deduzCSLLValorTotal;
+      item.BaseCSLLRF = imp.baseCSLL; item.PercentualCSLLRF = imp.aliquotaCSLL; item.ValorCSLLRF = imp.valorCSLL;
+    }
+  }
+
   return payload;
 }
 
