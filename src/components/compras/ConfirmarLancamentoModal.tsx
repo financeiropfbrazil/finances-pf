@@ -164,6 +164,7 @@ function SearchableSelect({ value, onValueChange, options, placeholder = "Seleci
 
 interface CondPagOption { codigo: string; nome: string }
 interface CondPagRow { codigo: string; nome: string; quantidade_parcelas: number | null; dias_entre_parcelas: number | null; primeiro_vencimento_apos: number | null }
+interface CondPagParcelaRow { codigo_cond_pag: string; numero: number; dias_prazo: number; percentual_fracao: number | null; }
 interface PedidoItem { codigoProduto: string; nomeProduto: string; sequencia: number }
 interface ClasseOption { codigo: string; nome: string; }
 interface CCOption { codigo: string; nome: string; }
@@ -182,6 +183,7 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
 
   const [condPagOptions, setCondPagOptions] = useState<CondPagOption[]>([]);
   const [condPagFull, setCondPagFull] = useState<CondPagRow[]>([]);
+  const [condPagParcelas, setCondPagParcelas] = useState<CondPagParcelaRow[]>([]);
   const [classeOptions, setClasseOptions] = useState<ClasseOption[]>([]);
   const [ccOptions, setCcOptions] = useState<CCOption[]>([]);
 
@@ -208,23 +210,55 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
 
   // ── Generate parcelas from condPag ────────────────────────────────
 
-  const gerarParcelas = useCallback((condPagCodigo: string, condPagRows: CondPagRow[]) => {
-    const cp = condPagRows.find(c => c.codigo === condPagCodigo);
-    const qtd = cp?.quantidade_parcelas || 1;
-    const diasEntre = cp?.dias_entre_parcelas || 30;
-    const primeiroVenc = cp?.primeiro_vencimento_apos || 30;
-    const dtEmissao = nfse.data_emissao ? new Date(nfse.data_emissao) : new Date();
-    const valorBase = Math.floor(valorNfse / qtd * 100) / 100;
+  const gerarParcelas = useCallback((condPagCodigo: string, parcelasCondPag: CondPagParcelaRow[]) => {
+    const parcelasDaCond = parcelasCondPag
+      .filter(p => p.codigo_cond_pag === condPagCodigo)
+      .sort((a, b) => a.numero - b.numero);
+
+    if (parcelasDaCond.length === 0) {
+      // Fallback: parcela única no dia da emissão
+      const dt = nfse.data_emissao ? new Date(nfse.data_emissao + "T12:00:00") : new Date();
+      setParcelas([{
+        sequencia: 1,
+        numeroDuplicata: `${nfse.numero || "0"}/1-1`,
+        dataEmissao: fmtDateISO(dt),
+        valorParcela: valorNfse,
+        dataVencimento: fmtDateISO(dt),
+      }]);
+      return;
+    }
+
+    const qtd = parcelasDaCond.length;
+    const dtEmissao = nfse.data_emissao ? new Date(nfse.data_emissao + "T12:00:00") : new Date();
+
+    // Determina se usa percentual_fracao explícito ou fração igual
+    const somaPct = parcelasDaCond.reduce((s, p) => s + (p.percentual_fracao || 0), 0);
+    const usaPercentual = somaPct > 99 && somaPct < 101; // tolerância
+
     const novas: ParcelaInput[] = [];
+    let acumulado = 0;
 
     for (let i = 0; i < qtd; i++) {
+      const pc = parcelasDaCond[i];
       const isLast = i === qtd - 1;
-      const val = isLast ? Math.round((valorNfse - valorBase * (qtd - 1)) * 100) / 100 : valorBase;
+
+      let val: number;
+      if (usaPercentual) {
+        val = isLast
+          ? Math.round((valorNfse - acumulado) * 100) / 100
+          : Math.round(valorNfse * (pc.percentual_fracao || 0) / 100 * 100) / 100;
+      } else {
+        const valorBase = Math.floor(valorNfse / qtd * 100) / 100;
+        val = isLast ? Math.round((valorNfse - valorBase * (qtd - 1)) * 100) / 100 : valorBase;
+      }
+      acumulado += val;
+
       const dtVenc = new Date(dtEmissao);
-      dtVenc.setDate(dtVenc.getDate() + primeiroVenc + diasEntre * i);
+      dtVenc.setDate(dtVenc.getDate() + pc.dias_prazo);
+
       novas.push({
-        sequencia: i + 1,
-        numeroDuplicata: `${nfse.numero || "0"}/${i + 1}-${qtd}`,
+        sequencia: pc.numero,
+        numeroDuplicata: `${nfse.numero || "0"}/${pc.numero}-${qtd}`,
         dataEmissao: fmtDateISO(dtEmissao),
         valorParcela: val,
         dataVencimento: fmtDateISO(dtVenc),
@@ -242,7 +276,7 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
     const load = async () => {
       setLoading(true);
 
-      const [pedidoRes, condRes, classeRes, ccRes] = await Promise.all([
+      const [pedidoRes, condRes, classeRes, ccRes, parcCondRes] = await Promise.all([
         nfse.pedido_compra_numero
           ? supabase.from("compras_pedidos")
               .select("itens, classe_rateio, codigo_cond_pag, nome_cond_pag, codigo_entidade")
@@ -253,6 +287,7 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
         supabase.from("condicoes_pagamento").select("codigo, nome, quantidade_parcelas, dias_entre_parcelas, primeiro_vencimento_apos").order("codigo"),
         supabase.from("classes_rec_desp").select("codigo, nome").eq("grupo", "F").eq("is_active", true).order("codigo"),
         supabase.from("cost_centers").select("erp_code, name").eq("group_type", "F").eq("is_active", true).order("erp_code"),
+        (supabase as any).from("condicoes_pagamento_parcelas").select("codigo_cond_pag, numero, dias_prazo, percentual_fracao").order("codigo_cond_pag").order("numero"),
       ]);
 
       if (cancelled) return;
@@ -260,6 +295,9 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
       const condRows = (condRes.data as CondPagRow[]) || [];
       setCondPagFull(condRows);
       setCondPagOptions(condRows.map(c => ({ codigo: c.codigo, nome: c.nome })));
+
+      const parcCondRows = (parcCondRes.data as CondPagParcelaRow[]) || [];
+      setCondPagParcelas(parcCondRows);
 
       const classeRows = (classeRes.data as { codigo: string; nome: string }[]) || [];
       setClasseOptions(classeRows);
@@ -330,7 +368,7 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
       });
 
       // Parcelas
-      gerarParcelas(cpCod, condRows);
+      gerarParcelas(cpCod, (parcCondRes.data as CondPagParcelaRow[]) || []);
 
       setLoading(false);
     };
@@ -745,7 +783,7 @@ export default function ConfirmarLancamentoModal({ open, onOpenChange, nfse, onC
                     onValueChange={(cod, nome) => {
                       setCodigoCondPag(cod);
                       setNomeCondPag(nome);
-                      gerarParcelas(cod, condPagFull);
+                      gerarParcelas(cod, condPagParcelas);
                     }}
                     options={condPagOptions}
                     placeholder="Selecione condição..."
