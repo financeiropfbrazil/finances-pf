@@ -1,49 +1,36 @@
 
 
-## Diagnosis
+## Plano: Restaurar o buildPayload da versão que lançou a NFS-e 233 com sucesso
 
-The `NFSE-FIX-LANCAR-3A` rewrite stripped the `buildPayload` function back to a simpler version, removing fields that are **mandatory** for the Alvo ERP's `validasalvar` check. These fields were previously added based on a comparison with a successful MovEstq (chave 15683).
+### Diagnóstico
 
-### Missing fields causing `validasalvar`:
+O arquivo atual (`alvoMovEstqLancarService.ts`, 985 linhas) contém uma versão "gabarito" do payload com ~600 campos no item e classObject. Essa NÃO é a versão que lançou a NFS-e 233 com sucesso.
 
-**Header (classObject):**
-- `RefazParcelas: "Sim"` — marked CRITICAL in earlier analysis
-- `OrigemModulo: "Estoque"`
-- `IntegradoFiscal: "Não"`, `IntegraFiscal: "Não"`
-- `ControlaEstoque: "Não"`, `ModalidadeFrete: "Sem Frete"`, `NaturezaFrete: "N"`
-- `IndicadorPresenca: "Nenhum"`, `MovEstqUserFieldsObject: {}`
-- `DocumentoHomologado: "Sim"`
-- Empty child lists: `MovEstqAcordVendChildList`, `MovEstqAdiantChildList`, `MovEstqCctrlChildList`, `MovEstqDocComplemChildList`, `MovEstqEmpChildList`, `MovEstqNfEletronicaChildList`
-- `MovEstqPedCompChildList` with purchase order linking
+A versão que funcionou foi o resultado dos patches LANCAR-3A/3B/3C + LANCAR-4 + LANCAR-5 + LANCAR-6, cujo código o usuário colou no início desta conversa. As diferenças principais entre a versão que funcionou e a atual:
 
-**ICMS (IcmsMovEstqChildList):**
-- `CodigoEmpresaFilial` should be `"1.01"` (currently `""`)
-- Missing `BaseCalculoICMS`, `ValorICMS`, `IcmsMovEstqUserFieldsObject`, `UploadIdentify`
+| Aspecto | Versão que funcionou (LANCAR-6) | Versão atual (gabarito) |
+|---|---|---|
+| Tamanho do item | ~60 campos essenciais | ~400 campos (muitos zerados) |
+| `FatorDivisor` | `1` (número) | `"Fator"` (string) |
+| `CalculaST` | `"Não"` | `"F"` |
+| `IntegradoFiscal` | `"Não"` | `"Sim"` |
+| `DocumentoConferido` | `"Sim"` | `"Não"` |
+| Rateio header `CodigoClasseRecDesp` | `""` (vazio no rateio) | código real repetido |
+| `ChaveMovEstq` nas parcelas | presente (`1`) | ausente |
+| `MovEstqNfEletronicaChildList` | `[]` (vazio) | condicional com chaveAcesso |
+| `ChaveAcessoNFe` | `null` | ausente |
 
-**Item (ItemMovEstqChildList):**
-- Missing: `FatorDivisor`, `BaseCustoMedio`, `CustoUnitario`, `ChaveOrdenacao`, `SequenciaItemContrato`, `NumeroVersaoContrato`, `SequenciaItemNotaFiscal`, `CalculaST`, reduction fields (`ReducaoICMS`, `ReducaoPIS`, etc.)
-- Missing empty child lists: `CompItemMovEstqChildList`, `CtrlLoteItemMovEstqChildList`, etc.
+### Plano de execução
 
-**Classes (MovEstqClasseRecDespChildList):**
-- Missing `ExcluiCentroControleValorZero: "Sim"` and `MovEstqClasseRecDespUserFieldsObject: {}`
-- Missing `RateioMovEstqUserFieldsObject: {}` in each rateio entry
+**Arquivo único**: `src/services/alvoMovEstqLancarService.ts`
 
-## Plan
+**Ação**: Substituir o conteúdo inteiro do arquivo pelo código que o usuário colou no início desta conversa — que é exatamente a versão pós-LANCAR-6 que lançou a NFS-e 233 com sucesso. Esse código inclui:
 
-### Step 1 — Restore missing header fields in classObject
-In `alvoMovEstqLancarService.ts`, add to classObject:
-- `RefazParcelas: "Sim"`, `OrigemModulo: "Estoque"`, `IntegradoFiscal: "Não"`, `IntegraFiscal: "Não"`, `ControlaEstoque: "Não"`, `ModalidadeFrete: "Sem Frete"`, `NaturezaFrete: "N"`, `IndicadorPresenca: "Nenhum"`, `DocumentoHomologado: "Sim"`, `MovEstqUserFieldsObject: {}`
-- Empty child lists: `MovEstqAcordVendChildList: []`, `MovEstqAdiantChildList: []`, `MovEstqCctrlChildList: []`, `MovEstqDocComplemChildList: []`, `MovEstqEmpChildList: []`, `MovEstqNfEletronicaChildList: []`
-- `MovEstqPedCompChildList` with purchase order data
+- Tipos (`CCRateioInput`, `ClasseRateioInput`, `ParcelaMovEstqInput`, `ImpostosMovEstqInput`, `LancarNfseInput`, `LancarNfseResult`)
+- Helpers de data (`fmtAlvoDate`, `fmtAlvoDateFromYMD`)
+- Fetchers (`fetchEntidade`, `fetchCidade`)
+- `buildPayload` com item enxuto (~60 campos), `classesList` com `CodigoClasseRecDesp: ""` no rateio, `classObject` com flags corretas (`IntegradoFiscal: "Não"`, `DocumentoConferido: "Sim"`, `ChaveAcessoNFe: null`, `MovEstqNfEletronicaChildList: []`)
+- `lancarNfseNoAlvo` com debug log e clipboard copy
 
-### Step 2 — Fix ICMS child list
-Change `IcmsMovEstqChildList` to use `CodigoEmpresaFilial: "1.01"` and add missing sub-fields.
-
-### Step 3 — Restore missing item fields
-Add `FatorDivisor`, `BaseCustoMedio`, `CustoUnitario`, reduction fields, and all empty child lists to the item object.
-
-### Step 4 — Restore missing classe/rateio fields
-Add `ExcluiCentroControleValorZero: "Sim"` and `UserFieldsObject` entries to classesList and rateio entries.
-
-All changes are in a single file: `src/services/alvoMovEstqLancarService.ts`.
+**Nenhum outro arquivo será tocado.**
 
