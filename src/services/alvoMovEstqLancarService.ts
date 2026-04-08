@@ -308,6 +308,7 @@ export async function lancarNfseNoAlvo(input: LancarNfseInput): Promise<LancarNf
         method: "POST",
         headers: { "Riosoft-Token": auth.token },
         body: formData,
+        credentials: "include",
       }
     );
 
