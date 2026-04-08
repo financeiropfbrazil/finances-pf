@@ -223,6 +223,10 @@ function buildPayload(input: LancarNfseInput, uploadUuid: string): any {
     ConfiguracaoAlteraMovEstqLaudoConcluido: false,
     ExisteFinanceiroRealizado: 0, ChaveTransferenciaEntreEmpresa: false,
     DeletarClasseMovEstq: false, UploadIdentify: "",
+    MovEstqNfEletronicaChildList: [],
+    IntegradoFiscal: "Não", DocumentoConferido: "Sim",
+    CalculaST: "Não", FatorDivisor: 1,
+    CodigoUsuario: null, DataHoraDigitacao: null,
     filesToUpload: [{ key: `${uploadUuid}#Arquivo`, file: {} }],
   };
 
