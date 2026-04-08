@@ -136,7 +136,18 @@ async function buildPayload(input: LancarNfseInput, _token: string): Promise<any
   // Impostos vêm do modal (semântica que o backend não tem como adivinhar)
   const imp = input.impostos;
 
-  // Cabeçalho — apenas o que o usuário preenche no Alvo nativo
+  // Datas no formato Alvo (YYYY-MM-DDTHH:mm:ss, sem timezone)
+  const fmtDate = (iso: string | Date): string => {
+    const d = typeof iso === "string" ? new Date(iso) : iso;
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}T00:00:00`;
+  };
+  const dataEmissaoFmt = fmtDate(input.dataEmissao);
+  const hojeFmt = fmtDate(new Date());
+
+  // Cabeçalho — campos do usuário + obrigatórios não-nulos do backend
   const classObject: any = {
     CodigoEmpresaFilial: "1.01",
     Chave: 0,
@@ -147,8 +158,34 @@ async function buildPayload(input: LancarNfseInput, _token: string): Promise<any
     Numero: input.numero,
     ChaveAcessoNFe: input.chaveAcesso || null,
     NumeroPedComp: input.pedidoNumero,
+
+    // Datas (obrigatórias não-nulas no .NET)
+    DataMovimento: hojeFmt,
+    DataEmissao: dataEmissaoFmt,
+    DataEntrada: hojeFmt,
+
+    // Valores monetários (decimal não-nullable)
     ValorServico: v,
     ValorDocumento: v,
+    ValorTotalServico: v,
+    ValorLiquidoDocumento: v,
+    ValorOriginal: v,
+    ValorCambioDocumento: 1,
+
+    // Flags de tipo de lançamento (int não-nullable)
+    TipoLancamento: "Compra",
+    EspecieLancamento: "Consumo",
+    OperacaoLancamento: "Entrada",
+    TipoCompra: 1,
+    TipoLancamentoIntegraCompras: 1,
+    TipoLancamentoIntegraFinanceiro: 1,
+    TipoLancamentoNecessitaCentroControle: 1,
+
+    // Configuração padrão
+    CasasDecimaisValorUnitario: 5,
+    IntegradoFinanceiro: "Sim",
+
+    // Estruturas filho
     ItemMovEstqChildList: [item],
     MovEstqClasseRecDespChildList: classesList,
   };
