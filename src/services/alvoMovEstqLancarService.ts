@@ -263,8 +263,75 @@ function buildPayload(input: LancarNfseInput, uploadUuid: string): any {
   return payload;
 }
 
-// ── Caller (será preenchido em NFSE-V2-PART3) ──
+// ── Caller HTTP multipart ──
 
-export async function lancarNfseNoAlvo(_input: LancarNfseInput): Promise<LancarNfseResult> {
-  return { success: false, error: "lancarNfseNoAlvo not yet implemented — apply NFSE-V2-PART3" };
+export async function lancarNfseNoAlvo(input: LancarNfseInput): Promise<LancarNfseResult> {
+  const uploadUuid = crypto.randomUUID();
+  const payload = buildPayload(input, uploadUuid);
+
+  // Arquivo anexado: obrigatório pelo Alvo ("Arquivo required").
+  // Prioridade: DANFSE PDF > XML > dummy PDF mínimo.
+  let arquivo: Blob;
+  let nomeArquivo: string;
+  if (input.danfsePdfBlob) {
+    arquivo = input.danfsePdfBlob;
+    nomeArquivo = `DANFSE_${input.numero}.pdf`;
+  } else if (input.xmlBlob) {
+    arquivo = input.xmlBlob;
+    nomeArquivo = `NFSE_${input.numero}.xml`;
+  } else {
+    arquivo = new Blob(
+      ["%PDF-1.4\n%dummy\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF"],
+      { type: "application/pdf" }
+    );
+    nomeArquivo = `DOC_${input.numero}.pdf`;
+  }
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt === 1) clearAlvoToken();
+    const auth = await authenticateAlvo();
+    if (!auth.success || !auth.token) {
+      return { success: false, error: "Falha na autenticação ERP" };
+    }
+
+    const formData = new FormData();
+    formData.append("obj", JSON.stringify(payload));
+    formData.append(`${uploadUuid}#Arquivo`, arquivo, nomeArquivo);
+
+    const resp = await fetch(
+      `${ERP_BASE_URL}/MovEstq/SaveMovEstqMultPart?action=Insert`,
+      {
+        method: "POST",
+        headers: { "Riosoft-Token": auth.token },
+        body: formData,
+      }
+    );
+
+    if (resp.status === 409) {
+      clearAlvoToken();
+      await delay(1000 * attempt);
+      continue;
+    }
+
+    const text = await resp.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // resposta não é JSON
+    }
+
+    if (!resp.ok) {
+      const msg = data?.Message || data?.ExceptionMessage || `HTTP ${resp.status}`;
+      return { success: false, error: msg };
+    }
+
+    const chave = data?.Chave;
+    if (!chave || chave === 0) {
+      return { success: false, error: "Resposta sem Chave válida" };
+    }
+    return { success: true, chave };
+  }
+
+  return { success: false, error: "Conflito de sessão (409)" };
 }
