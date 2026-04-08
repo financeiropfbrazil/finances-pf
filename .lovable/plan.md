@@ -1,55 +1,49 @@
 
 
-## Análise do Estado Atual
+## Diagnosis
 
-O OFX já é salvo no banco (`bank_statement_transactions`) quando importado, e recarregado ao trocar de período. **Porém**, o salvamento é feito por `period_id` apenas — sem distinção de conta bancária (`selectedBank`). Isso significa que se você importar o OFX do Santander e depois do Bradesco no mesmo mês, o segundo sobrescreve o primeiro.
+The `NFSE-FIX-LANCAR-3A` rewrite stripped the `buildPayload` function back to a simpler version, removing fields that are **mandatory** for the Alvo ERP's `validasalvar` check. These fields were previously added based on a comparison with a successful MovEstq (chave 15683).
 
-## Problema Central
+### Missing fields causing `validasalvar`:
 
-A tabela `bank_statement_transactions` não possui coluna de **conta bancária**. Precisamos segregar OFX por conta + período.
+**Header (classObject):**
+- `RefazParcelas: "Sim"` — marked CRITICAL in earlier analysis
+- `OrigemModulo: "Estoque"`
+- `IntegradoFiscal: "Não"`, `IntegraFiscal: "Não"`
+- `ControlaEstoque: "Não"`, `ModalidadeFrete: "Sem Frete"`, `NaturezaFrete: "N"`
+- `IndicadorPresenca: "Nenhum"`, `MovEstqUserFieldsObject: {}`
+- `DocumentoHomologado: "Sim"`
+- Empty child lists: `MovEstqAcordVendChildList`, `MovEstqAdiantChildList`, `MovEstqCctrlChildList`, `MovEstqDocComplemChildList`, `MovEstqEmpChildList`, `MovEstqNfEletronicaChildList`
+- `MovEstqPedCompChildList` with purchase order linking
 
-## Plano de Implementação
+**ICMS (IcmsMovEstqChildList):**
+- `CodigoEmpresaFilial` should be `"1.01"` (currently `""`)
+- Missing `BaseCalculoICMS`, `ValorICMS`, `IcmsMovEstqUserFieldsObject`, `UploadIdentify`
 
-### 1. Migração: adicionar coluna `bank_code` à tabela `bank_statement_transactions`
+**Item (ItemMovEstqChildList):**
+- Missing: `FatorDivisor`, `BaseCustoMedio`, `CustoUnitario`, `ChaveOrdenacao`, `SequenciaItemContrato`, `NumeroVersaoContrato`, `SequenciaItemNotaFiscal`, `CalculaST`, reduction fields (`ReducaoICMS`, `ReducaoPIS`, etc.)
+- Missing empty child lists: `CompItemMovEstqChildList`, `CtrlLoteItemMovEstqChildList`, etc.
 
-- `ALTER TABLE bank_statement_transactions ADD COLUMN bank_code text NOT NULL DEFAULT '';`
-- Mesma lógica para `erp_transactions`: `ALTER TABLE erp_transactions ADD COLUMN bank_code text NOT NULL DEFAULT '';`
-- Isso permite que cada conta tenha seu próprio extrato OFX e dados ERP salvos separadamente no mesmo período.
+**Classes (MovEstqClasseRecDespChildList):**
+- Missing `ExcluiCentroControleValorZero: "Sim"` and `MovEstqClasseRecDespUserFieldsObject: {}`
+- Missing `RateioMovEstqUserFieldsObject: {}` in each rateio entry
 
-### 2. Refatorar `saveOfxToDb` e `loadSavedOfx`
+## Plan
 
-- O `DELETE` e `INSERT` passam a filtrar por `period_id` **E** `bank_code`.
-- O `SELECT` de carga idem: `where period_id = X AND bank_code = Y`.
-- Resultado: ao trocar de banco no dropdown, carrega o OFX correto daquela conta.
+### Step 1 — Restore missing header fields in classObject
+In `alvoMovEstqLancarService.ts`, add to classObject:
+- `RefazParcelas: "Sim"`, `OrigemModulo: "Estoque"`, `IntegradoFiscal: "Não"`, `IntegraFiscal: "Não"`, `ControlaEstoque: "Não"`, `ModalidadeFrete: "Sem Frete"`, `NaturezaFrete: "N"`, `IndicadorPresenca: "Nenhum"`, `DocumentoHomologado: "Sim"`, `MovEstqUserFieldsObject: {}`
+- Empty child lists: `MovEstqAcordVendChildList: []`, `MovEstqAdiantChildList: []`, `MovEstqCctrlChildList: []`, `MovEstqDocComplemChildList: []`, `MovEstqEmpChildList: []`, `MovEstqNfEletronicaChildList: []`
+- `MovEstqPedCompChildList` with purchase order data
 
-### 3. Refatorar `saveErpToDb` e `loadSavedErp`
+### Step 2 — Fix ICMS child list
+Change `IcmsMovEstqChildList` to use `CodigoEmpresaFilial: "1.01"` and add missing sub-fields.
 
-- Mesmo tratamento: filtrar por `bank_code` (o `selectedBank`/`CodigoTipoPagRec`).
+### Step 3 — Restore missing item fields
+Add `FatorDivisor`, `BaseCustoMedio`, `CustoUnitario`, reduction fields, and all empty child lists to the item object.
 
-### 4. Recarregar dados ao trocar de banco
+### Step 4 — Restore missing classe/rateio fields
+Add `ExcluiCentroControleValorZero: "Sim"` and `UserFieldsObject` entries to classesList and rateio entries.
 
-- O `useEffect` que dispara `loadSavedOfx` + `loadSavedErp` deve depender também de `selectedBank`, não só de `activePeriodId`.
-
-### 5. Comportamento de sobrescrita
-
-- Quando o usuário importa um novo OFX para a mesma conta+período, o sistema deleta os anteriores e grava os novos (já funciona assim, só precisa do filtro de banco).
-- Quando mês está fechado (`monthClosed`), bloqueia importação e sync (já funciona).
-
-### 6. Sugestões de UX para o fluxo ideal
-
-- **Indicador visual** no dropdown de banco mostrando quais contas já têm OFX importado para o mês selecionado (ex: badge "OFX ✓" ao lado do nome).
-- **Toast de confirmação** ao sobrescrever: "Substituir o extrato existente do Santander em Jan/2026? (X lançamentos serão substituídos)".
-- **Fechamento por conta**: considerar fechar a conciliação individualmente por conta bancária em vez de fechar o mês inteiro de uma vez. Isso permite que o Santander seja fechado enquanto o Bradesco ainda está em aberto.
-
----
-
-### Resumo Técnico
-
-| Artefato | Mudança |
-|---|---|
-| **Migration SQL** | Adicionar `bank_code` em `bank_statement_transactions` e `erp_transactions` |
-| **CashBanks.tsx** | Filtrar save/load por `bank_code`; reagir a mudança de `selectedBank`; toast de sobrescrita |
-| **BankStatementTable.tsx** | Sem mudanças estruturais |
-
-Essa arquitetura garante que cada conta bancária tenha seus dados isolados por período, e a importação de um novo OFX sempre sobrescreve apenas o da mesma conta.
+All changes are in a single file: `src/services/alvoMovEstqLancarService.ts`.
 
