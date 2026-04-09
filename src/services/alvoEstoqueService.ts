@@ -371,3 +371,127 @@ export async function buscarMovimentacaoProduto(
 
   return Array.isArray(data) ? data : [];
 }
+
+// ── Enriquecimento de unidades de medida ──
+
+export interface EnrichUnidadesResult {
+  enriched: number;
+  skipped: number;
+  errors: number;
+}
+
+async function loadProdutoComRetry(
+  codigo: string,
+  token: string
+): Promise<{ data: any; usedToken: string }> {
+  const MAX_RETRIES = 3;
+  let currentToken = token;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const url = `${ERP_BASE_URL}/Produto/Load?codigo=${encodeURIComponent(codigo)}&loadChild=ProdUnidMedChildList`;
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Riosoft-Token": currentToken,
+      },
+    });
+
+    if (resp.status !== 409 && resp.status !== 401) {
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      return { data, usedToken: currentToken };
+    }
+
+    if (attempt === MAX_RETRIES) {
+      throw new Error("Conflito de sessão ERP persistente.");
+    }
+
+    clearAlvoToken();
+    await new Promise((r) => setTimeout(r, 1000 * attempt));
+    const reAuth = await authenticateAlvo();
+    if (!reAuth.success || !reAuth.token) {
+      throw new Error("Falha na re-autenticação.");
+    }
+    currentToken = reAuth.token;
+  }
+
+  throw new Error("Falha inesperada no fluxo de retry");
+}
+
+export async function enriquecerUnidadesMedida(
+  onProgress?: (current: number, total: number, message: string) => void
+): Promise<EnrichUnidadesResult> {
+  // 1. Buscar produtos ativos sem unidade_medida
+  const { data: produtos, error } = await (supabase as any)
+    .from("stock_products")
+    .select("id, codigo_produto, nome_produto")
+    .eq("ativo", true)
+    .is("unidade_medida", null);
+
+  if (error) throw new Error(`Erro ao buscar produtos: ${error.message}`);
+  if (!produtos || produtos.length === 0) {
+    return { enriched: 0, skipped: 0, errors: 0 };
+  }
+
+  onProgress?.(0, produtos.length, `${produtos.length} produtos para enriquecer. Autenticando...`);
+
+  const auth = await authenticateAlvo();
+  if (!auth.success || !auth.token) {
+    throw new Error(`Falha na autenticação: ${auth.error}`);
+  }
+  let currentToken = auth.token;
+
+  const result: EnrichUnidadesResult = { enriched: 0, skipped: 0, errors: 0 };
+  const DELAY_MS = 200;
+
+  for (let i = 0; i < produtos.length; i++) {
+    const p = produtos[i];
+    try {
+      onProgress?.(
+        i + 1,
+        produtos.length,
+        `${i + 1}/${produtos.length}: ${p.codigo_produto} — ${p.nome_produto}...`
+      );
+
+      const { data: detail, usedToken } = await loadProdutoComRetry(
+        p.codigo_produto,
+        currentToken
+      );
+      currentToken = usedToken;
+
+      // Extrair unidade principal: Posicao === 1, fallback primeiro do array
+      const childList = detail?.ProdUnidMedChildList ?? [];
+      let unidadeCodigo: string | null = null;
+
+      if (Array.isArray(childList) && childList.length > 0) {
+        const principal = childList.find((u: any) => u.Posicao === 1) ?? childList[0];
+        unidadeCodigo = principal?.CodigoUnidMedida ?? null;
+      }
+
+      if (!unidadeCodigo) {
+        result.skipped++;
+        await new Promise((r) => setTimeout(r, DELAY_MS));
+        continue;
+      }
+
+      const { error: updateErr } = await (supabase as any)
+        .from("stock_products")
+        .update({ unidade_medida: unidadeCodigo, updated_at: new Date().toISOString() })
+        .eq("id", p.id);
+
+      if (updateErr) {
+        console.error(`Erro atualizando ${p.codigo_produto}:`, updateErr.message);
+        result.errors++;
+      } else {
+        result.enriched++;
+      }
+    } catch (err: any) {
+      console.error(`Erro no produto ${p.codigo_produto}:`, err);
+      result.errors++;
+    }
+    await new Promise((r) => setTimeout(r, DELAY_MS));
+  }
+
+  return result;
+}

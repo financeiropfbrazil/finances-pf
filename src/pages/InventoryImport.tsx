@@ -9,10 +9,11 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info, RefreshCw } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info, RefreshCw, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { seedStockProductsFromBuffer } from "@/services/stockProductsSeed";
-import { sincronizarProdutosDoERP } from "@/services/alvoEstoqueService";
+import { sincronizarProdutosDoERP, enriquecerUnidadesMedida, type EnrichUnidadesResult } from "@/services/alvoEstoqueService";
 import { supabase } from "@/integrations/supabase/client";
 import * as XLSX from "xlsx";
 
@@ -54,6 +55,13 @@ export default function InventoryImport() {
   const [pageSize, setPageSize] = useState<number>(50);
   const [filterTipo, setFilterTipo] = useState("all");
   const [syncingERP, setSyncingERP] = useState(false);
+
+  // Unit enrichment state
+  const [unitEnrichOpen, setUnitEnrichOpen] = useState(false);
+  const [unitEnriching, setUnitEnriching] = useState(false);
+  const [unitEnrichProgress, setUnitEnrichProgress] = useState(0);
+  const [unitEnrichMessage, setUnitEnrichMessage] = useState("");
+  const [unitEnrichResult, setUnitEnrichResult] = useState<EnrichUnidadesResult | null>(null);
 
   // External code dialog state
   const [extDialogOpen, setExtDialogOpen] = useState(false);
@@ -168,6 +176,30 @@ export default function InventoryImport() {
       toast({ title: "❌ Erro na sincronização", description: err.message, variant: "destructive" });
     } finally {
       setSyncingERP(false);
+    }
+  };
+
+  // Unit enrichment handler
+  const handleEnrichUnidades = async () => {
+    setUnitEnriching(true);
+    setUnitEnrichResult(null);
+    setUnitEnrichProgress(0);
+    setUnitEnrichMessage("Iniciando...");
+    try {
+      const result = await enriquecerUnidadesMedida((current, total, message) => {
+        setUnitEnrichMessage(message);
+        if (total > 0) setUnitEnrichProgress(Math.round((current / total) * 100));
+      });
+      setUnitEnrichResult(result);
+      toast({
+        title: "Enriquecimento concluído",
+        description: `${result.enriched} produtos com unidade, ${result.skipped} sem dados, ${result.errors} erros`,
+      });
+      fetchProducts();
+    } catch (err: any) {
+      toast({ title: "Erro no enriquecimento", description: err.message, variant: "destructive" });
+    } finally {
+      setUnitEnriching(false);
     }
   };
 
@@ -397,6 +429,15 @@ export default function InventoryImport() {
           >
             {syncingERP ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {syncingERP ? "Sincronizando..." : "Sincronizar do ERP"}
+          </Button>
+          <Button
+            onClick={() => { setUnitEnrichResult(null); setUnitEnrichMessage(""); setUnitEnrichProgress(0); setUnitEnrichOpen(true); }}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <Sparkles className="h-4 w-4" />
+            Enriquecer Unidades
           </Button>
           <Button
             variant="outline"
@@ -670,6 +711,67 @@ export default function InventoryImport() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Unit Enrichment Dialog */}
+      <Dialog open={unitEnrichOpen} onOpenChange={(v) => !unitEnriching && setUnitEnrichOpen(v)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Enriquecer Unidades de Medida</DialogTitle>
+            <DialogDescription>
+              Busca a unidade de medida principal de cada produto ativo no ERP Alvo via Produto/Load. Apenas produtos sem unidade cadastrada serão processados. O processo pode levar vários minutos dependendo da quantidade de produtos.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!unitEnriching && !unitEnrichResult && (
+            <div className="text-sm text-muted-foreground">
+              Clique em "Iniciar" para começar. A operação faz uma chamada por produto ao ERP, então pode levar cerca de 10-15 minutos para 2.000+ produtos.
+            </div>
+          )}
+
+          {unitEnriching && (
+            <div className="space-y-3">
+              <Progress value={unitEnrichProgress} />
+              <p className="text-sm text-muted-foreground truncate">{unitEnrichMessage}</p>
+            </div>
+          )}
+
+          {unitEnrichResult && (
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                <span>Enriquecidos: <strong>{unitEnrichResult.enriched}</strong></span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Info className="h-4 w-4 text-muted-foreground" />
+                <span>Sem unidade no ERP: <strong>{unitEnrichResult.skipped}</strong></span>
+              </div>
+              {unitEnrichResult.errors > 0 && (
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                  <span>Erros: <strong>{unitEnrichResult.errors}</strong></span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            {!unitEnrichResult ? (
+              <Button onClick={handleEnrichUnidades} disabled={unitEnriching} className="gap-2">
+                {unitEnriching ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Enriquecendo...
+                  </>
+                ) : (
+                  "Iniciar"
+                )}
+              </Button>
+            ) : (
+              <Button onClick={() => setUnitEnrichOpen(false)}>Fechar</Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
