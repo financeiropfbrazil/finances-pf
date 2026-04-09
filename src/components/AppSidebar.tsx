@@ -537,3 +537,41 @@ function renderContasPagarGroup(t: any, isActive: boolean) {
     </Collapsible>
   );
 }
+
+function renderSuprimentosGroup(t: any, isActive: boolean) {
+  return (
+    <Collapsible defaultOpen={isActive} className="group/collapsible-suprimentos">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
+            }`}
+          >
+            <Boxes className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Suprimentos</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-suprimentos:rotate-[-90deg]" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {suprimentosSubItems.map((sub) => (
+              <SidebarMenuSubItem key={sub.url}>
+                <SidebarMenuSubButton asChild>
+                  <NavLink
+                    to={sub.url}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                  >
+                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
