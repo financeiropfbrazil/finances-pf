@@ -477,8 +477,10 @@ export async function enriquecerUnidadesMedida(
 
       const { error: updateErr } = await (supabase as any)
         .from("stock_products")
-        .update({ unidade_medida: unidadeCodigo, updated_at: new Date().toISOString() })
-        .eq("id", p.id);
+        .upsert(
+          { id: p.id, unidade_medida: unidadeCodigo, updated_at: new Date().toISOString() },
+          { onConflict: "id" }
+        );
 
       if (updateErr) {
         console.error(`Erro atualizando ${p.codigo_produto}:`, updateErr.message);
