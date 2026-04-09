@@ -96,7 +96,7 @@ export default function Users() {
       .from("profiles")
       .select("*")
       .order("created_at");
-    if (data) setProfiles(data as ProfileRow[]);
+    if (data) setProfiles(data as unknown as ProfileRow[]);
     setLoading(false);
   };
 
