@@ -47,6 +47,7 @@ export default function InventoryImport() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const extFileRef = useRef<HTMLInputElement>(null);
+  const cancelEnrichRef = useRef<boolean>(false);
   const [importing, setImporting] = useState(false);
   const [products, setProducts] = useState<StockProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -181,18 +182,23 @@ export default function InventoryImport() {
 
   // Unit enrichment handler
   const handleEnrichUnidades = async () => {
+    cancelEnrichRef.current = false;
     setUnitEnriching(true);
     setUnitEnrichResult(null);
     setUnitEnrichProgress(0);
     setUnitEnrichMessage("Iniciando...");
     try {
-      const result = await enriquecerUnidadesMedida((current, total, message) => {
-        setUnitEnrichMessage(message);
-        if (total > 0) setUnitEnrichProgress(Math.round((current / total) * 100));
-      });
+      const result = await enriquecerUnidadesMedida(
+        (current, total, message) => {
+          setUnitEnrichMessage(message);
+          if (total > 0) setUnitEnrichProgress(Math.round((current / total) * 100));
+        },
+        () => cancelEnrichRef.current
+      );
       setUnitEnrichResult(result);
+      const wasCancelled = cancelEnrichRef.current;
       toast({
-        title: "Enriquecimento concluído",
+        title: wasCancelled ? "Enriquecimento cancelado" : "Enriquecimento concluído",
         description: `${result.enriched} produtos com unidade, ${result.skipped} sem dados, ${result.errors} erros`,
       });
       fetchProducts();
@@ -200,6 +206,7 @@ export default function InventoryImport() {
       toast({ title: "Erro no enriquecimento", description: err.message, variant: "destructive" });
     } finally {
       setUnitEnriching(false);
+      cancelEnrichRef.current = false;
     }
   };
 
@@ -757,19 +764,16 @@ export default function InventoryImport() {
           )}
 
           <DialogFooter>
-            {!unitEnrichResult ? (
-              <Button onClick={handleEnrichUnidades} disabled={unitEnriching} className="gap-2">
-                {unitEnriching ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Enriquecendo...
-                  </>
-                ) : (
-                  "Iniciar"
-                )}
+            {unitEnriching ? (
+              <Button variant="destructive" onClick={() => { cancelEnrichRef.current = true; }}>
+                Cancelar
+              </Button>
+            ) : !unitEnrichResult ? (
+              <Button onClick={handleEnrichUnidades}>
+                Iniciar
               </Button>
             ) : (
-              <Button onClick={() => setUnitEnrichOpen(false)}>Fechar</Button>
+              <Button variant="outline" onClick={() => setUnitEnrichOpen(false)}>Fechar</Button>
             )}
           </DialogFooter>
         </DialogContent>
