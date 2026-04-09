@@ -16,8 +16,8 @@ import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, Ch
 import { toast } from "@/hooks/use-toast";
 
 interface StockProduct {
-  codigo: string;
-  nome: string;
+  codigo_produto: string;
+  nome_produto: string;
   codigo_alternativo: string | null;
   unidade_medida: string | null;
   tipo_produto_fiscal: string | null;
@@ -63,8 +63,9 @@ export default function SuprimentosRequisicaoNova() {
     queryFn: async (): Promise<StockProduct[]> => {
       const { data, error } = await (supabase as any)
         .from("stock_products")
-        .select("codigo, nome, codigo_alternativo, unidade_medida, tipo_produto_fiscal")
-        .order("nome", { ascending: true });
+        .select("codigo_produto, nome_produto, codigo_alternativo, unidade_medida, tipo_produto_fiscal")
+        .eq("ativo", true)
+        .order("nome_produto", { ascending: true });
       if (error) throw error;
       return (data || []) as StockProduct[];
     },
@@ -74,13 +75,13 @@ export default function SuprimentosRequisicaoNova() {
   const produtosFiltrados = useMemo(() => {
     const q = produtoSearch.trim().toLowerCase();
     return produtos.filter(p => {
-      const isServico = p.tipo_produto_fiscal === "Serviço";
+      const isServico = p.tipo_produto_fiscal === "09";
       if (itemTipo === "servico" && !isServico) return false;
       if (itemTipo === "produto" && isServico) return false;
       if (!q) return true;
       return (
-        p.nome.toLowerCase().includes(q) ||
-        p.codigo.toLowerCase().includes(q) ||
+        p.nome_produto.toLowerCase().includes(q) ||
+        p.codigo_produto.toLowerCase().includes(q) ||
         (p.codigo_alternativo || "").toLowerCase().includes(q)
       );
     }).slice(0, 100);
@@ -104,11 +105,11 @@ export default function SuprimentosRequisicaoNova() {
     setEditingItemId(item.tempId);
     setItemTipo(item.item_servico ? "servico" : "produto");
     setProdutoSelecionado({
-      codigo: item.codigo_produto,
-      nome: item.produto_nome,
+      codigo_produto: item.codigo_produto,
+      nome_produto: item.produto_nome,
       codigo_alternativo: item.codigo_alternativo_produto,
       unidade_medida: item.produto_unidade,
-      tipo_produto_fiscal: item.item_servico ? "Serviço" : "Produto",
+      tipo_produto_fiscal: item.item_servico ? "09" : null,
     });
     setItemQtd(String(item.quantidade));
     setItemObs(item.observacao || "");
@@ -129,10 +130,10 @@ export default function SuprimentosRequisicaoNova() {
     const novoItem: ItemWizard = {
       tempId: editingItemId || `tmp-${Date.now()}-${Math.random()}`,
       item_servico: itemTipo === "servico",
-      codigo_produto: produtoSelecionado.codigo,
+      codigo_produto: produtoSelecionado.codigo_produto,
       codigo_alternativo_produto: produtoSelecionado.codigo_alternativo,
       codigo_prod_unid_med: produtoSelecionado.unidade_medida || "UNID",
-      produto_nome: produtoSelecionado.nome,
+      produto_nome: produtoSelecionado.nome_produto,
       produto_unidade: produtoSelecionado.unidade_medida || "UNID",
       quantidade: qtdNum,
       observacao: itemObs.trim(),
@@ -268,11 +269,9 @@ export default function SuprimentosRequisicaoNova() {
               <Label>{itemTipo === "servico" ? "Serviço" : "Produto"}</Label>
               <Popover open={produtoPopoverOpen} onOpenChange={setProdutoPopoverOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-auto min-h-10 text-left">
-                    <span className="truncate">
-                      {produtoSelecionado ? `${produtoSelecionado.nome} (${produtoSelecionado.codigo})` : `Buscar ${itemTipo === "servico" ? "serviço" : "produto"}...`}
-                    </span>
-                    <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
+                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                    {produtoSelecionado ? `${produtoSelecionado.nome_produto} (${produtoSelecionado.codigo_produto})` : `Buscar ${itemTipo === "servico" ? "serviço" : "produto"}...`}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
@@ -282,10 +281,12 @@ export default function SuprimentosRequisicaoNova() {
                       <CommandEmpty>Nenhum resultado.</CommandEmpty>
                       <CommandGroup>
                         {produtosFiltrados.map(p => (
-                          <CommandItem key={p.codigo} value={p.codigo} onSelect={() => { setProdutoSelecionado(p); setProdutoPopoverOpen(false); }}>
+                          <CommandItem key={p.codigo_produto} value={p.codigo_produto} onSelect={() => { setProdutoSelecionado(p); setProdutoPopoverOpen(false); }}>
                             <div className="flex flex-col">
-                              <span className="text-sm">{p.nome}</span>
-                              <span className="text-xs text-muted-foreground">{p.codigo}</span>
+                              <span className="font-medium">{p.nome_produto}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {p.codigo_produto}{p.unidade_medida ? ` · ${p.unidade_medida}` : ""}
+                              </span>
                             </div>
                           </CommandItem>
                         ))}
