@@ -725,39 +725,74 @@ export default function InventoryImport() {
       <Dialog open={unitEnrichOpen} onOpenChange={(v) => !unitEnriching && setUnitEnrichOpen(v)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Enriquecer Unidades de Medida</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              Enriquecer Unidades de Medida
+            </DialogTitle>
             <DialogDescription>
-              Busca a unidade de medida principal de cada produto ativo no ERP Alvo via Produto/Load. Apenas produtos sem unidade cadastrada serão processados. O processo pode levar vários minutos dependendo da quantidade de produtos.
+              Busca a unidade de medida principal de cada produto ativo no ERP Alvo. Apenas produtos sem unidade cadastrada serão processados.
             </DialogDescription>
           </DialogHeader>
 
           {!unitEnriching && !unitEnrichResult && (
-            <div className="text-sm text-muted-foreground">
-              Clique em "Iniciar" para começar. A operação faz uma chamada por produto ao ERP, então pode levar cerca de 10-15 minutos para 2.000+ produtos.
+            <div className="rounded-lg border border-border bg-muted/50 p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <Info className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>A operação faz uma chamada individual por produto ao ERP, respeitando um intervalo de 200ms entre cada.</p>
+                  <p>Para <strong>2.000+ produtos</strong>, o processo pode levar <strong>10–15 minutos</strong>.</p>
+                </div>
+              </div>
             </div>
           )}
 
           {unitEnriching && (
-            <div className="space-y-3">
-              <Progress value={unitEnrichProgress} />
-              <p className="text-sm text-muted-foreground truncate">{unitEnrichMessage}</p>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground font-medium">Progresso</span>
+                  <span className="font-mono text-foreground font-semibold">{unitEnrichProgress}%</span>
+                </div>
+                <Progress value={unitEnrichProgress} className="h-2.5" />
+              </div>
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5">
+                <p className="text-xs text-muted-foreground truncate font-mono">{unitEnrichMessage}</p>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  {unitEnrichResult ? unitEnrichResult.enriched : "–"} enriquecidos
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Info className="h-3.5 w-3.5" />
+                  {unitEnrichResult ? unitEnrichResult.skipped : "–"} sem dados
+                </span>
+              </div>
             </div>
           )}
 
-          {unitEnrichResult && (
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span>Enriquecidos: <strong>{unitEnrichResult.enriched}</strong></span>
+          {unitEnrichResult && !unitEnriching && (
+            <div className="space-y-3 py-2">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                  <p className="text-2xl font-bold text-emerald-500">{unitEnrichResult.enriched}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Enriquecidos</p>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                  <p className="text-2xl font-bold text-muted-foreground">{unitEnrichResult.skipped}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Sem dados</p>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                  <p className={`text-2xl font-bold ${unitEnrichResult.errors > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                    {unitEnrichResult.errors}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">Erros</p>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Info className="h-4 w-4 text-muted-foreground" />
-                <span>Sem unidade no ERP: <strong>{unitEnrichResult.skipped}</strong></span>
-              </div>
-              {unitEnrichResult.errors > 0 && (
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-destructive" />
-                  <span>Erros: <strong>{unitEnrichResult.errors}</strong></span>
+              {unitEnrichResult.enriched > 0 && (
+                <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-sm text-emerald-500">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  {unitEnrichResult.enriched} produto{unitEnrichResult.enriched !== 1 ? "s" : ""} atualizado{unitEnrichResult.enriched !== 1 ? "s" : ""} com sucesso.
                 </div>
               )}
             </div>
@@ -765,12 +800,14 @@ export default function InventoryImport() {
 
           <DialogFooter>
             {unitEnriching ? (
-              <Button variant="destructive" onClick={() => { cancelEnrichRef.current = true; }}>
+              <Button variant="destructive" size="sm" onClick={() => { cancelEnrichRef.current = true; }} className="gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 Cancelar
               </Button>
             ) : !unitEnrichResult ? (
-              <Button onClick={handleEnrichUnidades}>
-                Iniciar
+              <Button onClick={handleEnrichUnidades} className="gap-2">
+                <Sparkles className="h-4 w-4" />
+                Iniciar Enriquecimento
               </Button>
             ) : (
               <Button variant="outline" onClick={() => setUnitEnrichOpen(false)}>Fechar</Button>
