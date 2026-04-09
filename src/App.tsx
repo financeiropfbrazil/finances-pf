@@ -49,6 +49,7 @@ import ContasPagar from "./pages/ContasPagar";
 import ContasPagarDashboard from "./pages/ContasPagarDashboard";
 import ConfigSyncJobs from "./pages/ConfigSyncJobs";
 import EmailNfe from "./pages/EmailNfe";
+import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -133,6 +134,7 @@ function AppRoutes() {
         <Route path="/commodatum" element={<PermissionRoute permKey="commodatum"><Commodatum /></PermissionRoute>} />
         <Route path="/nf-entrada" element={<PermissionRoute permKey="nf_entrada"><NfEntrada /></PermissionRoute>} />
         <Route path="/email-nfe" element={<PermissionRoute permKey="nf_entrada"><EmailNfe /></PermissionRoute>} />
+        <Route path="/suprimentos/requisicoes" element={<PermissionRoute permKey="suprimentos_requisicoes"><SuprimentosRequisicoes /></PermissionRoute>} />
         <Route path="/compras/notas-fiscais" element={<PermissionRoute permKey="compras"><ComprasNotasFiscais /></PermissionRoute>} />
         <Route path="/compras/notas-servico" element={<PermissionRoute permKey="compras"><ComprasNotasServico /></PermissionRoute>} />
         <Route path="/compras/certificado" element={<PermissionRoute permKey="compras"><ComprasCertificado /></PermissionRoute>} />
