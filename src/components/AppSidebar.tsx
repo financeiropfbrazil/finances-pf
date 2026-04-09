@@ -26,6 +26,7 @@ import {
   Users as UsersIcon,
   RefreshCw,
   Mail,
+  Boxes,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -89,6 +90,7 @@ const routePermMap: Record<string, string> = {
   "/contas-a-pagar": "contas_pagar",
   "/projetos": "projetos",
   "/closing": "closing",
+  "/suprimentos/requisicoes": "suprimentos_requisicoes",
 };
 
 const inventorySubItems = [
@@ -104,6 +106,10 @@ const comprasSubItems = [
   { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
   { label: "Notas de Serviço", url: "/compras/notas-servico", icon: FileText },
   { label: "Certificado Digital", url: "/compras/certificado", icon: ShieldCheck },
+];
+
+const suprimentosSubItems = [
+  { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
 ];
 
 const entidadesSubItems = [
@@ -140,6 +146,7 @@ export function AppSidebar() {
   const isComprasActive = location.pathname.startsWith("/compras");
   const isEntidadesActive = location.pathname.startsWith("/entidades");
   const isContasPagarActive = location.pathname.startsWith("/contas-a-pagar");
+  const isSuprimentosActive = location.pathname.startsWith("/suprimentos");
 
   return (
     <Sidebar className="border-r border-sidebar-border">
