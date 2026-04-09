@@ -23,6 +23,13 @@ interface StockProduct {
   tipo_produto_fiscal: string | null;
 }
 
+interface RateioClasseItem {
+  tempRateioId: string;
+  codigo_classe_rec_desp: string;
+  classe_rec_desp_label: string;
+  percentual: number;
+}
+
 interface ItemWizard {
   tempId: string;
   item_servico: boolean;
@@ -33,6 +40,12 @@ interface ItemWizard {
   produto_unidade: string;
   quantidade: number;
   observacao: string;
+  rateio: RateioClasseItem[];
+}
+
+interface ClasseRecDesp {
+  codigo: string;
+  nome: string;
 }
 
 const STEPS = [
@@ -57,6 +70,11 @@ export default function SuprimentosRequisicaoNova() {
   const [produtoPopoverOpen, setProdutoPopoverOpen] = useState(false);
   const [produtoSearch, setProdutoSearch] = useState("");
 
+  // Rateio states
+  const [itemStep, setItemStep] = useState<1 | 2>(1);
+  const [itemRateio, setItemRateio] = useState<RateioClasseItem[]>([]);
+  const [classePopoverOpen, setClassePopoverOpen] = useState<string | null>(null);
+
   // Buscar produtos do cache
   const { data: produtos = [] } = useQuery({
     queryKey: ["stock_products_wizard"],
@@ -68,6 +86,22 @@ export default function SuprimentosRequisicaoNova() {
         .order("nome_produto", { ascending: true });
       if (error) throw error;
       return (data || []) as StockProduct[];
+    },
+  });
+
+  // Buscar classes rec/desp
+  const { data: classes = [] } = useQuery({
+    queryKey: ["classes_rec_desp_wizard"],
+    queryFn: async (): Promise<ClasseRecDesp[]> => {
+      const { data, error } = await (supabase as any)
+        .from("classes_rec_desp")
+        .select("codigo, nome")
+        .eq("grupo", "F")
+        .eq("natureza", "Débito")
+        .eq("is_active", true)
+        .order("codigo", { ascending: true });
+      if (error) throw error;
+      return (data || []) as ClasseRecDesp[];
     },
   });
 
@@ -94,10 +128,21 @@ export default function SuprimentosRequisicaoNova() {
     setItemQtd("1");
     setItemObs("");
     setProdutoSearch("");
+    setItemStep(1);
+    setItemRateio([]);
+    setClassePopoverOpen(null);
   };
 
   const openNewItemDialog = () => {
     resetItemForm();
+    setItemRateio([
+      {
+        tempRateioId: `rat-${Date.now()}`,
+        codigo_classe_rec_desp: "",
+        classe_rec_desp_label: "",
+        percentual: 100,
+      },
+    ]);
     setItemDialogOpen(true);
   };
 
@@ -113,10 +158,12 @@ export default function SuprimentosRequisicaoNova() {
     });
     setItemQtd(String(item.quantidade));
     setItemObs(item.observacao || "");
+    setItemRateio(item.rateio || []);
+    setItemStep(1);
     setItemDialogOpen(true);
   };
 
-  const handleSaveItem = () => {
+  const handleNextToRateio = () => {
     if (!produtoSelecionado) {
       toast({ title: "Selecione um produto ou serviço", variant: "destructive" });
       return;
@@ -126,17 +173,36 @@ export default function SuprimentosRequisicaoNova() {
       toast({ title: "Quantidade deve ser maior que zero", variant: "destructive" });
       return;
     }
+    setItemStep(2);
+  };
 
+  const handleSaveItem = () => {
+    if (itemRateio.length === 0) {
+      toast({ title: "Adicione ao menos uma classe ao rateio", variant: "destructive" });
+      return;
+    }
+    if (itemRateio.some(r => !r.codigo_classe_rec_desp)) {
+      toast({ title: "Todas as linhas do rateio precisam ter uma classe selecionada", variant: "destructive" });
+      return;
+    }
+    const soma = itemRateio.reduce((s, r) => s + r.percentual, 0);
+    if (Math.abs(soma - 100) > 0.01) {
+      toast({ title: `A soma dos percentuais deve ser 100% (atual: ${soma.toFixed(2)}%)`, variant: "destructive" });
+      return;
+    }
+
+    const qtdNum = parseFloat(itemQtd.replace(",", "."));
     const novoItem: ItemWizard = {
       tempId: editingItemId || `tmp-${Date.now()}-${Math.random()}`,
       item_servico: itemTipo === "servico",
-      codigo_produto: produtoSelecionado.codigo_produto,
-      codigo_alternativo_produto: produtoSelecionado.codigo_alternativo,
-      codigo_prod_unid_med: produtoSelecionado.unidade_medida || "UNID",
-      produto_nome: produtoSelecionado.nome_produto,
-      produto_unidade: produtoSelecionado.unidade_medida || "UNID",
+      codigo_produto: produtoSelecionado!.codigo_produto,
+      codigo_alternativo_produto: produtoSelecionado!.codigo_alternativo,
+      codigo_prod_unid_med: produtoSelecionado!.unidade_medida || "UNID",
+      produto_nome: produtoSelecionado!.nome_produto,
+      produto_unidade: produtoSelecionado!.unidade_medida || "UNID",
       quantidade: qtdNum,
       observacao: itemObs.trim(),
+      rateio: itemRateio,
     };
 
     if (editingItemId) {
@@ -151,6 +217,36 @@ export default function SuprimentosRequisicaoNova() {
   const handleRemoveItem = (tempId: string) => {
     setItens(prev => prev.filter(i => i.tempId !== tempId));
   };
+
+  const addRateioLinha = () => {
+    setItemRateio(prev => [...prev, {
+      tempRateioId: `rat-${Date.now()}-${Math.random()}`,
+      codigo_classe_rec_desp: "",
+      classe_rec_desp_label: "",
+      percentual: 0,
+    }]);
+  };
+
+  const removeRateioLinha = (tempRateioId: string) => {
+    setItemRateio(prev => prev.filter(r => r.tempRateioId !== tempRateioId));
+  };
+
+  const updateRateioLinha = (tempRateioId: string, patch: Partial<RateioClasseItem>) => {
+    setItemRateio(prev => prev.map(r => r.tempRateioId === tempRateioId ? { ...r, ...patch } : r));
+  };
+
+  const dividirIgualmente = () => {
+    if (itemRateio.length === 0) return;
+    const n = itemRateio.length;
+    const base = Math.floor((100 / n) * 100) / 100;
+    const resto = Math.round((100 - base * n) * 100) / 100;
+    setItemRateio(prev => prev.map((r, idx) => ({
+      ...r,
+      percentual: idx === n - 1 ? Math.round((base + resto) * 100) / 100 : base,
+    })));
+  };
+
+  const somaRateio = useMemo(() => itemRateio.reduce((s, r) => s + r.percentual, 0), [itemRateio]);
 
   const canAdvance = currentStep === 1 ? itens.length > 0 : true;
 
@@ -214,6 +310,15 @@ export default function SuprimentosRequisicaoNova() {
                         </div>
                         <p className="text-xs text-muted-foreground">{item.quantidade} {item.produto_unidade} · {item.codigo_produto}</p>
                         {item.observacao && <p className="text-xs text-muted-foreground italic mt-1">"{item.observacao}"</p>}
+                        {item.rateio.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {item.rateio.map(r => (
+                              <Badge key={r.tempRateioId} variant="secondary" className="text-[10px] font-normal">
+                                {r.codigo_classe_rec_desp} ({r.percentual}%)
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => openEditItemDialog(item)}>
                         <Pencil className="h-3.5 w-3.5" />
@@ -255,61 +360,170 @@ export default function SuprimentosRequisicaoNova() {
       <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editingItemId ? "Editar item" : "Adicionar item"}</DialogTitle>
+            <DialogTitle>
+              {editingItemId ? "Editar item" : "Adicionar item"}
+              {itemStep === 2 && " — Rateio de classes"}
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <Tabs value={itemTipo} onValueChange={(v) => { setItemTipo(v as any); setProdutoSelecionado(null); }}>
-              <TabsList className="w-full">
-                <TabsTrigger value="produto" className="flex-1"><Package className="h-4 w-4 mr-1" /> Produto</TabsTrigger>
-                <TabsTrigger value="servico" className="flex-1"><Wrench className="h-4 w-4 mr-1" /> Serviço</TabsTrigger>
-              </TabsList>
-            </Tabs>
 
-            <div className="space-y-2">
-              <Label>{itemTipo === "servico" ? "Serviço" : "Produto"}</Label>
-              <Popover open={produtoPopoverOpen} onOpenChange={setProdutoPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                    {produtoSelecionado ? `${produtoSelecionado.nome_produto} (${produtoSelecionado.codigo_produto})` : `Buscar ${itemTipo === "servico" ? "serviço" : "produto"}...`}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                  <Command shouldFilter={false}>
-                    <CommandInput placeholder="Digite para buscar..." value={produtoSearch} onValueChange={setProdutoSearch} />
-                    <CommandList>
-                      <CommandEmpty>Nenhum resultado.</CommandEmpty>
-                      <CommandGroup>
-                        {produtosFiltrados.map(p => (
-                          <CommandItem key={p.codigo_produto} value={p.codigo_produto} onSelect={() => { setProdutoSelecionado(p); setProdutoPopoverOpen(false); }}>
-                            <div className="flex flex-col">
-                              <span className="font-medium">{p.nome_produto}</span>
-                              <span className="text-xs text-muted-foreground">
-                                {p.codigo_produto}{p.unidade_medida ? ` · ${p.unidade_medida}` : ""}
+          {itemStep === 1 && (
+            <div className="space-y-4 py-2">
+              <Tabs value={itemTipo} onValueChange={(v) => { setItemTipo(v as any); setProdutoSelecionado(null); }}>
+                <TabsList className="w-full">
+                  <TabsTrigger value="produto" className="flex-1"><Package className="h-4 w-4 mr-1" /> Produto</TabsTrigger>
+                  <TabsTrigger value="servico" className="flex-1"><Wrench className="h-4 w-4 mr-1" /> Serviço</TabsTrigger>
+                </TabsList>
+              </Tabs>
+
+              <div className="space-y-2">
+                <Label>{itemTipo === "servico" ? "Serviço" : "Produto"}</Label>
+                <Popover open={produtoPopoverOpen} onOpenChange={setProdutoPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                      {produtoSelecionado ? `${produtoSelecionado.nome_produto} (${produtoSelecionado.codigo_produto})` : `Buscar ${itemTipo === "servico" ? "serviço" : "produto"}...`}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command shouldFilter={false}>
+                      <CommandInput placeholder="Digite para buscar..." value={produtoSearch} onValueChange={setProdutoSearch} />
+                      <CommandList>
+                        <CommandEmpty>Nenhum resultado.</CommandEmpty>
+                        <CommandGroup>
+                          {produtosFiltrados.map(p => (
+                            <CommandItem key={p.codigo_produto} value={p.codigo_produto} onSelect={() => { setProdutoSelecionado(p); setProdutoPopoverOpen(false); }}>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{p.nome_produto}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {p.codigo_produto}{p.unidade_medida ? ` · ${p.unidade_medida}` : ""}
+                                </span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Quantidade</Label>
+                <Input type="text" inputMode="decimal" value={itemQtd} onChange={e => setItemQtd(e.target.value)} />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Observação (opcional)</Label>
+                <Textarea value={itemObs} onChange={e => setItemObs(e.target.value)} placeholder="Ex: link do produto, fornecedor preferido, urgência..." />
+              </div>
+            </div>
+          )}
+
+          {itemStep === 2 && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+                Defina como o custo deste item será rateado entre classes contábeis.
+                A soma deve totalizar 100%.
+              </div>
+              <div className="space-y-2">
+                {itemRateio.map((r) => {
+                  const classe = classes.find(c => c.codigo === r.codigo_classe_rec_desp);
+                  return (
+                    <div key={r.tempRateioId} className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <Popover
+                          open={classePopoverOpen === r.tempRateioId}
+                          onOpenChange={(v) => setClassePopoverOpen(v ? r.tempRateioId : null)}
+                        >
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" role="combobox" className="w-full justify-between font-normal text-xs h-9">
+                              <span className="truncate">
+                                {classe ? `${classe.codigo} — ${classe.nome}` : "Selecione uma classe..."}
                               </span>
-                            </div>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                              <ChevronsUpDown className="ml-2 h-3 w-3 opacity-50 shrink-0" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[400px] p-0" align="start">
+                            <Command>
+                              <CommandInput placeholder="Buscar classe..." />
+                              <CommandList>
+                                <CommandEmpty>Nenhuma classe encontrada.</CommandEmpty>
+                                <CommandGroup>
+                                  {classes.map(c => (
+                                    <CommandItem
+                                      key={c.codigo}
+                                      value={`${c.codigo} ${c.nome}`}
+                                      onSelect={() => {
+                                        updateRateioLinha(r.tempRateioId, {
+                                          codigo_classe_rec_desp: c.codigo,
+                                          classe_rec_desp_label: c.nome,
+                                        });
+                                        setClassePopoverOpen(null);
+                                      }}
+                                    >
+                                      <div className="flex flex-col">
+                                        <span className="font-mono text-xs">{c.codigo}</span>
+                                        <span className="text-xs">{c.nome}</span>
+                                      </div>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={r.percentual}
+                        onChange={(e) => updateRateioLinha(r.tempRateioId, { percentual: parseFloat(e.target.value) || 0 })}
+                        className="w-20 h-9 text-right text-xs"
+                        placeholder="%"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 shrink-0"
+                        onClick={() => removeRateioLinha(r.tempRateioId)}
+                        disabled={itemRateio.length === 1}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={addRateioLinha} className="gap-1.5 text-xs">
+                  <Plus className="h-3 w-3" /> Adicionar classe
+                </Button>
+                <Button variant="outline" size="sm" onClick={dividirIgualmente} className="gap-1.5 text-xs" disabled={itemRateio.length < 2}>
+                  Dividir igualmente
+                </Button>
+                <div className={`ml-auto text-sm font-semibold ${Math.abs(somaRateio - 100) <= 0.01 ? "text-emerald-600" : "text-destructive"}`}>
+                  Total: {somaRateio.toFixed(2)}%
+                </div>
+              </div>
             </div>
+          )}
 
-            <div className="space-y-2">
-              <Label>Quantidade</Label>
-              <Input type="text" inputMode="decimal" value={itemQtd} onChange={e => setItemQtd(e.target.value)} />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Observação (opcional)</Label>
-              <Textarea value={itemObs} onChange={e => setItemObs(e.target.value)} placeholder="Ex: link do produto, fornecedor preferido, urgência..." />
-            </div>
-          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setItemDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSaveItem}>{editingItemId ? "Salvar" : "Adicionar"}</Button>
+            {itemStep === 1 ? (
+              <>
+                <Button variant="outline" onClick={() => setItemDialogOpen(false)}>Cancelar</Button>
+                <Button onClick={handleNextToRateio}>Próximo <ArrowRight className="ml-2 h-4 w-4" /></Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setItemStep(1)}>
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
+                </Button>
+                <Button onClick={handleSaveItem}>{editingItemId ? "Salvar" : "Adicionar"}</Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
