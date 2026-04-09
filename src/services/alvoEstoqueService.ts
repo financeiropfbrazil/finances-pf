@@ -420,7 +420,8 @@ async function loadProdutoComRetry(
 }
 
 export async function enriquecerUnidadesMedida(
-  onProgress?: (current: number, total: number, message: string) => void
+  onProgress?: (current: number, total: number, message: string) => void,
+  shouldCancel?: () => boolean
 ): Promise<EnrichUnidadesResult> {
   // 1. Buscar produtos ativos sem unidade_medida
   const { data: produtos, error } = await (supabase as any)
@@ -446,6 +447,12 @@ export async function enriquecerUnidadesMedida(
   const DELAY_MS = 200;
 
   for (let i = 0; i < produtos.length; i++) {
+    // Check cancellation at the start of each iteration
+    if (shouldCancel?.()) {
+      onProgress?.(i, produtos.length, `Cancelado pelo usuário. Processados: ${i} de ${produtos.length}`);
+      break;
+    }
+
     const p = produtos[i];
     try {
       onProgress?.(
@@ -478,7 +485,13 @@ export async function enriquecerUnidadesMedida(
       const { error: updateErr } = await (supabase as any)
         .from("stock_products")
         .upsert(
-          { id: p.id, unidade_medida: unidadeCodigo, updated_at: new Date().toISOString() },
+          {
+            id: p.id,
+            codigo_produto: p.codigo_produto,
+            nome_produto: p.nome_produto,
+            unidade_medida: unidadeCodigo,
+            updated_at: new Date().toISOString(),
+          },
           { onConflict: "id" }
         );
 
