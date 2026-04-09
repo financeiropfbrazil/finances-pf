@@ -11,9 +11,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { toast } from "@/hooks/use-toast";
-import { UserPlus, Shield, ShieldOff, Loader2, Pencil, KeyRound } from "lucide-react";
+import { UserPlus, Shield, ShieldOff, Loader2, Pencil, KeyRound, Check, ChevronsUpDown } from "lucide-react";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 interface ProfileRow {
   id: string;
@@ -23,6 +26,14 @@ interface ProfileRow {
   is_admin: boolean | null;
   is_active: boolean | null;
   created_at: string;
+  funcionario_alvo_codigo: string | null;
+}
+
+interface FuncionarioAlvo {
+  codigo: string;
+  nome: string;
+  status: string;
+  codigo_centro_ctrl: string | null;
 }
 
 const MENU_MODULES = [
@@ -65,6 +76,11 @@ export default function Users() {
   // Edit form
   const [editName, setEditName] = useState("");
   const [editAdmin, setEditAdmin] = useState(false);
+  const [editFuncionarioCodigo, setEditFuncionarioCodigo] = useState<string | null>(null);
+  const [funcionarios, setFuncionarios] = useState<FuncionarioAlvo[]>([]);
+  const [funcSearch, setFuncSearch] = useState("");
+  const [showDemitidos, setShowDemitidos] = useState(false);
+  const [funcPopoverOpen, setFuncPopoverOpen] = useState(false);
 
   // Permissions dialog
   const [permOpen, setPermOpen] = useState(false);
@@ -80,7 +96,7 @@ export default function Users() {
       .from("profiles")
       .select("*")
       .order("created_at");
-    if (data) setProfiles(data as ProfileRow[]);
+    if (data) setProfiles(data as unknown as ProfileRow[]);
     setLoading(false);
   };
 
@@ -164,20 +180,30 @@ export default function Users() {
     }
   };
 
-  const openEdit = (p: ProfileRow) => {
+  const openEdit = async (p: ProfileRow) => {
     setEditProfile(p);
     setEditName(p.full_name || "");
     setEditAdmin(p.is_admin === true);
+    setEditFuncionarioCodigo(p.funcionario_alvo_codigo || null);
+    setFuncSearch("");
+    setShowDemitidos(false);
     setEditOpen(true);
+
+    const { data } = await (supabase as any)
+      .from("funcionarios_alvo_cache")
+      .select("codigo, nome, status, codigo_centro_ctrl")
+      .order("nome", { ascending: true });
+    if (data) setFuncionarios(data as FuncionarioAlvo[]);
   };
 
   const handleEdit = async () => {
     if (!editProfile) return;
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from("profiles")
       .update({
         full_name: editName,
         is_admin: editAdmin,
+        funcionario_alvo_codigo: editFuncionarioCodigo,
         updated_at: new Date().toISOString(),
       })
       .eq("id", editProfile.id);
@@ -237,6 +263,14 @@ export default function Users() {
     }
     setPermSaving(false);
   };
+
+  const filteredFuncionarios = funcionarios
+    .filter(f => showDemitidos || f.status === "Trabalhando")
+    .filter(f => {
+      const q = funcSearch.trim().toLowerCase();
+      if (!q) return true;
+      return f.nome.toLowerCase().includes(q) || f.codigo.includes(q);
+    });
 
   return (
     <div className="space-y-6 p-6">
@@ -363,6 +397,75 @@ export default function Users() {
               <Label>Nome Completo</Label>
               <Input value={editName} onChange={e => setEditName(e.target.value)} />
             </div>
+
+            <div className="space-y-1.5">
+              <Label>Funcionário no ERP Alvo</Label>
+              <Popover open={funcPopoverOpen} onOpenChange={setFuncPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                    {editFuncionarioCodigo
+                      ? (() => {
+                          const f = funcionarios.find(x => x.codigo === editFuncionarioCodigo);
+                          return f ? `${f.nome} (${f.codigo})` : editFuncionarioCodigo;
+                        })()
+                      : "Nenhum funcionário vinculado"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput placeholder="Buscar por nome ou código..." value={funcSearch} onValueChange={setFuncSearch} />
+
+                    <div className="flex items-center gap-2 px-3 py-2 border-b">
+                      <Checkbox
+                        id="show-demitidos"
+                        checked={showDemitidos}
+                        onCheckedChange={(v) => setShowDemitidos(v === true)}
+                      />
+                      <Label htmlFor="show-demitidos" className="text-xs font-normal cursor-pointer">
+                        Mostrar demitidos
+                      </Label>
+                    </div>
+
+                    <CommandList>
+                      <CommandEmpty>Nenhum funcionário encontrado.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          onSelect={() => {
+                            setEditFuncionarioCodigo(null);
+                            setFuncPopoverOpen(false);
+                          }}
+                        >
+                          <Check className={cn("mr-2 h-4 w-4", editFuncionarioCodigo === null ? "opacity-100" : "opacity-0")} />
+                          Nenhum (desvincular)
+                        </CommandItem>
+                        {filteredFuncionarios.map(f => (
+                          <CommandItem
+                            key={f.codigo}
+                            onSelect={() => {
+                              setEditFuncionarioCodigo(f.codigo);
+                              setFuncPopoverOpen(false);
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", editFuncionarioCodigo === f.codigo ? "opacity-100" : "opacity-0")} />
+                            <div className="flex flex-col">
+                              <span className="text-sm">{f.nome}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {f.codigo} {f.status === "Demitido" && "· Demitido"}
+                              </span>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <p className="text-xs text-muted-foreground">
+                Vincular a um funcionário do Alvo é necessário para criar Requisições de Compra.
+              </p>
+            </div>
+
             <div className="flex items-center gap-3">
               <Switch checked={editAdmin} onCheckedChange={setEditAdmin} />
               <Label>Administrador</Label>
