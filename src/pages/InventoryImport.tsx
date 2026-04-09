@@ -723,7 +723,7 @@ export default function InventoryImport() {
 
       {/* Unit Enrichment Dialog */}
       <Dialog open={unitEnrichOpen} onOpenChange={(v) => !unitEnriching && setUnitEnrichOpen(v)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg w-[calc(100vw-2rem)] overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
@@ -755,7 +755,7 @@ export default function InventoryImport() {
                 </div>
                 <Progress value={unitEnrichProgress} className="h-2.5" />
               </div>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5">
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 min-w-0 overflow-hidden">
                 <p className="text-xs text-muted-foreground truncate font-mono">{unitEnrichMessage}</p>
               </div>
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
