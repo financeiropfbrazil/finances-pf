@@ -431,6 +431,16 @@ export default function InventoryImport() {
             {syncingERP ? "Sincronizando..." : "Sincronizar do ERP"}
           </Button>
           <Button
+            onClick={() => { setUnitEnrichResult(null); setUnitEnrichMessage(""); setUnitEnrichProgress(0); setUnitEnrichOpen(true); }}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <Sparkles className="h-4 w-4" />
+            Enriquecer Unidades
+          </Button>
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             className="gap-2"
