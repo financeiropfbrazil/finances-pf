@@ -439,7 +439,6 @@ export default function InventoryImport() {
             <Sparkles className="h-4 w-4" />
             Enriquecer Unidades
           </Button>
-          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -712,6 +711,67 @@ export default function InventoryImport() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Unit Enrichment Dialog */}
+      <Dialog open={unitEnrichOpen} onOpenChange={(v) => !unitEnriching && setUnitEnrichOpen(v)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Enriquecer Unidades de Medida</DialogTitle>
+            <DialogDescription>
+              Busca a unidade de medida principal de cada produto ativo no ERP Alvo via Produto/Load. Apenas produtos sem unidade cadastrada serão processados. O processo pode levar vários minutos dependendo da quantidade de produtos.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!unitEnriching && !unitEnrichResult && (
+            <div className="text-sm text-muted-foreground">
+              Clique em "Iniciar" para começar. A operação faz uma chamada por produto ao ERP, então pode levar cerca de 10-15 minutos para 2.000+ produtos.
+            </div>
+          )}
+
+          {unitEnriching && (
+            <div className="space-y-3">
+              <Progress value={unitEnrichProgress} />
+              <p className="text-sm text-muted-foreground truncate">{unitEnrichMessage}</p>
+            </div>
+          )}
+
+          {unitEnrichResult && (
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                <span>Enriquecidos: <strong>{unitEnrichResult.enriched}</strong></span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Info className="h-4 w-4 text-muted-foreground" />
+                <span>Sem unidade no ERP: <strong>{unitEnrichResult.skipped}</strong></span>
+              </div>
+              {unitEnrichResult.errors > 0 && (
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                  <span>Erros: <strong>{unitEnrichResult.errors}</strong></span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            {!unitEnrichResult ? (
+              <Button onClick={handleEnrichUnidades} disabled={unitEnriching} className="gap-2">
+                {unitEnriching ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Enriquecendo...
+                  </>
+                ) : (
+                  "Iniciar"
+                )}
+              </Button>
+            ) : (
+              <Button onClick={() => setUnitEnrichOpen(false)}>Fechar</Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
