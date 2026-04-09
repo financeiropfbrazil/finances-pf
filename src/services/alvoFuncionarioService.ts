@@ -79,7 +79,7 @@ export async function syncFuncionarios(
       }));
 
     if (records.length > 0) {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("funcionarios_alvo_cache")
         .upsert(records, { onConflict: "codigo" });
       if (error) console.warn(`[Funcionario] Erro page ${page}:`, error.message);
@@ -96,13 +96,13 @@ export async function syncFuncionarios(
     }
   }
 
-  await supabase.from("compras_config").upsert({
+  await (supabase as any).from("compras_config").upsert({
     chave: "sync_funcionarios_ts",
     valor: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }, { onConflict: "chave" });
 
-  await supabase.from("compras_config").upsert({
+  await (supabase as any).from("compras_config").upsert({
     chave: "sync_funcionarios_count",
     valor: String(totalSaved),
     updated_at: new Date().toISOString(),
