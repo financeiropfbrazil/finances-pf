@@ -56,6 +56,13 @@ export default function InventoryImport() {
   const [filterTipo, setFilterTipo] = useState("all");
   const [syncingERP, setSyncingERP] = useState(false);
 
+  // Unit enrichment state
+  const [unitEnrichOpen, setUnitEnrichOpen] = useState(false);
+  const [unitEnriching, setUnitEnriching] = useState(false);
+  const [unitEnrichProgress, setUnitEnrichProgress] = useState(0);
+  const [unitEnrichMessage, setUnitEnrichMessage] = useState("");
+  const [unitEnrichResult, setUnitEnrichResult] = useState<EnrichUnidadesResult | null>(null);
+
   // External code dialog state
   const [extDialogOpen, setExtDialogOpen] = useState(false);
   const [extParsing, setExtParsing] = useState(false);
