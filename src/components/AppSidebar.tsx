@@ -181,9 +181,10 @@ export function AppSidebar() {
                     );
                   }
                   if (item.titleKey === "nav.nf_entrada") {
-                    if (!hasAccess("compras") && !hasAccess("entidades")) return null;
+                    if (!hasAccess("compras") && !hasAccess("entidades") && !hasAccess("suprimentos_requisicoes")) return null;
                     return (
                       <div key="nf-entrada-and-compras-group">
+                        {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
                         {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
                         {hasAccess("entidades") && renderEntidadesGroup(t, isEntidadesActive)}
                       </div>
@@ -255,6 +256,9 @@ export function AppSidebar() {
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
+
+                      {/* Suprimentos expandable */}
+                      {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
 
                       {/* Compras expandable */}
                       {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
