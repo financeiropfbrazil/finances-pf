@@ -26,6 +26,7 @@ import {
   Users as UsersIcon,
   RefreshCw,
   Mail,
+  Boxes,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -89,6 +90,7 @@ const routePermMap: Record<string, string> = {
   "/contas-a-pagar": "contas_pagar",
   "/projetos": "projetos",
   "/closing": "closing",
+  "/suprimentos/requisicoes": "suprimentos_requisicoes",
 };
 
 const inventorySubItems = [
@@ -104,6 +106,10 @@ const comprasSubItems = [
   { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
   { label: "Notas de Serviço", url: "/compras/notas-servico", icon: FileText },
   { label: "Certificado Digital", url: "/compras/certificado", icon: ShieldCheck },
+];
+
+const suprimentosSubItems = [
+  { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
 ];
 
 const entidadesSubItems = [
@@ -140,6 +146,7 @@ export function AppSidebar() {
   const isComprasActive = location.pathname.startsWith("/compras");
   const isEntidadesActive = location.pathname.startsWith("/entidades");
   const isContasPagarActive = location.pathname.startsWith("/contas-a-pagar");
+  const isSuprimentosActive = location.pathname.startsWith("/suprimentos");
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -174,9 +181,10 @@ export function AppSidebar() {
                     );
                   }
                   if (item.titleKey === "nav.nf_entrada") {
-                    if (!hasAccess("compras") && !hasAccess("entidades")) return null;
+                    if (!hasAccess("compras") && !hasAccess("entidades") && !hasAccess("suprimentos_requisicoes")) return null;
                     return (
                       <div key="nf-entrada-and-compras-group">
+                        {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
                         {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
                         {hasAccess("entidades") && renderEntidadesGroup(t, isEntidadesActive)}
                       </div>
@@ -248,6 +256,9 @@ export function AppSidebar() {
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
+
+                      {/* Suprimentos expandable */}
+                      {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
 
                       {/* Compras expandable */}
                       {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
@@ -511,6 +522,44 @@ function renderContasPagarGroup(t: any, isActive: boolean) {
                   <NavLink
                     to={sub.url}
                     end={sub.url === "/contas-a-pagar"}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                  >
+                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+
+function renderSuprimentosGroup(t: any, isActive: boolean) {
+  return (
+    <Collapsible defaultOpen={isActive} className="group/collapsible-suprimentos">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
+            }`}
+          >
+            <Boxes className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Suprimentos</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-suprimentos:rotate-[-90deg]" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {suprimentosSubItems.map((sub) => (
+              <SidebarMenuSubItem key={sub.url}>
+                <SidebarMenuSubButton asChild>
+                  <NavLink
+                    to={sub.url}
                     className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
                   >

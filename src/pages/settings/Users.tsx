@@ -42,6 +42,7 @@ const MENU_MODULES = [
   { key: "projetos", label: "Projetos", group: "Principal" },
   { key: "closing", label: "Fechamento", group: "Financeiro" },
   { key: "settings", label: "Configurações (API, CC, Classes)", group: "Sistema" },
+  { key: "suprimentos_requisicoes", label: "Requisições de Compra", group: "Suprimentos" },
 ];
 
 const GROUPS = [...new Set(MENU_MODULES.map(m => m.group))];
