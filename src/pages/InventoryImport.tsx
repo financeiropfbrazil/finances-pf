@@ -179,6 +179,30 @@ export default function InventoryImport() {
     }
   };
 
+  // Unit enrichment handler
+  const handleEnrichUnidades = async () => {
+    setUnitEnriching(true);
+    setUnitEnrichResult(null);
+    setUnitEnrichProgress(0);
+    setUnitEnrichMessage("Iniciando...");
+    try {
+      const result = await enriquecerUnidadesMedida((current, total, message) => {
+        setUnitEnrichMessage(message);
+        if (total > 0) setUnitEnrichProgress(Math.round((current / total) * 100));
+      });
+      setUnitEnrichResult(result);
+      toast({
+        title: "Enriquecimento concluído",
+        description: `${result.enriched} produtos com unidade, ${result.skipped} sem dados, ${result.errors} erros`,
+      });
+      fetchProducts();
+    } catch (err: any) {
+      toast({ title: "Erro no enriquecimento", description: err.message, variant: "destructive" });
+    } finally {
+      setUnitEnriching(false);
+    }
+  };
+
   // --- External Code Import Logic ---
   const resetExtDialog = () => {
     setExtPreview(null);
