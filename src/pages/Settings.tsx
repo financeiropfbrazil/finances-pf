@@ -12,6 +12,7 @@ import { authenticateAlvo, clearAlvoToken } from "@/services/alvoService";
 import { syncCondicoesPagamento } from "@/services/alvoCondPagService";
 import { syncEntidades } from "@/services/alvoEntidadeService";
 import { syncProdutos } from "@/services/alvoProdutoService";
+import { syncFuncionarios } from "@/services/alvoFuncionarioService";
 import { supabase } from "@/integrations/supabase/client";
 import ApiTester from "@/components/ApiTester";
 
@@ -33,6 +34,8 @@ export default function Settings() {
   const [syncEntProgress, setSyncEntProgress] = useState("");
   const [syncProdLoading, setSyncProdLoading] = useState(false);
   const [syncProdProgress, setSyncProdProgress] = useState("");
+  const [syncFuncLoading, setSyncFuncLoading] = useState(false);
+  const [syncFuncProgress, setSyncFuncProgress] = useState("");
   // Sync metadata
   const [syncMeta, setSyncMeta] = useState<Record<string, string>>({});
   // ERP credentials state
@@ -49,7 +52,7 @@ export default function Settings() {
     const { data } = await supabase
       .from("compras_config")
       .select("chave, valor")
-      .in("chave", ["sync_entidades_ts", "sync_entidades_count", "sync_produtos_ts", "sync_produtos_count"]);
+      .in("chave", ["sync_entidades_ts", "sync_entidades_count", "sync_produtos_ts", "sync_produtos_count", "sync_funcionarios_ts", "sync_funcionarios_count"]);
     if (data) {
       const map: Record<string, string> = {};
       data.forEach(r => { if (r.valor) map[r.chave] = r.valor; });
@@ -334,6 +337,52 @@ export default function Settings() {
               {syncingCondPag ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               {syncingCondPag ? "Sincronizando..." : "Sincronizar Condições de Pagamento"}
             </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Separator />
+
+      {/* Funcionários */}
+      <div>
+        <h2 className="mb-4 text-lg font-semibold text-foreground">Funcionários</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Sincronizar do ERP Alvo</CardTitle>
+            <CardDescription className="mt-1">
+              Sincronizar cadastro de funcionários do ERP Alvo para uso no módulo Suprimentos &gt; Requisições de Compra. O cache inclui código, nome, status e centro de custo padrão.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Button
+              onClick={async () => {
+                setSyncFuncLoading(true);
+                setSyncFuncProgress("");
+                try {
+                  const count = await syncFuncionarios(setSyncFuncProgress);
+                  await loadSyncMeta();
+                  toast({ title: `✅ ${count} funcionários sincronizados` });
+                } catch (err: any) {
+                  toast({ title: "Erro", description: err.message, variant: "destructive" });
+                } finally {
+                  setSyncFuncLoading(false);
+                  setSyncFuncProgress("");
+                }
+              }}
+              disabled={syncFuncLoading}
+              className="gap-2"
+            >
+              {syncFuncLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {syncFuncLoading ? "Sincronizando..." : "Sincronizar Funcionários"}
+            </Button>
+            {syncFuncProgress && (
+              <p className="text-sm text-muted-foreground">{syncFuncProgress}</p>
+            )}
+            {!syncFuncLoading && (
+              <p className="text-xs text-muted-foreground">
+                {formatSyncInfo(syncMeta.sync_funcionarios_ts || null, syncMeta.sync_funcionarios_count || null, "funcionários")}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
