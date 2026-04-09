@@ -9,10 +9,11 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info, RefreshCw } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info, RefreshCw, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { seedStockProductsFromBuffer } from "@/services/stockProductsSeed";
-import { sincronizarProdutosDoERP } from "@/services/alvoEstoqueService";
+import { sincronizarProdutosDoERP, enriquecerUnidadesMedida, type EnrichUnidadesResult } from "@/services/alvoEstoqueService";
 import { supabase } from "@/integrations/supabase/client";
 import * as XLSX from "xlsx";
 
