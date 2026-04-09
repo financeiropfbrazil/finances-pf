@@ -154,7 +154,7 @@ export default function SuprimentosRequisicaoNova() {
   const canAdvance = currentStep === 1 ? itens.length > 0 : true;
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/suprimentos/requisicoes")}>
