@@ -50,6 +50,7 @@ import ContasPagarDashboard from "./pages/ContasPagarDashboard";
 import ConfigSyncJobs from "./pages/ConfigSyncJobs";
 import EmailNfe from "./pages/EmailNfe";
 import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
+import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
