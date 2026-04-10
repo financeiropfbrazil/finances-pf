@@ -37,5 +37,5 @@ export function usePermissions() {
     return permissions[menuKey] === true;
   };
 
-  return { hasAccess, loading, isAdmin: profile?.is_admin ?? false };
+  return { hasAccess, loading, isAdmin: profile?.is_admin ?? false, permissions };
 }
