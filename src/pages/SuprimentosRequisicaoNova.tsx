@@ -21,6 +21,7 @@ import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { applyCnpjMask, stripCnpjMask, isValidCnpjLength } from "@/lib/cnpj";
 
 interface StockProduct {
   codigo_produto: string;
@@ -105,6 +106,7 @@ export default function SuprimentosRequisicaoNova() {
   const [dataNecessidade, setDataNecessidade] = useState<Date | undefined>(undefined);
   const [codigoFinalidadeCompra, setCodigoFinalidadeCompra] = useState("");
   const [descricao, setDescricao] = useState("");
+  const [cnpjSugestao, setCnpjSugestao] = useState("");
 
   // Etapa 3
   const [codigoFuncionario, setCodigoFuncionario] = useState("");
@@ -212,6 +214,10 @@ export default function SuprimentosRequisicaoNova() {
       toast({ title: "Descrição obrigatória", variant: "destructive" });
       return;
     }
+    if (!isValidCnpjLength(cnpjSugestao)) {
+      toast({ title: "CNPJ deve ter 14 dígitos", variant: "destructive" });
+      return;
+    }
     if (!codigoFuncionario || !codigoCentroCtrl) {
       toast({ title: "Funcionário e Centro de Custo são obrigatórios", variant: "destructive" });
       return;
@@ -236,6 +242,7 @@ export default function SuprimentosRequisicaoNova() {
         codigo_finalidade_compra: codigoFinalidadeCompra,
         finalidade_compra_label: getFinalidadeLabel(codigoFinalidadeCompra),
         descricao,
+        cnpj_sugestao_requisicao: stripCnpjMask(cnpjSugestao) || undefined,
         data_necessidade: format(dataNecessidade, "yyyy-MM-dd"),
         observacao_livre: observacaoLivre,
         itens: itens.map((item) => ({
@@ -424,7 +431,7 @@ export default function SuprimentosRequisicaoNova() {
 
   const canAdvance = (() => {
     if (currentStep === 1) return itens.length > 0;
-    if (currentStep === 2) return !!dataNecessidade && !!codigoFinalidadeCompra && !!descricao.trim();
+    if (currentStep === 2) return !!dataNecessidade && !!codigoFinalidadeCompra && !!descricao.trim() && isValidCnpjLength(cnpjSugestao);
     if (currentStep === 3) return !!codigoFuncionario && !!codigoCentroCtrl;
     return true;
   })();
@@ -563,6 +570,21 @@ export default function SuprimentosRequisicaoNova() {
             <div className="space-y-2">
               <Label>Descrição *</Label>
               <Textarea value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Ex: Compra mensal de material de escritório" />
+            </div>
+
+            <div className="space-y-2">
+              <Label>CNPJ de referência (opcional)</Label>
+              <Input
+                type="text"
+                placeholder="00.000.000/0000-00"
+                maxLength={18}
+                value={cnpjSugestao}
+                onChange={e => setCnpjSugestao(applyCnpjMask(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground">CNPJ do fornecedor sugerido, se aplicável. Serve apenas como orientação.</p>
+              {cnpjSugestao && !isValidCnpjLength(cnpjSugestao) && (
+                <p className="text-xs text-destructive">CNPJ deve ter 14 dígitos</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -717,6 +739,10 @@ export default function SuprimentosRequisicaoNova() {
                 <div>
                   <div className="text-xs text-muted-foreground">Descrição</div>
                   <div className="font-medium">{descricao || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">CNPJ de referência</div>
+                  <div className="font-medium">{cnpjSugestao || <span className="text-muted-foreground">Não informado</span>}</div>
                 </div>
               </div>
             </CardContent>
