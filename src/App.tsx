@@ -51,6 +51,7 @@ import ConfigSyncJobs from "./pages/ConfigSyncJobs";
 import EmailNfe from "./pages/EmailNfe";
 import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
 import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
+import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -137,6 +138,7 @@ function AppRoutes() {
         <Route path="/email-nfe" element={<PermissionRoute permKey="nf_entrada"><EmailNfe /></PermissionRoute>} />
         <Route path="/suprimentos/requisicoes" element={<PermissionRoute permKey="suprimentos_requisicoes"><SuprimentosRequisicoes /></PermissionRoute>} />
         <Route path="/suprimentos/requisicoes/nova" element={<PermissionRoute permKey="suprimentos_requisicoes"><SuprimentosRequisicaoNova /></PermissionRoute>} />
+        <Route path="/suprimentos/requisicoes/:id" element={<PermissionRoute permKey="suprimentos_requisicoes"><SuprimentosRequisicaoDetalhe /></PermissionRoute>} />
         <Route path="/compras/notas-fiscais" element={<PermissionRoute permKey="compras"><ComprasNotasFiscais /></PermissionRoute>} />
         <Route path="/compras/notas-servico" element={<PermissionRoute permKey="compras"><ComprasNotasServico /></PermissionRoute>} />
         <Route path="/compras/certificado" element={<PermissionRoute permKey="compras"><ComprasCertificado /></PermissionRoute>} />
