@@ -199,7 +199,63 @@ export default function SuprimentosRequisicaoNova() {
     return FINALIDADES_COMPRA.find(f => f.codigo === codigo)?.label || codigo;
   };
 
-  // Filtrar produtos conforme tipo e busca
+  const handleEnviar = async () => {
+    if (!profile?.id || !dataNecessidade) return;
+    setEnviando(true);
+    try {
+      const result = await enviarRequisicao({
+        user_id: profile.id,
+        requisitante_nome: profile.full_name || profile.email || "Usuário",
+        codigo_funcionario: codigoFuncionario,
+        funcionario_nome: funcionarioNome,
+        codigo_centro_ctrl: codigoCentroCtrl,
+        codigo_finalidade_compra: codigoFinalidadeCompra,
+        finalidade_compra_label: getFinalidadeLabel(codigoFinalidadeCompra),
+        descricao,
+        data_necessidade: format(dataNecessidade, "yyyy-MM-dd"),
+        observacao_livre: observacaoLivre,
+        itens: itens.map((item) => ({
+          item_servico: item.item_servico,
+          codigo_produto: item.codigo_produto,
+          codigo_alternativo_produto: item.codigo_alternativo_produto,
+          codigo_prod_unid_med: item.codigo_prod_unid_med,
+          produto_nome: item.produto_nome,
+          produto_unidade: item.produto_unidade,
+          quantidade: item.quantidade,
+          observacao: item.observacao,
+          rateio: item.rateio.map((r) => ({
+            codigo_classe_rec_desp: r.codigo_classe_rec_desp,
+            classe_rec_desp_label: r.classe_rec_desp_label,
+            percentual: r.percentual,
+          })),
+        })),
+      });
+
+      if (result.sucesso) {
+        toast({
+          title: "Requisição enviada com sucesso!",
+          description: result.numero_alvo
+            ? `Número no ERP: ${result.numero_alvo}`
+            : "Requisição sincronizada com o ERP.",
+        });
+      } else {
+        toast({
+          title: "Falha ao enviar ao ERP",
+          description: `A requisição foi salva como rascunho. Erro: ${result.erro}`,
+          variant: "destructive",
+        });
+      }
+      navigate("/suprimentos/requisicoes");
+    } catch (err: any) {
+      toast({
+        title: "Erro inesperado",
+        description: err?.message || "Não foi possível enviar a requisição.",
+        variant: "destructive",
+      });
+    } finally {
+      setEnviando(false);
+    }
+  };
   const produtosFiltrados = useMemo(() => {
     const q = produtoSearch.trim().toLowerCase();
     return produtos.filter(p => {
