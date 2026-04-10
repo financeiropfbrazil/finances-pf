@@ -15,7 +15,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, ChevronsUpDown, ClipboardList, Calendar as CalendarIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, ChevronsUpDown, ClipboardList, Calendar as CalendarIcon, Send } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -112,6 +112,9 @@ export default function SuprimentosRequisicaoNova() {
   const [funcionarioPopoverOpen, setFuncionarioPopoverOpen] = useState(false);
   const [funcionarioSearch, setFuncionarioSearch] = useState("");
 
+  // Etapa 4
+  const [observacaoLivre, setObservacaoLivre] = useState("");
+
   // Buscar produtos do cache
   const { data: produtos = [] } = useQuery({
     queryKey: ["stock_products_wizard"],
@@ -188,6 +191,10 @@ export default function SuprimentosRequisicaoNova() {
     setFuncionarioNome(f.nome);
     setCodigoCentroCtrl(f.codigo_centro_ctrl || "");
     setFuncionarioPopoverOpen(false);
+  };
+
+  const getFinalidadeLabel = (codigo: string) => {
+    return FINALIDADES_COMPRA.find(f => f.codigo === codigo)?.label || codigo;
   };
 
   // Filtrar produtos conforme tipo e busca
@@ -554,21 +561,149 @@ export default function SuprimentosRequisicaoNova() {
 
       {/* Etapa 4 placeholder */}
       {currentStep === 4 && (
-        <Card>
-          <CardContent className="flex min-h-[200px] items-center justify-center p-6 text-muted-foreground">
-            Etapa 4 — Em construção
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Revisão e envio</h2>
+            <p className="text-sm text-muted-foreground">
+              Confira todas as informações antes de enviar sua requisição.
+            </p>
+          </div>
+
+          {/* Card 1 — Itens */}
+          <Card>
+            <CardContent className="space-y-3 p-6">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Itens ({itens.length})</h3>
+                <Button variant="ghost" size="sm" onClick={() => setCurrentStep(1)}>
+                  Editar
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {itens.map((item) => (
+                  <div key={item.tempId} className="rounded-md border border-border bg-muted/20 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{item.produto_nome}</span>
+                          <Badge variant="outline" className="text-[10px]">
+                            {item.item_servico ? "Serviço" : "Produto"}
+                          </Badge>
+                        </div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          {item.quantidade} {item.produto_unidade} · {item.codigo_produto}
+                        </div>
+                        {item.observacao && (
+                          <div className="mt-1 text-xs italic text-muted-foreground">
+                            "{item.observacao}"
+                          </div>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {item.rateio.map((r) => (
+                            <Badge key={r.tempRateioId} variant="secondary" className="text-[10px]">
+                              {r.codigo_classe_rec_desp} ({r.percentual}%)
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 2 — Detalhes */}
+          <Card>
+            <CardContent className="space-y-3 p-6">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Detalhes</h3>
+                <Button variant="ghost" size="sm" onClick={() => setCurrentStep(2)}>
+                  Editar
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">Data de necessidade</div>
+                  <div className="font-medium">
+                    {dataNecessidade ? format(dataNecessidade, "dd/MM/yyyy", { locale: ptBR }) : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Finalidade</div>
+                  <div className="font-medium">{getFinalidadeLabel(codigoFinalidadeCompra)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Descrição</div>
+                  <div className="font-medium">{descricao || "—"}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 3 — Área */}
+          <Card>
+            <CardContent className="space-y-3 p-6">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Área</h3>
+                <Button variant="ghost" size="sm" onClick={() => setCurrentStep(3)}>
+                  Editar
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+                <div>
+                  <div className="text-xs text-muted-foreground">Funcionário</div>
+                  <div className="font-medium">
+                    {funcionarioNome}{" "}
+                    <span className="text-xs text-muted-foreground">({codigoFuncionario})</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Centro de Custo</div>
+                  <div className="font-mono text-xs font-medium">{codigoCentroCtrl}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 4 — Observação livre */}
+          <Card>
+            <CardContent className="space-y-3 p-6">
+              <div>
+                <h3 className="font-semibold">Observação adicional (opcional)</h3>
+                <p className="text-xs text-muted-foreground">
+                  Informação extra que será enviada junto ao ERP.
+                </p>
+              </div>
+              <Textarea
+                value={observacaoLivre}
+                onChange={(e) => setObservacaoLivre(e.target.value)}
+                placeholder="Ex: urgência, justificativa, link de referência..."
+                rows={3}
+              />
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Footer nav */}
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={() => currentStep > 1 ? setCurrentStep(currentStep - 1) : navigate("/suprimentos/requisicoes")}>
-          {currentStep > 1 ? "Voltar" : "Cancelar"}
-        </Button>
-        {currentStep < STEPS.length && (
-          <Button onClick={() => setCurrentStep(currentStep + 1)} disabled={!canAdvance}>
-            Próximo <ArrowRight className="h-4 w-4 ml-1" />
+      <div className="flex items-center justify-between">
+        {currentStep === 1 ? (
+          <Button variant="outline" onClick={() => navigate("/suprimentos/requisicoes")}>
+            Cancelar
+          </Button>
+        ) : (
+          <Button variant="outline" onClick={() => setCurrentStep((s) => s - 1)}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Voltar
+          </Button>
+        )}
+        {currentStep < 4 ? (
+          <Button onClick={() => setCurrentStep((s) => s + 1)} disabled={!canAdvance}>
+            Próximo <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        ) : (
+          <Button disabled title="Funcionalidade no próximo passo da implementação">
+            Enviar Requisição <Send className="ml-2 h-4 w-4" />
           </Button>
         )}
       </div>
