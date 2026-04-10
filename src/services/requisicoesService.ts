@@ -295,7 +295,7 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
     CodigoCentroCtrl: req.codigo_centro_ctrl,
     CodigoFinalidadeCompra: req.codigo_finalidade_compra,
     CodigoFuncionario: req.codigo_funcionario,
-    DataNecessidade: `${req.data_necessidade}T00:00:00-03:00`,
+    DataNecessidade: req.data_necessidade.substring(0, 10) + "T00:00:00-03:00",
     Descricao: req.descricao || "",
     Texto: req.texto || "",
     ItemReqCompChildList: itens.map((item: any, idx: number) => ({
@@ -305,7 +305,7 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
       ItemServico: item.item_servico ? "Sim" : "Não",
       CodigoProduto: item.codigo_produto,
       CodigoAlternativoProduto: item.codigo_alternativo_produto || "",
-      DataNecessidade: `${req.data_necessidade}T00:00:00-03:00`,
+      DataNecessidade: req.data_necessidade.substring(0, 10) + "T00:00:00-03:00",
       CodigoCentroCtrl: req.codigo_centro_ctrl,
       Quantidade2: Number(item.quantidade),
       QuantidadeProdUnidMedPrincipal: Number(item.quantidade),
