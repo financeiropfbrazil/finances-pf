@@ -21,6 +21,7 @@ import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { applyCnpjMask, stripCnpjMask, isValidCnpjLength } from "@/lib/cnpj";
 
 interface StockProduct {
   codigo_produto: string;

@@ -31,6 +31,7 @@ export interface NovaRequisicaoInput {
   codigo_finalidade_compra: string;
   finalidade_compra_label: string;
   descricao: string;
+  cnpj_sugestao_requisicao?: string; // apenas 14 dígitos, sem máscara
   data_necessidade: string;
   observacao_livre: string;
   itens: ItemInput[];
@@ -160,6 +161,7 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
       codigo_centro_ctrl: input.codigo_centro_ctrl,
       codigo_finalidade_compra: input.codigo_finalidade_compra,
       descricao: input.descricao || null,
+      cnpj_sugestao_requisicao: input.cnpj_sugestao_requisicao || null,
       data_necessidade: input.data_necessidade,
       texto: textoCompleto,
       funcionario_nome: input.funcionario_nome,
