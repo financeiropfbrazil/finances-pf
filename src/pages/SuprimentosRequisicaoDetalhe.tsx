@@ -91,10 +91,22 @@ export default function SuprimentosRequisicaoDetalhe() {
     enabled: !!id && !!req,
   });
 
-  const formatDate = (d: string | null) => {
+  const formatDate = (d: string | null | undefined) => {
     if (!d) return "—";
-    try { return format(new Date(d), "dd/MM/yyyy HH:mm", { locale: ptBR }); }
-    catch { return d; }
+    try {
+      const date = new Date(d);
+      if (isNaN(date.getTime())) return d;
+      return format(date, "dd/MM/yyyy HH:mm", { locale: ptBR });
+    } catch { return d; }
+  };
+
+  const formatDateShort = (d: string | null | undefined) => {
+    if (!d) return "—";
+    try {
+      const date = new Date(d + (d.length === 10 ? "T12:00:00" : ""));
+      if (isNaN(date.getTime())) return d;
+      return format(date, "dd/MM/yyyy", { locale: ptBR });
+    } catch { return d; }
   };
 
   if (isLoading) {
@@ -184,7 +196,7 @@ export default function SuprimentosRequisicaoDetalhe() {
             <div>
               <p className="text-xs text-muted-foreground">Data de necessidade</p>
               <p className="text-sm font-medium text-foreground">
-                {req.data_necessidade ? format(new Date(req.data_necessidade + "T12:00:00"), "dd/MM/yyyy", { locale: ptBR }) : "—"}
+                {formatDateShort(req.data_necessidade)}
               </p>
             </div>
             <div>
