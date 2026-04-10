@@ -1,7 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
-import { authenticateAlvo } from "./alvoService";
 
-const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
+const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 const EMPRESA_FILIAL = "1.01";
 const USUARIO_LOGADO = "PEDRO.SCRIGNOLI";
 
@@ -32,7 +31,7 @@ export interface NovaRequisicaoInput {
   codigo_finalidade_compra: string;
   finalidade_compra_label: string;
   descricao: string;
-  data_necessidade: string; // "YYYY-MM-DD"
+  data_necessidade: string;
   observacao_livre: string;
   itens: ItemInput[];
 }
@@ -44,8 +43,57 @@ export interface EnvioResult {
   erro?: string;
 }
 
+export type SyncStatusResult =
+  | { mudou: false; statusAtual: string }
+  | { mudou: true; statusAnterior: string; statusNovo: string; motivo: string };
+
+// ─── Helpers ───
+
+async function getSupabaseJWT(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Sessão do Supabase inválida. Faça login novamente.");
+  }
+  return session.access_token;
+}
+
+async function callGatewayReqComp(
+  path: string,
+  method: "GET" | "POST",
+  body?: unknown
+): Promise<any> {
+  const jwt = await getSupabaseJWT();
+  const url = `${ERP_PROXY_URL}${path}`;
+
+  const resp = await fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${jwt}`,
+    },
+    ...(method === "POST" && body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+  let data: any = null;
+  try {
+    data = await resp.json();
+  } catch {
+    // resposta sem body ou inválida
+  }
+
+  if (!resp.ok) {
+    const msg = data?.error || `HTTP ${resp.status}`;
+    const err = new Error(msg) as Error & { status?: number; details?: any };
+    err.status = resp.status;
+    err.details = data?.details;
+    throw err;
+  }
+
+  return data;
+}
+
 function formatarDataISO(dataYMD: string): string {
-  return `${dataYMD}T00:00:00-03:00`;
+  return `${dataYMD.substring(0, 10)}T00:00:00-03:00`;
 }
 
 function formatarDataHoraBR(): string {
@@ -97,10 +145,11 @@ function montarPayloadAlvo(input: NovaRequisicaoInput, texto: string): any {
   };
 }
 
+// ─── Funções principais ───
+
 export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<EnvioResult> {
   const textoCompleto = montarTexto(input);
 
-  // 1. Criar header no Supabase com status pendente_envio
   const { data: reqCriada, error: errCreate } = await (supabase as any)
     .from("compras_requisicoes")
     .upsert({
@@ -127,7 +176,6 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
 
   const requisicaoId = reqCriada.id;
 
-  // 2. Inserir itens e seus rateios
   for (let idx = 0; idx < input.itens.length; idx++) {
     const item = input.itens[idx];
     const { data: itemCriado, error: errItem } = await (supabase as any)
@@ -153,7 +201,6 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
       throw new Error(`Erro ao criar item ${idx + 1}: ${errItem?.message}`);
     }
 
-    // Rateio do item
     for (const r of item.rateio) {
       await (supabase as any)
         .from("compras_requisicoes_itens_classe_rec_desp")
@@ -166,7 +213,6 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
     }
   }
 
-  // 3. Auditoria: criada
   await (supabase as any).from("compras_requisicoes_auditoria").upsert({
     requisicao_id: requisicaoId,
     evento: "criada",
@@ -175,7 +221,6 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
     sucesso: true,
   });
 
-  // 4. Montar payload e enviar ao Alvo
   const payload = montarPayloadAlvo(input, textoCompleto);
 
   await (supabase as any).from("compras_requisicoes_auditoria").upsert({
@@ -188,30 +233,10 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
   });
 
   try {
-    const auth = await authenticateAlvo();
-    if (!auth.success || !auth.token) {
-      throw new Error(`Autenticação ERP falhou: ${auth.error}`);
-    }
-
-    const resp = await fetch(`${ERP_BASE_URL}/ReqComp/SavePartial?action=Insert`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Riosoft-Token": auth.token,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const respData = await resp.json();
-
-    if (!resp.ok || respData?.ClassName) {
-      const msgErro = respData?.Message || `HTTP ${resp.status}`;
-      throw new Error(msgErro);
-    }
+    const respData = await callGatewayReqComp("/req-comp/insert", "POST", payload);
 
     const numeroAlvo = respData?.Numero || "";
 
-    // Sucesso: atualizar requisição
     await (supabase as any)
       .from("compras_requisicoes")
       .upsert({
@@ -270,7 +295,11 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
   }
 }
 
-export async function reenviarRequisicao(requisicaoId: string, userId: string, userName: string): Promise<EnvioResult> {
+export async function reenviarRequisicao(
+  requisicaoId: string,
+  userId: string,
+  userName: string
+): Promise<EnvioResult> {
   const { data: req, error: errReq } = await (supabase as any)
     .from("compras_requisicoes")
     .select("*")
@@ -278,7 +307,9 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
     .single();
 
   if (errReq || !req) throw new Error(`Requisição não encontrada: ${errReq?.message}`);
-  if (req.status !== "rascunho") throw new Error("Só é possível reenviar requisições com status rascunho.");
+  if (req.status !== "rascunho") {
+    throw new Error("Só é possível reenviar requisições com status rascunho.");
+  }
 
   const { data: itens } = await (supabase as any)
     .from("compras_requisicoes_itens")
@@ -288,6 +319,8 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
 
   if (!itens || itens.length === 0) throw new Error("Requisição sem itens.");
 
+  const dataNec = formatarDataISO(String(req.data_necessidade));
+
   const payload = {
     CodigoEmpresaFilial: EMPRESA_FILIAL,
     CodigoEmpresaFilialOrigem: EMPRESA_FILIAL,
@@ -295,7 +328,7 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
     CodigoCentroCtrl: req.codigo_centro_ctrl,
     CodigoFinalidadeCompra: req.codigo_finalidade_compra,
     CodigoFuncionario: req.codigo_funcionario,
-    DataNecessidade: req.data_necessidade.substring(0, 10) + "T00:00:00-03:00",
+    DataNecessidade: dataNec,
     Descricao: req.descricao || "",
     Texto: req.texto || "",
     ItemReqCompChildList: itens.map((item: any, idx: number) => ({
@@ -305,7 +338,7 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
       ItemServico: item.item_servico ? "Sim" : "Não",
       CodigoProduto: item.codigo_produto,
       CodigoAlternativoProduto: item.codigo_alternativo_produto || "",
-      DataNecessidade: req.data_necessidade.substring(0, 10) + "T00:00:00-03:00",
+      DataNecessidade: dataNec,
       CodigoCentroCtrl: req.codigo_centro_ctrl,
       Quantidade2: Number(item.quantidade),
       QuantidadeProdUnidMedPrincipal: Number(item.quantidade),
@@ -342,17 +375,7 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
   }, { onConflict: "id" });
 
   try {
-    const auth = await authenticateAlvo();
-    if (!auth.success || !auth.token) throw new Error(`Autenticação ERP falhou: ${auth.error}`);
-
-    const resp = await fetch(`${ERP_BASE_URL}/ReqComp/SavePartial?action=Insert`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Riosoft-Token": auth.token },
-      body: JSON.stringify(payload),
-    });
-
-    const respData = await resp.json();
-    if (!resp.ok || respData?.ClassName) throw new Error(respData?.Message || `HTTP ${resp.status}`);
+    const respData = await callGatewayReqComp("/req-comp/insert", "POST", payload);
 
     const numeroAlvo = respData?.Numero || "";
 
@@ -420,10 +443,6 @@ export async function excluirRequisicao(requisicaoId: string): Promise<void> {
   if (error) throw new Error(`Erro ao excluir: ${error.message}`);
 }
 
-export type SyncStatusResult =
-  | { mudou: false; statusAtual: string }
-  | { mudou: true; statusAnterior: string; statusNovo: string; motivo: string };
-
 export async function sincronizarStatusRequisicao(
   requisicaoId: string,
   userId: string,
@@ -440,27 +459,23 @@ export async function sincronizarStatusRequisicao(
     return { mudou: false, statusAtual: req.status };
   }
 
-  const auth = await authenticateAlvo();
-  if (!auth.success || !auth.token) {
-    throw new Error(`Autenticação ERP falhou: ${auth.error}`);
-  }
-
-  const url = `${ERP_BASE_URL}/ReqComp/Load?codigoEmpresaFilial=${encodeURIComponent(req.codigo_empresa_filial)}&numero=${encodeURIComponent(req.numero_alvo)}`;
-
-  const resp = await fetch(url, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      "Riosoft-Token": auth.token,
-    },
-  });
+  const filial = encodeURIComponent(req.codigo_empresa_filial);
+  const numero = encodeURIComponent(req.numero_alvo);
+  const path = `/req-comp/${filial}/${numero}`;
 
   let respData: any = null;
-  try { respData = await resp.json(); } catch {}
+  let notFound = false;
 
-  const notFound = resp.status === 404
-    || (respData?.Message && /não encontrad|not found|does not exist/i.test(respData.Message))
-    || (respData?.ClassName && !respData?.Numero);
+  try {
+    respData = await callGatewayReqComp(path, "GET");
+  } catch (err: any) {
+    if (err?.status === 404) {
+      notFound = true;
+      respData = err?.details || null;
+    } else {
+      throw err;
+    }
+  }
 
   if (notFound) {
     if (req.status === "cancelada") {
@@ -495,10 +510,6 @@ export async function sincronizarStatusRequisicao(
       statusNovo: "cancelada",
       motivo: "Requisição deletada no ERP",
     };
-  }
-
-  if (!resp.ok) {
-    throw new Error(respData?.Message || `HTTP ${resp.status}`);
   }
 
   const statusAlvo = String(respData?.Status || "").toLowerCase();
