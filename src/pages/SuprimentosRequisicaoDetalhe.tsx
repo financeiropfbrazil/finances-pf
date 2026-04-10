@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { reenviarRequisicao, excluirRequisicao } from "@/services/requisicoesService";
+import { reenviarRequisicao, excluirRequisicao, sincronizarStatusRequisicao } from "@/services/requisicoesService";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   const isAdmin = profile?.is_admin === true;
   const [isReenviando, setIsReenviando] = useState(false);
   const [isExcluindo, setIsExcluindo] = useState(false);
+  const [isSyncingStatus, setIsSyncingStatus] = useState(false);
 
   const { data: req, isLoading, refetch } = useQuery({
     queryKey: ["requisicao_detalhe", id],
@@ -97,6 +98,38 @@ export default function SuprimentosRequisicaoDetalhe() {
     },
     enabled: !!id && !!req,
   });
+
+  const handleSyncStatus = async (silencioso: boolean = false) => {
+    if (!user || !req) return;
+    if (!silencioso) setIsSyncingStatus(true);
+    try {
+      const result = await sincronizarStatusRequisicao(req.id, user.id, profile?.full_name || "Usuário");
+      if (result.mudou) {
+        toast({
+          title: "Status atualizado",
+          description: `${result.statusAnterior} → ${result.statusNovo}. ${result.motivo}`,
+        });
+        refetch();
+      } else if (!silencioso) {
+        toast({ title: "Nenhuma mudança", description: "Status já estava atualizado." });
+      }
+    } catch (err: any) {
+      if (!silencioso) {
+        toast({ title: "Erro ao sincronizar status", description: err.message, variant: "destructive" });
+      } else {
+        console.error("Sync silencioso falhou:", err.message);
+      }
+    } finally {
+      if (!silencioso) setIsSyncingStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    if (req && req.status === "sincronizada") {
+      handleSyncStatus(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [req?.id]);
 
   const formatDate = (d: string | null | undefined) => {
     if (!d) return "—";
@@ -195,15 +228,59 @@ export default function SuprimentosRequisicaoDetalhe() {
           </div>
         </div>
 
-        {isRascunho && (
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>
-              <Pencil className="mr-1 h-3 w-3" /> Editar
+        <div className="flex gap-2">
+          {(req.status === "sincronizada" || req.status === "cancelada") && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleSyncStatus(false)}
+              disabled={isSyncingStatus}
+              className="shrink-0"
+            >
+              {isSyncingStatus ? (
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1 h-3 w-3" />
+              )}
+              Atualizar status
             </Button>
-            <Button variant="outline" size="sm" disabled={isReenviando} onClick={handleReenviar}>
-              {isReenviando ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
-              {isReenviando ? "Reenviando..." : "Reenviar"}
-            </Button>
+          )}
+
+          {isRascunho && (
+            <>
+              <Button variant="outline" size="sm" disabled>
+                <Pencil className="mr-1 h-3 w-3" /> Editar
+              </Button>
+              <Button variant="outline" size="sm" disabled={isReenviando} onClick={handleReenviar}>
+                {isReenviando ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+                {isReenviando ? "Reenviando..." : "Reenviar"}
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm" disabled={isExcluindo}>
+                    {isExcluindo ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Trash2 className="mr-1 h-3 w-3" />}
+                    Excluir
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Excluir requisição?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta ação é permanente. A requisição e todos os seus itens serão excluídos do Hub. Ela não será excluída do ERP se já foi enviada.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleExcluir}>
+                      Excluir permanentemente
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
+
+          {req.status === "cancelada" && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" size="sm" disabled={isExcluindo}>
@@ -213,9 +290,9 @@ export default function SuprimentosRequisicaoDetalhe() {
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Excluir requisição?</AlertDialogTitle>
+                  <AlertDialogTitle>Excluir requisição cancelada?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Esta ação é permanente. A requisição e todos os seus itens serão excluídos do Hub. Ela não será excluída do ERP se já foi enviada.
+                    Esta requisição está cancelada (ou foi deletada do ERP). A exclusão é permanente e remove todo o histórico do Hub.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -226,8 +303,8 @@ export default function SuprimentosRequisicaoDetalhe() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Erro do último envio */}

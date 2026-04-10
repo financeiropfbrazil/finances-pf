@@ -419,3 +419,143 @@ export async function excluirRequisicao(requisicaoId: string): Promise<void> {
 
   if (error) throw new Error(`Erro ao excluir: ${error.message}`);
 }
+
+export type SyncStatusResult =
+  | { mudou: false; statusAtual: string }
+  | { mudou: true; statusAnterior: string; statusNovo: string; motivo: string };
+
+export async function sincronizarStatusRequisicao(
+  requisicaoId: string,
+  userId: string,
+  userName: string
+): Promise<SyncStatusResult> {
+  const { data: req, error: errReq } = await (supabase as any)
+    .from("compras_requisicoes")
+    .select("*")
+    .eq("id", requisicaoId)
+    .single();
+
+  if (errReq || !req) throw new Error(`Requisição não encontrada: ${errReq?.message}`);
+  if (!req.numero_alvo) {
+    return { mudou: false, statusAtual: req.status };
+  }
+
+  const auth = await authenticateAlvo();
+  if (!auth.success || !auth.token) {
+    throw new Error(`Autenticação ERP falhou: ${auth.error}`);
+  }
+
+  const url = `${ERP_BASE_URL}/ReqComp/Load?codigoEmpresaFilial=${encodeURIComponent(req.codigo_empresa_filial)}&numero=${encodeURIComponent(req.numero_alvo)}`;
+
+  const resp = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Riosoft-Token": auth.token,
+    },
+  });
+
+  let respData: any = null;
+  try { respData = await resp.json(); } catch {}
+
+  const notFound = resp.status === 404
+    || (respData?.Message && /não encontrad|not found|does not exist/i.test(respData.Message))
+    || (respData?.ClassName && !respData?.Numero);
+
+  if (notFound) {
+    if (req.status === "cancelada") {
+      return { mudou: false, statusAtual: "cancelada" };
+    }
+
+    await (supabase as any).from("compras_requisicoes").upsert({
+      id: requisicaoId,
+      requisitante_user_id: req.requisitante_user_id,
+      status: "cancelada",
+      codigo_empresa_filial: req.codigo_empresa_filial,
+      codigo_funcionario: req.codigo_funcionario,
+      codigo_centro_ctrl: req.codigo_centro_ctrl,
+      codigo_finalidade_compra: req.codigo_finalidade_compra,
+      data_necessidade: req.data_necessidade,
+      total_itens: req.total_itens,
+    }, { onConflict: "id" });
+
+    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+      requisicao_id: requisicaoId,
+      evento: "cancelada_alvo",
+      user_id: userId,
+      user_nome: userName,
+      sucesso: true,
+      mensagem_erro: "Requisição não encontrada no ERP (possivelmente deletada fisicamente).",
+      resposta_alvo: respData,
+    });
+
+    return {
+      mudou: true,
+      statusAnterior: req.status,
+      statusNovo: "cancelada",
+      motivo: "Requisição deletada no ERP",
+    };
+  }
+
+  if (!resp.ok) {
+    throw new Error(respData?.Message || `HTTP ${resp.status}`);
+  }
+
+  const statusAlvo = String(respData?.Status || "").toLowerCase();
+  const gerouPedComp = String(respData?.GerouPedComp || "").toLowerCase() === "sim";
+
+  let novoStatusHub: string;
+  let motivo: string;
+
+  if (gerouPedComp || statusAlvo === "pedido") {
+    novoStatusHub = "convertida_pedido";
+    motivo = "Convertida em Pedido de Compra";
+  } else if (statusAlvo === "cancelado") {
+    novoStatusHub = "cancelada";
+    motivo = "Cancelada no ERP";
+  } else {
+    novoStatusHub = "sincronizada";
+    motivo = "Nenhuma mudança";
+  }
+
+  if (novoStatusHub === req.status) {
+    return { mudou: false, statusAtual: req.status };
+  }
+
+  const updatePayload: any = {
+    id: requisicaoId,
+    requisitante_user_id: req.requisitante_user_id,
+    status: novoStatusHub,
+    codigo_empresa_filial: req.codigo_empresa_filial,
+    codigo_funcionario: req.codigo_funcionario,
+    codigo_centro_ctrl: req.codigo_centro_ctrl,
+    codigo_finalidade_compra: req.codigo_finalidade_compra,
+    data_necessidade: req.data_necessidade,
+    total_itens: req.total_itens,
+  };
+
+  if (novoStatusHub === "convertida_pedido" && respData?.NumeroPedComp) {
+    updatePayload.numero_pedido_compra_alvo = String(respData.NumeroPedComp);
+  }
+
+  await (supabase as any).from("compras_requisicoes").upsert(updatePayload, { onConflict: "id" });
+
+  const evento = novoStatusHub === "convertida_pedido" ? "convertida_pedido" : "cancelada_alvo";
+
+  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+    requisicao_id: requisicaoId,
+    evento,
+    user_id: userId,
+    user_nome: userName,
+    sucesso: true,
+    resposta_alvo: respData,
+    mensagem_erro: motivo,
+  });
+
+  return {
+    mudou: true,
+    statusAnterior: req.status,
+    statusNovo: novoStatusHub,
+    motivo,
+  };
+}
