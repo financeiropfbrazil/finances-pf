@@ -358,7 +358,7 @@ export default function SuprimentosRequisicaoNova() {
 
       {/* Modal de Item */}
       <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingItemId ? "Editar item" : "Adicionar item"}
