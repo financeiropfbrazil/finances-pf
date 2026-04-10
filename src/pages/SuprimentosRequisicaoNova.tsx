@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,8 +13,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, ChevronsUpDown, ClipboardList } from "lucide-react";
+import { Calendar } from "@/components/ui/calendar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, ChevronsUpDown, ClipboardList, Calendar as CalendarIcon } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { cn } from "@/lib/utils";
 
 interface StockProduct {
   codigo_produto: string;
@@ -48,6 +54,13 @@ interface ClasseRecDesp {
   nome: string;
 }
 
+interface FuncionarioAlvo {
+  codigo: string;
+  nome: string;
+  status: string;
+  codigo_centro_ctrl: string | null;
+}
+
 const STEPS = [
   { id: 1, label: "Itens" },
   { id: 2, label: "Finalidade" },
@@ -55,8 +68,20 @@ const STEPS = [
   { id: 4, label: "Revisão" },
 ];
 
+const FINALIDADES_COMPRA = [
+  { codigo: "0000001", label: "ESTOQUE" },
+  { codigo: "0000002", label: "REVENDA" },
+  { codigo: "0000003", label: "MANUTENÇÃO" },
+  { codigo: "0000004", label: "MATERIAL DE ESCRITÓRIO" },
+  { codigo: "0000005", label: "MATERIAL DE HIGIENE E LIMPEZA" },
+  { codigo: "0000006", label: "SERVIÇO DE ANÁLISE" },
+  { codigo: "0000007", label: "PRESTAÇÃO DE SERVIÇO" },
+];
+
 export default function SuprimentosRequisicaoNova() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
+  const isAdmin = profile?.is_admin === true;
   const [currentStep, setCurrentStep] = useState(1);
   const [itens, setItens] = useState<ItemWizard[]>([]);
 
@@ -74,6 +99,18 @@ export default function SuprimentosRequisicaoNova() {
   const [itemStep, setItemStep] = useState<1 | 2>(1);
   const [itemRateio, setItemRateio] = useState<RateioClasseItem[]>([]);
   const [classePopoverOpen, setClassePopoverOpen] = useState<string | null>(null);
+
+  // Etapa 2
+  const [dataNecessidade, setDataNecessidade] = useState<Date | undefined>(undefined);
+  const [codigoFinalidadeCompra, setCodigoFinalidadeCompra] = useState("");
+  const [descricao, setDescricao] = useState("");
+
+  // Etapa 3
+  const [codigoFuncionario, setCodigoFuncionario] = useState("");
+  const [funcionarioNome, setFuncionarioNome] = useState("");
+  const [codigoCentroCtrl, setCodigoCentroCtrl] = useState("");
+  const [funcionarioPopoverOpen, setFuncionarioPopoverOpen] = useState(false);
+  const [funcionarioSearch, setFuncionarioSearch] = useState("");
 
   // Buscar produtos do cache
   const { data: produtos = [] } = useQuery({
@@ -104,6 +141,54 @@ export default function SuprimentosRequisicaoNova() {
       return (data || []) as ClasseRecDesp[];
     },
   });
+
+  // Buscar funcionários (somente admin)
+  const { data: funcionarios = [] } = useQuery({
+    queryKey: ["funcionarios_alvo_cache_wizard"],
+    queryFn: async (): Promise<FuncionarioAlvo[]> => {
+      const { data, error } = await (supabase as any)
+        .from("funcionarios_alvo_cache")
+        .select("codigo, nome, status, codigo_centro_ctrl")
+        .eq("status", "Trabalhando")
+        .order("nome", { ascending: true });
+      if (error) throw error;
+      return (data || []) as FuncionarioAlvo[];
+    },
+    enabled: isAdmin,
+  });
+
+  // Auto-preenchimento do funcionário e CC ao montar
+  useEffect(() => {
+    const carregarFuncionarioPadrao = async () => {
+      if (!profile?.id) return;
+      // Buscar funcionario_alvo_codigo do profile
+      const { data: profileData } = await (supabase as any)
+        .from("profiles")
+        .select("funcionario_alvo_codigo")
+        .eq("id", profile.id)
+        .maybeSingle();
+      if (!profileData?.funcionario_alvo_codigo) return;
+
+      const { data } = await (supabase as any)
+        .from("funcionarios_alvo_cache")
+        .select("codigo, nome, codigo_centro_ctrl")
+        .eq("codigo", profileData.funcionario_alvo_codigo)
+        .maybeSingle();
+      if (data) {
+        setCodigoFuncionario(data.codigo);
+        setFuncionarioNome(data.nome);
+        setCodigoCentroCtrl(data.codigo_centro_ctrl || "");
+      }
+    };
+    carregarFuncionarioPadrao();
+  }, [profile?.id]);
+
+  const handleSelectFuncionario = (f: FuncionarioAlvo) => {
+    setCodigoFuncionario(f.codigo);
+    setFuncionarioNome(f.nome);
+    setCodigoCentroCtrl(f.codigo_centro_ctrl || "");
+    setFuncionarioPopoverOpen(false);
+  };
 
   // Filtrar produtos conforme tipo e busca
   const produtosFiltrados = useMemo(() => {
@@ -248,7 +333,12 @@ export default function SuprimentosRequisicaoNova() {
 
   const somaRateio = useMemo(() => itemRateio.reduce((s, r) => s + r.percentual, 0), [itemRateio]);
 
-  const canAdvance = currentStep === 1 ? itens.length > 0 : true;
+  const canAdvance = (() => {
+    if (currentStep === 1) return itens.length > 0;
+    if (currentStep === 2) return !!dataNecessidade && !!codigoFinalidadeCompra;
+    if (currentStep === 3) return !!codigoFuncionario && !!codigoCentroCtrl;
+    return true;
+  })();
 
   return (
     <div className="p-6 space-y-6">
@@ -335,11 +425,138 @@ export default function SuprimentosRequisicaoNova() {
         </div>
       )}
 
-      {/* Etapas 2, 3, 4 placeholder */}
-      {currentStep > 1 && (
+      {/* Etapa 2: Finalidade */}
+      {currentStep === 2 && (
         <Card>
-          <CardContent className="flex items-center justify-center py-16">
-            <p className="text-muted-foreground">Etapa {currentStep} — Em construção</p>
+          <CardContent className="pt-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Quando e para qual finalidade?</h2>
+              <p className="text-sm text-muted-foreground">Defina o prazo e o tipo de compra.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Data de Necessidade *</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !dataNecessidade && "text-muted-foreground")}>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dataNecessidade ? format(dataNecessidade, "dd/MM/yyyy", { locale: ptBR }) : "Selecione a data"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dataNecessidade}
+                    onSelect={setDataNecessidade}
+                    disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
+                    initialFocus
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
+              <p className="text-xs text-muted-foreground">Quando você precisa receber este pedido?</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Finalidade de Compra *</Label>
+              <Select value={codigoFinalidadeCompra} onValueChange={setCodigoFinalidadeCompra}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a finalidade" />
+                </SelectTrigger>
+                <SelectContent>
+                  {FINALIDADES_COMPRA.map(f => (
+                    <SelectItem key={f.codigo} value={f.codigo}>{f.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Descrição (opcional)</Label>
+              <Textarea value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Ex: Compra mensal de material de escritório" />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Etapa 3: Área */}
+      {currentStep === 3 && (
+        <Card>
+          <CardContent className="pt-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Para qual área?</h2>
+              <p className="text-sm text-muted-foreground">Funcionário responsável e centro de custo.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Funcionário *</Label>
+              {isAdmin ? (
+                <Popover open={funcionarioPopoverOpen} onOpenChange={setFuncionarioPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                      {funcionarioNome ? `${funcionarioNome} (${codigoFuncionario})` : "Selecione um funcionário"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command shouldFilter={false}>
+                      <CommandInput placeholder="Buscar funcionário..." value={funcionarioSearch} onValueChange={setFuncionarioSearch} />
+                      <CommandList>
+                        <CommandEmpty>Nenhum funcionário encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {funcionarios.filter(f => {
+                            const q = funcionarioSearch.trim().toLowerCase();
+                            if (!q) return true;
+                            return f.nome.toLowerCase().includes(q) || f.codigo.includes(q);
+                          }).slice(0, 50).map(f => (
+                            <CommandItem key={f.codigo} value={f.codigo} onSelect={() => handleSelectFuncionario(f)}>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{f.nome}</span>
+                                <span className="text-xs text-muted-foreground">{f.codigo}</span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <div className="rounded-md border bg-muted/30 px-3 py-2.5">
+                  {funcionarioNome ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-foreground">{funcionarioNome} ({codigoFuncionario})</span>
+                      <Badge variant="secondary" className="text-[10px]">automático</Badge>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Nenhum funcionário vinculado ao seu usuário. Contate o administrador.</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Centro de Custo *</Label>
+              <div className="rounded-md border bg-muted/30 px-3 py-2.5">
+                {codigoCentroCtrl ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-foreground">{codigoCentroCtrl}</span>
+                    <Badge variant="secondary" className="text-[10px]">automático do funcionário</Badge>
+                  </div>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Funcionário não tem CC cadastrado.</span>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Etapa 4 placeholder */}
+      {currentStep === 4 && (
+        <Card>
+          <CardContent className="flex min-h-[200px] items-center justify-center p-6 text-muted-foreground">
+            Etapa 4 — Em construção
           </CardContent>
         </Card>
       )}
