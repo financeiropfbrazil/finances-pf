@@ -760,8 +760,8 @@ export default function SuprimentosRequisicaoNova() {
             Próximo <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         ) : (
-          <Button disabled title="Funcionalidade no próximo passo da implementação">
-            Enviar Requisição <Send className="ml-2 h-4 w-4" />
+          <Button onClick={handleEnviar} disabled={enviando}>
+            {enviando ? "Enviando..." : "Enviar Requisição"} <Send className="ml-2 h-4 w-4" />
           </Button>
         )}
       </div>
