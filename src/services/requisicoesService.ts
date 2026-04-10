@@ -269,3 +269,153 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
     return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
   }
 }
+
+export async function reenviarRequisicao(requisicaoId: string, userId: string, userName: string): Promise<EnvioResult> {
+  const { data: req, error: errReq } = await (supabase as any)
+    .from("compras_requisicoes")
+    .select("*")
+    .eq("id", requisicaoId)
+    .single();
+
+  if (errReq || !req) throw new Error(`Requisição não encontrada: ${errReq?.message}`);
+  if (req.status !== "rascunho") throw new Error("Só é possível reenviar requisições com status rascunho.");
+
+  const { data: itens } = await (supabase as any)
+    .from("compras_requisicoes_itens")
+    .select("*")
+    .eq("requisicao_id", requisicaoId)
+    .order("sequencia", { ascending: true });
+
+  if (!itens || itens.length === 0) throw new Error("Requisição sem itens.");
+
+  const payload = {
+    CodigoEmpresaFilial: EMPRESA_FILIAL,
+    CodigoEmpresaFilialOrigem: EMPRESA_FILIAL,
+    Numero: "",
+    CodigoCentroCtrl: req.codigo_centro_ctrl,
+    CodigoFinalidadeCompra: req.codigo_finalidade_compra,
+    CodigoFuncionario: req.codigo_funcionario,
+    DataNecessidade: `${req.data_necessidade}T00:00:00-03:00`,
+    Descricao: req.descricao || "",
+    Texto: req.texto || "",
+    ItemReqCompChildList: itens.map((item: any, idx: number) => ({
+      CodigoEmpresaFilial: "",
+      NumeroReqComp: "",
+      Sequencia: idx + 1,
+      ItemServico: item.item_servico ? "Sim" : "Não",
+      CodigoProduto: item.codigo_produto,
+      CodigoAlternativoProduto: item.codigo_alternativo_produto || "",
+      DataNecessidade: `${req.data_necessidade}T00:00:00-03:00`,
+      CodigoCentroCtrl: req.codigo_centro_ctrl,
+      Quantidade2: Number(item.quantidade),
+      QuantidadeProdUnidMedPrincipal: Number(item.quantidade),
+      Observacao: item.observacao || "",
+    })),
+    ReqCompClasseRecDespChildList: [],
+    MensagemRetorno: null,
+    TextoHistoricoNovo: null,
+    TipoFormulario: "Normal",
+    UploadIdentify: "",
+    UsuarioLogado: USUARIO_LOGADO,
+  };
+
+  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+    requisicao_id: requisicaoId,
+    evento: "envio_tentado",
+    user_id: userId,
+    user_nome: userName,
+    payload_enviado: payload,
+    sucesso: true,
+  });
+
+  await (supabase as any).from("compras_requisicoes").upsert({
+    id: requisicaoId,
+    requisitante_user_id: req.requisitante_user_id,
+    status: "pendente_envio",
+    codigo_empresa_filial: req.codigo_empresa_filial,
+    codigo_funcionario: req.codigo_funcionario,
+    codigo_centro_ctrl: req.codigo_centro_ctrl,
+    codigo_finalidade_compra: req.codigo_finalidade_compra,
+    data_necessidade: req.data_necessidade,
+    total_itens: req.total_itens,
+    tentativa_envio_em: new Date().toISOString(),
+  }, { onConflict: "id" });
+
+  try {
+    const auth = await authenticateAlvo();
+    if (!auth.success || !auth.token) throw new Error(`Autenticação ERP falhou: ${auth.error}`);
+
+    const resp = await fetch(`${ERP_BASE_URL}/ReqComp/SavePartial?action=Insert`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Riosoft-Token": auth.token },
+      body: JSON.stringify(payload),
+    });
+
+    const respData = await resp.json();
+    if (!resp.ok || respData?.ClassName) throw new Error(respData?.Message || `HTTP ${resp.status}`);
+
+    const numeroAlvo = respData?.Numero || "";
+
+    await (supabase as any).from("compras_requisicoes").upsert({
+      id: requisicaoId,
+      requisitante_user_id: req.requisitante_user_id,
+      status: "sincronizada",
+      numero_alvo: numeroAlvo,
+      enviado_em: new Date().toISOString(),
+      erro_ultimo_envio: null,
+      codigo_empresa_filial: req.codigo_empresa_filial,
+      codigo_funcionario: req.codigo_funcionario,
+      codigo_centro_ctrl: req.codigo_centro_ctrl,
+      codigo_finalidade_compra: req.codigo_finalidade_compra,
+      data_necessidade: req.data_necessidade,
+      total_itens: req.total_itens,
+    }, { onConflict: "id" });
+
+    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+      requisicao_id: requisicaoId,
+      evento: "envio_sucesso",
+      user_id: userId,
+      user_nome: userName,
+      resposta_alvo: respData,
+      sucesso: true,
+    });
+
+    return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
+  } catch (err: any) {
+    const msgErro = err?.message || String(err);
+
+    await (supabase as any).from("compras_requisicoes").upsert({
+      id: requisicaoId,
+      requisitante_user_id: req.requisitante_user_id,
+      status: "rascunho",
+      erro_ultimo_envio: msgErro,
+      tentativa_envio_em: new Date().toISOString(),
+      codigo_empresa_filial: req.codigo_empresa_filial,
+      codigo_funcionario: req.codigo_funcionario,
+      codigo_centro_ctrl: req.codigo_centro_ctrl,
+      codigo_finalidade_compra: req.codigo_finalidade_compra,
+      data_necessidade: req.data_necessidade,
+      total_itens: req.total_itens,
+    }, { onConflict: "id" });
+
+    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+      requisicao_id: requisicaoId,
+      evento: "envio_falha",
+      user_id: userId,
+      user_nome: userName,
+      sucesso: false,
+      mensagem_erro: msgErro,
+    });
+
+    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+  }
+}
+
+export async function excluirRequisicao(requisicaoId: string): Promise<void> {
+  const { error } = await (supabase as any)
+    .from("compras_requisicoes")
+    .delete()
+    .eq("id", requisicaoId);
+
+  if (error) throw new Error(`Erro ao excluir: ${error.message}`);
+}
