@@ -70,12 +70,14 @@ export default function SuprimentosRequisicoes() {
       }
 
       if (filtroDataInicio) {
-        query = query.gte("updated_at", filtroDataInicio.toISOString());
+        const inicio = new Date(filtroDataInicio);
+        inicio.setHours(0, 0, 0, 0);
+        query = query.gte("updated_at", inicio.toISOString());
       }
       if (filtroDataFim) {
-        const fimDia = new Date(filtroDataFim);
-        fimDia.setHours(23, 59, 59, 999);
-        query = query.lte("updated_at", fimDia.toISOString());
+        const fim = new Date(filtroDataFim);
+        fim.setHours(23, 59, 59, 999);
+        query = query.lte("updated_at", fim.toISOString());
       }
 
       const { data, error } = await query;
@@ -88,21 +90,24 @@ export default function SuprimentosRequisicoes() {
   const handlePresetData = (preset: string) => {
     setFiltroPreset(preset);
     const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const fimHoje = new Date();
+    fimHoje.setHours(23, 59, 59, 999);
     if (preset === "todos") {
       setFiltroDataInicio(undefined);
       setFiltroDataFim(undefined);
     } else if (preset === "hoje") {
       setFiltroDataInicio(hoje);
-      setFiltroDataFim(hoje);
+      setFiltroDataFim(fimHoje);
     } else if (preset === "semana") {
       setFiltroDataInicio(startOfWeek(hoje, { weekStartsOn: 1 }));
-      setFiltroDataFim(hoje);
+      setFiltroDataFim(fimHoje);
     } else if (preset === "mes") {
       setFiltroDataInicio(startOfMonth(hoje));
-      setFiltroDataFim(hoje);
+      setFiltroDataFim(fimHoje);
     } else if (preset === "30dias") {
       setFiltroDataInicio(subDays(hoje, 30));
-      setFiltroDataFim(hoje);
+      setFiltroDataFim(fimHoje);
     }
   };
 
