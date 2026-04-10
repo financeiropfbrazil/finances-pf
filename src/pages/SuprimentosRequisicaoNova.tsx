@@ -115,6 +115,7 @@ export default function SuprimentosRequisicaoNova() {
 
   // Etapa 4
   const [observacaoLivre, setObservacaoLivre] = useState("");
+  const [enviando, setEnviando] = useState(false);
 
   // Buscar produtos do cache
   const { data: produtos = [] } = useQuery({
