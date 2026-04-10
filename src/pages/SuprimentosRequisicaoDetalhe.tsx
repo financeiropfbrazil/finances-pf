@@ -1,11 +1,15 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { reenviarRequisicao, excluirRequisicao } from "@/services/requisicoesService";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Loader2, ArrowLeft, RefreshCw, Pencil, Trash2, CheckCircle2, XCircle, Clock, Send, AlertTriangle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -30,9 +34,12 @@ export default function SuprimentosRequisicaoDetalhe() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const { toast } = useToast();
   const isAdmin = profile?.is_admin === true;
+  const [isReenviando, setIsReenviando] = useState(false);
+  const [isExcluindo, setIsExcluindo] = useState(false);
 
-  const { data: req, isLoading } = useQuery({
+  const { data: req, isLoading, refetch } = useQuery({
     queryKey: ["requisicao_detalhe", id],
     queryFn: async () => {
       const { data, error } = await (supabase as any)
@@ -134,6 +141,37 @@ export default function SuprimentosRequisicaoDetalhe() {
   const statusInfo = STATUS_MAP[req.status] || { label: req.status, className: "bg-muted text-muted-foreground" };
   const isRascunho = req.status === "rascunho";
 
+  const handleReenviar = async () => {
+    if (!user) return;
+    setIsReenviando(true);
+    try {
+      const result = await reenviarRequisicao(req.id, user.id, profile?.full_name || "Usuário");
+      if (result.sucesso) {
+        toast({ title: "Requisição reenviada com sucesso!", description: `Número no ERP: ${result.numero_alvo}` });
+      } else {
+        toast({ title: "Erro ao reenviar", description: result.erro, variant: "destructive" });
+      }
+      refetch();
+    } catch (err: any) {
+      toast({ title: "Erro inesperado", description: err.message, variant: "destructive" });
+    } finally {
+      setIsReenviando(false);
+    }
+  };
+
+  const handleExcluir = async () => {
+    setIsExcluindo(true);
+    try {
+      await excluirRequisicao(req.id);
+      toast({ title: "Requisição excluída" });
+      navigate("/suprimentos/requisicoes");
+    } catch (err: any) {
+      toast({ title: "Erro ao excluir", description: err.message, variant: "destructive" });
+    } finally {
+      setIsExcluindo(false);
+    }
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -162,12 +200,32 @@ export default function SuprimentosRequisicaoDetalhe() {
             <Button variant="outline" size="sm" disabled>
               <Pencil className="mr-1 h-3 w-3" /> Editar
             </Button>
-            <Button variant="outline" size="sm" disabled>
-              <RefreshCw className="mr-1 h-3 w-3" /> Reenviar
+            <Button variant="outline" size="sm" disabled={isReenviando} onClick={handleReenviar}>
+              {isReenviando ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+              {isReenviando ? "Reenviando..." : "Reenviar"}
             </Button>
-            <Button variant="destructive" size="sm" disabled>
-              <Trash2 className="mr-1 h-3 w-3" /> Excluir
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm" disabled={isExcluindo}>
+                  {isExcluindo ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Trash2 className="mr-1 h-3 w-3" />}
+                  Excluir
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir requisição?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Esta ação é permanente. A requisição e todos os seus itens serão excluídos do Hub. Ela não será excluída do ERP se já foi enviada.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleExcluir}>
+                    Excluir permanentemente
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         )}
       </div>
