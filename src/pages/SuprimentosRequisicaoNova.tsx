@@ -16,7 +16,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, ChevronsUpDown, ClipboardList, Calendar as CalendarIcon, Send } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, ChevronsUpDown, ClipboardList, Calendar as CalendarIcon, Send, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -200,12 +200,32 @@ export default function SuprimentosRequisicaoNova() {
   };
 
   const handleEnviar = async () => {
-    if (!profile?.id || !dataNecessidade) return;
+    if (!user) {
+      toast({ title: "Sessão inválida", description: "Faça login novamente.", variant: "destructive" });
+      return;
+    }
+    if (!dataNecessidade) {
+      toast({ title: "Data de necessidade obrigatória", variant: "destructive" });
+      return;
+    }
+    if (!codigoFuncionario || !codigoCentroCtrl) {
+      toast({ title: "Funcionário e Centro de Custo são obrigatórios", variant: "destructive" });
+      return;
+    }
+    if (!codigoFinalidadeCompra) {
+      toast({ title: "Finalidade de Compra obrigatória", variant: "destructive" });
+      return;
+    }
+    if (itens.length === 0) {
+      toast({ title: "Adicione ao menos um item", variant: "destructive" });
+      return;
+    }
+
     setEnviando(true);
     try {
       const result = await enviarRequisicao({
-        user_id: user!.id,
-        requisitante_nome: profile?.full_name || user!.email || "Usuário",
+        user_id: user.id,
+        requisitante_nome: profile?.full_name || user.email || "Usuário",
         codigo_funcionario: codigoFuncionario,
         funcionario_nome: funcionarioNome,
         codigo_centro_ctrl: codigoCentroCtrl,
@@ -238,6 +258,7 @@ export default function SuprimentosRequisicaoNova() {
             ? `Número no ERP: ${result.numero_alvo}`
             : "Requisição sincronizada com o ERP.",
         });
+        navigate("/suprimentos/requisicoes");
       } else {
         toast({
           title: "Falha ao enviar ao ERP",
@@ -245,7 +266,6 @@ export default function SuprimentosRequisicaoNova() {
           variant: "destructive",
         });
       }
-      navigate("/suprimentos/requisicoes");
     } catch (err: any) {
       toast({
         title: "Erro inesperado",
@@ -750,7 +770,7 @@ export default function SuprimentosRequisicaoNova() {
             Cancelar
           </Button>
         ) : (
-          <Button variant="outline" onClick={() => setCurrentStep((s) => s - 1)}>
+          <Button variant="outline" onClick={() => setCurrentStep((s) => s - 1)} disabled={enviando}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Voltar
           </Button>
@@ -761,7 +781,16 @@ export default function SuprimentosRequisicaoNova() {
           </Button>
         ) : (
           <Button onClick={handleEnviar} disabled={enviando}>
-            {enviando ? "Enviando..." : "Enviar Requisição"} <Send className="ml-2 h-4 w-4" />
+            {enviando ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Enviando...
+              </>
+            ) : (
+              <>
+                Enviar Requisição <Send className="ml-2 h-4 w-4" />
+              </>
+            )}
           </Button>
         )}
       </div>
