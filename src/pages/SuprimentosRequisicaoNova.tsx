@@ -81,7 +81,7 @@ const FINALIDADES_COMPRA = [
 
 export default function SuprimentosRequisicaoNova() {
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const isAdmin = profile?.is_admin === true;
   const [currentStep, setCurrentStep] = useState(1);
   const [itens, setItens] = useState<ItemWizard[]>([]);
@@ -204,8 +204,8 @@ export default function SuprimentosRequisicaoNova() {
     setEnviando(true);
     try {
       const result = await enviarRequisicao({
-        user_id: profile.id,
-        requisitante_nome: profile.full_name || profile.email || "Usuário",
+        user_id: user!.id,
+        requisitante_nome: profile?.full_name || user!.email || "Usuário",
         codigo_funcionario: codigoFuncionario,
         funcionario_nome: funcionarioNome,
         codigo_centro_ctrl: codigoCentroCtrl,
