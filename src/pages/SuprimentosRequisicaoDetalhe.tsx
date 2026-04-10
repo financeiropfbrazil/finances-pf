@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { applyCnpjMask } from "@/lib/cnpj";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -341,6 +342,12 @@ export default function SuprimentosRequisicaoDetalhe() {
             <div>
               <p className="text-xs text-muted-foreground">Descrição</p>
               <p className="text-sm font-medium text-foreground">{req.descricao || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">CNPJ de referência</p>
+              <p className={`text-sm font-medium ${req.cnpj_sugestao_requisicao ? "text-foreground" : "text-muted-foreground"}`}>
+                {req.cnpj_sugestao_requisicao ? applyCnpjMask(req.cnpj_sugestao_requisicao) : "Não informado"}
+              </p>
             </div>
           </div>
         </CardContent>

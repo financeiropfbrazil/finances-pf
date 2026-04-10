@@ -740,6 +740,10 @@ export default function SuprimentosRequisicaoNova() {
                   <div className="text-xs text-muted-foreground">Descrição</div>
                   <div className="font-medium">{descricao || "—"}</div>
                 </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">CNPJ de referência</div>
+                  <div className="font-medium">{cnpjSugestao || <span className="text-muted-foreground">Não informado</span>}</div>
+                </div>
               </div>
             </CardContent>
           </Card>
