@@ -208,6 +208,10 @@ export default function SuprimentosRequisicaoNova() {
       toast({ title: "Data de necessidade obrigatória", variant: "destructive" });
       return;
     }
+    if (!descricao.trim()) {
+      toast({ title: "Descrição obrigatória", variant: "destructive" });
+      return;
+    }
     if (!codigoFuncionario || !codigoCentroCtrl) {
       toast({ title: "Funcionário e Centro de Custo são obrigatórios", variant: "destructive" });
       return;
@@ -420,7 +424,7 @@ export default function SuprimentosRequisicaoNova() {
 
   const canAdvance = (() => {
     if (currentStep === 1) return itens.length > 0;
-    if (currentStep === 2) return !!dataNecessidade && !!codigoFinalidadeCompra;
+    if (currentStep === 2) return !!dataNecessidade && !!codigoFinalidadeCompra && !!descricao.trim();
     if (currentStep === 3) return !!codigoFuncionario && !!codigoCentroCtrl;
     return true;
   })();
@@ -557,7 +561,7 @@ export default function SuprimentosRequisicaoNova() {
             </div>
 
             <div className="space-y-2">
-              <Label>Descrição (opcional)</Label>
+              <Label>Descrição *</Label>
               <Textarea value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Ex: Compra mensal de material de escritório" />
             </div>
           </CardContent>
