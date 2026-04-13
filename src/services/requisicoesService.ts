@@ -607,12 +607,15 @@ export async function enviarRequisicaoComArquivos(input: NovaRequisicaoInput): P
       { onConflict: "id" },
     );
 
-    // Marcar arquivos com o número do Alvo
+    // Marcar arquivos com o número do Alvo (via RPC para contornar bloqueio de PATCH no CORS)
     for (const guid of guids) {
-      await (supabase as any)
-        .from("compras_requisicoes_arquivos")
-        .update({ numero_alvo_ao_enviar: numeroAlvo })
-        .eq("upload_identify_guid", guid);
+      const { error: errMarcar } = await (supabase as any).rpc("marcar_arquivo_req_enviado", {
+        p_guid: guid,
+        p_numero_alvo: numeroAlvo,
+      });
+      if (errMarcar) {
+        console.warn(`Aviso: falha ao marcar arquivo ${guid} como enviado:`, errMarcar.message);
+      }
     }
 
     await (supabase as any).from("compras_requisicoes_auditoria").upsert({
@@ -782,13 +785,16 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
       { onConflict: "id" },
     );
 
-    // Marcar arquivos com o número do Alvo (se houver)
+    // Marcar arquivos com o número do Alvo (se houver, via RPC)
     if (temArquivos) {
       for (const guid of guids!) {
-        await (supabase as any)
-          .from("compras_requisicoes_arquivos")
-          .update({ numero_alvo_ao_enviar: numeroAlvo })
-          .eq("upload_identify_guid", guid);
+        const { error: errMarcar } = await (supabase as any).rpc("marcar_arquivo_req_enviado", {
+          p_guid: guid,
+          p_numero_alvo: numeroAlvo,
+        });
+        if (errMarcar) {
+          console.warn(`Aviso: falha ao marcar arquivo ${guid} como enviado:`, errMarcar.message);
+        }
       }
     }
 
