@@ -303,158 +303,198 @@ function montarFormDataMultipart(payload: any, arquivos: Array<{ guid: string; b
  */
 export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<EnvioResult> {
   const textoCompleto = montarTexto(input);
+  let requisicaoId: string | null = null;
 
-  const { data: reqCriada, error: errCreate } = await (supabase as any)
-    .from("compras_requisicoes")
-    .upsert({
-      requisitante_user_id: input.user_id,
-      status: "pendente_envio",
-      codigo_empresa_filial: EMPRESA_FILIAL,
-      codigo_funcionario: input.codigo_funcionario,
-      codigo_centro_ctrl: input.codigo_centro_ctrl,
-      codigo_finalidade_compra: input.codigo_finalidade_compra,
-      descricao: input.descricao || null,
-      cnpj_sugestao_requisicao: input.cnpj_sugestao_requisicao || null,
-      data_necessidade: input.data_necessidade,
-      texto: textoCompleto,
-      funcionario_nome: input.funcionario_nome,
-      centro_ctrl_nome: null,
-      finalidade_compra_label: input.finalidade_compra_label,
-      total_itens: input.itens.length,
-    })
-    .select("id")
-    .single();
-
-  if (errCreate || !reqCriada) {
-    throw new Error(`Erro ao criar requisição: ${errCreate?.message}`);
-  }
-
-  const requisicaoId = reqCriada.id;
-
-  for (let idx = 0; idx < input.itens.length; idx++) {
-    const item = input.itens[idx];
-    const { data: itemCriado, error: errItem } = await (supabase as any)
-      .from("compras_requisicoes_itens")
+  try {
+    const { data: reqCriada, error: errCreate } = await (supabase as any)
+      .from("compras_requisicoes")
       .upsert({
-        requisicao_id: requisicaoId,
-        sequencia: idx + 1,
-        item_servico: item.item_servico,
-        codigo_produto: item.codigo_produto,
-        codigo_alternativo_produto: item.codigo_alternativo_produto,
-        codigo_prod_unid_med: item.codigo_prod_unid_med,
-        quantidade: item.quantidade,
-        data_necessidade: input.data_necessidade,
+        requisitante_user_id: input.user_id,
+        status: "pendente_envio",
+        codigo_empresa_filial: EMPRESA_FILIAL,
+        codigo_funcionario: input.codigo_funcionario,
         codigo_centro_ctrl: input.codigo_centro_ctrl,
-        observacao: item.observacao || null,
-        produto_nome: item.produto_nome,
-        produto_unidade: item.produto_unidade,
+        codigo_finalidade_compra: input.codigo_finalidade_compra,
+        descricao: input.descricao || null,
+        cnpj_sugestao_requisicao: input.cnpj_sugestao_requisicao || null,
+        data_necessidade: input.data_necessidade,
+        texto: textoCompleto,
+        funcionario_nome: input.funcionario_nome,
+        centro_ctrl_nome: null,
+        finalidade_compra_label: input.finalidade_compra_label,
+        total_itens: input.itens.length,
       })
       .select("id")
       .single();
 
-    if (errItem || !itemCriado) {
-      throw new Error(`Erro ao criar item ${idx + 1}: ${errItem?.message}`);
+    if (errCreate || !reqCriada) {
+      throw new Error(`Erro ao criar requisição: ${errCreate?.message}`);
     }
 
-    for (const r of item.rateio) {
-      await (supabase as any).from("compras_requisicoes_itens_classe_rec_desp").upsert({
-        item_id: itemCriado.id,
-        codigo_classe_rec_desp: r.codigo_classe_rec_desp,
-        classe_rec_desp_label: r.classe_rec_desp_label,
-        percentual: r.percentual,
-      });
+    requisicaoId = reqCriada.id;
+
+    for (let idx = 0; idx < input.itens.length; idx++) {
+      const item = input.itens[idx];
+      const { data: itemCriado, error: errItem } = await (supabase as any)
+        .from("compras_requisicoes_itens")
+        .upsert({
+          requisicao_id: requisicaoId,
+          sequencia: idx + 1,
+          item_servico: item.item_servico,
+          codigo_produto: item.codigo_produto,
+          codigo_alternativo_produto: item.codigo_alternativo_produto,
+          codigo_prod_unid_med: item.codigo_prod_unid_med,
+          quantidade: item.quantidade,
+          data_necessidade: input.data_necessidade,
+          codigo_centro_ctrl: input.codigo_centro_ctrl,
+          observacao: item.observacao || null,
+          produto_nome: item.produto_nome,
+          produto_unidade: item.produto_unidade,
+        })
+        .select("id")
+        .single();
+
+      if (errItem || !itemCriado) {
+        throw new Error(`Erro ao criar item ${idx + 1}: ${errItem?.message}`);
+      }
+
+      for (const r of item.rateio) {
+        await (supabase as any).from("compras_requisicoes_itens_classe_rec_desp").upsert({
+          item_id: itemCriado.id,
+          codigo_classe_rec_desp: r.codigo_classe_rec_desp,
+          classe_rec_desp_label: r.classe_rec_desp_label,
+          percentual: r.percentual,
+        });
+      }
     }
-  }
-
-  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-    requisicao_id: requisicaoId,
-    evento: "criada",
-    user_id: input.user_id,
-    user_nome: input.requisitante_nome,
-    sucesso: true,
-  });
-
-  const payload = montarPayloadReqComp({
-    codigo_centro_ctrl: input.codigo_centro_ctrl,
-    codigo_finalidade_compra: input.codigo_finalidade_compra,
-    codigo_funcionario: input.codigo_funcionario,
-    data_necessidade_ymd: input.data_necessidade,
-    descricao: input.descricao,
-    texto: textoCompleto,
-    itens: input.itens,
-  });
-
-  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-    requisicao_id: requisicaoId,
-    evento: "envio_tentado",
-    user_id: input.user_id,
-    user_nome: input.requisitante_nome,
-    payload_enviado: payload,
-    sucesso: true,
-  });
-
-  try {
-    const respData = await callGatewayReqComp("/req-comp/insert", "POST", payload);
-
-    const numeroAlvo = respData?.Numero || "";
-
-    await (supabase as any).from("compras_requisicoes").upsert(
-      {
-        id: requisicaoId,
-        requisitante_user_id: input.user_id,
-        status: "sincronizada",
-        numero_alvo: numeroAlvo,
-        enviado_em: new Date().toISOString(),
-        codigo_empresa_filial: EMPRESA_FILIAL,
-        codigo_funcionario: input.codigo_funcionario,
-        codigo_centro_ctrl: input.codigo_centro_ctrl,
-        codigo_finalidade_compra: input.codigo_finalidade_compra,
-        data_necessidade: input.data_necessidade,
-        total_itens: input.itens.length,
-      },
-      { onConflict: "id" },
-    );
 
     await (supabase as any).from("compras_requisicoes_auditoria").upsert({
       requisicao_id: requisicaoId,
-      evento: "envio_sucesso",
+      evento: "criada",
       user_id: input.user_id,
       user_nome: input.requisitante_nome,
-      resposta_alvo: respData,
       sucesso: true,
     });
 
-    return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
-  } catch (err: any) {
-    const msgErro = err?.message || String(err);
-
-    await (supabase as any).from("compras_requisicoes").upsert(
-      {
-        id: requisicaoId,
-        requisitante_user_id: input.user_id,
-        status: "rascunho",
-        erro_ultimo_envio: msgErro,
-        tentativa_envio_em: new Date().toISOString(),
-        codigo_empresa_filial: EMPRESA_FILIAL,
-        codigo_funcionario: input.codigo_funcionario,
-        codigo_centro_ctrl: input.codigo_centro_ctrl,
-        codigo_finalidade_compra: input.codigo_finalidade_compra,
-        data_necessidade: input.data_necessidade,
-        total_itens: input.itens.length,
-      },
-      { onConflict: "id" },
-    );
+    const payload = montarPayloadReqComp({
+      codigo_centro_ctrl: input.codigo_centro_ctrl,
+      codigo_finalidade_compra: input.codigo_finalidade_compra,
+      codigo_funcionario: input.codigo_funcionario,
+      data_necessidade_ymd: input.data_necessidade,
+      descricao: input.descricao,
+      texto: textoCompleto,
+      itens: input.itens,
+    });
 
     await (supabase as any).from("compras_requisicoes_auditoria").upsert({
       requisicao_id: requisicaoId,
-      evento: "envio_falha",
+      evento: "envio_tentado",
       user_id: input.user_id,
       user_nome: input.requisitante_nome,
-      sucesso: false,
-      mensagem_erro: msgErro,
+      payload_enviado: payload,
+      sucesso: true,
     });
 
-    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+    try {
+      const respData = await callGatewayReqComp("/req-comp/insert", "POST", payload);
+
+      const numeroAlvo = respData?.Numero || "";
+
+      await (supabase as any).from("compras_requisicoes").upsert(
+        {
+          id: requisicaoId,
+          requisitante_user_id: input.user_id,
+          status: "sincronizada",
+          numero_alvo: numeroAlvo,
+          enviado_em: new Date().toISOString(),
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          codigo_funcionario: input.codigo_funcionario,
+          codigo_centro_ctrl: input.codigo_centro_ctrl,
+          codigo_finalidade_compra: input.codigo_finalidade_compra,
+          data_necessidade: input.data_necessidade,
+          total_itens: input.itens.length,
+        },
+        { onConflict: "id" },
+      );
+
+      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+        requisicao_id: requisicaoId,
+        evento: "envio_sucesso",
+        user_id: input.user_id,
+        user_nome: input.requisitante_nome,
+        resposta_alvo: respData,
+        sucesso: true,
+      });
+
+      return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
+    } catch (errEnvio: any) {
+      const msgErro = errEnvio?.message || String(errEnvio);
+
+      await (supabase as any).from("compras_requisicoes").upsert(
+        {
+          id: requisicaoId,
+          requisitante_user_id: input.user_id,
+          status: "rascunho",
+          erro_ultimo_envio: msgErro,
+          tentativa_envio_em: new Date().toISOString(),
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          codigo_funcionario: input.codigo_funcionario,
+          codigo_centro_ctrl: input.codigo_centro_ctrl,
+          codigo_finalidade_compra: input.codigo_finalidade_compra,
+          data_necessidade: input.data_necessidade,
+          total_itens: input.itens.length,
+        },
+        { onConflict: "id" },
+      );
+
+      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+        requisicao_id: requisicaoId,
+        evento: "envio_falha",
+        user_id: input.user_id,
+        user_nome: input.requisitante_nome,
+        sucesso: false,
+        mensagem_erro: msgErro,
+      });
+
+      return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+    }
+  } catch (errCriacao: any) {
+    // Captura erros que ocorrem ANTES do envio ao Alvo (criação de itens, rateios, etc).
+    // Se requisicaoId já foi criado, marca como rascunho para não ficar órfã.
+    const msgErro = errCriacao?.message || String(errCriacao);
+
+    if (requisicaoId) {
+      await (supabase as any).from("compras_requisicoes").upsert(
+        {
+          id: requisicaoId,
+          requisitante_user_id: input.user_id,
+          status: "rascunho",
+          erro_ultimo_envio: `Erro durante criação: ${msgErro}`,
+          tentativa_envio_em: new Date().toISOString(),
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          codigo_funcionario: input.codigo_funcionario,
+          codigo_centro_ctrl: input.codigo_centro_ctrl,
+          codigo_finalidade_compra: input.codigo_finalidade_compra,
+          data_necessidade: input.data_necessidade,
+          total_itens: input.itens.length,
+        },
+        { onConflict: "id" },
+      );
+
+      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+        requisicao_id: requisicaoId,
+        evento: "envio_falha",
+        user_id: input.user_id,
+        user_nome: input.requisitante_nome,
+        sucesso: false,
+        mensagem_erro: `Erro durante criação: ${msgErro}`,
+      });
+
+      return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+    }
+
+    // Se nem conseguiu criar a linha no banco, propaga o erro
+    throw errCriacao;
   }
 }
 
@@ -474,190 +514,228 @@ export async function enviarRequisicaoComArquivos(input: NovaRequisicaoInput): P
   }
 
   const textoCompleto = montarTexto(input);
+  let requisicaoId: string | null = null;
 
-  // 1. Criar requisição no Supabase
-  const { data: reqCriada, error: errCreate } = await (supabase as any)
-    .from("compras_requisicoes")
-    .upsert({
-      requisitante_user_id: input.user_id,
-      status: "pendente_envio",
-      codigo_empresa_filial: EMPRESA_FILIAL,
-      codigo_funcionario: input.codigo_funcionario,
-      codigo_centro_ctrl: input.codigo_centro_ctrl,
-      codigo_finalidade_compra: input.codigo_finalidade_compra,
-      descricao: input.descricao || null,
-      cnpj_sugestao_requisicao: input.cnpj_sugestao_requisicao || null,
-      data_necessidade: input.data_necessidade,
-      texto: textoCompleto,
-      funcionario_nome: input.funcionario_nome,
-      centro_ctrl_nome: null,
-      finalidade_compra_label: input.finalidade_compra_label,
-      total_itens: input.itens.length,
-    })
-    .select("id")
-    .single();
-
-  if (errCreate || !reqCriada) {
-    throw new Error(`Erro ao criar requisição: ${errCreate?.message}`);
-  }
-
-  const requisicaoId = reqCriada.id;
-
-  // 2. Criar itens + rateios
-  for (let idx = 0; idx < input.itens.length; idx++) {
-    const item = input.itens[idx];
-    const { data: itemCriado, error: errItem } = await (supabase as any)
-      .from("compras_requisicoes_itens")
+  try {
+    // 1. Criar requisição no Supabase
+    const { data: reqCriada, error: errCreate } = await (supabase as any)
+      .from("compras_requisicoes")
       .upsert({
-        requisicao_id: requisicaoId,
-        sequencia: idx + 1,
-        item_servico: item.item_servico,
-        codigo_produto: item.codigo_produto,
-        codigo_alternativo_produto: item.codigo_alternativo_produto,
-        codigo_prod_unid_med: item.codigo_prod_unid_med,
-        quantidade: item.quantidade,
-        data_necessidade: input.data_necessidade,
+        requisitante_user_id: input.user_id,
+        status: "pendente_envio",
+        codigo_empresa_filial: EMPRESA_FILIAL,
+        codigo_funcionario: input.codigo_funcionario,
         codigo_centro_ctrl: input.codigo_centro_ctrl,
-        observacao: item.observacao || null,
-        produto_nome: item.produto_nome,
-        produto_unidade: item.produto_unidade,
+        codigo_finalidade_compra: input.codigo_finalidade_compra,
+        descricao: input.descricao || null,
+        cnpj_sugestao_requisicao: input.cnpj_sugestao_requisicao || null,
+        data_necessidade: input.data_necessidade,
+        texto: textoCompleto,
+        funcionario_nome: input.funcionario_nome,
+        centro_ctrl_nome: null,
+        finalidade_compra_label: input.finalidade_compra_label,
+        total_itens: input.itens.length,
       })
       .select("id")
       .single();
 
-    if (errItem || !itemCriado) {
-      throw new Error(`Erro ao criar item ${idx + 1}: ${errItem?.message}`);
+    if (errCreate || !reqCriada) {
+      throw new Error(`Erro ao criar requisição: ${errCreate?.message}`);
     }
 
-    for (const r of item.rateio) {
-      await (supabase as any).from("compras_requisicoes_itens_classe_rec_desp").upsert({
-        item_id: itemCriado.id,
-        codigo_classe_rec_desp: r.codigo_classe_rec_desp,
-        classe_rec_desp_label: r.classe_rec_desp_label,
-        percentual: r.percentual,
-      });
-    }
-  }
+    requisicaoId = reqCriada.id;
 
-  // 3. Upload dos arquivos para Storage + tabela de metadados
-  for (const arquivo of input.arquivos) {
-    await salvarArquivoNoStorage(requisicaoId, arquivo, input.user_id);
-  }
+    // 2. Criar itens + rateios
+    for (let idx = 0; idx < input.itens.length; idx++) {
+      const item = input.itens[idx];
+      const { data: itemCriado, error: errItem } = await (supabase as any)
+        .from("compras_requisicoes_itens")
+        .upsert({
+          requisicao_id: requisicaoId,
+          sequencia: idx + 1,
+          item_servico: item.item_servico,
+          codigo_produto: item.codigo_produto,
+          codigo_alternativo_produto: item.codigo_alternativo_produto,
+          codigo_prod_unid_med: item.codigo_prod_unid_med,
+          quantidade: item.quantidade,
+          data_necessidade: input.data_necessidade,
+          codigo_centro_ctrl: input.codigo_centro_ctrl,
+          observacao: item.observacao || null,
+          produto_nome: item.produto_nome,
+          produto_unidade: item.produto_unidade,
+        })
+        .select("id")
+        .single();
 
-  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-    requisicao_id: requisicaoId,
-    evento: "criada",
-    user_id: input.user_id,
-    user_nome: input.requisitante_nome,
-    sucesso: true,
-  });
+      if (errItem || !itemCriado) {
+        throw new Error(`Erro ao criar item ${idx + 1}: ${errItem?.message}`);
+      }
 
-  // 4. Montar payload multipart
-  const guids = input.arquivos.map((a) => a.upload_identify_guid);
-  const payload = montarPayloadReqComp({
-    codigo_centro_ctrl: input.codigo_centro_ctrl,
-    codigo_finalidade_compra: input.codigo_finalidade_compra,
-    codigo_funcionario: input.codigo_funcionario,
-    data_necessidade_ymd: input.data_necessidade,
-    descricao: input.descricao,
-    texto: textoCompleto,
-    itens: input.itens,
-    arquivos_guids: guids,
-  });
-
-  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-    requisicao_id: requisicaoId,
-    evento: "envio_tentado",
-    user_id: input.user_id,
-    user_nome: input.requisitante_nome,
-    payload_enviado: payload,
-    sucesso: true,
-  });
-
-  // 5. Chamar gateway multipart
-  try {
-    const formData = montarFormDataMultipart(
-      payload,
-      input.arquivos.map((a) => ({
-        guid: a.upload_identify_guid,
-        blob: a.file,
-        nome: a.file.name,
-      })),
-    );
-
-    const respData = await callGatewayReqCompMultipart("/req-comp/insert-multipart", formData);
-
-    const numeroAlvo = respData?.Numero || "";
-
-    // Atualizar requisição como sincronizada
-    await (supabase as any).from("compras_requisicoes").upsert(
-      {
-        id: requisicaoId,
-        requisitante_user_id: input.user_id,
-        status: "sincronizada",
-        numero_alvo: numeroAlvo,
-        enviado_em: new Date().toISOString(),
-        codigo_empresa_filial: EMPRESA_FILIAL,
-        codigo_funcionario: input.codigo_funcionario,
-        codigo_centro_ctrl: input.codigo_centro_ctrl,
-        codigo_finalidade_compra: input.codigo_finalidade_compra,
-        data_necessidade: input.data_necessidade,
-        total_itens: input.itens.length,
-      },
-      { onConflict: "id" },
-    );
-
-    // Marcar arquivos com o número do Alvo (via RPC para contornar bloqueio de PATCH no CORS)
-    for (const guid of guids) {
-      const { error: errMarcar } = await (supabase as any).rpc("marcar_arquivo_req_enviado", {
-        p_guid: guid,
-        p_numero_alvo: numeroAlvo,
-      });
-      if (errMarcar) {
-        console.warn(`Aviso: falha ao marcar arquivo ${guid} como enviado:`, errMarcar.message);
+      for (const r of item.rateio) {
+        await (supabase as any).from("compras_requisicoes_itens_classe_rec_desp").upsert({
+          item_id: itemCriado.id,
+          codigo_classe_rec_desp: r.codigo_classe_rec_desp,
+          classe_rec_desp_label: r.classe_rec_desp_label,
+          percentual: r.percentual,
+        });
       }
     }
 
+    // 3. Upload dos arquivos para Storage + tabela de metadados
+    for (const arquivo of input.arquivos) {
+      await salvarArquivoNoStorage(requisicaoId, arquivo, input.user_id);
+    }
+
     await (supabase as any).from("compras_requisicoes_auditoria").upsert({
       requisicao_id: requisicaoId,
-      evento: "envio_sucesso",
+      evento: "criada",
       user_id: input.user_id,
       user_nome: input.requisitante_nome,
-      resposta_alvo: respData,
       sucesso: true,
     });
 
-    return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
-  } catch (err: any) {
-    const msgErro = err?.message || String(err);
-
-    await (supabase as any).from("compras_requisicoes").upsert(
-      {
-        id: requisicaoId,
-        requisitante_user_id: input.user_id,
-        status: "rascunho",
-        erro_ultimo_envio: msgErro,
-        tentativa_envio_em: new Date().toISOString(),
-        codigo_empresa_filial: EMPRESA_FILIAL,
-        codigo_funcionario: input.codigo_funcionario,
-        codigo_centro_ctrl: input.codigo_centro_ctrl,
-        codigo_finalidade_compra: input.codigo_finalidade_compra,
-        data_necessidade: input.data_necessidade,
-        total_itens: input.itens.length,
-      },
-      { onConflict: "id" },
-    );
+    // 4. Montar payload multipart
+    const guids = input.arquivos.map((a) => a.upload_identify_guid);
+    const payload = montarPayloadReqComp({
+      codigo_centro_ctrl: input.codigo_centro_ctrl,
+      codigo_finalidade_compra: input.codigo_finalidade_compra,
+      codigo_funcionario: input.codigo_funcionario,
+      data_necessidade_ymd: input.data_necessidade,
+      descricao: input.descricao,
+      texto: textoCompleto,
+      itens: input.itens,
+      arquivos_guids: guids,
+    });
 
     await (supabase as any).from("compras_requisicoes_auditoria").upsert({
       requisicao_id: requisicaoId,
-      evento: "envio_falha",
+      evento: "envio_tentado",
       user_id: input.user_id,
       user_nome: input.requisitante_nome,
-      sucesso: false,
-      mensagem_erro: msgErro,
+      payload_enviado: payload,
+      sucesso: true,
     });
 
-    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+    // 5. Chamar gateway multipart
+    try {
+      const formData = montarFormDataMultipart(
+        payload,
+        input.arquivos.map((a) => ({
+          guid: a.upload_identify_guid,
+          blob: a.file,
+          nome: a.file.name,
+        })),
+      );
+
+      const respData = await callGatewayReqCompMultipart("/req-comp/insert-multipart", formData);
+
+      const numeroAlvo = respData?.Numero || "";
+
+      // Atualizar requisição como sincronizada
+      await (supabase as any).from("compras_requisicoes").upsert(
+        {
+          id: requisicaoId,
+          requisitante_user_id: input.user_id,
+          status: "sincronizada",
+          numero_alvo: numeroAlvo,
+          enviado_em: new Date().toISOString(),
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          codigo_funcionario: input.codigo_funcionario,
+          codigo_centro_ctrl: input.codigo_centro_ctrl,
+          codigo_finalidade_compra: input.codigo_finalidade_compra,
+          data_necessidade: input.data_necessidade,
+          total_itens: input.itens.length,
+        },
+        { onConflict: "id" },
+      );
+
+      // Marcar arquivos com o número do Alvo (via RPC para contornar bloqueio de PATCH no CORS)
+      for (const guid of guids) {
+        const { error: errMarcar } = await (supabase as any).rpc("marcar_arquivo_req_enviado", {
+          p_guid: guid,
+          p_numero_alvo: numeroAlvo,
+        });
+        if (errMarcar) {
+          console.warn(`Aviso: falha ao marcar arquivo ${guid} como enviado:`, errMarcar.message);
+        }
+      }
+
+      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+        requisicao_id: requisicaoId,
+        evento: "envio_sucesso",
+        user_id: input.user_id,
+        user_nome: input.requisitante_nome,
+        resposta_alvo: respData,
+        sucesso: true,
+      });
+
+      return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
+    } catch (errEnvio: any) {
+      const msgErro = errEnvio?.message || String(errEnvio);
+
+      await (supabase as any).from("compras_requisicoes").upsert(
+        {
+          id: requisicaoId,
+          requisitante_user_id: input.user_id,
+          status: "rascunho",
+          erro_ultimo_envio: msgErro,
+          tentativa_envio_em: new Date().toISOString(),
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          codigo_funcionario: input.codigo_funcionario,
+          codigo_centro_ctrl: input.codigo_centro_ctrl,
+          codigo_finalidade_compra: input.codigo_finalidade_compra,
+          data_necessidade: input.data_necessidade,
+          total_itens: input.itens.length,
+        },
+        { onConflict: "id" },
+      );
+
+      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+        requisicao_id: requisicaoId,
+        evento: "envio_falha",
+        user_id: input.user_id,
+        user_nome: input.requisitante_nome,
+        sucesso: false,
+        mensagem_erro: msgErro,
+      });
+
+      return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+    }
+  } catch (errCriacao: any) {
+    // Captura erros que ocorrem ANTES do envio ao Alvo (criação de itens, upload de arquivo, etc).
+    const msgErro = errCriacao?.message || String(errCriacao);
+
+    if (requisicaoId) {
+      await (supabase as any).from("compras_requisicoes").upsert(
+        {
+          id: requisicaoId,
+          requisitante_user_id: input.user_id,
+          status: "rascunho",
+          erro_ultimo_envio: `Erro durante criação: ${msgErro}`,
+          tentativa_envio_em: new Date().toISOString(),
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          codigo_funcionario: input.codigo_funcionario,
+          codigo_centro_ctrl: input.codigo_centro_ctrl,
+          codigo_finalidade_compra: input.codigo_finalidade_compra,
+          data_necessidade: input.data_necessidade,
+          total_itens: input.itens.length,
+        },
+        { onConflict: "id" },
+      );
+
+      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+        requisicao_id: requisicaoId,
+        evento: "envio_falha",
+        user_id: input.user_id,
+        user_nome: input.requisitante_nome,
+        sucesso: false,
+        mensagem_erro: `Erro durante criação: ${msgErro}`,
+      });
+
+      return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+    }
+
+    throw errCriacao;
   }
 }
 
