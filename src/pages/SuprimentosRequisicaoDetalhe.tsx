@@ -4,7 +4,15 @@ import { applyCnpjMask } from "@/lib/cnpj";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { reenviarRequisicao, excluirRequisicao, sincronizarStatusRequisicao } from "@/services/requisicoesService";
+import {
+  reenviarRequisicao,
+  excluirRequisicao,
+  sincronizarStatusRequisicao,
+  listarArquivosDaRequisicao,
+  getUrlAssinadaArquivo,
+  removerArquivo,
+  type ArquivoRequisicao,
+} from "@/services/requisicoesService";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +38,11 @@ import {
   Clock,
   Send,
   AlertTriangle,
+  Paperclip,
+  FileText,
+  Image as ImageIcon,
+  Download,
+  X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -61,6 +74,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   const [isReenviando, setIsReenviando] = useState(false);
   const [isExcluindo, setIsExcluindo] = useState(false);
   const [isSyncingStatus, setIsSyncingStatus] = useState(false);
+  const [arquivoRemovendoId, setArquivoRemovendoId] = useState<string | null>(null);
 
   const {
     data: req,
@@ -123,6 +137,15 @@ export default function SuprimentosRequisicaoDetalhe() {
         .order("created_at", { ascending: true });
       if (error) throw error;
       return data || [];
+    },
+    enabled: !!id && !!req,
+  });
+
+  const { data: arquivos = [], refetch: refetchArquivos } = useQuery({
+    queryKey: ["requisicao_arquivos", id],
+    queryFn: async (): Promise<ArquivoRequisicao[]> => {
+      if (!id) return [];
+      return await listarArquivosDaRequisicao(id);
     },
     enabled: !!id && !!req,
   });
@@ -237,6 +260,47 @@ export default function SuprimentosRequisicaoDetalhe() {
     }
   };
 
+  const handleBaixarArquivo = async (arq: ArquivoRequisicao) => {
+    try {
+      const url = await getUrlAssinadaArquivo(arq.storage_path);
+      window.open(url, "_blank");
+    } catch (err: any) {
+      toast({
+        title: "Erro ao baixar arquivo",
+        description: err?.message || "Não foi possível gerar o link de download.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRemoverArquivo = async (arquivoId: string) => {
+    setArquivoRemovendoId(arquivoId);
+    try {
+      await removerArquivo(arquivoId);
+      toast({ title: "Arquivo removido" });
+      refetchArquivos();
+    } catch (err: any) {
+      toast({
+        title: "Erro ao remover arquivo",
+        description: err?.message || "Não foi possível remover o arquivo.",
+        variant: "destructive",
+      });
+    } finally {
+      setArquivoRemovendoId(null);
+    }
+  };
+
+  const formatarTamanhoArquivo = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getIconeMimeType = (mimeType: string) => {
+    if (mimeType.startsWith("image/")) return ImageIcon;
+    return FileText;
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -278,7 +342,7 @@ export default function SuprimentosRequisicaoDetalhe() {
             </Button>
           )}
 
-          {isRascunho && (
+          {podeReenviar && (
             <>
               <Button variant="outline" size="sm" disabled>
                 <Pencil className="mr-1 h-3 w-3" /> Editar
@@ -453,6 +517,60 @@ export default function SuprimentosRequisicaoDetalhe() {
           <CardContent className="p-5">
             <p className="mb-2 text-sm font-semibold text-foreground">Observação / Texto</p>
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">{req.texto}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Anexos */}
+      {arquivos.length > 0 && (
+        <Card>
+          <CardContent className="p-5">
+            <p className="mb-3 text-sm font-semibold text-foreground flex items-center gap-2">
+              <Paperclip className="h-4 w-4" />
+              Anexos ({arquivos.length})
+            </p>
+            <div className="space-y-2">
+              {arquivos.map((arq) => {
+                const Icon = getIconeMimeType(arq.mime_type);
+                const podeRemoverArq = req.status === "rascunho" || req.status === "pendente_envio";
+                const removendo = arquivoRemovendoId === arq.id;
+                return (
+                  <div key={arq.id} className="flex items-center gap-3 rounded-lg border p-3">
+                    <div className="rounded-md bg-muted p-2 shrink-0">
+                      <Icon className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{arq.nome_original}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatarTamanhoArquivo(arq.tamanho_bytes)}
+                        {arq.numero_alvo_ao_enviar && <span className="ml-2 text-emerald-600">· Enviado ao ERP</span>}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => handleBaixarArquivo(arq)}
+                      title="Baixar arquivo"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </Button>
+                    {podeRemoverArq && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
+                        onClick={() => handleRemoverArquivo(arq.id)}
+                        disabled={removendo}
+                        title="Remover arquivo"
+                      >
+                        {removendo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
       )}
