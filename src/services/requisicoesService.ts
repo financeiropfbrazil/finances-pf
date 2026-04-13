@@ -751,8 +751,8 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
     .single();
 
   if (errReq || !req) throw new Error(`Requisição não encontrada: ${errReq?.message}`);
-  if (req.status !== "rascunho") {
-    throw new Error("Só é possível reenviar requisições com status rascunho.");
+  if (req.status !== "rascunho" && req.status !== "pendente_envio") {
+    throw new Error("Só é possível reenviar requisições com status rascunho ou pendente de envio.");
   }
 
   const { data: itens } = await (supabase as any)
