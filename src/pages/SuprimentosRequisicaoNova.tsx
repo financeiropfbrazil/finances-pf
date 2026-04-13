@@ -119,6 +119,13 @@ export default function SuprimentosRequisicaoNova() {
   const [observacaoLivre, setObservacaoLivre] = useState("");
   const [enviando, setEnviando] = useState(false);
 
+  // Anexos (Etapa 4)
+  const [arquivos, setArquivos] = useState<ArquivoInput[]>([]);
+  const MAX_ARQUIVOS = 3;
+  const MAX_TAMANHO_MB = 5;
+  const MAX_TAMANHO_BYTES = MAX_TAMANHO_MB * 1024 * 1024;
+  const MIME_TYPES_ACEITOS = ["application/pdf", "image/jpeg", "image/png"];
+
   // Buscar produtos do cache
   const { data: produtos = [] } = useQuery({
     queryKey: ["stock_products_wizard"],
