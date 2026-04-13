@@ -4,12 +4,20 @@ import { applyCnpjMask } from "@/lib/cnpj";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { reenviarRequisicao, excluirRequisicao, sincronizarStatusRequisicao } from "@/services/requisicoesService";
+import {
+  reenviarRequisicao,
+  excluirRequisicao,
+  sincronizarStatusRequisicao,
+  listarArquivosDaRequisicao,
+  getUrlAssinadaArquivo,
+  removerArquivo,
+  type ArquivoRequisicao,
+} from "@/services/requisicoesService";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Loader2, ArrowLeft, RefreshCw, Pencil, Trash2, CheckCircle2, XCircle, Clock, Send, AlertTriangle } from "lucide-react";
+import { Loader2, ArrowLeft, RefreshCw, Pencil, Trash2, CheckCircle2, XCircle, Clock, Send, AlertTriangle, Paperclip, FileText, Image as ImageIcon, Download, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -40,6 +48,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   const [isReenviando, setIsReenviando] = useState(false);
   const [isExcluindo, setIsExcluindo] = useState(false);
   const [isSyncingStatus, setIsSyncingStatus] = useState(false);
+  const [arquivoRemovendoId, setArquivoRemovendoId] = useState<string | null>(null);
 
   const { data: req, isLoading, refetch } = useQuery({
     queryKey: ["requisicao_detalhe", id],
@@ -96,6 +105,15 @@ export default function SuprimentosRequisicaoDetalhe() {
         .order("created_at", { ascending: true });
       if (error) throw error;
       return data || [];
+    },
+    enabled: !!id && !!req,
+  });
+
+  const { data: arquivos = [], refetch: refetchArquivos } = useQuery({
+    queryKey: ["requisicao_arquivos", id],
+    queryFn: async (): Promise<ArquivoRequisicao[]> => {
+      if (!id) return [];
+      return await listarArquivosDaRequisicao(id);
     },
     enabled: !!id && !!req,
   });
@@ -204,6 +222,47 @@ export default function SuprimentosRequisicaoDetalhe() {
     } finally {
       setIsExcluindo(false);
     }
+  };
+
+  const handleBaixarArquivo = async (arq: ArquivoRequisicao) => {
+    try {
+      const url = await getUrlAssinadaArquivo(arq.storage_path);
+      window.open(url, "_blank");
+    } catch (err: any) {
+      toast({
+        title: "Erro ao baixar arquivo",
+        description: err?.message || "Não foi possível gerar o link de download.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRemoverArquivo = async (arquivoId: string) => {
+    setArquivoRemovendoId(arquivoId);
+    try {
+      await removerArquivo(arquivoId);
+      toast({ title: "Arquivo removido" });
+      refetchArquivos();
+    } catch (err: any) {
+      toast({
+        title: "Erro ao remover arquivo",
+        description: err?.message || "Não foi possível remover o arquivo.",
+        variant: "destructive",
+      });
+    } finally {
+      setArquivoRemovendoId(null);
+    }
+  };
+
+  const formatarTamanhoArquivo = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getIconeMimeType = (mimeType: string) => {
+    if (mimeType.startsWith("image/")) return ImageIcon;
+    return FileText;
   };
 
   return (
@@ -410,6 +469,53 @@ export default function SuprimentosRequisicaoDetalhe() {
           <CardContent className="p-5">
             <p className="mb-2 text-sm font-semibold text-foreground">Observação / Texto</p>
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">{req.texto}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Anexos */}
+      {arquivos.length > 0 && (
+        <Card>
+          <CardContent className="p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <Paperclip className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm font-semibold text-foreground">Anexos ({arquivos.length})</p>
+            </div>
+            <div className="space-y-2">
+              {arquivos.map((arq) => {
+                const Icon = getIconeMimeType(arq.mime_type);
+                const podeRemover = req.status === "rascunho";
+                const removendo = arquivoRemovendoId === arq.id;
+                return (
+                  <div key={arq.id} className="flex items-center gap-3 rounded-lg border p-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
+                      <Icon className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {arq.nome_original}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatarTamanhoArquivo(arq.tamanho_bytes)}
+                        {arq.numero_alvo_ao_enviar && (
+                          <span className="ml-1 text-emerald-600">
+                            · Enviado ao ERP
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleBaixarArquivo(arq)} title="Baixar arquivo">
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    {podeRemover && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive" onClick={() => handleRemoverArquivo(arq.id)} disabled={removendo} title="Remover arquivo">
+                        {removendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
       )}
