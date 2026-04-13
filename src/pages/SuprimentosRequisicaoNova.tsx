@@ -126,6 +126,64 @@ export default function SuprimentosRequisicaoNova() {
   const MAX_TAMANHO_BYTES = MAX_TAMANHO_MB * 1024 * 1024;
   const MIME_TYPES_ACEITOS = ["application/pdf", "image/jpeg", "image/png"];
 
+  // Handlers de arquivo
+  const handleSelecionarArquivos = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const disponiveis = MAX_ARQUIVOS - arquivos.length;
+    if (files.length > disponiveis) {
+      toast({
+        title: "Limite excedido",
+        description: `Você pode anexar no máximo ${MAX_ARQUIVOS} arquivos. Restam ${disponiveis}.`,
+        variant: "destructive",
+      });
+      event.target.value = "";
+      return;
+    }
+
+    const novos: ArquivoInput[] = [];
+    for (const file of files) {
+      if (!MIME_TYPES_ACEITOS.includes(file.type)) {
+        toast({
+          title: "Tipo de arquivo não permitido",
+          description: `"${file.name}" não é PDF, JPG ou PNG.`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      if (file.size > MAX_TAMANHO_BYTES) {
+        toast({
+          title: "Arquivo muito grande",
+          description: `"${file.name}" excede ${MAX_TAMANHO_MB}MB.`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      novos.push({ file, upload_identify_guid: crypto.randomUUID() });
+    }
+
+    if (novos.length > 0) {
+      setArquivos(prev => [...prev, ...novos]);
+    }
+    event.target.value = "";
+  };
+
+  const handleRemoverArquivo = (guid: string) => {
+    setArquivos(prev => prev.filter(a => a.upload_identify_guid !== guid));
+  };
+
+  const formatarTamanho = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getIconeArquivo = (mimeType: string) => {
+    if (mimeType.startsWith("image/")) return ImageIcon;
+    return FileText;
+  };
+
   // Buscar produtos do cache
   const { data: produtos = [] } = useQuery({
     queryKey: ["stock_products_wizard"],
