@@ -859,6 +859,88 @@ export default function SuprimentosRequisicaoNova() {
               />
             </CardContent>
           </Card>
+
+          {/* Card 5 — Anexos */}
+          <Card>
+            <CardContent className="space-y-4 p-6">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Paperclip className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Anexos (opcional)</h3>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Anexe até {MAX_ARQUIVOS} arquivos (PDF, JPG ou PNG — máx {MAX_TAMANHO_MB}MB cada).
+                  Eles serão enviados ao ERP junto com a requisição.
+                </p>
+              </div>
+
+              {/* Lista de arquivos selecionados */}
+              {arquivos.length > 0 && (
+                <div className="space-y-2">
+                  {arquivos.map((arq) => {
+                    const IconeArq = getIconeArquivo(arq.file.type);
+                    return (
+                      <div key={arq.upload_identify_guid} className="flex items-center gap-3 rounded-md border p-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded bg-muted">
+                          <IconeArq className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">
+                            {arq.file.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatarTamanho(arq.file.size)}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => handleRemoverArquivo(arq.upload_identify_guid)}
+                          disabled={enviando}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Botão de adicionar arquivo */}
+              {arquivos.length < MAX_ARQUIVOS && (
+                <div className="flex items-center gap-3">
+                  <input
+                    id="arquivo-upload"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    multiple
+                    className="hidden"
+                    onChange={handleSelecionarArquivos}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById("arquivo-upload")?.click()}
+                    disabled={enviando}
+                    className="gap-1.5"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                    Adicionar arquivo
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {arquivos.length} de {MAX_ARQUIVOS}
+                  </span>
+                </div>
+              )}
+
+              {arquivos.length === MAX_ARQUIVOS && (
+                <p className="text-xs text-muted-foreground">
+                  Limite máximo de {MAX_ARQUIVOS} arquivos atingido.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 
