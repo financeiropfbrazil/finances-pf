@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { enviarRequisicao } from "@/services/requisicoesService";
+import { enviarRequisicao, enviarRequisicaoComArquivos, type ArquivoInput } from "@/services/requisicoesService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, ChevronsUpDown, ClipboardList, Calendar as CalendarIcon, Send, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, ChevronsUpDown, ClipboardList, Calendar as CalendarIcon, Send, Loader2, Paperclip, FileText, Image as ImageIcon, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -118,6 +118,71 @@ export default function SuprimentosRequisicaoNova() {
   // Etapa 4
   const [observacaoLivre, setObservacaoLivre] = useState("");
   const [enviando, setEnviando] = useState(false);
+
+  // Anexos (Etapa 4)
+  const [arquivos, setArquivos] = useState<ArquivoInput[]>([]);
+  const MAX_ARQUIVOS = 3;
+  const MAX_TAMANHO_MB = 5;
+  const MAX_TAMANHO_BYTES = MAX_TAMANHO_MB * 1024 * 1024;
+  const MIME_TYPES_ACEITOS = ["application/pdf", "image/jpeg", "image/png"];
+
+  // Handlers de arquivo
+  const handleSelecionarArquivos = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const disponiveis = MAX_ARQUIVOS - arquivos.length;
+    if (files.length > disponiveis) {
+      toast({
+        title: "Limite excedido",
+        description: `Você pode anexar no máximo ${MAX_ARQUIVOS} arquivos. Restam ${disponiveis}.`,
+        variant: "destructive",
+      });
+      event.target.value = "";
+      return;
+    }
+
+    const novos: ArquivoInput[] = [];
+    for (const file of files) {
+      if (!MIME_TYPES_ACEITOS.includes(file.type)) {
+        toast({
+          title: "Tipo de arquivo não permitido",
+          description: `"${file.name}" não é PDF, JPG ou PNG.`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      if (file.size > MAX_TAMANHO_BYTES) {
+        toast({
+          title: "Arquivo muito grande",
+          description: `"${file.name}" excede ${MAX_TAMANHO_MB}MB.`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      novos.push({ file, upload_identify_guid: crypto.randomUUID() });
+    }
+
+    if (novos.length > 0) {
+      setArquivos(prev => [...prev, ...novos]);
+    }
+    event.target.value = "";
+  };
+
+  const handleRemoverArquivo = (guid: string) => {
+    setArquivos(prev => prev.filter(a => a.upload_identify_guid !== guid));
+  };
+
+  const formatarTamanho = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getIconeArquivo = (mimeType: string) => {
+    if (mimeType.startsWith("image/")) return ImageIcon;
+    return FileText;
+  };
 
   // Buscar produtos do cache
   const { data: produtos = [] } = useQuery({
@@ -233,7 +298,7 @@ export default function SuprimentosRequisicaoNova() {
 
     setEnviando(true);
     try {
-      const result = await enviarRequisicao({
+      const inputBase = {
         user_id: user.id,
         requisitante_nome: profile?.full_name || user.email || "Usuário",
         codigo_funcionario: codigoFuncionario,
@@ -260,7 +325,11 @@ export default function SuprimentosRequisicaoNova() {
             percentual: r.percentual,
           })),
         })),
-      });
+      };
+
+      const result = arquivos.length > 0
+        ? await enviarRequisicaoComArquivos({ ...inputBase, arquivos })
+        : await enviarRequisicao(inputBase);
 
       if (result.sucesso) {
         toast({
@@ -788,6 +857,88 @@ export default function SuprimentosRequisicaoNova() {
                 placeholder="Ex: urgência, justificativa, link de referência..."
                 rows={3}
               />
+            </CardContent>
+          </Card>
+
+          {/* Card 5 — Anexos */}
+          <Card>
+            <CardContent className="space-y-4 p-6">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Paperclip className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Anexos (opcional)</h3>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Anexe até {MAX_ARQUIVOS} arquivos (PDF, JPG ou PNG — máx {MAX_TAMANHO_MB}MB cada).
+                  Eles serão enviados ao ERP junto com a requisição.
+                </p>
+              </div>
+
+              {/* Lista de arquivos selecionados */}
+              {arquivos.length > 0 && (
+                <div className="space-y-2">
+                  {arquivos.map((arq) => {
+                    const IconeArq = getIconeArquivo(arq.file.type);
+                    return (
+                      <div key={arq.upload_identify_guid} className="flex items-center gap-3 rounded-md border p-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded bg-muted">
+                          <IconeArq className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">
+                            {arq.file.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatarTamanho(arq.file.size)}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => handleRemoverArquivo(arq.upload_identify_guid)}
+                          disabled={enviando}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Botão de adicionar arquivo */}
+              {arquivos.length < MAX_ARQUIVOS && (
+                <div className="flex items-center gap-3">
+                  <input
+                    id="arquivo-upload"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    multiple
+                    className="hidden"
+                    onChange={handleSelecionarArquivos}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById("arquivo-upload")?.click()}
+                    disabled={enviando}
+                    className="gap-1.5"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                    Adicionar arquivo
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {arquivos.length} de {MAX_ARQUIVOS}
+                  </span>
+                </div>
+              )}
+
+              {arquivos.length === MAX_ARQUIVOS && (
+                <p className="text-xs text-muted-foreground">
+                  Limite máximo de {MAX_ARQUIVOS} arquivos atingido.
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
