@@ -298,7 +298,7 @@ export default function SuprimentosRequisicaoNova() {
 
     setEnviando(true);
     try {
-      const result = await enviarRequisicao({
+      const inputBase = {
         user_id: user.id,
         requisitante_nome: profile?.full_name || user.email || "Usuário",
         codigo_funcionario: codigoFuncionario,
@@ -325,7 +325,11 @@ export default function SuprimentosRequisicaoNova() {
             percentual: r.percentual,
           })),
         })),
-      });
+      };
+
+      const result = arquivos.length > 0
+        ? await enviarRequisicaoComArquivos({ ...inputBase, arquivos })
+        : await enviarRequisicao(inputBase);
 
       if (result.sucesso) {
         toast({
