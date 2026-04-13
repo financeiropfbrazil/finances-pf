@@ -4,20 +4,33 @@ import { applyCnpjMask } from "@/lib/cnpj";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-  reenviarRequisicao,
-  excluirRequisicao,
-  sincronizarStatusRequisicao,
-  listarArquivosDaRequisicao,
-  getUrlAssinadaArquivo,
-  removerArquivo,
-  type ArquivoRequisicao,
-} from "@/services/requisicoesService";
+import { reenviarRequisicao, excluirRequisicao, sincronizarStatusRequisicao } from "@/services/requisicoesService";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Loader2, ArrowLeft, RefreshCw, Pencil, Trash2, CheckCircle2, XCircle, Clock, Send, AlertTriangle, Paperclip, FileText, Image as ImageIcon, Download, X } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Loader2,
+  ArrowLeft,
+  RefreshCw,
+  Pencil,
+  Trash2,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Send,
+  AlertTriangle,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -48,9 +61,12 @@ export default function SuprimentosRequisicaoDetalhe() {
   const [isReenviando, setIsReenviando] = useState(false);
   const [isExcluindo, setIsExcluindo] = useState(false);
   const [isSyncingStatus, setIsSyncingStatus] = useState(false);
-  const [arquivoRemovendoId, setArquivoRemovendoId] = useState<string | null>(null);
 
-  const { data: req, isLoading, refetch } = useQuery({
+  const {
+    data: req,
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ["requisicao_detalhe", id],
     queryFn: async () => {
       const { data, error } = await (supabase as any)
@@ -63,7 +79,9 @@ export default function SuprimentosRequisicaoDetalhe() {
 
       if (!isAdmin) {
         const isOwner = data.requisitante_user_id === user?.id;
-        const isFuncionario = (profile as any)?.funcionario_alvo_codigo && data.codigo_funcionario === (profile as any).funcionario_alvo_codigo;
+        const isFuncionario =
+          (profile as any)?.funcionario_alvo_codigo &&
+          data.codigo_funcionario === (profile as any).funcionario_alvo_codigo;
         if (!isOwner && !isFuncionario) return null;
       }
 
@@ -83,7 +101,7 @@ export default function SuprimentosRequisicaoDetalhe() {
       if (error) throw error;
 
       const itensComRateio = [];
-      for (const item of (data || [])) {
+      for (const item of data || []) {
         const { data: rateio } = await (supabase as any)
           .from("compras_requisicoes_itens_classe_rec_desp")
           .select("*")
@@ -105,15 +123,6 @@ export default function SuprimentosRequisicaoDetalhe() {
         .order("created_at", { ascending: true });
       if (error) throw error;
       return data || [];
-    },
-    enabled: !!id && !!req,
-  });
-
-  const { data: arquivos = [], refetch: refetchArquivos } = useQuery({
-    queryKey: ["requisicao_arquivos", id],
-    queryFn: async (): Promise<ArquivoRequisicao[]> => {
-      if (!id) return [];
-      return await listarArquivosDaRequisicao(id);
     },
     enabled: !!id && !!req,
   });
@@ -156,7 +165,9 @@ export default function SuprimentosRequisicaoDetalhe() {
       const date = new Date(d);
       if (isNaN(date.getTime())) return d;
       return format(date, "dd/MM/yyyy HH:mm", { locale: ptBR });
-    } catch { return d; }
+    } catch {
+      return d;
+    }
   };
 
   const formatDateShort = (d: string | null | undefined) => {
@@ -165,7 +176,9 @@ export default function SuprimentosRequisicaoDetalhe() {
       const date = new Date(d + (d.length === 10 ? "T12:00:00" : ""));
       if (isNaN(date.getTime())) return d;
       return format(date, "dd/MM/yyyy", { locale: ptBR });
-    } catch { return d; }
+    } catch {
+      return d;
+    }
   };
 
   if (isLoading) {
@@ -191,7 +204,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   }
 
   const statusInfo = STATUS_MAP[req.status] || { label: req.status, className: "bg-muted text-muted-foreground" };
-  const isRascunho = req.status === "rascunho";
+  const podeReenviar = req.status === "rascunho" || req.status === "pendente_envio";
 
   const handleReenviar = async () => {
     if (!user) return;
@@ -222,47 +235,6 @@ export default function SuprimentosRequisicaoDetalhe() {
     } finally {
       setIsExcluindo(false);
     }
-  };
-
-  const handleBaixarArquivo = async (arq: ArquivoRequisicao) => {
-    try {
-      const url = await getUrlAssinadaArquivo(arq.storage_path);
-      window.open(url, "_blank");
-    } catch (err: any) {
-      toast({
-        title: "Erro ao baixar arquivo",
-        description: err?.message || "Não foi possível gerar o link de download.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleRemoverArquivo = async (arquivoId: string) => {
-    setArquivoRemovendoId(arquivoId);
-    try {
-      await removerArquivo(arquivoId);
-      toast({ title: "Arquivo removido" });
-      refetchArquivos();
-    } catch (err: any) {
-      toast({
-        title: "Erro ao remover arquivo",
-        description: err?.message || "Não foi possível remover o arquivo.",
-        variant: "destructive",
-      });
-    } finally {
-      setArquivoRemovendoId(null);
-    }
-  };
-
-  const formatarTamanhoArquivo = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const getIconeMimeType = (mimeType: string) => {
-    if (mimeType.startsWith("image/")) return ImageIcon;
-    return FileText;
   };
 
   return (
@@ -312,13 +284,21 @@ export default function SuprimentosRequisicaoDetalhe() {
                 <Pencil className="mr-1 h-3 w-3" /> Editar
               </Button>
               <Button variant="outline" size="sm" disabled={isReenviando} onClick={handleReenviar}>
-                {isReenviando ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+                {isReenviando ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1 h-3 w-3" />
+                )}
                 {isReenviando ? "Reenviando..." : "Reenviar"}
               </Button>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="destructive" size="sm" disabled={isExcluindo}>
-                    {isExcluindo ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Trash2 className="mr-1 h-3 w-3" />}
+                    {isExcluindo ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-1 h-3 w-3" />
+                    )}
                     Excluir
                   </Button>
                 </AlertDialogTrigger>
@@ -326,14 +306,13 @@ export default function SuprimentosRequisicaoDetalhe() {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Excluir requisição?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Esta ação é permanente. A requisição e todos os seus itens serão excluídos do Hub. Ela não será excluída do ERP se já foi enviada.
+                      Esta ação é permanente. A requisição e todos os seus itens serão excluídos do Hub. Ela não será
+                      excluída do ERP se já foi enviada.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleExcluir}>
-                      Excluir permanentemente
-                    </AlertDialogAction>
+                    <AlertDialogAction onClick={handleExcluir}>Excluir permanentemente</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -344,7 +323,11 @@ export default function SuprimentosRequisicaoDetalhe() {
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" size="sm" disabled={isExcluindo}>
-                  {isExcluindo ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Trash2 className="mr-1 h-3 w-3" />}
+                  {isExcluindo ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-1 h-3 w-3" />
+                  )}
                   Excluir
                 </Button>
               </AlertDialogTrigger>
@@ -352,14 +335,13 @@ export default function SuprimentosRequisicaoDetalhe() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Excluir requisição cancelada?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Esta requisição está cancelada (ou foi deletada do ERP). A exclusão é permanente e remove todo o histórico do Hub.
+                    Esta requisição está cancelada (ou foi deletada do ERP). A exclusão é permanente e remove todo o
+                    histórico do Hub.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleExcluir}>
-                    Excluir permanentemente
-                  </AlertDialogAction>
+                  <AlertDialogAction onClick={handleExcluir}>Excluir permanentemente</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -390,13 +372,13 @@ export default function SuprimentosRequisicaoDetalhe() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <p className="text-xs text-muted-foreground">Data de necessidade</p>
-              <p className="text-sm font-medium text-foreground">
-                {formatDateShort(req.data_necessidade)}
-              </p>
+              <p className="text-sm font-medium text-foreground">{formatDateShort(req.data_necessidade)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Finalidade</p>
-              <p className="text-sm font-medium text-foreground">{req.finalidade_compra_label || req.codigo_finalidade_compra || "—"}</p>
+              <p className="text-sm font-medium text-foreground">
+                {req.finalidade_compra_label || req.codigo_finalidade_compra || "—"}
+              </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Descrição</p>
@@ -404,7 +386,9 @@ export default function SuprimentosRequisicaoDetalhe() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">CNPJ de referência</p>
-              <p className={`text-sm font-medium ${req.cnpj_sugestao_requisicao ? "text-foreground" : "text-muted-foreground"}`}>
+              <p
+                className={`text-sm font-medium ${req.cnpj_sugestao_requisicao ? "text-foreground" : "text-muted-foreground"}`}
+              >
                 {req.cnpj_sugestao_requisicao ? applyCnpjMask(req.cnpj_sugestao_requisicao) : "Não informado"}
               </p>
             </div>
@@ -419,7 +403,9 @@ export default function SuprimentosRequisicaoDetalhe() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <p className="text-xs text-muted-foreground">Funcionário</p>
-              <p className="text-sm font-medium text-foreground">{req.funcionario_nome || "—"} ({req.codigo_funcionario})</p>
+              <p className="text-sm font-medium text-foreground">
+                {req.funcionario_nome || "—"} ({req.codigo_funcionario})
+              </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Centro de Custo</p>
@@ -445,9 +431,7 @@ export default function SuprimentosRequisicaoDetalhe() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.quantidade} {item.produto_unidade} · {item.codigo_produto}
                 </p>
-                {item.observacao && (
-                  <p className="mt-2 text-xs italic text-muted-foreground">"{item.observacao}"</p>
-                )}
+                {item.observacao && <p className="mt-2 text-xs italic text-muted-foreground">"{item.observacao}"</p>}
                 {item.rateio?.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {item.rateio.map((r: any) => (
@@ -473,53 +457,6 @@ export default function SuprimentosRequisicaoDetalhe() {
         </Card>
       )}
 
-      {/* Anexos */}
-      {arquivos.length > 0 && (
-        <Card>
-          <CardContent className="p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <Paperclip className="h-4 w-4 text-muted-foreground" />
-              <p className="text-sm font-semibold text-foreground">Anexos ({arquivos.length})</p>
-            </div>
-            <div className="space-y-2">
-              {arquivos.map((arq) => {
-                const Icon = getIconeMimeType(arq.mime_type);
-                const podeRemover = req.status === "rascunho";
-                const removendo = arquivoRemovendoId === arq.id;
-                return (
-                  <div key={arq.id} className="flex items-center gap-3 rounded-lg border p-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
-                      <Icon className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {arq.nome_original}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatarTamanhoArquivo(arq.tamanho_bytes)}
-                        {arq.numero_alvo_ao_enviar && (
-                          <span className="ml-1 text-emerald-600">
-                            · Enviado ao ERP
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleBaixarArquivo(arq)} title="Baixar arquivo">
-                      <Download className="h-4 w-4" />
-                    </Button>
-                    {podeRemover && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive" onClick={() => handleRemoverArquivo(arq.id)} disabled={removendo} title="Remover arquivo">
-                        {removendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Timeline de auditoria */}
       <Card>
         <CardContent className="p-5">
@@ -531,7 +468,9 @@ export default function SuprimentosRequisicaoDetalhe() {
               return (
                 <div key={evt.id} className="flex gap-3">
                   <div className="flex flex-col items-center">
-                    <div className={`flex h-7 w-7 items-center justify-center rounded-full ${evt.sucesso ? "bg-emerald-500/15 text-emerald-600" : "bg-red-500/15 text-red-600"}`}>
+                    <div
+                      className={`flex h-7 w-7 items-center justify-center rounded-full ${evt.sucesso ? "bg-emerald-500/15 text-emerald-600" : "bg-red-500/15 text-red-600"}`}
+                    >
                       <Icon className="h-3.5 w-3.5" />
                     </div>
                     {!isLast && <div className="w-px flex-1 bg-border" />}
@@ -543,9 +482,7 @@ export default function SuprimentosRequisicaoDetalhe() {
                     <p className="text-xs text-muted-foreground">
                       {formatDate(evt.created_at)} — {evt.user_nome || "Sistema"}
                     </p>
-                    {evt.mensagem_erro && (
-                      <p className="mt-1 text-xs text-destructive">{evt.mensagem_erro}</p>
-                    )}
+                    {evt.mensagem_erro && <p className="mt-1 text-xs text-destructive">{evt.mensagem_erro}</p>}
                   </div>
                 </div>
               );
