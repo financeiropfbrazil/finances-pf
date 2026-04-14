@@ -4,6 +4,8 @@ import { applyCnpjMask } from "@/lib/cnpj";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useHasPermission } from "@/hooks/useHasPermission";
+import { PERMISSIONS } from "@/constants/permissions";
 import {
   reenviarRequisicao,
   excluirRequisicao,
@@ -70,7 +72,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const { toast } = useToast();
-  const isAdmin = profile?.is_admin === true;
+  const podeVerTodas = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_VIEW_ALL);
   const [isReenviando, setIsReenviando] = useState(false);
   const [isExcluindo, setIsExcluindo] = useState(false);
   const [isSyncingStatus, setIsSyncingStatus] = useState(false);
@@ -91,7 +93,7 @@ export default function SuprimentosRequisicaoDetalhe() {
       if (error) throw error;
       if (!data) return null;
 
-      if (!isAdmin) {
+      if (!podeVerTodas) {
         const isOwner = data.requisitante_user_id === user?.id;
         const isFuncionario =
           (profile as any)?.funcionario_alvo_codigo &&
