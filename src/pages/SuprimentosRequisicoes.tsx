@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useHasPermission } from "@/hooks/useHasPermission";
+import { PERMISSIONS } from "@/constants/permissions";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,7 +24,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
 export default function SuprimentosRequisicoes() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
-  const isAdmin = profile?.is_admin === true;
+  const podeVerTodas = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_VIEW_ALL);
 
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [filtroDataInicio, setFiltroDataInicio] = useState<Date | undefined>(undefined);
@@ -41,18 +43,24 @@ export default function SuprimentosRequisicoes() {
       if (error) throw error;
       return data || [];
     },
-    enabled: isAdmin,
+    enabled: podeVerTodas,
   });
 
   const { data: requisicoes = [], isLoading } = useQuery({
-    queryKey: ["requisicoes_lista", user?.id, (profile as any)?.funcionario_alvo_codigo, isAdmin, filtroStatus, filtroDataInicio?.toISOString(), filtroDataFim?.toISOString(), filtroFuncionario],
+    queryKey: [
+      "requisicoes_lista",
+      user?.id,
+      (profile as any)?.funcionario_alvo_codigo,
+      podeVerTodas,
+      filtroStatus,
+      filtroDataInicio?.toISOString(),
+      filtroDataFim?.toISOString(),
+      filtroFuncionario,
+    ],
     queryFn: async () => {
-      let query = (supabase as any)
-        .from("compras_requisicoes")
-        .select("*")
-        .order("updated_at", { ascending: false });
+      let query = (supabase as any).from("compras_requisicoes").select("*").order("updated_at", { ascending: false });
 
-      if (!isAdmin && user) {
+      if (!podeVerTodas && user) {
         const funcionarioCodigo = (profile as any)?.funcionario_alvo_codigo;
         if (funcionarioCodigo) {
           query = query.or(`requisitante_user_id.eq.${user.id},codigo_funcionario.eq.${funcionarioCodigo}`);
@@ -119,7 +127,8 @@ export default function SuprimentosRequisicoes() {
     setFiltroPreset("todos");
   };
 
-  const temFiltroAtivo = filtroStatus !== "todos" || filtroFuncionario !== "todos" || !!filtroDataInicio || !!filtroDataFim;
+  const temFiltroAtivo =
+    filtroStatus !== "todos" || filtroFuncionario !== "todos" || !!filtroDataInicio || !!filtroDataFim;
 
   const firstName = profile?.full_name?.split(" ")[0] || "";
 
@@ -132,7 +141,7 @@ export default function SuprimentosRequisicoes() {
             {firstName ? `Olá, ${firstName}!` : "Requisições de Compra"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {isAdmin
+            {podeVerTodas
               ? "Gerencie todas as requisições de compra do sistema."
               : "Crie e acompanhe suas requisições de compra."}
           </p>
@@ -181,8 +190,8 @@ export default function SuprimentosRequisicoes() {
             </Select>
           </div>
 
-          {/* Funcionário (admin only) */}
-          {isAdmin && (
+          {/* Funcionário (quem pode ver todas) */}
+          {podeVerTodas && (
             <div className="min-w-[200px]">
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Funcionário</label>
               <Select value={filtroFuncionario} onValueChange={setFiltroFuncionario}>
@@ -213,7 +222,8 @@ export default function SuprimentosRequisicoes() {
       {/* Contagem */}
       {!isLoading && requisicoes.length > 0 && (
         <p className="text-sm text-muted-foreground">
-          {requisicoes.length} requisição{requisicoes.length !== 1 ? "ões" : ""} encontrada{requisicoes.length !== 1 ? "s" : ""}
+          {requisicoes.length} requisição{requisicoes.length !== 1 ? "ões" : ""} encontrada
+          {requisicoes.length !== 1 ? "s" : ""}
         </p>
       )}
 
@@ -233,16 +243,16 @@ export default function SuprimentosRequisicoes() {
                 <p className="font-medium text-foreground">
                   {temFiltroAtivo
                     ? "Nenhuma requisição encontrada com os filtros aplicados"
-                    : isAdmin
+                    : podeVerTodas
                       ? "Nenhuma requisição cadastrada"
                       : "Você ainda não tem requisições"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {temFiltroAtivo
                     ? "Tente ajustar os filtros para ver mais resultados."
-                    : isAdmin
+                    : podeVerTodas
                       ? "Assim que os requisitantes começarem a criar requisições, elas aparecerão aqui."
-                      : "Clique em \"Nova Requisição\" para criar sua primeira solicitação de compra."}
+                      : 'Clique em "Nova Requisição" para criar sua primeira solicitação de compra.'}
                 </p>
               </div>
             </CardContent>
@@ -264,9 +274,7 @@ export default function SuprimentosRequisicoes() {
                       {statusCfg.label}
                     </Badge>
                     {req.numero_alvo && (
-                      <span className="text-xs font-mono text-muted-foreground">
-                        Nº {req.numero_alvo}
-                      </span>
+                      <span className="text-xs font-mono text-muted-foreground">Nº {req.numero_alvo}</span>
                     )}
                   </div>
 
