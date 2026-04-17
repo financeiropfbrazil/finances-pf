@@ -113,6 +113,13 @@ export interface EnrichUnidadesResult {
   errors: number;
 }
 
+// ─── Helper interno: converter YYYY-MM-DD → DD/MM/YYYY ───
+
+function toDataBR(dataYMD: string): string {
+  const [y, m, d] = dataYMD.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 // ─── Funções públicas ───
 
 /**
@@ -143,7 +150,6 @@ export async function sincronizarProdutosDoERP(onProgress?: (msg: string) => voi
           const codigo = item.Codigo ?? "";
           const nivel = item.Nivel ?? "";
 
-          // Filtrar nós de grupo/categoria (sem nível ou código = nível)
           if (!nivel || nivel === "" || codigo === nivel || item.Grupo === "T") continue;
 
           const tipoCodigo = item.CodigoTipoProduto ?? "";
@@ -179,7 +185,6 @@ export async function sincronizarProdutosDoERP(onProgress?: (msg: string) => voi
   result.totalERP = allProducts.length;
   if (allProducts.length === 0) return result;
 
-  // Buscar códigos existentes no Supabase
   onProgress?.("Verificando produtos existentes...");
   const existingCodes = new Set<string>();
   let from = 0;
@@ -232,16 +237,13 @@ export async function capturarSaldoMensal(
 ): Promise<CapturaResult> {
   const result: CapturaResult = { total: 0, salvos: 0, erros: [] };
 
-  // Validação: não permitir data >= hoje
   const hoje = new Date().toISOString().slice(0, 10);
   if (dataReferencia >= hoje) {
     throw new Error("Só é possível consultar datas anteriores ao dia atual.");
   }
 
-  // Derivar periodo automaticamente
-  const periodo = dataReferencia.slice(0, 7); // "YYYY-MM"
+  const periodo = dataReferencia.slice(0, 7);
 
-  // 1. Fetch all active products
   onProgress?.("Carregando catálogo de produtos...");
   const products: { id: string; codigo_produto: string; unidade_medida: string | null }[] = [];
   let from = 0;
@@ -269,13 +271,10 @@ export async function capturarSaldoMensal(
 
   result.total = products.length;
 
-  // 2. Build date strings
   const [year, month] = periodo.split("-");
   const dataInicial = `01/${month}/${year}`;
-  const [refY, refM, refD] = dataReferencia.split("-");
-  const dataFinal = `${refD}/${refM}/${refY}`;
+  const dataFinal = toDataBR(dataReferencia);
 
-  // 3. Call /estoque/ficha for each product
   const upsertPayload: {
     product_id: string;
     periodo: string;
@@ -331,7 +330,6 @@ export async function capturarSaldoMensal(
     }
   }
 
-  // 4. Upsert into stock_balance
   onProgress?.("Salvando saldos no banco de dados...");
   const chunkSize = 50;
   for (let i = 0; i < upsertPayload.length; i += chunkSize) {
@@ -350,19 +348,50 @@ export async function capturarSaldoMensal(
 }
 
 /**
- * Busca movimentações de um produto em uma data específica via gateway.
+ * Busca movimentações de um produto em uma data específica.
+ *
+ * Estratégia de range:
+ *   dataInicial = data_cadastro do produto (buscada em stock_products)
+ *   dataFinal   = dataReferencia (data selecionada pelo usuário)
+ *
+ * Isso garante que a resposta SEMPRE traga pelo menos uma movimentação
+ * anterior ao dia selecionado (se existir no histórico do produto),
+ * independentemente de quanto tempo o produto ficou parado.
+ *
+ * A modal interpreta:
+ *   movements[0]     → Saldo anterior (última movimentação antes do dia)
+ *   movements[1..n-1] → Movimentações do dia selecionado
+ *   movements[n-1]   → Saldo final do dia
+ *
+ * Fallbacks para data_cadastro:
+ *   - Se stock_products não tem data_cadastro → usa "01/01/2015" (conservador)
+ *   - Se stock_products não encontra o produto → usa "01/01/2015"
  */
 export async function buscarMovimentacaoProduto(
   codigoProduto: string,
   dataReferencia: string,
   unidadeMedida: string | null,
 ): Promise<any[]> {
-  const [y, m, d] = dataReferencia.split("-");
-  const dataBR = `${d}/${m}/${y}`;
+  // Buscar data_cadastro do produto no Supabase (rápido, ~50ms)
+  const { data: produto } = await supabase
+    .from("stock_products")
+    .select("data_cadastro")
+    .eq("codigo_produto", codigoProduto)
+    .maybeSingle();
+
+  const FALLBACK_DATA_INICIAL = "01/01/2015";
+  let dataInicial = FALLBACK_DATA_INICIAL;
+
+  if (produto?.data_cadastro) {
+    // data_cadastro vem no formato YYYY-MM-DD
+    dataInicial = toDataBR(produto.data_cadastro);
+  }
+
+  const dataFinal = toDataBR(dataReferencia);
 
   const data = await callGatewayEstoque("/estoque/ficha", {
-    dataInicial: dataBR,
-    dataFinal: dataBR,
+    dataInicial,
+    dataFinal,
     produto: codigoProduto,
     idProdutoId: null,
     peso: "1.000000000",
@@ -384,7 +413,6 @@ export async function enriquecerUnidadesMedida(
   onProgress?: (current: number, total: number, message: string) => void,
   shouldCancel?: () => boolean,
 ): Promise<EnrichUnidadesResult> {
-  // 1. Buscar produtos ativos sem unidade_medida
   const { data: produtos, error } = await (supabase as any)
     .from("stock_products")
     .select("id, codigo_produto, nome_produto")
@@ -402,7 +430,6 @@ export async function enriquecerUnidadesMedida(
   const DELAY_MS = 200;
 
   for (let i = 0; i < produtos.length; i++) {
-    // Check cancellation at the start of each iteration
     if (shouldCancel?.()) {
       onProgress?.(i, produtos.length, `Cancelado pelo usuário. Processados: ${i} de ${produtos.length}`);
       break;
@@ -418,7 +445,6 @@ export async function enriquecerUnidadesMedida(
       try {
         detail = await callGatewayEstoqueGet(path);
       } catch (err: any) {
-        // 404 = produto não encontrado no Alvo → skip silencioso
         if (err?.status === 404) {
           result.skipped++;
           await new Promise((r) => setTimeout(r, DELAY_MS));
@@ -427,7 +453,6 @@ export async function enriquecerUnidadesMedida(
         throw err;
       }
 
-      // Extrair unidade principal: Posicao === 1, fallback primeiro do array
       const childList = detail?.ProdUnidMedChildList ?? [];
       let unidadeCodigo: string | null = null;
 
