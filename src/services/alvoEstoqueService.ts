@@ -1,7 +1,80 @@
-import { authenticateAlvo, clearAlvoToken } from "./alvoService";
 import { supabase } from "@/integrations/supabase/client";
 
-const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
+const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
+
+// ─── Helpers de comunicação com o gateway ───
+
+async function getSupabaseJWT(): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Sessão do Supabase inválida. Faça login novamente.");
+  }
+  return session.access_token;
+}
+
+async function callGatewayEstoque(path: string, body: unknown): Promise<any> {
+  const jwt = await getSupabaseJWT();
+  const url = `${ERP_PROXY_URL}${path}`;
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  let data: any = null;
+  try {
+    data = await resp.json();
+  } catch {
+    // resposta sem body ou inválida
+  }
+
+  if (!resp.ok) {
+    const msg = data?.error || `HTTP ${resp.status}`;
+    const err = new Error(msg) as Error & { status?: number; details?: any };
+    err.status = resp.status;
+    err.details = data?.details;
+    throw err;
+  }
+
+  return data;
+}
+
+async function callGatewayEstoqueGet(path: string): Promise<any> {
+  const jwt = await getSupabaseJWT();
+  const url = `${ERP_PROXY_URL}${path}`;
+
+  const resp = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+    },
+  });
+
+  let data: any = null;
+  try {
+    data = await resp.json();
+  } catch {
+    // resposta sem body ou inválida
+  }
+
+  if (!resp.ok) {
+    const msg = data?.error || `HTTP ${resp.status}`;
+    const err = new Error(msg) as Error & { status?: number; details?: any };
+    err.status = resp.status;
+    err.details = data?.details;
+    throw err;
+  }
+
+  return data;
+}
+
+// ─── Interfaces públicas (mantidas idênticas ao original) ───
 
 interface CapturaResult {
   total: number;
@@ -17,35 +90,6 @@ interface FichaEstoqueItem {
   CustoMedio?: number;
 }
 
-async function fetchWithRetryAuth(
-  url: string,
-  body: any,
-  token: string
-): Promise<{ data: any; newToken?: string }> {
-  let res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Riosoft-Token": token },
-    body: JSON.stringify(body),
-  });
-
-  if (res.status === 401 || res.status === 409) {
-    clearAlvoToken();
-    await new Promise((r) => setTimeout(r, 2000));
-    const auth = await authenticateAlvo();
-    if (!auth.success || !auth.token) throw new Error("Falha ao re-autenticar no ERP Alvo");
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Riosoft-Token": auth.token },
-      body: JSON.stringify(body),
-    });
-    return { data: await res.json(), newToken: auth.token };
-  }
-
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  return { data: await res.json() };
-}
-
-// ── Tipo labels ──
 const TIPO_LABELS: Record<string, string> = {
   "01": "01-Acabado",
   "02": "02-Semi-Acabado",
@@ -63,51 +107,33 @@ interface SyncProdutosResult {
   erros: string[];
 }
 
+export interface EnrichUnidadesResult {
+  enriched: number;
+  skipped: number;
+  errors: number;
+}
+
+// ─── Funções públicas ───
+
 /**
  * Sincroniza catálogo de produtos do ERP → stock_products (apenas insere novos).
+ * Paginação via gateway: cada página chama POST /estoque/produto-sync.
  */
-export async function sincronizarProdutosDoERP(
-  onProgress?: (msg: string) => void
-): Promise<SyncProdutosResult> {
+export async function sincronizarProdutosDoERP(onProgress?: (msg: string) => void): Promise<SyncProdutosResult> {
   const result: SyncProdutosResult = { totalERP: 0, novos: 0, ignorados: 0, erros: [] };
-
-  const auth = await authenticateAlvo();
-  if (!auth.success || !auth.token) {
-    result.erros.push("Falha na autenticação ERP: " + (auth.error || "token ausente"));
-    return result;
-  }
-  let token = auth.token;
 
   const allProducts: any[] = [];
   let pageIndex = 1;
   let hasMore = true;
+  const pageSize = 500;
 
   while (hasMore) {
     onProgress?.(`Sincronizando produtos (página ${pageIndex})...`);
     try {
-      const { data, newToken } = await fetchWithRetryAuth(
-        `${ERP_BASE_URL}/produto/GetListForComponents`,
-        {
-          FormName: "produto",
-          ClassInput: "produto",
-          ControllerForm: "produto",
-          TypeObject: "rsSearch",
-          BindingName: "",
-          ClassVinculo: "produto",
-          DisabledCache: false,
-          Filter: "Status = 'Ativado'",
-          Input: "defaultSearch",
-          IsGroupBy: false,
-          Order: "Codigo ASC",
-          OrderUser: "",
-          PageIndex: pageIndex,
-          PageSize: 500,
-          Shortcut: "prod",
-          Type: "GridTable",
-        },
-        token
-      );
-      if (newToken) token = newToken;
+      const data = await callGatewayEstoque("/estoque/produto-sync", {
+        pageIndex,
+        pageSize,
+      });
 
       const items: any[] = Array.isArray(data) ? data : (data?.lista ?? data?.Registros ?? []);
       if (items.length === 0) {
@@ -138,7 +164,7 @@ export async function sincronizarProdutosDoERP(
             data_cadastro: item.DataCadastro ? item.DataCadastro.split("T")[0] : null,
           });
         }
-        if (items.length < 500) {
+        if (items.length < pageSize) {
           hasMore = false;
         } else {
           pageIndex++;
@@ -197,12 +223,12 @@ export async function sincronizarProdutosDoERP(
 }
 
 /**
- * Captura saldo mensal via RetornaFichaEstoque (por produto).
+ * Captura saldo mensal via gateway /estoque/ficha (por produto).
  * @param dataReferencia - formato "YYYY-MM-DD" (data final da consulta, deve ser anterior a hoje)
  */
 export async function capturarSaldoMensal(
   dataReferencia: string,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<CapturaResult> {
   const result: CapturaResult = { total: 0, salvos: 0, erros: [] };
 
@@ -215,15 +241,7 @@ export async function capturarSaldoMensal(
   // Derivar periodo automaticamente
   const periodo = dataReferencia.slice(0, 7); // "YYYY-MM"
 
-  // 1. Auth
-  const auth = await authenticateAlvo();
-  if (!auth.success || !auth.token) {
-    result.erros.push("Falha na autenticação ERP: " + (auth.error || "token ausente"));
-    return result;
-  }
-  let token = auth.token;
-
-  // 2. Fetch all active products
+  // 1. Fetch all active products
   onProgress?.("Carregando catálogo de produtos...");
   const products: { id: string; codigo_produto: string; unidade_medida: string | null }[] = [];
   let from = 0;
@@ -251,13 +269,13 @@ export async function capturarSaldoMensal(
 
   result.total = products.length;
 
-  // 3. Build date strings
+  // 2. Build date strings
   const [year, month] = periodo.split("-");
   const dataInicial = `01/${month}/${year}`;
   const [refY, refM, refD] = dataReferencia.split("-");
   const dataFinal = `${refD}/${refM}/${refY}`;
 
-  // 4. Call RetornaFichaEstoque for each product
+  // 3. Call /estoque/ficha for each product
   const upsertPayload: {
     product_id: string;
     periodo: string;
@@ -273,21 +291,16 @@ export async function capturarSaldoMensal(
     onProgress?.(`Produto ${i + 1}/${products.length} — ${p.codigo_produto}`);
 
     try {
-      const { data, newToken } = await fetchWithRetryAuth(
-        `${ERP_BASE_URL}/MovEstq/RetornaFichaEstoque`,
-        {
-          dataInicial,
-          dataFinal,
-          produto: p.codigo_produto,
-          idProdutoId: null,
-          peso: "1.000000000",
-          pesoFatorDivisor: "Fator",
-          posicao: "1",
-          unidadeMedida: p.unidade_medida || "UNID",
-        },
-        token
-      );
-      if (newToken) token = newToken;
+      const data = await callGatewayEstoque("/estoque/ficha", {
+        dataInicial,
+        dataFinal,
+        produto: p.codigo_produto,
+        idProdutoId: null,
+        peso: "1.000000000",
+        pesoFatorDivisor: "Fator",
+        posicao: "1",
+        unidadeMedida: p.unidade_medida || "UNID",
+      });
 
       const items: FichaEstoqueItem[] = Array.isArray(data) ? data : [];
 
@@ -318,14 +331,12 @@ export async function capturarSaldoMensal(
     }
   }
 
-  // 5. Upsert into stock_balance
+  // 4. Upsert into stock_balance
   onProgress?.("Salvando saldos no banco de dados...");
   const chunkSize = 50;
   for (let i = 0; i < upsertPayload.length; i += chunkSize) {
     const chunk = upsertPayload.slice(i, i + chunkSize);
-    const { error } = await supabase
-      .from("stock_balance")
-      .upsert(chunk, { onConflict: "product_id,data_referencia" });
+    const { error } = await supabase.from("stock_balance").upsert(chunk, { onConflict: "product_id,data_referencia" });
 
     if (error) {
       result.erros.push(`Erro ao salvar lote ${Math.floor(i / chunkSize) + 1}: ${error.message}`);
@@ -334,94 +345,44 @@ export async function capturarSaldoMensal(
     }
   }
 
-onProgress?.("Concluído.");
+  onProgress?.("Concluído.");
   return result;
 }
 
 /**
- * Busca movimentações de um produto em uma data específica via RetornaFichaEstoque.
+ * Busca movimentações de um produto em uma data específica via gateway.
  */
 export async function buscarMovimentacaoProduto(
   codigoProduto: string,
   dataReferencia: string,
-  unidadeMedida: string | null
+  unidadeMedida: string | null,
 ): Promise<any[]> {
-  const auth = await authenticateAlvo();
-  if (!auth.success || !auth.token) {
-    throw new Error("Falha na autenticação ERP: " + (auth.error || "token ausente"));
-  }
-
   const [y, m, d] = dataReferencia.split("-");
   const dataBR = `${d}/${m}/${y}`;
 
-  const { data } = await fetchWithRetryAuth(
-    `${ERP_BASE_URL}/MovEstq/RetornaFichaEstoque`,
-    {
-      dataInicial: dataBR,
-      dataFinal: dataBR,
-      produto: codigoProduto,
-      idProdutoId: null,
-      peso: "1.000000000",
-      pesoFatorDivisor: "Fator",
-      posicao: "1",
-      unidadeMedida: unidadeMedida || "UNID",
-    },
-    auth.token
-  );
+  const data = await callGatewayEstoque("/estoque/ficha", {
+    dataInicial: dataBR,
+    dataFinal: dataBR,
+    produto: codigoProduto,
+    idProdutoId: null,
+    peso: "1.000000000",
+    pesoFatorDivisor: "Fator",
+    posicao: "1",
+    unidadeMedida: unidadeMedida || "UNID",
+  });
 
   return Array.isArray(data) ? data : [];
 }
 
-// ── Enriquecimento de unidades de medida ──
+// ─── Enriquecimento de unidades de medida ───
 
-export interface EnrichUnidadesResult {
-  enriched: number;
-  skipped: number;
-  errors: number;
-}
-
-async function loadProdutoComRetry(
-  codigo: string,
-  token: string
-): Promise<{ data: any; usedToken: string }> {
-  const MAX_RETRIES = 3;
-  let currentToken = token;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const url = `${ERP_BASE_URL}/Produto/Load?codigo=${encodeURIComponent(codigo)}&loadChild=ProdUnidMedChildList`;
-    const resp = await fetch(url, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "Riosoft-Token": currentToken,
-      },
-    });
-
-    if (resp.status !== 409 && resp.status !== 401) {
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      return { data, usedToken: currentToken };
-    }
-
-    if (attempt === MAX_RETRIES) {
-      throw new Error("Conflito de sessão ERP persistente.");
-    }
-
-    clearAlvoToken();
-    await new Promise((r) => setTimeout(r, 1000 * attempt));
-    const reAuth = await authenticateAlvo();
-    if (!reAuth.success || !reAuth.token) {
-      throw new Error("Falha na re-autenticação.");
-    }
-    currentToken = reAuth.token;
-  }
-
-  throw new Error("Falha inesperada no fluxo de retry");
-}
-
+/**
+ * Enriquece unidade_medida em stock_products para produtos ativos sem unidade.
+ * Usa GET /estoque/produto-load/:codigo no gateway (retry 401/403 é nativo).
+ */
 export async function enriquecerUnidadesMedida(
   onProgress?: (current: number, total: number, message: string) => void,
-  shouldCancel?: () => boolean
+  shouldCancel?: () => boolean,
 ): Promise<EnrichUnidadesResult> {
   // 1. Buscar produtos ativos sem unidade_medida
   const { data: produtos, error } = await (supabase as any)
@@ -435,13 +396,7 @@ export async function enriquecerUnidadesMedida(
     return { enriched: 0, skipped: 0, errors: 0 };
   }
 
-  onProgress?.(0, produtos.length, `${produtos.length} produtos para enriquecer. Autenticando...`);
-
-  const auth = await authenticateAlvo();
-  if (!auth.success || !auth.token) {
-    throw new Error(`Falha na autenticação: ${auth.error}`);
-  }
-  let currentToken = auth.token;
+  onProgress?.(0, produtos.length, `${produtos.length} produtos para enriquecer...`);
 
   const result: EnrichUnidadesResult = { enriched: 0, skipped: 0, errors: 0 };
   const DELAY_MS = 200;
@@ -455,17 +410,22 @@ export async function enriquecerUnidadesMedida(
 
     const p = produtos[i];
     try {
-      onProgress?.(
-        i + 1,
-        produtos.length,
-        `${i + 1}/${produtos.length}: ${p.codigo_produto} — ${p.nome_produto}...`
-      );
+      onProgress?.(i + 1, produtos.length, `${i + 1}/${produtos.length}: ${p.codigo_produto} — ${p.nome_produto}...`);
 
-      const { data: detail, usedToken } = await loadProdutoComRetry(
-        p.codigo_produto,
-        currentToken
-      );
-      currentToken = usedToken;
+      const path = `/estoque/produto-load/${encodeURIComponent(p.codigo_produto)}`;
+      let detail: any;
+
+      try {
+        detail = await callGatewayEstoqueGet(path);
+      } catch (err: any) {
+        // 404 = produto não encontrado no Alvo → skip silencioso
+        if (err?.status === 404) {
+          result.skipped++;
+          await new Promise((r) => setTimeout(r, DELAY_MS));
+          continue;
+        }
+        throw err;
+      }
 
       // Extrair unidade principal: Posicao === 1, fallback primeiro do array
       const childList = detail?.ProdUnidMedChildList ?? [];
@@ -482,18 +442,16 @@ export async function enriquecerUnidadesMedida(
         continue;
       }
 
-      const { error: updateErr } = await (supabase as any)
-        .from("stock_products")
-        .upsert(
-          {
-            id: p.id,
-            codigo_produto: p.codigo_produto,
-            nome_produto: p.nome_produto,
-            unidade_medida: unidadeCodigo,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" }
-        );
+      const { error: updateErr } = await (supabase as any).from("stock_products").upsert(
+        {
+          id: p.id,
+          codigo_produto: p.codigo_produto,
+          nome_produto: p.nome_produto,
+          unidade_medida: unidadeCodigo,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" },
+      );
 
       if (updateErr) {
         console.error(`Erro atualizando ${p.codigo_produto}:`, updateErr.message);
