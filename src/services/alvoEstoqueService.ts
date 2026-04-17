@@ -373,7 +373,7 @@ export async function buscarMovimentacaoProduto(
   unidadeMedida: string | null,
 ): Promise<any[]> {
   // Buscar data_cadastro do produto no Supabase (rápido, ~50ms)
-  const { data: produto } = await supabase
+  const { data: produto } = await (supabase as any)
     .from("stock_products")
     .select("data_cadastro")
     .eq("codigo_produto", codigoProduto)
@@ -384,7 +384,7 @@ export async function buscarMovimentacaoProduto(
 
   if (produto?.data_cadastro) {
     // data_cadastro vem no formato YYYY-MM-DD
-    dataInicial = toDataBR(produto.data_cadastro);
+    dataInicial = toDataBR(produto.data_cadastro as string);
   }
 
   const dataFinal = toDataBR(dataReferencia);
