@@ -207,13 +207,13 @@ export async function authenticateAlvo(): Promise<TokenResult> {
 
   // Etapa 1: login
   const step1 = await loginStep();
-  if (!step1.success) {
+  if (step1.success === false) {
     return { success: false, error: step1.error, error_code: step1.error_code };
   }
 
   // Etapa 2: seleção de empresa
   const step2 = await selectCompanyStep(step1.token);
-  if (!step2.success) {
+  if (step2.success === false) {
     return { success: false, error: step2.error, error_code: step2.error_code };
   }
 
