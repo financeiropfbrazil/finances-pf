@@ -3,6 +3,18 @@ const TOKEN_STORAGE_KEY = "alvo_erp_token";
 const TOKEN_TIMESTAMP_KEY = "alvo_erp_token_ts";
 const TOKEN_TTL_MS = 25 * 60 * 1000;
 
+// Empresa/filial ativa — interface web do Alvo passou a exigir SelectCompany
+// após RsLogin/Login (mudança feita pela Riosoft em 2026). Sem esse passo,
+// endpoints como MovEstq/RetornaFichaEstoque retornam SqlException.
+// Fallback para "1.01" (PRODUCTS AND FEATURES BRASIL) se não houver valor
+// no localStorage.
+const EMPRESA_FILIAL_STORAGE_KEY = "alvo_empresa_filial_id";
+const DEFAULT_EMPRESA_FILIAL_ID = "1.01";
+
+function getEmpresaFilialId(): string {
+  return localStorage.getItem(EMPRESA_FILIAL_STORAGE_KEY) || DEFAULT_EMPRESA_FILIAL_ID;
+}
+
 export interface AlvoResponse {
   success: boolean;
   data?: any;
@@ -31,6 +43,7 @@ const ERROR_LABELS: Record<string, string> = {
   SESSION_CONFLICT: "Sessão ERP conflitante",
   EMPTY_RESPONSE: "Resposta vazia do ERP",
   UNEXPECTED_FORMAT: "Formato de resposta inesperado",
+  SELECT_COMPANY_FAILED: "Falha ao selecionar empresa no ERP",
 };
 
 export function getErrorLabel(code?: string): string {
@@ -66,18 +79,24 @@ export function clearAlvoToken(): void {
   localStorage.removeItem(TOKEN_TIMESTAMP_KEY);
 }
 
-// ── Auth via direct fetch ──
+// ── Auth steps ──
 
-export async function authenticateAlvo(): Promise<TokenResult> {
-  const cached = getCachedToken();
-  if (cached) return { success: true, token: cached.token, source: "cache" };
-
+/**
+ * Etapa 1: login básico. Retorna o token inicial (sem contexto de empresa).
+ */
+async function loginStep(): Promise<
+  { success: true; token: string } | { success: false; error: string; error_code: string }
+> {
   const login = localStorage.getItem("alvo_username") || "";
   const senha = localStorage.getItem("alvo_password") || "";
   const integrationUser = localStorage.getItem("alvo_user_integration") || login;
 
   if (!login || !senha) {
-    return { success: false, error: "Credenciais não configuradas. Vá em Configurações → Integração ERP Alvo.", error_code: "AUTH_FAILED" };
+    return {
+      success: false,
+      error: "Credenciais não configuradas. Vá em Configurações → Integração ERP Alvo.",
+      error_code: "AUTH_FAILED",
+    };
   }
 
   try {
@@ -93,21 +112,22 @@ export async function authenticateAlvo(): Promise<TokenResult> {
 
     const text = await resp.text();
     let data: any;
-    try { data = JSON.parse(text); } catch { data = text; }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
 
     if (!resp.ok) {
       return { success: false, error: `HTTP ${resp.status}`, error_code: "AUTH_FAILED" };
     }
 
-    // Token may come as plain string, or inside an object (token, Token, access_token, etc.)
     let token: string | undefined;
     if (typeof data === "string") {
       token = data.replace(/"/g, "");
     } else if (data) {
       token = data.token || data.Token || data.access_token || data.AccessToken;
-      // Some ERPs return the token in a nested structure
       if (!token && typeof data === "object") {
-        // Check response headers as fallback
         const headerToken = resp.headers.get("riosoft-token") || resp.headers.get("Token");
         if (headerToken) token = headerToken;
       }
@@ -118,13 +138,88 @@ export async function authenticateAlvo(): Promise<TokenResult> {
       return { success: false, error: "Token não recebido na resposta.", error_code: "TOKEN_NOT_RECEIVED" };
     }
 
-    saveTokenToCache(token);
-    console.log("✅ Token obtido via rede (RsLogin/Login)");
-    return { success: true, token, source: "rede" };
+    return { success: true, token };
   } catch (err: any) {
     console.error("❌ Auth network error:", err);
     return { success: false, error: err.message || "Erro de rede", error_code: "AUTH_NETWORK_ERROR" };
   }
+}
+
+/**
+ * Etapa 2: seleção de empresa/filial. Recebe o token inicial, chama
+ * POST /RsLogin/SelectCompany com { Id: "1.01" } e retorna o novo token
+ * (que vem no response header "riosoft-token" — não no body).
+ *
+ * Esse passo é OBRIGATÓRIO para endpoints que filtram por empresa,
+ * como MovEstq/RetornaFichaEstoque, FaturaFin/*, DocFin/*.
+ * Sem ele, o ORM do Alvo monta SQL incompleto e retorna erro de sintaxe.
+ */
+async function selectCompanyStep(
+  initialToken: string,
+): Promise<{ success: true; token: string } | { success: false; error: string; error_code: string }> {
+  const empresaFilialId = getEmpresaFilialId();
+
+  try {
+    const resp = await fetch(`${ERP_BASE_URL}/RsLogin/SelectCompany`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "riosoft-token": initialToken,
+      },
+      body: JSON.stringify({ Id: empresaFilialId }),
+    });
+
+    if (!resp.ok) {
+      return {
+        success: false,
+        error: `HTTP ${resp.status} ao selecionar empresa "${empresaFilialId}"`,
+        error_code: "SELECT_COMPANY_FAILED",
+      };
+    }
+
+    // O novo token vem APENAS no response header
+    const newToken = resp.headers.get("riosoft-token") || resp.headers.get("Riosoft-Token");
+
+    if (!newToken) {
+      return {
+        success: false,
+        error: "Token final (pós SelectCompany) não recebido no response header.",
+        error_code: "TOKEN_NOT_RECEIVED",
+      };
+    }
+
+    return { success: true, token: newToken };
+  } catch (err: any) {
+    console.error("❌ SelectCompany network error:", err);
+    return { success: false, error: err.message || "Erro de rede", error_code: "AUTH_NETWORK_ERROR" };
+  }
+}
+
+// ── Orquestrador de autenticação ──
+
+/**
+ * Autentica no Alvo completando os dois passos: Login + SelectCompany.
+ * O token final (com contexto de empresa embutido) é salvo no cache.
+ */
+export async function authenticateAlvo(): Promise<TokenResult> {
+  const cached = getCachedToken();
+  if (cached) return { success: true, token: cached.token, source: "cache" };
+
+  // Etapa 1: login
+  const step1 = await loginStep();
+  if (!step1.success) {
+    return { success: false, error: step1.error, error_code: step1.error_code };
+  }
+
+  // Etapa 2: seleção de empresa
+  const step2 = await selectCompanyStep(step1.token);
+  if (!step2.success) {
+    return { success: false, error: step2.error, error_code: step2.error_code };
+  }
+
+  saveTokenToCache(step2.token);
+  console.log(`✅ Token obtido via rede (Login + SelectCompany empresa=${getEmpresaFilialId()})`);
+  return { success: true, token: step2.token, source: "rede" };
 }
 
 // ── Ensure token helper ──
@@ -158,14 +253,24 @@ async function callErp(endpoint: string, method: "GET" | "POST", payload?: unkno
 
     const text = await resp.text();
     let data: any;
-    try { data = JSON.parse(text); } catch { data = text; }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
 
     if (!resp.ok) {
-      if (resp.status === 401 || resp.status === 403) {
+      // Trata 401/403 (token inválido) E 409 (conflito de sessão / token vencido)
+      if (resp.status === 401 || resp.status === 403 || resp.status === 409) {
         clearAlvoToken();
         return { success: false, error: `HTTP ${resp.status} — Token inválido`, error_code: "ERP_AUTH_ERROR" };
       }
-      return { success: false, error: `HTTP ${resp.status}`, error_code: "ERP_API_ERROR", details: typeof data === "string" ? data : JSON.stringify(data).substring(0, 300) };
+      return {
+        success: false,
+        error: `HTTP ${resp.status}`,
+        error_code: "ERP_API_ERROR",
+        details: typeof data === "string" ? data : JSON.stringify(data).substring(0, 300),
+      };
     }
 
     return { success: true, data };
@@ -222,7 +327,12 @@ export async function fetchFaturasERP(dataIni: string, dataFim: string, codigoBa
 
   const items = extractArray(result.data);
   if (items === null) {
-    return { success: false, error: "Formato não reconhecido.", error_code: "UNEXPECTED_FORMAT", details: JSON.stringify(result.data).substring(0, 300) };
+    return {
+      success: false,
+      error: "Formato não reconhecido.",
+      error_code: "UNEXPECTED_FORMAT",
+      details: JSON.stringify(result.data).substring(0, 300),
+    };
   }
   return { success: true, data: items, error_code: items.length === 0 ? "EMPTY_RESPONSE" : undefined };
 }
@@ -237,7 +347,12 @@ export async function fetchExtratoCaixa(dataInicial: string, dataFinal: string):
 
   const items = extractArray(result.data);
   if (items === null) {
-    return { success: false, error: "Formato não reconhecido.", error_code: "UNEXPECTED_FORMAT", details: JSON.stringify(result.data).substring(0, 300) };
+    return {
+      success: false,
+      error: "Formato não reconhecido.",
+      error_code: "UNEXPECTED_FORMAT",
+      details: JSON.stringify(result.data).substring(0, 300),
+    };
   }
   return { success: true, data: items, error_code: items.length === 0 ? "EMPTY_RESPONSE" : undefined };
 }
