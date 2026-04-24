@@ -74,12 +74,17 @@ async function callGatewayEstoqueGet(path: string): Promise<any> {
   return data;
 }
 
-// ─── Interfaces públicas (mantidas idênticas ao original) ───
+// ─── Interfaces públicas ───
 
 interface CapturaResult {
   total: number;
   salvos: number;
   erros: string[];
+  stats: {
+    via_api: number;
+    via_copia_ancora: number;
+    sem_historico: number;
+  };
 }
 
 interface FichaEstoqueItem {
@@ -113,19 +118,25 @@ export interface EnrichUnidadesResult {
   errors: number;
 }
 
-// ─── Helper interno: converter YYYY-MM-DD → DD/MM/YYYY ───
+// ─── Helpers internos de data ───
 
 function toDataBR(dataYMD: string): string {
   const [y, m, d] = dataYMD.split("-");
   return `${d}/${m}/${y}`;
 }
 
-// ─── Funções públicas ───
-
 /**
- * Sincroniza catálogo de produtos do ERP → stock_products (apenas insere novos).
- * Paginação via gateway: cada página chama POST /estoque/produto-sync.
+ * Soma 1 dia a uma data no formato YYYY-MM-DD e retorna YYYY-MM-DD.
+ * Usa UTC para evitar bugs de timezone.
  */
+function addOneDay(dataYMD: string): string {
+  const d = new Date(`${dataYMD}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// ─── Sincronização de produtos (inalterada) ───
+
 export async function sincronizarProdutosDoERP(onProgress?: (msg: string) => void): Promise<SyncProdutosResult> {
   const result: SyncProdutosResult = { totalERP: 0, novos: 0, ignorados: 0, erros: [] };
 
@@ -227,15 +238,234 @@ export async function sincronizarProdutosDoERP(onProgress?: (msg: string) => voi
   return result;
 }
 
+// ─── Interfaces internas do algoritmo de captura ───
+
+interface ProdutoBase {
+  id: string;
+  codigo_produto: string;
+  unidade_medida: string | null;
+  data_cadastro: string | null;
+}
+
+interface Ancora {
+  data_referencia: string;
+  quantidade: number;
+  valor_total_brl: number | null;
+  valor_medio_unitario: number | null;
+}
+
+type FonteSaldo = "api" | "copia_ancora" | "sem_historico";
+
+interface UpsertRow {
+  product_id: string;
+  periodo: string;
+  data_referencia: string;
+  quantidade: number;
+  valor_total_brl: number | null;
+  valor_medio_unitario: number | null;
+  fonte: FonteSaldo;
+}
+
+// ─── Core do algoritmo (compartilhado entre captura mensal e semente histórica) ───
+
 /**
- * Captura saldo mensal via gateway /estoque/ficha (por produto).
- * @param dataReferencia - formato "YYYY-MM-DD" (data final da consulta, deve ser anterior a hoje)
+ * Busca as âncoras (última captura em stock_balance anterior a dataReferencia)
+ * para todos os product_ids informados. Retorna um Map product_id → Ancora.
+ *
+ * Se o produto nunca foi capturado antes, não aparece no Map.
+ */
+async function buscarAncoras(productIds: string[], dataReferencia: string): Promise<Map<string, Ancora>> {
+  const ancoras = new Map<string, Ancora>();
+  if (productIds.length === 0) return ancoras;
+
+  // Chunk em 500 product_ids para evitar URL gigante no .in()
+  const chunkSize = 500;
+  for (let i = 0; i < productIds.length; i += chunkSize) {
+    const chunk = productIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from("stock_balance")
+      .select("product_id, data_referencia, quantidade, valor_total_brl, valor_medio_unitario")
+      .in("product_id", chunk)
+      .lt("data_referencia", dataReferencia)
+      .order("data_referencia", { ascending: false });
+
+    if (error) {
+      console.error(`[buscarAncoras] Erro no chunk ${i}:`, error.message);
+      continue;
+    }
+
+    if (data) {
+      // Como vem ordenado desc por data, a primeira ocorrência de cada product_id é a mais recente
+      for (const row of data as any[]) {
+        if (!ancoras.has(row.product_id)) {
+          ancoras.set(row.product_id, {
+            data_referencia: row.data_referencia,
+            quantidade: Number(row.quantidade),
+            valor_total_brl: row.valor_total_brl != null ? Number(row.valor_total_brl) : null,
+            valor_medio_unitario: row.valor_medio_unitario != null ? Number(row.valor_medio_unitario) : null,
+          });
+        }
+      }
+    }
+  }
+
+  return ancoras;
+}
+
+/**
+ * Processa um único produto aplicando o algoritmo Opção D.
+ * Retorna a linha para upsert em stock_balance.
+ */
+async function processarProduto(
+  produto: ProdutoBase,
+  dataReferencia: string,
+  ancora: Ancora | undefined,
+  periodo: string,
+): Promise<UpsertRow> {
+  // Passo 1: decidir range
+  let dataInicialYMD: string;
+  if (ancora) {
+    // Range estreito: do dia seguinte à âncora até dataReferencia
+    dataInicialYMD = addOneDay(ancora.data_referencia);
+  } else {
+    // Sem âncora: range desde data_cadastro (sempre existe, validamos)
+    dataInicialYMD = produto.data_cadastro as string;
+  }
+
+  const dataInicial = toDataBR(dataInicialYMD);
+  const dataFinal = toDataBR(dataReferencia);
+
+  // Caso patológico: se dataInicial > dataFinal (âncora está DEPOIS de dataReferencia),
+  // não faz sentido consultar — usa a âncora diretamente
+  if (dataInicialYMD > dataReferencia) {
+    if (ancora) {
+      return {
+        product_id: produto.id,
+        periodo,
+        data_referencia: dataReferencia,
+        quantidade: ancora.quantidade,
+        valor_total_brl: ancora.valor_total_brl,
+        valor_medio_unitario: ancora.valor_medio_unitario,
+        fonte: "copia_ancora",
+      };
+    }
+    // Sem âncora e data_cadastro > dataReferencia: produto cadastrado depois da data pedida
+    return {
+      product_id: produto.id,
+      periodo,
+      data_referencia: dataReferencia,
+      quantidade: 0,
+      valor_total_brl: null,
+      valor_medio_unitario: null,
+      fonte: "sem_historico",
+    };
+  }
+
+  // Passo 2: chamar o Alvo
+  const data = await callGatewayEstoque("/estoque/ficha", {
+    dataInicial,
+    dataFinal,
+    produto: produto.codigo_produto,
+    idProdutoId: null,
+    peso: "1.000000000",
+    pesoFatorDivisor: "Fator",
+    posicao: "1",
+    unidadeMedida: produto.unidade_medida || "UNID",
+  });
+
+  const items: FichaEstoqueItem[] = Array.isArray(data) ? data : [];
+
+  // Passo 3: interpretar resposta
+  // Filtra linha sintética "Saldo Anterior" que o Alvo injeta (queremos só movs reais)
+  const realMovements = items.filter((m) => m.Operacao !== "Saldo Anterior");
+
+  if (realMovements.length === 0) {
+    // Resposta vazia
+    if (ancora) {
+      // Produto ficou parado → copia o saldo da âncora
+      return {
+        product_id: produto.id,
+        periodo,
+        data_referencia: dataReferencia,
+        quantidade: ancora.quantidade,
+        valor_total_brl: ancora.valor_total_brl,
+        valor_medio_unitario: ancora.valor_medio_unitario,
+        fonte: "copia_ancora",
+      };
+    }
+    // Sem âncora e sem histórico → saldo legítimo é zero
+    return {
+      product_id: produto.id,
+      periodo,
+      data_referencia: dataReferencia,
+      quantidade: 0,
+      valor_total_brl: null,
+      valor_medio_unitario: null,
+      fonte: "sem_historico",
+    };
+  }
+
+  // Tem movimentações reais: usa a última
+  const last = realMovements[realMovements.length - 1];
+  return {
+    product_id: produto.id,
+    periodo,
+    data_referencia: dataReferencia,
+    quantidade: last.QtdSaldo ?? 0,
+    valor_total_brl: last.ValorSaldo ?? null,
+    valor_medio_unitario: last.CustoMedio ?? null,
+    fonte: "api",
+  };
+}
+
+/**
+ * Persiste as linhas em stock_balance com upsert em lotes.
+ */
+async function persistirLote(
+  upsertPayload: UpsertRow[],
+  result: CapturaResult,
+  onProgress?: (msg: string) => void,
+): Promise<void> {
+  onProgress?.("Salvando saldos no banco de dados...");
+  const chunkSize = 50;
+  for (let i = 0; i < upsertPayload.length; i += chunkSize) {
+    const chunk = upsertPayload.slice(i, i + chunkSize);
+    const { error } = await supabase.from("stock_balance").upsert(chunk, { onConflict: "product_id,data_referencia" });
+
+    if (error) {
+      result.erros.push(`Lote ${Math.floor(i / chunkSize) + 1}: ${error.message}`);
+    } else {
+      result.salvos += chunk.length;
+    }
+  }
+}
+
+// ─── Função pública: captura mensal (com ancoragem inteligente) ───
+
+/**
+ * Captura o saldo de estoque em uma data específica, usando ancoragem em stock_balance
+ * para evitar recalcular produtos que não tiveram movimentação desde a última captura.
+ *
+ * Algoritmo (Opção D):
+ * 1. Para cada produto, busca a última captura em stock_balance anterior a dataReferencia (âncora).
+ * 2. Se âncora existe: pede ao Alvo só o range [ancora.data+1, dataReferencia].
+ *    Se âncora não existe: pede o range [data_cadastro, dataReferencia] (produto sem captura anterior).
+ * 3. Se Alvo responde vazio com âncora → copia saldo da âncora (produto ficou parado).
+ *    Se Alvo responde vazio sem âncora → saldo legítimo = 0 (produto sem histórico).
+ *    Se Alvo responde com dados → usa a última movimentação.
+ *
+ * @param dataReferencia - formato "YYYY-MM-DD" (deve ser anterior a hoje)
  */
 export async function capturarSaldoMensal(
   dataReferencia: string,
   onProgress?: (msg: string) => void,
 ): Promise<CapturaResult> {
-  const result: CapturaResult = { total: 0, salvos: 0, erros: [] };
+  const result: CapturaResult = {
+    total: 0,
+    salvos: 0,
+    erros: [],
+    stats: { via_api: 0, via_copia_ancora: 0, sem_historico: 0 },
+  };
 
   const hoje = new Date().toISOString().slice(0, 10);
   if (dataReferencia >= hoje) {
@@ -245,14 +475,14 @@ export async function capturarSaldoMensal(
   const periodo = dataReferencia.slice(0, 7);
 
   onProgress?.("Carregando catálogo de produtos...");
-  const products: { id: string; codigo_produto: string; unidade_medida: string | null }[] = [];
+  const products: ProdutoBase[] = [];
   let from = 0;
   const batchDb = 1000;
   let done = false;
   while (!done) {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from("stock_products")
-      .select("id, codigo_produto, unidade_medida")
+      .select("id, codigo_produto, unidade_medida, data_cadastro")
       .eq("ativo", true)
       .range(from, from + batchDb - 1);
     if (data && data.length > 0) {
@@ -271,108 +501,77 @@ export async function capturarSaldoMensal(
 
   result.total = products.length;
 
-  const [year, month] = periodo.split("-");
-  const dataInicial = `01/${month}/${year}`;
-  const dataFinal = toDataBR(dataReferencia);
+  onProgress?.("Buscando âncoras de saldo em stock_balance...");
+  const ancoras = await buscarAncoras(
+    products.map((p) => p.id),
+    dataReferencia,
+  );
 
-  const upsertPayload: {
-    product_id: string;
-    periodo: string;
-    data_referencia: string;
-    quantidade: number;
-    valor_total_brl: number | null;
-    valor_medio_unitario: number | null;
-    fonte: "api";
-  }[] = [];
+  onProgress?.(
+    `${ancoras.size} produtos têm âncora anterior. ${products.length - ancoras.size} serão consultados com range completo.`,
+  );
+
+  const upsertPayload: UpsertRow[] = [];
 
   for (let i = 0; i < products.length; i++) {
     const p = products[i];
     onProgress?.(`Produto ${i + 1}/${products.length} — ${p.codigo_produto}`);
 
     try {
-      const data = await callGatewayEstoque("/estoque/ficha", {
-        dataInicial,
-        dataFinal,
-        produto: p.codigo_produto,
-        idProdutoId: null,
-        peso: "1.000000000",
-        pesoFatorDivisor: "Fator",
-        posicao: "1",
-        unidadeMedida: p.unidade_medida || "UNID",
-      });
+      const row = await processarProduto(p, dataReferencia, ancoras.get(p.id), periodo);
+      upsertPayload.push(row);
 
-      const items: FichaEstoqueItem[] = Array.isArray(data) ? data : [];
-
-      if (items.length === 0) {
-        upsertPayload.push({
-          product_id: p.id,
-          periodo,
-          data_referencia: dataReferencia,
-          quantidade: 0,
-          valor_total_brl: null,
-          valor_medio_unitario: null,
-          fonte: "api",
-        });
-      } else {
-        const last = items[items.length - 1];
-        upsertPayload.push({
-          product_id: p.id,
-          periodo,
-          data_referencia: dataReferencia,
-          quantidade: last.QtdSaldo ?? 0,
-          valor_total_brl: last.ValorSaldo ?? null,
-          valor_medio_unitario: last.CustoMedio ?? null,
-          fonte: "api",
-        });
-      }
+      // Atualiza stats
+      if (row.fonte === "api") result.stats.via_api++;
+      else if (row.fonte === "copia_ancora") result.stats.via_copia_ancora++;
+      else result.stats.sem_historico++;
     } catch (e: any) {
       result.erros.push(`Produto ${p.codigo_produto}: ${e.message}`);
     }
   }
 
-  onProgress?.("Salvando saldos no banco de dados...");
-  const chunkSize = 50;
-  for (let i = 0; i < upsertPayload.length; i += chunkSize) {
-    const chunk = upsertPayload.slice(i, i + chunkSize);
-    const { error } = await supabase.from("stock_balance").upsert(chunk, { onConflict: "product_id,data_referencia" });
+  await persistirLote(upsertPayload, result, onProgress);
 
-    if (error) {
-      result.erros.push(`Erro ao salvar lote ${Math.floor(i / chunkSize) + 1}: ${error.message}`);
-    } else {
-      result.salvos += chunk.length;
-    }
-  }
-
-  onProgress?.("Concluído.");
+  onProgress?.(
+    `Concluído. API: ${result.stats.via_api} | Âncora: ${result.stats.via_copia_ancora} | Sem histórico: ${result.stats.sem_historico}`,
+  );
   return result;
 }
 
+// ─── Função pública: semente histórica ───
+
 /**
- * Busca movimentações de um produto em uma data específica.
+ * Captura histórica para uma data específica, útil como primeira carga
+ * quando stock_balance está vazio.
  *
- * Estratégia de range:
- *   dataInicial = data_cadastro do produto (buscada em stock_products)
- *   dataFinal   = dataReferencia (data selecionada pelo usuário)
+ * Como não há âncoras, TODOS os produtos são consultados com range completo
+ * (data_cadastro → dataReferencia). É lento (~30-40 min para 2.521 produtos),
+ * mas só roda 1x.
  *
- * Isso garante que a resposta SEMPRE traga pelo menos uma movimentação
- * anterior ao dia selecionado (se existir no histórico do produto),
- * independentemente de quanto tempo o produto ficou parado.
+ * Após rodar, capturarSaldoMensal usa o resultado desta função como âncora
+ * e passa a ser rápida para as próximas datas.
  *
- * A modal interpreta:
- *   movements[0]     → Saldo anterior (última movimentação antes do dia)
- *   movements[1..n-1] → Movimentações do dia selecionado
- *   movements[n-1]   → Saldo final do dia
- *
- * Fallbacks para data_cadastro:
- *   - Se stock_products não tem data_cadastro → usa "01/01/2015" (conservador)
- *   - Se stock_products não encontra o produto → usa "01/01/2015"
+ * @param dataReferencia - data histórica a capturar (ex: "2025-12-31")
  */
+export async function sementeHistoricaEstoque(
+  dataReferencia: string,
+  onProgress?: (msg: string) => void,
+): Promise<CapturaResult> {
+  onProgress?.("Iniciando semente histórica (range completo por produto)...");
+  // A lógica é idêntica à captura mensal: se stock_balance estiver vazio para datas
+  // anteriores a dataReferencia, buscarAncoras retorna Map vazio e todo mundo
+  // cai no caminho "sem âncora → range desde data_cadastro". Exatamente o comportamento
+  // que queremos para semear o histórico.
+  return capturarSaldoMensal(dataReferencia, onProgress);
+}
+
+// ─── Movimentação individual (modal) — inalterada ───
+
 export async function buscarMovimentacaoProduto(
   codigoProduto: string,
   dataReferencia: string,
   unidadeMedida: string | null,
 ): Promise<any[]> {
-  // Buscar data_cadastro do produto no Supabase (rápido, ~50ms)
   const { data: produto } = await (supabase as any)
     .from("stock_products")
     .select("data_cadastro")
@@ -383,7 +582,6 @@ export async function buscarMovimentacaoProduto(
   let dataInicial = FALLBACK_DATA_INICIAL;
 
   if (produto?.data_cadastro) {
-    // data_cadastro vem no formato YYYY-MM-DD
     dataInicial = toDataBR(produto.data_cadastro as string);
   }
 
@@ -403,12 +601,8 @@ export async function buscarMovimentacaoProduto(
   return Array.isArray(data) ? data : [];
 }
 
-// ─── Enriquecimento de unidades de medida ───
+// ─── Enriquecimento de unidades de medida (inalterada) ───
 
-/**
- * Enriquece unidade_medida em stock_products para produtos ativos sem unidade.
- * Usa GET /estoque/produto-load/:codigo no gateway (retry 401/403 é nativo).
- */
 export async function enriquecerUnidadesMedida(
   onProgress?: (current: number, total: number, message: string) => void,
   shouldCancel?: () => boolean,
