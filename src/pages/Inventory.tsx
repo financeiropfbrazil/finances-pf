@@ -35,11 +35,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Package, Download, Radio, Search, Loader2, AlertTriangle, Info, LayoutList, Layers,
-} from "lucide-react";
+import { Package, Download, Radio, Search, Loader2, AlertTriangle, Info, LayoutList, Layers } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { capturarSaldoMensal, sincronizarProdutosDoERP } from "@/services/alvoEstoqueService";
 import { InventoryComparative } from "@/components/inventory/InventoryComparative";
@@ -50,6 +53,7 @@ interface StockRow {
   balanceId: string;
   productId: string;
   codigoProduto: string;
+  codigoAlternativo: string | null;
   codigoReduzido: string | null;
   nomeProduto: string;
   tipoProduto: string | null;
@@ -71,15 +75,23 @@ const TIPOS_LABEL: Record<string, string> = {
 };
 
 const MONTH_NAMES = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
 ];
 
-const formatBRL = (v: number) =>
-  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const formatBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-const formatQty = (v: number) =>
-  v.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+const formatQty = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 4 });
 
 export default function Inventory() {
   const { toast } = useToast();
@@ -178,7 +190,9 @@ export default function Inventory() {
     while (!done) {
       const { data } = await supabase
         .from("stock_products")
-        .select("id, codigo_produto, codigo_reduzido, nome_produto, tipo_produto, familia_codigo, variacao, unidade_medida")
+        .select(
+          "id, codigo_produto, codigo_alternativo, codigo_reduzido, nome_produto, tipo_produto, familia_codigo, variacao, unidade_medida",
+        )
         .eq("ativo", true)
         .range(from, from + batchSize - 1);
       if (data && data.length > 0) {
@@ -198,6 +212,7 @@ export default function Inventory() {
         balanceId: b.id,
         productId: b.product_id,
         codigoProduto: p?.codigo_produto ?? "—",
+        codigoAlternativo: p?.codigo_alternativo ?? null,
         codigoReduzido: p?.codigo_reduzido ?? null,
         nomeProduto: p?.nome_produto ?? "Produto desconhecido",
         tipoProduto: p?.tipo_produto ?? null,
@@ -229,6 +244,7 @@ export default function Inventory() {
         if (
           !r.codigoProduto.toLowerCase().includes(q) &&
           !r.nomeProduto.toLowerCase().includes(q) &&
+          !(r.codigoAlternativo ?? "").toLowerCase().includes(q) &&
           !(r.codigoReduzido ?? "").toLowerCase().includes(q)
         )
           return false;
@@ -357,7 +373,8 @@ export default function Inventory() {
       }
       const descParts: string[] = [];
       if (syncRes.novos > 0) descParts.push(`${syncRes.novos} produtos novos sincronizados do ERP`);
-      if (res.erros.length > 0) descParts.push(`${res.erros.length} erros. Primeiros: ${res.erros.slice(0, 3).join(" | ")}`);
+      if (res.erros.length > 0)
+        descParts.push(`${res.erros.length} erros. Primeiros: ${res.erros.slice(0, 3).join(" | ")}`);
       toast({
         title: `Captura concluída: ${res.salvos} produtos salvos`,
         description: descParts.length > 0 ? descParts.join(". ") : undefined,
@@ -376,6 +393,7 @@ export default function Inventory() {
   const handleExport = () => {
     const data = filtered.map((r) => ({
       Código: r.codigoProduto,
+      "Cód. Alternativo": r.codigoAlternativo ?? "",
       "Red.": r.codigoReduzido ?? "",
       Descrição: r.nomeProduto,
       Tipo: r.tipoProduto ?? "",
@@ -433,7 +451,9 @@ export default function Inventory() {
       ))}
       {showSubtotal && (
         <TableRow className="bg-muted/50 font-semibold">
-          <TableCell colSpan={3} className="text-xs">{showSubtotal.label}</TableCell>
+          <TableCell colSpan={3} className="text-xs">
+            {showSubtotal.label}
+          </TableCell>
           <TableCell className="text-right">{formatQty(items.reduce((s, r) => s + r.quantidade, 0))}</TableCell>
           <TableCell />
           <TableCell className="text-right">
@@ -467,7 +487,7 @@ export default function Inventory() {
                 variant="outline"
                 className={cn(
                   "w-[200px] justify-start text-left font-normal",
-                  !selectedDate && "text-muted-foreground"
+                  !selectedDate && "text-muted-foreground",
                 )}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
@@ -508,8 +528,11 @@ export default function Inventory() {
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            O mês {periodoLabel} já possui fechamento oficial. Para atualizar, primeiro reabra o período em Estoques &gt; Fechamentos.
-            <Button variant="ghost" size="sm" className="ml-2" onClick={() => setClosedAlert(false)}>Fechar</Button>
+            O mês {periodoLabel} já possui fechamento oficial. Para atualizar, primeiro reabra o período em Estoques
+            &gt; Fechamentos.
+            <Button variant="ghost" size="sm" className="ml-2" onClick={() => setClosedAlert(false)}>
+              Fechar
+            </Button>
           </AlertDescription>
         </Alert>
       )}
@@ -520,11 +543,14 @@ export default function Inventory() {
           <DialogHeader>
             <DialogTitle>Dados já existentes</DialogTitle>
             <DialogDescription>
-              A data {formattedDateBR} já foi consultada com {confirmDialog.count} produtos registrados. Deseja atualizar os dados?
+              A data {formattedDateBR} já foi consultada com {confirmDialog.count} produtos registrados. Deseja
+              atualizar os dados?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDialog({ open: false, count: 0 })}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setConfirmDialog({ open: false, count: 0 })}>
+              Cancelar
+            </Button>
             <Button onClick={runCapture}>Atualizar</Button>
           </DialogFooter>
         </DialogContent>
@@ -574,9 +600,7 @@ export default function Inventory() {
                   <Badge variant={dataSource === "api" ? "default" : "secondary"} className="text-sm">
                     {dataSource === "api" ? "API" : dataSource === "manual" ? "Manual" : "Manual + API"}
                   </Badge>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Ref.: {formattedDateBR}
-                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">Ref.: {formattedDateBR}</p>
                 </CardContent>
               </Card>
             </div>
@@ -584,9 +608,7 @@ export default function Inventory() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12 gap-3 text-center">
                 <Package className="h-12 w-12 text-muted-foreground/40" />
-                <p className="text-lg font-medium text-foreground">
-                  Nenhum saldo registrado para {formattedDateBR}
-                </p>
+                <p className="text-lg font-medium text-foreground">Nenhum saldo registrado para {formattedDateBR}</p>
                 <p className="text-sm text-muted-foreground">
                   Clique em <strong>Capturar Saldo via API</strong> para consultar.
                 </p>
@@ -602,11 +624,11 @@ export default function Inventory() {
                   <Search className="h-4 w-4" />
                   <span className="text-sm font-medium">Filtros</span>
                 </div>
-                
+
                 <div className="relative flex-1 min-w-[240px] max-w-sm">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
                   <Input
-                    placeholder="Buscar código ou descrição..."
+                    placeholder="Buscar código, alt. ou descrição..."
                     className="pl-9 bg-background border-muted-foreground/20 focus-visible:ring-primary/30"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -621,14 +643,18 @@ export default function Inventory() {
                     <SelectContent>
                       <SelectItem value="all">Todos os tipos</SelectItem>
                       {tipoOptions.map((t) => (
-                        <SelectItem key={t} value={t}>{TIPOS_LABEL[t] ?? t}</SelectItem>
+                        <SelectItem key={t} value={t}>
+                          {TIPOS_LABEL[t] ?? t}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
 
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-muted-foreground/20 bg-background">
                     <Switch id="only-positive" checked={onlyPositive} onCheckedChange={setOnlyPositive} />
-                    <Label htmlFor="only-positive" className="text-sm cursor-pointer whitespace-nowrap">Saldo &gt; 0</Label>
+                    <Label htmlFor="only-positive" className="text-sm cursor-pointer whitespace-nowrap">
+                      Saldo &gt; 0
+                    </Label>
                   </div>
 
                   <div className="ml-auto flex items-center gap-1 p-1 bg-background border border-muted-foreground/20 rounded-lg">
@@ -664,7 +690,9 @@ export default function Inventory() {
                     <AccordionTrigger className="px-4 hover:no-underline">
                       <div className="flex items-center gap-3 text-sm">
                         <span className="font-semibold">{TIPOS_LABEL[tipo] ?? tipo}</span>
-                        <Badge variant="secondary" className="text-xs">{items.length} SKUs</Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          {items.length} SKUs
+                        </Badge>
                         <span className="text-muted-foreground">{formatBRL(tipoTotal)}</span>
                       </div>
                     </AccordionTrigger>
@@ -686,9 +714,7 @@ export default function Inventory() {
                                   <TableHead className="text-xs text-right">Valor Total BRL</TableHead>
                                 </TableRow>
                               </TableHeader>
-                              <TableBody>
-                                {renderTableRows(famItems, { label: `Subtotal ${fam}` })}
-                              </TableBody>
+                              <TableBody>{renderTableRows(famItems, { label: `Subtotal ${fam}` })}</TableBody>
                             </Table>
                           </div>
                         </div>
@@ -736,8 +762,12 @@ export default function Inventory() {
                           <TableCell className="text-xs">{r.tipoProduto ?? "—"}</TableCell>
                           <TableCell className="text-xs">{r.variacao ?? "—"}</TableCell>
                           <TableCell className="text-right">{renderQtyCell(r)}</TableCell>
-                          <TableCell className="text-right text-sm">{renderValueCell(r, r.valorMedioUnitario)}</TableCell>
-                          <TableCell className="text-right text-sm font-medium">{renderValueCell(r, r.valorTotalBrl)}</TableCell>
+                          <TableCell className="text-right text-sm">
+                            {renderValueCell(r, r.valorMedioUnitario)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-medium">
+                            {renderValueCell(r, r.valorTotalBrl)}
+                          </TableCell>
                         </TableRow>
                       ))}
                       <TableRow className="bg-muted/50 font-semibold">
