@@ -17,6 +17,7 @@ import {
   Package, Lock, Unlock, Loader2, AlertTriangle, Search, Layers, LayoutList,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { TIPOS_VISIVEIS_ESTOQUE, TIPOS_LABEL as TIPOS_LABEL_GLOBAL } from "@/constants/stockTipos";
 
 interface StockRow {
   balanceId: string;
