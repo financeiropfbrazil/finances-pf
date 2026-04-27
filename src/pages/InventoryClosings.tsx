@@ -599,7 +599,7 @@ export default function InventoryClosings() {
                   <SelectContent>
                     <SelectItem value="all">Todos os tipos</SelectItem>
                     {tipoOptions.map((t) => (
-                      <SelectItem key={t} value={t}>{TIPOS_LABEL[t] ?? t}</SelectItem>
+                      <SelectItem key={t} value={t}>{TIPOS_LABEL_GLOBAL[t] ?? t}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -626,7 +626,7 @@ export default function InventoryClosings() {
                       <AccordionItem key={tipo} value={tipo} className="border rounded-lg">
                         <AccordionTrigger className="px-4 hover:no-underline">
                           <div className="flex items-center gap-3 text-sm">
-                            <span className="font-semibold">{TIPOS_LABEL[tipo] ?? tipo}</span>
+                            <span className="font-semibold">{TIPOS_LABEL_GLOBAL[tipo] ?? tipo}</span>
                             <Badge variant="secondary" className="text-xs">{items.length} SKUs</Badge>
                             <span className="text-muted-foreground">{formatBRL(tipoTotal)}</span>
                           </div>
@@ -658,7 +658,7 @@ export default function InventoryClosings() {
                             </div>
                           ))}
                           <div className="border-t px-4 py-3 flex justify-between items-center bg-muted/20 text-sm font-semibold">
-                            <span>Total {TIPOS_LABEL[tipo] ?? tipo}</span>
+                            <span>Total {TIPOS_LABEL_GLOBAL[tipo] ?? tipo}</span>
                             <div className="flex gap-8">
                               <span>{formatQty(items.reduce((s, r) => s + r.quantidade, 0))}</span>
                               <span>{formatBRL(tipoTotal)}</span>
