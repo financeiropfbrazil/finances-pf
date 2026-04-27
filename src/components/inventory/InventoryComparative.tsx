@@ -86,6 +86,7 @@ async function fetchProducts(): Promise<ProductInfo[]> {
       .from("stock_products")
       .select("id, codigo_produto, nome_produto, tipo_produto")
       .eq("ativo", true)
+      .in("tipo_produto", TIPOS_VISIVEIS_ESTOQUE as unknown as string[])
       .range(from, from + bs - 1);
     if (data && data.length > 0) {
       all = all.concat(data);
