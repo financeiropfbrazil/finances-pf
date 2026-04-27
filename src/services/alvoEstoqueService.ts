@@ -315,6 +315,8 @@ async function buscarAncoras(productIds: string[], dataReferencia: string): Prom
 /**
  * Processa um único produto aplicando o algoritmo Opção D.
  * Retorna a linha para upsert em stock_balance.
+ *
+ * Inclui retry com backoff para erros transitórios (timeout, 502, etc.).
  */
 async function processarProduto(
   produto: ProdutoBase,
@@ -325,18 +327,16 @@ async function processarProduto(
   // Passo 1: decidir range
   let dataInicialYMD: string;
   if (ancora) {
-    // Range estreito: do dia seguinte à âncora até dataReferencia
     dataInicialYMD = addOneDay(ancora.data_referencia);
   } else {
-    // Sem âncora: range desde data_cadastro (sempre existe, validamos)
     dataInicialYMD = produto.data_cadastro as string;
   }
 
   const dataInicial = toDataBR(dataInicialYMD);
   const dataFinal = toDataBR(dataReferencia);
 
-  // Caso patológico: se dataInicial > dataFinal (âncora está DEPOIS de dataReferencia),
-  // não faz sentido consultar — usa a âncora diretamente
+  // Caso patológico: dataInicial > dataFinal
+  // Significa: produto cadastrado depois da data pedida (ou âncora futura)
   if (dataInicialYMD > dataReferencia) {
     if (ancora) {
       return {
@@ -349,7 +349,6 @@ async function processarProduto(
         fonte: "copia_ancora",
       };
     }
-    // Sem âncora e data_cadastro > dataReferencia: produto cadastrado depois da data pedida
     return {
       product_id: produto.id,
       periodo,
@@ -361,28 +360,47 @@ async function processarProduto(
     };
   }
 
-  // Passo 2: chamar o Alvo
-  const data = await callGatewayEstoque("/estoque/ficha", {
-    dataInicial,
-    dataFinal,
-    produto: produto.codigo_produto,
-    idProdutoId: null,
-    peso: "1.000000000",
-    pesoFatorDivisor: "Fator",
-    posicao: "1",
-    unidadeMedida: produto.unidade_medida || "UNID",
-  });
+  // Passo 2: chamar o Alvo COM RETRY
+  let lastError: any = null;
+  let data: any = null;
+  const MAX_RETRIES = 3;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      data = await callGatewayEstoque("/estoque/ficha", {
+        dataInicial,
+        dataFinal,
+        produto: produto.codigo_produto,
+        idProdutoId: null,
+        peso: "1.000000000",
+        pesoFatorDivisor: "Fator",
+        posicao: "1",
+        unidadeMedida: produto.unidade_medida || "UNID",
+      });
+      lastError = null;
+      break; // sucesso, sai do loop
+    } catch (err: any) {
+      lastError = err;
+      // Backoff: 500ms, 1000ms, 2000ms
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt - 1)));
+      }
+    }
+  }
+
+  // Após retries, ainda falhou — propaga o erro pra cair no try/catch externo
+  if (lastError) {
+    throw new Error(
+      `Falha após ${MAX_RETRIES} tentativas: ${lastError.message || lastError}`,
+    );
+  }
 
   const items: FichaEstoqueItem[] = Array.isArray(data) ? data : [];
-
-  // Passo 3: interpretar resposta
-  // Filtra linha sintética "Saldo Anterior" que o Alvo injeta (queremos só movs reais)
   const realMovements = items.filter((m) => m.Operacao !== "Saldo Anterior");
 
+  // Passo 3: interpretar resposta
   if (realMovements.length === 0) {
-    // Resposta vazia
     if (ancora) {
-      // Produto ficou parado → copia o saldo da âncora
       return {
         product_id: produto.id,
         periodo,
@@ -393,7 +411,6 @@ async function processarProduto(
         fonte: "copia_ancora",
       };
     }
-    // Sem âncora e sem histórico → saldo legítimo é zero
     return {
       product_id: produto.id,
       periodo,
@@ -405,7 +422,6 @@ async function processarProduto(
     };
   }
 
-  // Tem movimentações reais: usa a última
   const last = realMovements[realMovements.length - 1];
   return {
     product_id: produto.id,
