@@ -189,6 +189,7 @@ export default function Inventory() {
           "id, codigo_produto, codigo_alternativo, codigo_reduzido, nome_produto, tipo_produto, familia_codigo, variacao, unidade_medida",
         )
         .eq("ativo", true)
+        .in("tipo_produto", TIPOS_VISIVEIS_ESTOQUE as unknown as string[])
         .range(from, from + batchSize - 1);
       if (data && data.length > 0) {
         products = products.concat(data);
