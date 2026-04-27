@@ -67,13 +67,7 @@ interface StockRow {
   fonte: string;
 }
 
-const TIPOS_LABEL: Record<string, string> = {
-  "01-Acabado": "01 - Acabado",
-  "02-Semi-Acabado": "02 - Semi-Acabado",
-  "03-Matéria Prima": "03 - Matéria Prima",
-  "06-Material de Embalagem": "06 - Material de Embalagem",
-  "44-Insumos": "44 - Insumos",
-};
+
 
 const MONTH_NAMES = [
   "Janeiro",
