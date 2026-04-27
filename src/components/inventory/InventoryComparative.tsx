@@ -9,14 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, Search, TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { TIPOS_VISIVEIS_ESTOQUE, TIPOS_LABEL as TIPOS_LABEL_GLOBAL } from "@/constants/stockTipos";
 
-const TIPOS_LABEL: Record<string, string> = {
-  "01-Acabado": "01 - Acabado",
-  "02-Semi-Acabado": "02 - Semi-Acabado",
-  "03-Matéria Prima": "03 - Matéria Prima",
-  "06-Material de Embalagem": "06 - Material de Embalagem",
-  "44-Insumos": "44 - Insumos",
-};
 
 const formatBRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -92,6 +86,7 @@ async function fetchProducts(): Promise<ProductInfo[]> {
       .from("stock_products")
       .select("id, codigo_produto, nome_produto, tipo_produto")
       .eq("ativo", true)
+      .in("tipo_produto", TIPOS_VISIVEIS_ESTOQUE as unknown as string[])
       .range(from, from + bs - 1);
     if (data && data.length > 0) {
       all = all.concat(data);
@@ -362,7 +357,7 @@ export function InventoryComparative() {
                   <SelectContent>
                     <SelectItem value="all">Todos os tipos</SelectItem>
                     {tipoOptions.map((t) => (
-                      <SelectItem key={t} value={t}>{TIPOS_LABEL[t] ?? t}</SelectItem>
+                      <SelectItem key={t} value={t}>{TIPOS_LABEL_GLOBAL[t] ?? t}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
