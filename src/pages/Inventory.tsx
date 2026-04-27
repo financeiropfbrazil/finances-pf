@@ -48,6 +48,7 @@ import { capturarSaldoMensal, sincronizarProdutosDoERP } from "@/services/alvoEs
 import { InventoryComparative } from "@/components/inventory/InventoryComparative";
 import { ProductMovementModal } from "@/components/inventory/ProductMovementModal";
 import * as XLSX from "xlsx";
+import { TIPOS_VISIVEIS_ESTOQUE, TIPOS_LABEL as TIPOS_LABEL_GLOBAL } from "@/constants/stockTipos";
 
 interface StockRow {
   balanceId: string;
