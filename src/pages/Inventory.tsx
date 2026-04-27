@@ -202,25 +202,28 @@ export default function Inventory() {
 
     const productMap = new Map(products.map((p: any) => [p.id, p]));
 
-    const merged: StockRow[] = balances.map((b: any) => {
-      const p = productMap.get(b.product_id);
-      return {
-        balanceId: b.id,
-        productId: b.product_id,
-        codigoProduto: p?.codigo_produto ?? "—",
-        codigoAlternativo: p?.codigo_alternativo ?? null,
-        codigoReduzido: p?.codigo_reduzido ?? null,
-        nomeProduto: p?.nome_produto ?? "Produto desconhecido",
-        tipoProduto: p?.tipo_produto ?? null,
-        familiaCodigo: p?.familia_codigo ?? null,
-        variacao: p?.variacao ?? null,
-        unidadeMedida: p?.unidade_medida ?? null,
-        quantidade: Number(b.quantidade),
-        valorTotalBrl: b.valor_total_brl != null ? Number(b.valor_total_brl) : null,
-        valorMedioUnitario: b.valor_medio_unitario != null ? Number(b.valor_medio_unitario) : null,
-        fonte: b.fonte,
-      };
-    });
+    const merged: StockRow[] = balances
+      .map((b: any): StockRow | null => {
+        const p = productMap.get(b.product_id);
+        if (!p) return null; // Descarta saldos de produtos fora da whitelist (TIPOS_VISIVEIS_ESTOQUE)
+        return {
+          balanceId: b.id,
+          productId: b.product_id,
+          codigoProduto: p.codigo_produto,
+          codigoAlternativo: p.codigo_alternativo ?? null,
+          codigoReduzido: p.codigo_reduzido ?? null,
+          nomeProduto: p.nome_produto,
+          tipoProduto: p.tipo_produto ?? null,
+          familiaCodigo: p.familia_codigo ?? null,
+          variacao: p.variacao ?? null,
+          unidadeMedida: p.unidade_medida ?? null,
+          quantidade: Number(b.quantidade),
+          valorTotalBrl: b.valor_total_brl != null ? Number(b.valor_total_brl) : null,
+          valorMedioUnitario: b.valor_medio_unitario != null ? Number(b.valor_medio_unitario) : null,
+          fonte: b.fonte,
+        };
+      })
+      .filter((r): r is StockRow => r !== null);
 
     setRows(merged);
     setLoading(false);
