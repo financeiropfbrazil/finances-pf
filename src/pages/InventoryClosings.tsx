@@ -17,6 +17,7 @@ import {
   Package, Lock, Unlock, Loader2, AlertTriangle, Search, Layers, LayoutList,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { TIPOS_VISIVEIS_ESTOQUE, TIPOS_LABEL as TIPOS_LABEL_GLOBAL } from "@/constants/stockTipos";
 
 interface StockRow {
   balanceId: string;
@@ -54,13 +55,7 @@ const MONTH_ABBR = [
   "Jul", "Ago", "Set", "Out", "Nov", "Dez",
 ];
 
-const TIPOS_LABEL: Record<string, string> = {
-  "01-Acabado": "01 - Acabado",
-  "02-Semi-Acabado": "02 - Semi-Acabado",
-  "03-Matéria Prima": "03 - Matéria Prima",
-  "06-Material de Embalagem": "06 - Material de Embalagem",
-  "44-Insumos": "44 - Insumos",
-};
+
 
 const formatBRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -227,6 +222,7 @@ export default function InventoryClosings() {
         .from("stock_products")
         .select("id, codigo_produto, codigo_reduzido, nome_produto, tipo_produto, familia_codigo, variacao, unidade_medida")
         .eq("ativo", true)
+        .in("tipo_produto", TIPOS_VISIVEIS_ESTOQUE as unknown as string[])
         .range(from, from + batchSize - 1);
       if (data && data.length > 0) {
         products = products.concat(data);
@@ -604,7 +600,7 @@ export default function InventoryClosings() {
                   <SelectContent>
                     <SelectItem value="all">Todos os tipos</SelectItem>
                     {tipoOptions.map((t) => (
-                      <SelectItem key={t} value={t}>{TIPOS_LABEL[t] ?? t}</SelectItem>
+                      <SelectItem key={t} value={t}>{TIPOS_LABEL_GLOBAL[t] ?? t}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -631,7 +627,7 @@ export default function InventoryClosings() {
                       <AccordionItem key={tipo} value={tipo} className="border rounded-lg">
                         <AccordionTrigger className="px-4 hover:no-underline">
                           <div className="flex items-center gap-3 text-sm">
-                            <span className="font-semibold">{TIPOS_LABEL[tipo] ?? tipo}</span>
+                            <span className="font-semibold">{TIPOS_LABEL_GLOBAL[tipo] ?? tipo}</span>
                             <Badge variant="secondary" className="text-xs">{items.length} SKUs</Badge>
                             <span className="text-muted-foreground">{formatBRL(tipoTotal)}</span>
                           </div>
@@ -663,7 +659,7 @@ export default function InventoryClosings() {
                             </div>
                           ))}
                           <div className="border-t px-4 py-3 flex justify-between items-center bg-muted/20 text-sm font-semibold">
-                            <span>Total {TIPOS_LABEL[tipo] ?? tipo}</span>
+                            <span>Total {TIPOS_LABEL_GLOBAL[tipo] ?? tipo}</span>
                             <div className="flex gap-8">
                               <span>{formatQty(items.reduce((s, r) => s + r.quantidade, 0))}</span>
                               <span>{formatBRL(tipoTotal)}</span>
