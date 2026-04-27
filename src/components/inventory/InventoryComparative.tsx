@@ -356,7 +356,7 @@ export function InventoryComparative() {
                   <SelectContent>
                     <SelectItem value="all">Todos os tipos</SelectItem>
                     {tipoOptions.map((t) => (
-                      <SelectItem key={t} value={t}>{TIPOS_LABEL[t] ?? t}</SelectItem>
+                      <SelectItem key={t} value={t}>{TIPOS_LABEL_GLOBAL[t] ?? t}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
