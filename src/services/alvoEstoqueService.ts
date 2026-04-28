@@ -444,10 +444,15 @@ async function processarProduto(
   const quantidadeFinal = saldoInicialQtd + deltaQtd;
   const valorFinal = saldoInicialValor + deltaValor;
 
-  // Custo médio: usar o da última linha do range (o Alvo recalcula corretamente).
-  // Fallback para o da âncora caso a janela só tenha movimentos sem reavaliação.
-  const last = realMovements[realMovements.length - 1] as any;
-  const custoMedioFinal = last.CustoMedio ?? ancora?.valor_medio_unitario ?? null;
+  // Custo médio: calculado como valor_total / quantidade (custo médio simples).
+  // Não usamos last.CustoMedio porque, em janelas curtas (capturas mensais com âncora),
+  // operações de ajuste tipo "ENTRADA VALOR DE CUSTO MEDIO" podem deixar a última linha
+  // com um CustoMedio anômalo (negativo ou inflado). O cálculo direto valor/qtd é
+  // matematicamente coerente com os outros campos do Hub. Para qtd zero ou negativa,
+  // usar a âncora como fallback.
+  const custoMedioFinal = quantidadeFinal > 0
+    ? valorFinal / quantidadeFinal
+    : (ancora?.valor_medio_unitario ?? null);
 
   return {
     product_id: produto.id,
