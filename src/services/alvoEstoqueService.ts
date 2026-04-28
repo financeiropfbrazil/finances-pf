@@ -399,6 +399,12 @@ async function processarProduto(
   const realMovements = items.filter((m) => m.Operacao !== "Saldo Anterior");
 
   // Passo 3: interpretar resposta
+  // BUG CORRIGIDO: o Alvo retorna QtdSaldo/ValorSaldo calculados PARTINDO DO ZERO
+  // na janela consultada — ele NÃO carrega o saldo anterior. Por isso, a última linha
+  // do range não é o saldo absoluto do produto, mas sim a soma líquida das movimentações
+  // dentro da janela. A correção: somar entradas e subtrair saídas (deltas reais por linha)
+  // a partir do saldo da âncora. Operações como "ENTRADA VALOR DE CUSTO MEDIO" são tratadas
+  // corretamente porque QtdEntrada=0 e ValorEntrada>0 nesses casos.
   if (realMovements.length === 0) {
     if (ancora) {
       return {
@@ -422,14 +428,34 @@ async function processarProduto(
     };
   }
 
-  const last = realMovements[realMovements.length - 1];
+  // Calcular saldo final corretamente: âncora + deltas das movimentações
+  const saldoInicialQtd = ancora?.quantidade ?? 0;
+  const saldoInicialValor = ancora?.valor_total_brl ?? 0;
+
+  const deltaQtd = realMovements.reduce(
+    (sum, m: any) => sum + (Number(m.QtdEntrada) || 0) - (Number(m.QtdSaida) || 0),
+    0,
+  );
+  const deltaValor = realMovements.reduce(
+    (sum, m: any) => sum + (Number(m.ValorEntrada) || 0) - (Number(m.ValorSaida) || 0),
+    0,
+  );
+
+  const quantidadeFinal = saldoInicialQtd + deltaQtd;
+  const valorFinal = saldoInicialValor + deltaValor;
+
+  // Custo médio: usar o da última linha do range (o Alvo recalcula corretamente).
+  // Fallback para o da âncora caso a janela só tenha movimentos sem reavaliação.
+  const last = realMovements[realMovements.length - 1] as any;
+  const custoMedioFinal = last.CustoMedio ?? ancora?.valor_medio_unitario ?? null;
+
   return {
     product_id: produto.id,
     periodo,
     data_referencia: dataReferencia,
-    quantidade: last.QtdSaldo ?? 0,
-    valor_total_brl: last.ValorSaldo ?? null,
-    valor_medio_unitario: last.CustoMedio ?? null,
+    quantidade: quantidadeFinal,
+    valor_total_brl: valorFinal,
+    valor_medio_unitario: custoMedioFinal,
     fonte: "api",
   };
 }
