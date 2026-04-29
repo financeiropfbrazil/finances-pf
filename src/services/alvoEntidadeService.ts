@@ -198,11 +198,13 @@ async function marcarFornecedores(tokenRef: { token: string }, onProgress?: (msg
   // Marca e_fornecedor = true (em batches de 500 pra evitar URL gigante no .in())
   const BATCH = 500;
   let totalMarcados = 0;
+  const sb = supabase as any;
+
   for (let i = 0; i < codigosFornecedores.length; i += BATCH) {
     const batch = codigosFornecedores.slice(i, i + BATCH);
-    const { error, count } = await supabase
+    const { error, count } = await sb
       .from("compras_entidades_cache")
-      .update({ e_fornecedor: true } as any, { count: "exact" })
+      .update({ e_fornecedor: true }, { count: "exact" })
       .in("codigo_entidade", batch);
 
     if (error) console.warn(`[Fornecedor] Erro batch ${i}:`, error.message);
@@ -210,16 +212,14 @@ async function marcarFornecedores(tokenRef: { token: string }, onProgress?: (msg
   }
 
   // Zera flag das que NÃO estão mais na lista de fornecedores
-  // (entidade que perdeu categoria 002 ou foi descadastrada como fornecedor)
   const fornecedoresInClause = `(${codigosFornecedores.map((c) => `"${c}"`).join(",")})`;
-  const { error: errResetar } = await supabase
+  const { error: errResetar } = await sb
     .from("compras_entidades_cache")
-    .update({ e_fornecedor: false } as any)
+    .update({ e_fornecedor: false })
     .eq("e_fornecedor", true)
     .not("codigo_entidade", "in", fornecedoresInClause);
 
   if (errResetar) {
-    // Se a query .not(in) falhar (URL muito grande), só loga warning
     console.warn(`[Fornecedor] Reset via .not(in) falhou: ${errResetar.message}`);
   }
 
