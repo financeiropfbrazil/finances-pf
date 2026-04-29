@@ -142,7 +142,7 @@ async function syncEntidadesAmplo(tokenRef: { token: string }, onProgress?: (msg
     if (records.length > 0) {
       const { error } = await supabase
         .from("compras_entidades_cache")
-        .upsert(records, { onConflict: "codigo_entidade" });
+        .upsert(records as any, { onConflict: "codigo_entidade" });
 
       if (error) console.warn(`[Entidade] Erro upsert page ${page}:`, error.message);
       else totalSaved += records.length;
@@ -164,7 +164,7 @@ async function syncEntidadesAmplo(tokenRef: { token: string }, onProgress?: (msg
 /**
  * FASE 2 — Marca fornecedores: roda com filtro CodigoCategoria=002%
  * e atualiza e_fornecedor=true. Depois zera flag das entidades que
- * não estão mais nessa categoria (caso alguma tenha sido descategorizada).
+ * não estão mais nessa categoria.
  */
 async function marcarFornecedores(tokenRef: { token: string }, onProgress?: (msg: string) => void): Promise<number> {
   let page = 1;
@@ -202,7 +202,7 @@ async function marcarFornecedores(tokenRef: { token: string }, onProgress?: (msg
     const batch = codigosFornecedores.slice(i, i + BATCH);
     const { error, count } = await supabase
       .from("compras_entidades_cache")
-      .update({ e_fornecedor: true }, { count: "exact" })
+      .update({ e_fornecedor: true } as any, { count: "exact" })
       .in("codigo_entidade", batch);
 
     if (error) console.warn(`[Fornecedor] Erro batch ${i}:`, error.message);
@@ -211,14 +211,15 @@ async function marcarFornecedores(tokenRef: { token: string }, onProgress?: (msg
 
   // Zera flag das que NÃO estão mais na lista de fornecedores
   // (entidade que perdeu categoria 002 ou foi descadastrada como fornecedor)
-  const { error: errResetar, count: countResetadas } = await supabase
+  const fornecedoresInClause = `(${codigosFornecedores.map((c) => `"${c}"`).join(",")})`;
+  const { error: errResetar } = await supabase
     .from("compras_entidades_cache")
-    .update({ e_fornecedor: false }, { count: "exact" })
+    .update({ e_fornecedor: false } as any)
     .eq("e_fornecedor", true)
-    .not("codigo_entidade", "in", `(${codigosFornecedores.map((c) => `"${c}"`).join(",")})`);
+    .not("codigo_entidade", "in", fornecedoresInClause);
 
   if (errResetar) {
-    // Se a query .not(in) falhar (URL muito grande), faz alternativa por SQL
+    // Se a query .not(in) falhar (URL muito grande), só loga warning
     console.warn(`[Fornecedor] Reset via .not(in) falhou: ${errResetar.message}`);
   }
 
