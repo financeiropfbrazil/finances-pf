@@ -208,6 +208,7 @@ async function marcarFornecedores(tokenRef: { token: string }, onProgress?: (msg
 
   console.log(`[Fornecedor] RPC retornou:`, resultado);
   return resultado?.marcados || codigosFornecedores.length;
+}
 
 /**
  * Sync principal: roda Fase 1 (amplo) + Fase 2 (marcar fornecedores).
