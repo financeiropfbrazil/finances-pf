@@ -195,36 +195,19 @@ async function marcarFornecedores(tokenRef: { token: string }, onProgress?: (msg
 
   if (codigosFornecedores.length === 0) return 0;
 
-  // Marca e_fornecedor = true (em batches de 500 pra evitar URL gigante no .in())
-  const BATCH = 500;
-  let totalMarcados = 0;
+  // Chama RPC SECURITY DEFINER (.update() bloqueado por CORS PATCH no Supabase hbtggrbauguukewiknew)
   const sb = supabase as any;
+  const { data: resultado, error } = await sb.rpc("marcar_fornecedores", {
+    p_codigos: codigosFornecedores,
+  });
 
-  for (let i = 0; i < codigosFornecedores.length; i += BATCH) {
-    const batch = codigosFornecedores.slice(i, i + BATCH);
-    const { error, count } = await sb
-      .from("compras_entidades_cache")
-      .update({ e_fornecedor: true }, { count: "exact" })
-      .in("codigo_entidade", batch);
-
-    if (error) console.warn(`[Fornecedor] Erro batch ${i}:`, error.message);
-    else totalMarcados += count || 0;
+  if (error) {
+    console.error(`[Fornecedor] Erro RPC marcar_fornecedores:`, error.message);
+    return 0;
   }
 
-  // Zera flag das que NÃO estão mais na lista de fornecedores
-  const fornecedoresInClause = `(${codigosFornecedores.map((c) => `"${c}"`).join(",")})`;
-  const { error: errResetar } = await sb
-    .from("compras_entidades_cache")
-    .update({ e_fornecedor: false })
-    .eq("e_fornecedor", true)
-    .not("codigo_entidade", "in", fornecedoresInClause);
-
-  if (errResetar) {
-    console.warn(`[Fornecedor] Reset via .not(in) falhou: ${errResetar.message}`);
-  }
-
-  return totalMarcados;
-}
+  console.log(`[Fornecedor] RPC retornou:`, resultado);
+  return resultado?.marcados || codigosFornecedores.length;
 
 /**
  * Sync principal: roda Fase 1 (amplo) + Fase 2 (marcar fornecedores).
