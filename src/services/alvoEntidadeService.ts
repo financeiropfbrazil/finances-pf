@@ -43,22 +43,9 @@ function mapEntidadeToRecord(e: any, cidadeMap?: CidadeMap) {
     numero_endereco: e.NumeroEndereco,
     complemento_endereco: e.ComplementoEndereco,
     bairro: e.Bairro,
-    const records = data
-  .filter((e: any) => e.Codigo && e.CPFCNPJ)
-  .map((e: any) => {
-    const record: any = mapEntidadeToRecord(e, cidadeMap || undefined);
-
-    // Regra: se NÃO conseguiu resolver cidade pelo cidadeMap (uf null),
-    // remove uf/municipio do payload pra preservar o que já está no banco.
-    // Isso vale tanto pra entidades que já tinham cidade quanto pras que
-    // simplesmente não conseguimos resolver agora.
-    if (!record.uf || !record.municipio) {
-      delete record.uf;
-      delete record.municipio;
-    }
-
-    return record;
-  });
+    codigo_cidade_alvo: e.CodigoCidade,
+    uf: cidInfo?.uf || null,
+    municipio: cidInfo?.nome || null,
 
     // Status
     codigo_stat_ent: e.CodigoStatEnt,
@@ -162,7 +149,7 @@ async function carregarCidadesSeNecessario(
     console.warn(`[Cidades] Erro ao verificar entidades sem cidade:`, error.message);
   }
 
-  // Se não há entidades sem cidade E é a primeira vez (cache vazio também precisa), pula
+  // Se não há entidades sem cidade, pula
   if (!count || count === 0) {
     onProgress?.("Cidades: nada a enriquecer (todas as entidades já têm UF/município).");
     return null;
@@ -240,71 +227,16 @@ async function carregarCidadesSeNecessario(
 }
 
 /**
- * FASE 1 — Sync amplo: traz TODAS as entidades (sem filtro).
- * Faz upsert mapeando todos campos. Usa cidadeconst entidadesComCidade = new Set<string>();
-if (cidadeMap) {
-  // Paginação obrigatória — Supabase limita 1000 linhas por query
-  let from = 0;
-  const batchSize = 1000;
-  let hasMore = true;
-  while (hasMore) {
-    const { data: existentes, error: errExist } = await supabase
-      .from("compras_entidades_cache")
-      .select("codigo_entidade")
-      .not("uf", "is", null)
-      .not("municipio", "is", null)
-      .range(from, from + batchSize - 1);
-    if (errExist) {
-      console.warn(`[Cidades] Erro carregando entidades com cidade:`, errExist.message);
-      break;
-    }
-    if (!existentes || existentes.length === 0) {
-      hasMore = false;
-      break;
-    }
-    existentes.forEach((e: any) => entidadesComCidade.add(e.codigo_entidade));
-    if (existentes.length < batchSize) hasMore = false;
-    else from += batchSize;
-  }
-  console.log(`[Cidades] ${entidadesComCidade.size} entidades já possuem cidade (não serão sobrescritas).`);
-}Map (se disponível) APENAS para
- * preencher uf/municipio em entidades que ainda não têm — preserva dados existentes.
+ * FASE 1 — Sync amplo: traz TODAS as entidades (sem filtro) e faz upsert.
+ * Regra anti-perda: se NÃO conseguiu resolver a cidade via cidadeMap, remove
+ * uf/municipio do payload pra preservar o que já está no banco. Isso vale
+ * tanto pra entidades novas quanto pras que já tinham cidade.
  */
 async function syncEntidadesAmplo(
   tokenRef: { token: string },
   cidadeMap: CidadeMap | null,
   onProgress?: (msg: string) => void,
 ): Promise<number> {
-  // Carrega o set de entidades que JÁ têm uf/municipio populados
-  // (para evitar sobrescrever com null/erro caso cidadeMap esteja incompleto)
-  const entidadesComCidade = new Set<string>();
-  if (cidadeMap) {
-    // Paginação obrigatória — Supabase limita 1000 linhas por query
-    let from = 0;
-    const batchSize = 1000;
-    let hasMore = true;
-    while (hasMore) {
-      const { data: existentes, error: errExist } = await supabase
-        .from("compras_entidades_cache")
-        .select("codigo_entidade")
-        .not("uf", "is", null)
-        .not("municipio", "is", null)
-        .range(from, from + batchSize - 1);
-      if (errExist) {
-        console.warn(`[Cidades] Erro carregando entidades com cidade:`, errExist.message);
-        break;
-      }
-      if (!existentes || existentes.length === 0) {
-        hasMore = false;
-        break;
-      }
-      existentes.forEach((e: any) => entidadesComCidade.add(e.codigo_entidade));
-      if (existentes.length < batchSize) hasMore = false;
-      else from += batchSize;
-    }
-    console.log(`[Cidades] ${entidadesComCidade.size} entidades já possuem cidade (não serão sobrescritas).`);
-  }
-
   let page = 1;
   let totalSaved = 0;
   let totalEnriquecidas = 0;
@@ -322,20 +254,16 @@ async function syncEntidadesAmplo(
     const records = data
       .filter((e: any) => e.Codigo && e.CPFCNPJ)
       .map((e: any) => {
-        // Só enriquece com cidadeMap se entidade NÃO tinha cidade antes (preserva dados)
-        const jaTemCidade = entidadesComCidade.has(e.Codigo);
-        const usarCidadeMap = !jaTemCidade && cidadeMap ? cidadeMap : undefined;
-        const record = mapEntidadeToRecord(e, usarCidadeMap);
+        const record: any = mapEntidadeToRecord(e, cidadeMap || undefined);
 
-        // Se enriqueceu, conta
-        if (!jaTemCidade && record.uf && record.municipio) {
+        // Regra anti-perda: só grava uf/municipio quando temos certeza que resolveu.
+        // Se não conseguiu resolver, remove os campos do payload pra preservar
+        // o que já está no banco (não sobrescreve com null).
+        if (!record.uf || !record.municipio) {
+          delete record.uf;
+          delete record.municipio;
+        } else {
           totalEnriquecidas++;
-        }
-
-        // Se já tinha cidade, NUNCA sobrescreve (remove do payload pra preservar)
-        if (jaTemCidade) {
-          delete (record as any).uf;
-          delete (record as any).municipio;
         }
 
         return record;
@@ -350,7 +278,7 @@ async function syncEntidadesAmplo(
       else totalSaved += records.length;
     }
 
-    onProgress?.(`${totalSaved} entidades sincronizadas (${totalEnriquecidas} enriquecidas com cidade)...`);
+    onProgress?.(`${totalSaved} entidades sincronizadas (${totalEnriquecidas} c/ cidade resolvida)...`);
 
     if (data.length < PAGE_SIZE) {
       hasMore = false;
