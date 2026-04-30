@@ -45,6 +45,7 @@ import {
 import { Package, Download, Radio, Search, Loader2, AlertTriangle, Info, LayoutList, Layers } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { capturarSaldoMensal, sincronizarProdutosDoERP } from "@/services/alvoEstoqueService";
+import { syncNumSerie } from "@/services/alvoNumSerieService";
 import { InventoryComparative } from "@/components/inventory/InventoryComparative";
 import { ProductMovementModal } from "@/components/inventory/ProductMovementModal";
 import * as XLSX from "xlsx";
@@ -66,8 +67,6 @@ interface StockRow {
   valorMedioUnitario: number | null;
   fonte: string;
 }
-
-
 
 const MONTH_NAMES = [
   "Janeiro",
@@ -370,8 +369,23 @@ export default function Inventory() {
       if (res.erros.length > 0) {
         console.error("Erros na captura de estoque:", res.erros);
       }
+
+      // 3. Capturar números de série (ativa rastreabilidade serial/lote)
+      let serialResult: { total: number; inseridos: number; atualizados: number } | null = null;
+      try {
+        setCaptureProgress("Sincronizando números de série e lotes...");
+        serialResult = await syncNumSerie((msg) => setCaptureProgress(msg));
+      } catch (e: any) {
+        console.error("Erro na sincronização de seriais:", e.message);
+      }
+
       const descParts: string[] = [];
       if (syncRes.novos > 0) descParts.push(`${syncRes.novos} produtos novos sincronizados do ERP`);
+      if (serialResult) {
+        descParts.push(
+          `${serialResult.total} seriais (${serialResult.inseridos} novos, ${serialResult.atualizados} atualizados)`,
+        );
+      }
       if (res.erros.length > 0)
         descParts.push(`${res.erros.length} erros. Primeiros: ${res.erros.slice(0, 3).join(" | ")}`);
       toast({
@@ -517,7 +531,7 @@ export default function Inventory() {
           </Button>
           <Button size="sm" className="gap-2" onClick={handleCaptureClick} disabled={capturing}>
             {capturing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radio className="h-4 w-4" />}
-            {capturing ? "Capturando..." : "Capturar Saldo via API"}
+            {capturing ? "Capturando..." : "Capturar Estoque + Serial Numbers"}
           </Button>
         </div>
       </div>
