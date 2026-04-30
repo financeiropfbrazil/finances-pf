@@ -228,7 +228,33 @@ async function carregarCidadesSeNecessario(
 
 /**
  * FASE 1 — Sync amplo: traz TODAS as entidades (sem filtro).
- * Faz upsert mapeando todos campos. Usa cidadeMap (se disponível) APENAS para
+ * Faz upsert mapeando todos campos. Usa cidadeconst entidadesComCidade = new Set<string>();
+if (cidadeMap) {
+  // Paginação obrigatória — Supabase limita 1000 linhas por query
+  let from = 0;
+  const batchSize = 1000;
+  let hasMore = true;
+  while (hasMore) {
+    const { data: existentes, error: errExist } = await supabase
+      .from("compras_entidades_cache")
+      .select("codigo_entidade")
+      .not("uf", "is", null)
+      .not("municipio", "is", null)
+      .range(from, from + batchSize - 1);
+    if (errExist) {
+      console.warn(`[Cidades] Erro carregando entidades com cidade:`, errExist.message);
+      break;
+    }
+    if (!existentes || existentes.length === 0) {
+      hasMore = false;
+      break;
+    }
+    existentes.forEach((e: any) => entidadesComCidade.add(e.codigo_entidade));
+    if (existentes.length < batchSize) hasMore = false;
+    else from += batchSize;
+  }
+  console.log(`[Cidades] ${entidadesComCidade.size} entidades já possuem cidade (não serão sobrescritas).`);
+}Map (se disponível) APENAS para
  * preencher uf/municipio em entidades que ainda não têm — preserva dados existentes.
  */
 async function syncEntidadesAmplo(
@@ -240,12 +266,30 @@ async function syncEntidadesAmplo(
   // (para evitar sobrescrever com null/erro caso cidadeMap esteja incompleto)
   const entidadesComCidade = new Set<string>();
   if (cidadeMap) {
-    const { data: existentes } = await supabase
-      .from("compras_entidades_cache")
-      .select("codigo_entidade")
-      .not("uf", "is", null)
-      .not("municipio", "is", null);
-    (existentes || []).forEach((e: any) => entidadesComCidade.add(e.codigo_entidade));
+    // Paginação obrigatória — Supabase limita 1000 linhas por query
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+    while (hasMore) {
+      const { data: existentes, error: errExist } = await supabase
+        .from("compras_entidades_cache")
+        .select("codigo_entidade")
+        .not("uf", "is", null)
+        .not("municipio", "is", null)
+        .range(from, from + batchSize - 1);
+      if (errExist) {
+        console.warn(`[Cidades] Erro carregando entidades com cidade:`, errExist.message);
+        break;
+      }
+      if (!existentes || existentes.length === 0) {
+        hasMore = false;
+        break;
+      }
+      existentes.forEach((e: any) => entidadesComCidade.add(e.codigo_entidade));
+      if (existentes.length < batchSize) hasMore = false;
+      else from += batchSize;
+    }
+    console.log(`[Cidades] ${entidadesComCidade.size} entidades já possuem cidade (não serão sobrescritas).`);
   }
 
   let page = 1;
