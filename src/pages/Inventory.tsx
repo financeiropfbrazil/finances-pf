@@ -62,6 +62,7 @@ interface StockRow {
   familiaCodigo: string | null;
   variacao: string | null;
   unidadeMedida: string | null;
+  controlaLote: boolean;
   quantidade: number;
   valorTotalBrl: number | null;
   valorMedioUnitario: number | null;
