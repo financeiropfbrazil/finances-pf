@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,8 +7,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { authenticateAlvo, getAlvoToken, clearAlvoToken } from "@/services/alvoService";
-import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, XCircle, Loader2 } from "lucide-react";
+import { Download, Upload, CheckCircle2, AlertCircle, XCircle, Loader2 } from "lucide-react";
+
+const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 
 interface UploadedRow {
   CNPJ: string;
@@ -43,19 +44,19 @@ export default function EntidadesUploadCodigos() {
   };
 
   const matchRows = async (rows: any[]) => {
-    const cnpjs = rows.map(r => (r.CNPJ || "").toString().replace(/\D/g, ""));
-    const { data: entidades } = await supabase
+    const cnpjs = rows.map((r) => (r.CNPJ || "").toString().replace(/\D/g, ""));
+    const { data: entidades } = (await supabase
       .from("compras_entidades_cache")
       .select("codigo_entidade, cnpj, nome, codigo_alternativo")
-      .in("cnpj", cnpjs) as any;
+      .in("cnpj", cnpjs)) as any;
 
     const entMap = new Map((entidades || []).map((e: any) => [e.cnpj, e]));
 
-    return rows.map(r => {
+    return rows.map((r) => {
       const cnpjLimpo = (r.CNPJ || "").toString().replace(/\D/g, "");
       const ent = entMap.get(cnpjLimpo) as any;
       const fileCodAlt = r["Código Alternativo"]?.toString() || "";
-      
+
       let status: "igual" | "atualizar" | "não encontrada" = "não encontrada";
       if (ent) {
         status = ent.codigo_alternativo === fileCodAlt ? "igual" : "atualizar";
@@ -82,12 +83,11 @@ export default function EntidadesUploadCodigos() {
       const wb = XLSX.read(buffer);
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<any>(ws);
-      
-      // Filtrar linhas vazias
-      const valid = rows.filter(r => r.CNPJ && r["Código Alternativo"]);
+
+      const valid = rows.filter((r) => r.CNPJ && r["Código Alternativo"]);
       const matched = await matchRows(valid);
       setUploadedRows(matched);
-      
+
       toast({
         title: "Arquivo processado",
         description: `${matched.length} linhas encontradas.`,
@@ -101,52 +101,79 @@ export default function EntidadesUploadCodigos() {
       });
     } finally {
       setLoading(false);
-      // Reset input
       event.target.value = "";
     }
   };
 
-  const gravarNoAlvo = async (codigoEntidade: string, codAlternativo: string): Promise<{ success: boolean; error?: string }> => {
-    const { authenticateAlvo, clearAlvoToken } = await import("@/services/alvoService");
-    const ERP = "https://pef.it4you.inf.br/api";
-    const MAX_RETRIES = 3;
+  /**
+   * Atualiza 1 entidade: POST gateway (Alvo) + RPC (Supabase).
+   * Retorna { success, error? }.
+   */
+  const atualizarEntidade = async (
+    codigoEntidade: string,
+    codigoAlternativo: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    // Pega JWT do Supabase pra autenticar no gateway
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { success: false, error: "Sessão Supabase expirada. Faça login novamente." };
+    }
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      if (attempt === 1) clearAlvoToken();
-      const auth = await authenticateAlvo();
-      if (!auth.token) return { success: false, error: "Falha na autenticação" };
-
-      const resp = await fetch(`${ERP}/Entidade/SavePartial`, {
+    // 1) POST no Alvo via erp-proxy
+    let alvoResp: Response;
+    try {
+      alvoResp = await fetch(`${ERP_PROXY_URL}/entidade/save-partial`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "riosoft-token": auth.token },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({
-          Codigo: codigoEntidade,
-          CodigoAlternativo: codAlternativo,
-          SavePartialEndereco: false,
-          ValidacaoParcial: false,
+          codigo: codigoEntidade,
+          codigoAlternativo,
         }),
       });
-
-      if (resp.status === 409) {
-        clearAlvoToken();
-        await new Promise(r => setTimeout(r, 1000 * attempt));
-        continue;
-      }
-
-      if (!resp.ok) {
-        const text = await resp.text().catch(() => "");
-        let msg = `HTTP ${resp.status}`;
-        try { msg = JSON.parse(text).Message || msg; } catch {}
-        return { success: false, error: msg };
-      }
-
-      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: `Erro de rede no gateway: ${err.message}` };
     }
-    return { success: false, error: "Conflito de sessão persistente (409)" };
+
+    if (!alvoResp.ok) {
+      let errMsg = `HTTP ${alvoResp.status}`;
+      try {
+        const body = await alvoResp.json();
+        errMsg = body.error || errMsg;
+      } catch {}
+      return { success: false, error: `Alvo: ${errMsg}` };
+    }
+
+    // 2) UPDATE no Supabase via RPC (resolve CORS PATCH)
+    const sb = supabase as any;
+    const { data, error: rpcError } = await sb.rpc("atualizar_codigo_alternativo", {
+      p_codigo_entidade: codigoEntidade,
+      p_codigo_alternativo: codigoAlternativo,
+    });
+
+    if (rpcError) {
+      // Alvo já foi atualizado; só o cache local falhou.
+      // Não é catastrófico: próximo sync corrige.
+      console.warn(`[Upload] Alvo OK mas RPC falhou para ${codigoEntidade}:`, rpcError.message);
+      return {
+        success: false,
+        error: `Alvo OK, mas cache local falhou: ${rpcError.message}`,
+      };
+    }
+
+    if (data !== true) {
+      console.warn(`[Upload] Entidade ${codigoEntidade} não encontrada no cache (RPC retornou false)`);
+    }
+
+    return { success: true };
   };
 
   const handleApplyChanges = async () => {
-    const rowsToUpdate = uploadedRows.filter(r => r.status === "atualizar");
+    const rowsToUpdate = uploadedRows.filter((r) => r.status === "atualizar");
     if (rowsToUpdate.length === 0) {
       toast({
         title: "Nada para atualizar",
@@ -158,105 +185,51 @@ export default function EntidadesUploadCodigos() {
     setProcessing(true);
     setProgress(0);
 
-    try {
-      const { authenticateAlvo, clearAlvoToken } = await import("@/services/alvoService");
-      const ERP = "https://pef.it4you.inf.br/api";
+    let updated = 0;
+    let errors = 0;
+    const errorDetails: string[] = [];
 
-      clearAlvoToken();
-      let auth = await authenticateAlvo();
-      if (!auth.token) {
-        toast({ title: "❌ Falha na autenticação ERP", variant: "destructive" });
-        setProcessing(false);
-        return;
+    for (let i = 0; i < rowsToUpdate.length; i++) {
+      const row = rowsToUpdate[i];
+
+      const { success, error } = await atualizarEntidade(row.entidade!.codigo_entidade, row.codAlt!);
+
+      if (success) {
+        updated++;
+      } else {
+        errors++;
+        errorDetails.push(`${row.CNPJ}: ${error}`);
       }
 
-      let updated = 0;
-      let errors = 0;
-
-      for (let i = 0; i < rowsToUpdate.length; i++) {
-        const row = rowsToUpdate[i];
-        
-        // Gravar no Alvo com retry
-        let success = false;
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          const resp = await fetch(`${ERP}/Entidade/SavePartial`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "riosoft-token": auth.token! },
-            body: JSON.stringify({
-              Codigo: row.entidade!.codigo_entidade,
-              CodigoAlternativo: row.codAlt,
-              SavePartialEndereco: false,
-              ValidacaoParcial: false,
-            }),
-          });
-
-          if (resp.status === 409) {
-            clearAlvoToken();
-            auth = await authenticateAlvo();
-            await new Promise(r => setTimeout(r, 1000));
-            continue;
-          }
-          if (resp.ok) {
-            success = true;
-            break;
-          }
-          break;
-        }
-
-        if (success) {
-          // 2. Atualizar no Supabase Cache (upsert para evitar CORS com PATCH)
-          const { data: current } = await supabase
-            .from("compras_entidades_cache")
-            .select("*")
-            .eq("codigo_entidade", row.entidade!.codigo_entidade)
-            .maybeSingle();
-
-          const sbError = current
-            ? (await supabase.from("compras_entidades_cache").upsert({
-                ...current,
-                codigo_alternativo: row.codAlt,
-                updated_at: new Date().toISOString(),
-              }, { onConflict: "codigo_entidade" })).error
-            : null;
-
-          if (!sbError) {
-            updated++;
-          } else {
-            console.error(`Erro no Supabase for ${row.CNPJ}:`, sbError);
-            errors++;
-          }
-        } else {
-          errors++;
-        }
-        
-        setProgress(Math.round(((i + 1) / rowsToUpdate.length) * 100));
-      }
-
-      toast({
-        title: "Processamento concluído",
-        description: `${updated} atualizados, ${errors} erros.`,
-      });
-
-      // Refresh data
-      const refreshed = await matchRows(uploadedRows);
-      setUploadedRows(refreshed);
-    } catch (error: any) {
-      toast({
-        title: "Erro no processamento",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setProcessing(false);
-      setProgress(0);
+      setProgress(Math.round(((i + 1) / rowsToUpdate.length) * 100));
     }
+
+    if (errorDetails.length > 0) {
+      console.error("Erros do batch:\n" + errorDetails.join("\n"));
+    }
+
+    toast({
+      title: "Processamento concluído",
+      description: `${updated} atualizados, ${errors} erros.${errors > 0 ? " Veja o console pra detalhes." : ""}`,
+      variant: errors > 0 ? "destructive" : "default",
+    });
+
+    // Refresh status (re-matcha contra o banco atualizado)
+    const refreshed = await matchRows(uploadedRows);
+    setUploadedRows(refreshed);
+
+    setProcessing(false);
+    setProgress(0);
   };
 
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold text-foreground">Upload de Códigos Alternativos</h1>
-        <p className="text-muted-foreground">Atualize os códigos alternativos das entidades em massa via planilha Excel</p>
+        <p className="text-muted-foreground">
+          Atualize os códigos alternativos das entidades em massa via planilha Excel. A planilha é a fonte da verdade —
+          após o upload, os códigos são gravados no Alvo e refletidos no cache local.
+        </p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -303,9 +276,9 @@ export default function EntidadesUploadCodigos() {
               <CardTitle className="text-lg">3. Preview e Match</CardTitle>
               <CardDescription>Verifique os dados antes de aplicar as alterações.</CardDescription>
             </div>
-            <Button 
-              onClick={handleApplyChanges} 
-              disabled={processing || !uploadedRows.some(r => r.status === "atualizar")}
+            <Button
+              onClick={handleApplyChanges}
+              disabled={processing || !uploadedRows.some((r) => r.status === "atualizar")}
               className="gap-2"
             >
               {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
