@@ -48,6 +48,7 @@ import { capturarSaldoMensal, sincronizarProdutosDoERP } from "@/services/alvoEs
 import { syncNumSerie } from "@/services/alvoNumSerieService";
 import { InventoryComparative } from "@/components/inventory/InventoryComparative";
 import { ProductMovementModal } from "@/components/inventory/ProductMovementModal";
+import { ProductSerialsAccordion } from "@/components/inventory/ProductSerialsAccordion";
 import * as XLSX from "xlsx";
 import { TIPOS_VISIVEIS_ESTOQUE, TIPOS_LABEL as TIPOS_LABEL_GLOBAL } from "@/constants/stockTipos";
 
@@ -113,6 +114,13 @@ export default function Inventory() {
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; count: number }>({ open: false, count: 0 });
   // Closed period alert
   const [closedAlert, setClosedAlert] = useState(false);
+
+  // Estado: seriais expandidos por balanceId
+  const [expandedSerials, setExpandedSerials] = useState<Record<string, boolean>>({});
+
+  const toggleSerials = (balanceId: string) => {
+    setExpandedSerials((prev) => ({ ...prev, [balanceId]: !prev[balanceId] }));
+  };
 
   // Data de referência default = yesterday
   const [selectedDate, setSelectedDate] = useState<Date>(() => subDays(new Date(), 1));
@@ -186,7 +194,7 @@ export default function Inventory() {
       const { data } = await supabase
         .from("stock_products")
         .select(
-          "id, codigo_produto, codigo_alternativo, codigo_reduzido, nome_produto, tipo_produto, familia_codigo, variacao, unidade_medida",
+          "id, codigo_produto, codigo_alternativo, codigo_reduzido, nome_produto, tipo_produto, familia_codigo, variacao, unidade_medida, controla_lote",
         )
         .eq("ativo", true)
         .in("tipo_produto", TIPOS_VISIVEIS_ESTOQUE as unknown as string[])
@@ -217,6 +225,7 @@ export default function Inventory() {
           familiaCodigo: p.familia_codigo ?? null,
           variacao: p.variacao ?? null,
           unidadeMedida: p.unidade_medida ?? null,
+          controlaLote: !!p.controla_lote,
           quantidade: Number(b.quantidade),
           valorTotalBrl: b.valor_total_brl != null ? Number(b.valor_total_brl) : null,
           valorMedioUnitario: b.valor_medio_unitario != null ? Number(b.valor_medio_unitario) : null,
@@ -449,20 +458,51 @@ export default function Inventory() {
 
   const renderTableRows = (items: StockRow[], showSubtotal?: { label: string }) => (
     <>
-      {items.map((r) => (
-        <TableRow
-          key={r.balanceId}
-          className={cn("cursor-pointer", r.quantidade === 0 ? "text-muted-foreground" : "")}
-          onClick={() => setMovementModal({ open: true, row: r })}
-        >
-          <TableCell className="font-mono text-xs">{r.codigoProduto}</TableCell>
-          <TableCell className="text-sm">{r.nomeProduto}</TableCell>
-          <TableCell className="text-xs">{r.variacao ?? "—"}</TableCell>
-          <TableCell className="text-right">{renderQtyCell(r)}</TableCell>
-          <TableCell className="text-right text-sm">{renderValueCell(r, r.valorMedioUnitario)}</TableCell>
-          <TableCell className="text-right text-sm font-medium">{renderValueCell(r, r.valorTotalBrl)}</TableCell>
-        </TableRow>
-      ))}
+      {items.map((r) => {
+        const isExpanded = expandedSerials[r.balanceId] === true;
+        const canExpand = r.controlaLote && r.quantidade > 0;
+
+        return (
+          <>
+            <TableRow
+              key={r.balanceId}
+              className={cn(r.quantidade === 0 ? "text-muted-foreground" : "", canExpand ? "" : "cursor-pointer")}
+            >
+              <TableCell className="font-mono text-xs">
+                {canExpand ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSerials(r.balanceId);
+                    }}
+                    className="hover:underline focus:underline text-left"
+                  >
+                    {isExpanded ? "▼" : "▶"} {r.codigoProduto}
+                  </button>
+                ) : (
+                  r.codigoProduto
+                )}
+              </TableCell>
+              <TableCell className="text-sm" onClick={() => !canExpand && setMovementModal({ open: true, row: r })}>
+                {r.nomeProduto}
+              </TableCell>
+              <TableCell className="text-xs" onClick={() => !canExpand && setMovementModal({ open: true, row: r })}>
+                {r.variacao ?? "—"}
+              </TableCell>
+              <TableCell className="text-right">{renderQtyCell(r)}</TableCell>
+              <TableCell className="text-right text-sm">{renderValueCell(r, r.valorMedioUnitario)}</TableCell>
+              <TableCell className="text-right text-sm font-medium">{renderValueCell(r, r.valorTotalBrl)}</TableCell>
+            </TableRow>
+            {canExpand && isExpanded && (
+              <TableRow key={`${r.balanceId}-serials`} className="hover:bg-transparent">
+                <TableCell colSpan={6} className="p-0">
+                  <ProductSerialsAccordion codigoProduto={r.codigoProduto} />
+                </TableCell>
+              </TableRow>
+            )}
+          </>
+        );
+      })}
       {showSubtotal && (
         <TableRow className="bg-muted/50 font-semibold">
           <TableCell colSpan={3} className="text-xs">
@@ -532,7 +572,7 @@ export default function Inventory() {
           </Button>
           <Button size="sm" className="gap-2" onClick={handleCaptureClick} disabled={capturing}>
             {capturing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radio className="h-4 w-4" />}
-            {capturing ? "Capturando..." : "Capturar Estoque + Serial Numbers"}
+            {capturing ? "Capturando..." : "Capturar Saldo via API"}
           </Button>
         </div>
       </div>
