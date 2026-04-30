@@ -43,9 +43,22 @@ function mapEntidadeToRecord(e: any, cidadeMap?: CidadeMap) {
     numero_endereco: e.NumeroEndereco,
     complemento_endereco: e.ComplementoEndereco,
     bairro: e.Bairro,
-    codigo_cidade_alvo: e.CodigoCidade,
-    uf: cidInfo?.uf || null,
-    municipio: cidInfo?.nome || null,
+    const records = data
+  .filter((e: any) => e.Codigo && e.CPFCNPJ)
+  .map((e: any) => {
+    const record: any = mapEntidadeToRecord(e, cidadeMap || undefined);
+
+    // Regra: se NÃO conseguiu resolver cidade pelo cidadeMap (uf null),
+    // remove uf/municipio do payload pra preservar o que já está no banco.
+    // Isso vale tanto pra entidades que já tinham cidade quanto pras que
+    // simplesmente não conseguimos resolver agora.
+    if (!record.uf || !record.municipio) {
+      delete record.uf;
+      delete record.municipio;
+    }
+
+    return record;
+  });
 
     // Status
     codigo_stat_ent: e.CodigoStatEnt,
