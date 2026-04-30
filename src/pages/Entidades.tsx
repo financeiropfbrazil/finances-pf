@@ -1,24 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { iniciarSyncLog, finalizarSyncLog } from "@/services/syncLogService";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { syncEntidades as syncEntidadesService } from "@/services/alvoEntidadeService";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Search, RefreshCw, Download, Users, Loader2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,17 +24,16 @@ const formatCNPJ = (cnpj: string | null) => {
   return cnpj;
 };
 
-
 const Entidades = () => {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [syncProgress, setSyncProgress] = useState<{ step: string; pct: number } | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string>("");
   const [selectedUF, setSelectedUF] = useState<string>("all");
   const [selectedMunicipio, setSelectedMunicipio] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const PAGE_SIZE = 100; // Reduzido para melhorar performance de renderização
+  const PAGE_SIZE = 100;
 
   const { toast } = useToast();
 
@@ -85,159 +72,75 @@ const Entidades = () => {
   useEffect(() => {
     if (searchParams.get("autoSync") === "true") {
       setSearchParams({});
-      setTimeout(() => syncEntidades(), 500);
+      setTimeout(() => handleSyncEntidades(), 500);
     }
   }, []);
 
-  const syncEntidades = async () => {
+  /**
+   * Sync centralizado — chama o service usado também em Settings.
+   * Toda lógica de sync (cidades, fornecedores, fases) está no alvoEntidadeService.ts.
+   */
+  const handleSyncEntidades = async () => {
     setSyncing(true);
-    setSyncProgress({ step: "Buscando entidades do Alvo...", pct: 10 });
+    setSyncMessage("Iniciando sincronização...");
     let logId: string | null = null;
+
     try {
-      const { authenticateAlvo, clearAlvoToken } = await import("@/services/alvoService");
       logId = await iniciarSyncLog("entidades");
-      clearAlvoToken();
-      const auth = await authenticateAlvo();
-      if (!auth.success || !auth.token) throw new Error(auth.error || "Falha na autenticação");
 
-      const ERP = "https://pef.it4you.inf.br/api";
-      let page = 1;
-      let allEntidades: any[] = [];
-      let hasMore = true;
-
-      while (hasMore) {
-        setSyncProgress({ step: `Buscando entidades... página ${page}`, pct: Math.min(10 + page * 5, 40) });
-        const resp = await fetch(`${ERP}/Entidade/GetListForComponents`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "riosoft-token": auth.token },
-          body: JSON.stringify({
-            FormName: "entidade",
-            ClassInput: "Entidade",
-            ControllerForm: "entidade",
-            TypeObject: "tabForm",
-            Filter: "",
-            Input: "gridTableEntidade",
-            IsGroupBy: false,
-            Order: "Codigo ASC",
-            PageIndex: page,
-            PageSize: 500,
-            Shortcut: "entidade",
-            Type: "GridTable",
-          }),
-        });
-        
-        if (!resp.ok) {
-          throw new Error(`Erro na API do ERP: ${resp.status}`);
-        }
-        
-        const data = await resp.json();
-        if (!Array.isArray(data) || data.length === 0) {
-          hasMore = false;
-          break;
-        }
-        
-        allEntidades = allEntidades.concat(data);
-        if (data.length < 500) hasMore = false;
-        else page++;
-      }
-
-      setSyncProgress({ step: `${allEntidades.length} entidades encontradas. Buscando cidades...`, pct: 50 });
-
-      // Buscar TODAS as cidades do Alvo (são poucas centenas)
-      const cidadeMap: Record<string, { nome: string; uf: string }> = {};
-      let cidPage = 1;
-      let cidHasMore = true;
-      while (cidHasMore) {
-        const cidResp = await fetch(`${ERP}/Cidade/GetListForComponents`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "riosoft-token": auth.token },
-          body: JSON.stringify({
-            FormName: "cidade", ClassInput: "Cidade",
-            ControllerForm: "cidade", TypeObject: "tabForm",
-            Filter: "", Input: "gridTableCidade",
-            IsGroupBy: false, Order: "Codigo ASC",
-            PageIndex: cidPage, PageSize: 500,
-            Shortcut: "cidade", Type: "GridTable",
-          }),
-        });
-        const cidData = await cidResp.json();
-        if (!Array.isArray(cidData) || cidData.length === 0) { cidHasMore = false; break; }
-        cidData.forEach((c: any) => {
-          cidadeMap[c.Codigo] = {
-            nome: c.NomeCompleto || c.Nome || "",
-            uf: c.SiglaUnidFederacao || "",
-          };
-        });
-        if (cidData.length < 500) cidHasMore = false;
-        else cidPage++;
-      }
-
-      setSyncProgress({ step: `${Object.keys(cidadeMap).length} cidades mapeadas. Salvando...`, pct: 70 });
-
-      // Upsert no Supabase
-      const upsertBatch = allEntidades.map(e => {
-        const cidInfo = cidadeMap[e.CodigoCidade] || null;
-        return {
-          codigo_entidade: String(e.Codigo),
-          cnpj: (e.CPFCNPJ || "").replace(/\D/g, "") || null,
-          nome: e.Nome || null,
-          ie: e.RGIE || null,
-          uf: cidInfo?.uf || null,
-          municipio: cidInfo?.nome || null,
-          codigo_alternativo: e.CodigoAlternativo || null,
-          updated_at: new Date().toISOString(),
-        };
+      const total = await syncEntidadesService((msg) => {
+        setSyncMessage(msg);
       });
 
-      for (let i = 0; i < upsertBatch.length; i += 200) {
-        setSyncProgress({ step: `Salvando lote ${Math.floor(i / 200) + 1}...`, pct: 70 + Math.min((i / upsertBatch.length) * 25, 25) });
-        const batch = upsertBatch.slice(i, i + 200);
-        const { error: upsertError } = await supabase
-          .from("compras_entidades_cache")
-          .upsert(batch, { onConflict: "codigo_entidade" });
-          
-        if (upsertError) throw upsertError;
-      }
+      await finalizarSyncLog(logId, "entidades", {
+        status: "success",
+        records_processed: total,
+      });
 
-      await finalizarSyncLog(logId, "entidades", { status: "success", records_processed: allEntidades.length });
-      toast({ title: `✅ ${allEntidades.length} entidades sincronizadas` });
-      fetchEntidades();
+      toast({ title: `✅ ${total} entidades sincronizadas` });
+      await fetchEntidades();
     } catch (err: any) {
-      await finalizarSyncLog(logId, "entidades", { status: "error", error_message: err.message });
-      toast({ title: "❌ Erro", description: err.message, variant: "destructive" });
+      if (logId) {
+        await finalizarSyncLog(logId, "entidades", {
+          status: "error",
+          error_message: err.message,
+        });
+      }
+      toast({
+        title: "❌ Erro na sincronização",
+        description: err.message,
+        variant: "destructive",
+      });
     } finally {
       setSyncing(false);
-      setSyncProgress(null);
+      setSyncMessage("");
     }
   };
 
   const availableUFs = useMemo(() => {
-    const ufs = new Set(rows.map(r => r.uf).filter(Boolean));
+    const ufs = new Set(rows.map((r) => r.uf).filter(Boolean));
     return Array.from(ufs).sort();
   }, [rows]);
 
   const availableMunicipios = useMemo(() => {
-    const filteredRows = selectedUF !== "all" ? rows.filter(r => r.uf === selectedUF) : rows;
-    const municipios = new Set(filteredRows.map(r => r.municipio).filter(Boolean));
+    const filteredRows = selectedUF !== "all" ? rows.filter((r) => r.uf === selectedUF) : rows;
+    const municipios = new Set(filteredRows.map((r) => r.municipio).filter(Boolean));
     return Array.from(municipios).sort();
   }, [rows, selectedUF]);
 
   const filtered = useMemo(() => {
-    return rows.filter(r => {
-      // Filtro de termo de pesquisa
+    return rows.filter((r) => {
       const s = searchTerm.trim().toLowerCase();
       const sNumbers = s.replace(/\D/g, "");
-      
-      const matchSearch = !s || 
+
+      const matchSearch =
+        !s ||
         (r.nome || "").toLowerCase().includes(s) ||
         (r.codigo_entidade || "").toLowerCase().includes(s) ||
         (r.codigo_alternativo || "").toLowerCase().includes(s) ||
         (sNumbers !== "" && (r.cnpj || "").replace(/\D/g, "").includes(sNumbers));
 
-      // Filtro de UF
       const matchUF = selectedUF === "all" || r.uf === selectedUF;
-
-      // Filtro de Município
       const matchMunicipio = selectedMunicipio === "all" || r.municipio === selectedMunicipio;
 
       return matchSearch && matchUF && matchMunicipio;
@@ -257,15 +160,17 @@ const Entidades = () => {
 
   const handleExportExcel = () => {
     const dataToExport = filtered.map((row) => ({
-      "Código": row.codigo_entidade,
+      Código: row.codigo_entidade,
       "Cód. Alternativo": row.codigo_alternativo || "—",
-      "Nome": row.nome || "—",
-      "CNPJ": formatCNPJ(row.cnpj),
-      "IE": row.ie || "—",
-      "UF": row.uf || "—",
-      "Município": row.municipio || "—",
+      Nome: row.nome || "—",
+      "Nome Fantasia": row.nome_fantasia || "—",
+      CNPJ: formatCNPJ(row.cnpj),
+      IE: row.ie || "—",
+      UF: row.uf || "—",
+      Município: row.municipio || "—",
+      Fornecedor: row.e_fornecedor ? "Sim" : "Não",
     }));
-    
+
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Entidades");
@@ -290,24 +195,18 @@ const Entidades = () => {
             <Download className="mr-2 h-4 w-4" />
             Exportar Excel
           </Button>
-          <Button onClick={syncEntidades} disabled={syncing} className="gap-2">
+          <Button onClick={handleSyncEntidades} disabled={syncing} className="gap-2">
             {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {syncing ? "Sincronizando..." : "Sincronizar Alvo"}
           </Button>
         </div>
       </div>
 
-      {syncProgress && (
-        <div className="space-y-2 px-4 pb-4">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{syncProgress.step}</span>
-            <span>{Math.round(syncProgress.pct)}%</span>
-          </div>
-          <div className="w-full bg-muted rounded-full h-2">
-            <div
-              className="bg-primary h-2 rounded-full transition-all duration-300"
-              style={{ width: `${syncProgress.pct}%` }}
-            />
+      {syncMessage && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <span className="text-foreground">{syncMessage}</span>
           </div>
         </div>
       )}
@@ -333,18 +232,23 @@ const Entidades = () => {
 
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground block">Estado (UF)</label>
-              <Select value={selectedUF} onValueChange={(val) => {
-                setSelectedUF(val);
-                setSelectedMunicipio("all");
-                setCurrentPage(1);
-              }}>
+              <Select
+                value={selectedUF}
+                onValueChange={(val) => {
+                  setSelectedUF(val);
+                  setSelectedMunicipio("all");
+                  setCurrentPage(1);
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Todas UFs" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas UFs</SelectItem>
-                  {availableUFs.map(uf => (
-                    <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                  {availableUFs.map((uf) => (
+                    <SelectItem key={uf} value={uf}>
+                      {uf}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -352,17 +256,22 @@ const Entidades = () => {
 
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground block">Município</label>
-              <Select value={selectedMunicipio} onValueChange={(val) => {
-                setSelectedMunicipio(val);
-                setCurrentPage(1);
-              }}>
+              <Select
+                value={selectedMunicipio}
+                onValueChange={(val) => {
+                  setSelectedMunicipio(val);
+                  setCurrentPage(1);
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Todos Municípios" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
                   <SelectItem value="all">Todos Municípios</SelectItem>
-                  {availableMunicipios.map(m => (
-                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  {availableMunicipios.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -370,9 +279,9 @@ const Entidades = () => {
 
             <div className="flex items-center gap-2">
               {(searchTerm || selectedUF !== "all" || selectedMunicipio !== "all") && (
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={clearFilters}
                   className="h-10 text-xs text-muted-foreground hover:text-foreground"
                 >
@@ -433,20 +342,31 @@ const Entidades = () => {
               <span className="text-xs text-muted-foreground">
                 Total: {rows.length} entidades
                 {searchTerm && ` · ${totalFiltered} filtrada(s)`}
-                {` · Mostrando ${((currentPage - 1) * PAGE_SIZE) + 1}–${Math.min(currentPage * PAGE_SIZE, totalFiltered)} de ${totalFiltered}`}
+                {` · Mostrando ${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(
+                  currentPage * PAGE_SIZE,
+                  totalFiltered,
+                )} de ${totalFiltered}`}
               </span>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-7 text-xs"
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
                   disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage(p => p - 1)}>
+                  onClick={() => setCurrentPage((p) => p - 1)}
+                >
                   Anterior
                 </Button>
                 <span className="text-xs text-muted-foreground">
                   Página {currentPage} de {totalPages || 1}
                 </span>
-                <Button variant="outline" size="sm" className="h-7 text-xs"
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
                   disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage(p => p + 1)}>
+                  onClick={() => setCurrentPage((p) => p + 1)}
+                >
                   Próxima
                 </Button>
               </div>
