@@ -89,7 +89,10 @@ const formatDiasRestantes = (dias: number | null): string => {
   }
   if (dias === 0) return "vence hoje";
   if (dias <= 30) return `vence em ${dias} dia${dias !== 1 ? "s" : ""}`;
-  if (dias <= 90) return `vence em ${Math.floor(dias / 30)} ${Math.floor(dias / 30) === 1 ? "mês" : "meses"}`;
+  if (dias <= 90) {
+    const meses = Math.round(dias / 30);
+    return `vence em ${meses} ${meses === 1 ? "mês" : "meses"}`;
+  }
   return "";
 };
 
