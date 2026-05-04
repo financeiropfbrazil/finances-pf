@@ -439,25 +439,46 @@ export default function Inventory() {
     if (produtosComLote.length > 0) {
       try {
         // Busca seriais em chunks (Supabase .in() limita ~1000 itens na URL)
+        // E pagina o resultado de CADA chunk com .range() pra contornar o LIMIT 1000 implícito do PostgREST
         const allSerials: any[] = [];
         const chunkSize = 200;
+        const pageSize = 1000;
+
         for (let i = 0; i < produtosComLote.length; i += chunkSize) {
           const chunk = produtosComLote.slice(i, i + chunkSize);
-          const { data: serialData, error } = await supabase
-            .from("stock_serials_em_estoque" as any)
-            .select(
-              "codigo_produto, nome_produto, numero_serie, numero_ctrl_lote, data_validade_ctrl_lote, codigo_loc_armaz, codigo_loc_armaz_num_ser, codigo_entidade_fabricante, data_cadastro_alvo",
-            )
-            .in("codigo_produto", chunk)
-            .order("codigo_produto", { ascending: true })
-            .order("numero_ctrl_lote", { ascending: true })
-            .order("numero_serie", { ascending: true });
 
-          if (error) {
-            console.error("[Export] Erro buscando seriais:", error.message);
-            continue;
+          // Pagina dentro do chunk
+          let from = 0;
+          let done = false;
+          while (!done) {
+            const { data: serialData, error } = await supabase
+              .from("stock_serials_em_estoque" as any)
+              .select(
+                "codigo_produto, nome_produto, numero_serie, numero_ctrl_lote, data_validade_ctrl_lote, codigo_loc_armaz, codigo_loc_armaz_num_ser, codigo_entidade_fabricante, data_cadastro_alvo",
+              )
+              .in("codigo_produto", chunk)
+              .order("codigo_produto", { ascending: true })
+              .order("numero_ctrl_lote", { ascending: true })
+              .order("numero_serie", { ascending: true })
+              .range(from, from + pageSize - 1);
+
+            if (error) {
+              console.error("[Export] Erro buscando seriais:", error.message);
+              done = true;
+              break;
+            }
+
+            if (serialData && serialData.length > 0) {
+              allSerials.push(...serialData);
+              if (serialData.length < pageSize) {
+                done = true;
+              } else {
+                from += pageSize;
+              }
+            } else {
+              done = true;
+            }
           }
-          if (serialData) allSerials.push(...serialData);
         }
 
         // Mapa código → nome (pra preencher nome do produto na aba)
