@@ -413,7 +413,8 @@ export default function Inventory() {
   };
 
   // Export
-  const handleExport = () => {
+  const handleExport = async () => {
+    // Aba 1 — Resumo (1 linha por produto)
     const data = filtered.map((r) => ({
       Código: r.codigoProduto,
       "Cód. Alternativo": r.codigoAlternativo ?? "",
@@ -431,6 +432,82 @@ export default function Inventory() {
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Estoque");
+
+    // Aba 2 — Seriais (1 linha por serial, apenas produtos com controla_lote=true e qtd>0)
+    const produtosComLote = filtered.filter((r) => r.controlaLote && r.quantidade > 0).map((r) => r.codigoProduto);
+
+    if (produtosComLote.length > 0) {
+      try {
+        // Busca seriais em chunks (Supabase .in() limita ~1000 itens na URL)
+        const allSerials: any[] = [];
+        const chunkSize = 200;
+        for (let i = 0; i < produtosComLote.length; i += chunkSize) {
+          const chunk = produtosComLote.slice(i, i + chunkSize);
+          const { data: serialData, error } = await supabase
+            .from("stock_serials_em_estoque" as any)
+            .select(
+              "codigo_produto, nome_produto, numero_serie, numero_ctrl_lote, data_validade_ctrl_lote, codigo_loc_armaz, codigo_loc_armaz_num_ser, codigo_entidade_fabricante, data_cadastro_alvo",
+            )
+            .in("codigo_produto", chunk)
+            .order("codigo_produto", { ascending: true })
+            .order("numero_ctrl_lote", { ascending: true })
+            .order("numero_serie", { ascending: true });
+
+          if (error) {
+            console.error("[Export] Erro buscando seriais:", error.message);
+            continue;
+          }
+          if (serialData) allSerials.push(...serialData);
+        }
+
+        // Mapa código → nome (pra preencher nome do produto na aba)
+        const nomeMap = new Map(filtered.map((r) => [r.codigoProduto, r.nomeProduto]));
+
+        const formatDateBR = (iso: string | null) => {
+          if (!iso) return "";
+          try {
+            return new Date(iso).toLocaleDateString("pt-BR");
+          } catch {
+            return "";
+          }
+        };
+
+        const cleanLocal = (codigo: string | null, nome: string | null) => {
+          if (nome && nome.trim() !== "") {
+            return nome
+              .replace(/^[\d.]+\s*-\s*/, "")
+              .replace(/\(\s+/g, "(")
+              .trim();
+          }
+          return codigo || "";
+        };
+
+        const serialsRows = allSerials.map((s: any) => ({
+          "Código Produto": s.codigo_produto,
+          "Nome Produto": nomeMap.get(s.codigo_produto) || s.nome_produto || "",
+          "Número Série": s.numero_serie || "",
+          Lote: s.numero_ctrl_lote || "",
+          "Validade Lote": formatDateBR(s.data_validade_ctrl_lote),
+          "Local Armazém": cleanLocal(s.codigo_loc_armaz, s.codigo_loc_armaz_num_ser),
+          "Cód. Local": s.codigo_loc_armaz || "",
+          Fabricante: s.codigo_entidade_fabricante || "",
+          "Data Cadastro": formatDateBR(s.data_cadastro_alvo),
+        }));
+
+        if (serialsRows.length > 0) {
+          const wsSerials = XLSX.utils.json_to_sheet(serialsRows);
+          XLSX.utils.book_append_sheet(wb, wsSerials, "Seriais");
+        }
+      } catch (e: any) {
+        console.error("[Export] Erro ao gerar aba de seriais:", e.message);
+        toast({
+          title: "Aviso na exportação",
+          description: "Aba de seriais não foi incluída por erro. Aba principal foi gerada normalmente.",
+          variant: "default",
+        });
+      }
+    }
+
     XLSX.writeFile(wb, `estoque_${dataReferencia}.xlsx`);
   };
 
