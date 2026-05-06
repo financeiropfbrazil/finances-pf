@@ -1,21 +1,19 @@
-/**
- * Service legado do Alvo — agora roteado 100% via erp-proxy.
- *
- * Antes: chamava pef.it4you.inf.br direto do browser (CORS error,
- * senha exposta no localStorage).
- *
- * Agora: todas as chamadas vão pra https://erp-proxy.onrender.com/alvo/passthrough
- * com JWT do Supabase. Login técnico do Alvo é resolvido no servidor.
- *
- * Os campos de credencial na tela de Configurações ("alvo_username",
- * "alvo_password", "alvo_user_integration") tornaram-se obsoletos e
- * podem ser removidos da UI — a infra do Render já tem ALVO_USER/
- * ALVO_PASSWORD nas envvars.
- */
+const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
+const TOKEN_STORAGE_KEY = "alvo_erp_token";
+const TOKEN_TIMESTAMP_KEY = "alvo_erp_token_ts";
+const TOKEN_TTL_MS = 25 * 60 * 1000;
 
-import { supabase } from "@/integrations/supabase/client";
+// Empresa/filial ativa — interface web do Alvo passou a exigir SelectCompany
+// após RsLogin/Login (mudança feita pela Riosoft em 2026). Sem esse passo,
+// endpoints como MovEstq/RetornaFichaEstoque retornam SqlException.
+// Fallback para "1.01" (PRODUCTS AND FEATURES BRASIL) se não houver valor
+// no localStorage.
+const EMPRESA_FILIAL_STORAGE_KEY = "alvo_empresa_filial_id";
+const DEFAULT_EMPRESA_FILIAL_ID = "1.01";
 
-const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
+function getEmpresaFilialId(): string {
+  return localStorage.getItem(EMPRESA_FILIAL_STORAGE_KEY) || DEFAULT_EMPRESA_FILIAL_ID;
+}
 
 export interface AlvoResponse {
   success: boolean;
@@ -27,6 +25,7 @@ export interface AlvoResponse {
 
 interface TokenResult {
   success: boolean;
+  token?: string;
   source?: "cache" | "rede";
   error?: string;
   error_code?: string;
@@ -34,12 +33,17 @@ interface TokenResult {
 
 const ERROR_LABELS: Record<string, string> = {
   AUTH_FAILED: "Autenticação ERP falhou",
+  AUTH_NETWORK_ERROR: "Erro de rede (autenticação)",
   ERP_NETWORK_ERROR: "Erro de rede (ERP)",
   ERP_AUTH_ERROR: "Token expirado/inválido",
   ERP_API_ERROR: "Erro da API do ERP",
+  TOKEN_EXPIRED: "Token expirado",
+  TOKEN_NOT_RECEIVED: "Token não recebido",
+  NETWORK_ERROR: "Erro de rede",
+  SESSION_CONFLICT: "Sessão ERP conflitante",
   EMPTY_RESPONSE: "Resposta vazia do ERP",
   UNEXPECTED_FORMAT: "Formato de resposta inesperado",
-  PROXY_AUTH_ERROR: "Sessão Supabase expirada — faça login novamente.",
+  SELECT_COMPANY_FAILED: "Falha ao selecionar empresa no ERP",
 };
 
 export function getErrorLabel(code?: string): string {
@@ -47,107 +51,232 @@ export function getErrorLabel(code?: string): string {
   return ERROR_LABELS[code] || code;
 }
 
-// ── Compatibilidade com código antigo ──
-// Estas funções ficam vazias por compatibilidade. Não há mais token
-// gerenciado no frontend — tudo é resolvido pelo erp-proxy.
+// ── Token cache ──
+
+function getCachedToken(): { token: string; source: "cache" } | null {
+  const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+  const timestamp = localStorage.getItem(TOKEN_TIMESTAMP_KEY);
+  if (!token || !timestamp) return null;
+  if (Date.now() - Number(timestamp) < TOKEN_TTL_MS) {
+    return { token, source: "cache" };
+  }
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(TOKEN_TIMESTAMP_KEY);
+  return null;
+}
+
+function saveTokenToCache(token: string): void {
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  localStorage.setItem(TOKEN_TIMESTAMP_KEY, String(Date.now()));
+}
 
 export function getAlvoToken(): string | null {
-  return null; // sem cache local
+  return getCachedToken()?.token ?? null;
 }
 
 export function clearAlvoToken(): void {
-  // no-op — preservado pra não quebrar imports antigos
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(TOKEN_TIMESTAMP_KEY);
 }
+
+// ── Auth steps ──
 
 /**
- * Testa a conexão fazendo uma chamada simples via erp-proxy.
- * O proxy faz Login + SelectCompany internamente.
+ * Etapa 1: login básico. Retorna o token inicial (sem contexto de empresa).
  */
-export async function authenticateAlvo(): Promise<TokenResult> {
-  // Faz uma chamada real ao Alvo (CentroCusto leve) pra validar
-  // toda a cadeia: Supabase auth → erp-proxy auth → Alvo Login + SelectCompany
-  const result = await callErpViaProxy("CentroCusto/GetRegistros", "POST", {
-    QuantidadeRegistroPagina: 1,
-    IndicePagina: 1,
-  });
+async function loginStep(): Promise<
+  { success: true; token: string } | { success: false; error: string; error_code: string }
+> {
+  const login = localStorage.getItem("alvo_username") || "";
+  const senha = localStorage.getItem("alvo_password") || "";
+  const integrationUser = localStorage.getItem("alvo_user_integration") || login;
 
-  if (!result.success) {
+  if (!login || !senha) {
     return {
       success: false,
-      error: result.error,
-      error_code: result.error_code,
-    };
-  }
-  return { success: true, source: "rede" };
-}
-
-// ── Chamada genérica via erp-proxy ──
-
-async function callErpViaProxy(endpoint: string, method: "GET" | "POST", payload?: unknown): Promise<AlvoResponse> {
-  // Pega JWT atual do Supabase
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    return {
-      success: false,
-      error: "Sessão Supabase ausente. Faça login novamente.",
-      error_code: "PROXY_AUTH_ERROR",
+      error: "Credenciais não configuradas. Vá em Configurações → Integração ERP Alvo.",
+      error_code: "AUTH_FAILED",
     };
   }
 
   try {
-    const resp = await fetch(`${ERP_PROXY_URL}/alvo/passthrough`, {
+    const resp = await fetch(`${ERP_BASE_URL}/RsLogin/Login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userName: login,
+        password: senha,
+        userNameIntegration: integrationUser,
+      }),
+    });
+
+    const text = await resp.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+
+    if (!resp.ok) {
+      return { success: false, error: `HTTP ${resp.status}`, error_code: "AUTH_FAILED" };
+    }
+
+    let token: string | undefined;
+    if (typeof data === "string") {
+      token = data.replace(/"/g, "");
+    } else if (data) {
+      token = data.token || data.Token || data.access_token || data.AccessToken;
+      if (!token && typeof data === "object") {
+        const headerToken = resp.headers.get("riosoft-token") || resp.headers.get("Token");
+        if (headerToken) token = headerToken;
+      }
+    }
+
+    if (!token) {
+      console.warn("⚠️ Auth response (no token found):", data);
+      return { success: false, error: "Token não recebido na resposta.", error_code: "TOKEN_NOT_RECEIVED" };
+    }
+
+    return { success: true, token };
+  } catch (err: any) {
+    console.error("❌ Auth network error:", err);
+    return { success: false, error: err.message || "Erro de rede", error_code: "AUTH_NETWORK_ERROR" };
+  }
+}
+
+/**
+ * Etapa 2: seleção de empresa/filial. Recebe o token inicial, chama
+ * POST /RsLogin/SelectCompany com { Id: "1.01" } e retorna o novo token
+ * (que vem no response header "riosoft-token" — não no body).
+ *
+ * Esse passo é OBRIGATÓRIO para endpoints que filtram por empresa,
+ * como MovEstq/RetornaFichaEstoque, FaturaFin/*, DocFin/*.
+ * Sem ele, o ORM do Alvo monta SQL incompleto e retorna erro de sintaxe.
+ */
+async function selectCompanyStep(
+  initialToken: string,
+): Promise<{ success: true; token: string } | { success: false; error: string; error_code: string }> {
+  const empresaFilialId = getEmpresaFilialId();
+
+  try {
+    const resp = await fetch(`${ERP_BASE_URL}/RsLogin/SelectCompany`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
+        "riosoft-token": initialToken,
       },
-      body: JSON.stringify({ endpoint, method, payload }),
+      body: JSON.stringify({ Id: empresaFilialId }),
     });
 
-    const body = await resp.json();
-
-    if (!resp.ok || !body.ok) {
-      // Erros estruturados do proxy
-      if (resp.status === 401) {
-        return {
-          success: false,
-          error: "Sessão Supabase expirada. Faça login novamente.",
-          error_code: "PROXY_AUTH_ERROR",
-        };
-      }
-      if (resp.status === 403) {
-        return {
-          success: false,
-          error: body.error || "Endpoint não autorizado no gateway.",
-          error_code: "ERP_API_ERROR",
-        };
-      }
-      // Erros do Alvo via proxy
-      if (body.status === 401 || body.status === 403 || body.status === 409) {
-        return {
-          success: false,
-          error: `HTTP ${body.status} — Token Alvo inválido (servidor revalida automaticamente)`,
-          error_code: "ERP_AUTH_ERROR",
-        };
-      }
+    if (!resp.ok) {
       return {
         success: false,
-        error: body.error || `HTTP ${resp.status}`,
-        error_code: "ERP_API_ERROR",
-        details: typeof body.data === "string" ? body.data : JSON.stringify(body.data).substring(0, 300),
+        error: `HTTP ${resp.status} ao selecionar empresa "${empresaFilialId}"`,
+        error_code: "SELECT_COMPANY_FAILED",
       };
     }
 
-    return { success: true, data: body.data };
+    // O novo token vem APENAS no response header
+    const newToken = resp.headers.get("riosoft-token") || resp.headers.get("Riosoft-Token");
+
+    if (!newToken) {
+      return {
+        success: false,
+        error: "Token final (pós SelectCompany) não recebido no response header.",
+        error_code: "TOKEN_NOT_RECEIVED",
+      };
+    }
+
+    return { success: true, token: newToken };
   } catch (err: any) {
-    console.error("❌ Proxy network error:", err);
-    return {
-      success: false,
-      error: err?.message || "Erro de conexão com o gateway",
-      error_code: "ERP_NETWORK_ERROR",
-    };
+    console.error("❌ SelectCompany network error:", err);
+    return { success: false, error: err.message || "Erro de rede", error_code: "AUTH_NETWORK_ERROR" };
+  }
+}
+
+// ── Orquestrador de autenticação ──
+
+/**
+ * Autentica no Alvo completando os dois passos: Login + SelectCompany.
+ * O token final (com contexto de empresa embutido) é salvo no cache.
+ */
+export async function authenticateAlvo(): Promise<TokenResult> {
+  const cached = getCachedToken();
+  if (cached) return { success: true, token: cached.token, source: "cache" };
+
+  // Etapa 1: login
+  const step1 = await loginStep();
+  if (step1.success === false) {
+    return { success: false, error: step1.error, error_code: step1.error_code };
+  }
+
+  // Etapa 2: seleção de empresa
+  const step2 = await selectCompanyStep(step1.token);
+  if (step2.success === false) {
+    return { success: false, error: step2.error, error_code: step2.error_code };
+  }
+
+  saveTokenToCache(step2.token);
+  console.log(`✅ Token obtido via rede (Login + SelectCompany empresa=${getEmpresaFilialId()})`);
+  return { success: true, token: step2.token, source: "rede" };
+}
+
+// ── Ensure token helper ──
+
+async function ensureToken(): Promise<{ token: string } | { error: string; error_code: string }> {
+  let token = getAlvoToken();
+  if (token) return { token };
+  const auth = await authenticateAlvo();
+  if (!auth.success || !auth.token) {
+    return { error: auth.error || "Falha ao obter token.", error_code: auth.error_code || "AUTH_FAILED" };
+  }
+  return { token: auth.token };
+}
+
+// ── Generic ERP call via direct fetch ──
+
+async function callErp(endpoint: string, method: "GET" | "POST", payload?: unknown): Promise<AlvoResponse> {
+  const tokenResult = await ensureToken();
+  if ("error" in tokenResult) {
+    return { success: false, error: tokenResult.error, error_code: tokenResult.error_code };
+  }
+  const { token } = tokenResult;
+  console.log(`🔑 Token via [${getCachedToken()?.source ?? "rede"}]`);
+
+  try {
+    const resp = await fetch(`${ERP_BASE_URL}/${endpoint}`, {
+      method,
+      headers: { "Content-Type": "application/json", "riosoft-token": token },
+      ...(method === "POST" && payload ? { body: JSON.stringify(payload) } : {}),
+    });
+
+    const text = await resp.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+
+    if (!resp.ok) {
+      // Trata 401/403 (token inválido) E 409 (conflito de sessão / token vencido)
+      if (resp.status === 401 || resp.status === 403 || resp.status === 409) {
+        clearAlvoToken();
+        return { success: false, error: `HTTP ${resp.status} — Token inválido`, error_code: "ERP_AUTH_ERROR" };
+      }
+      return {
+        success: false,
+        error: `HTTP ${resp.status}`,
+        error_code: "ERP_API_ERROR",
+        details: typeof data === "string" ? data : JSON.stringify(data).substring(0, 300),
+      };
+    }
+
+    return { success: true, data };
+  } catch (err: any) {
+    console.error("❌ ERP network error:", err);
+    return { success: false, error: err.message || "Erro de conexão", error_code: "ERP_NETWORK_ERROR" };
   }
 }
 
@@ -162,10 +291,10 @@ function extractArray(raw: any): any[] | null {
   return null;
 }
 
-// ── Public API (mesma assinatura de antes) ──
+// ── Public API ──
 
 export async function fetchCostCenters(): Promise<AlvoResponse> {
-  return callErpViaProxy("CentroCusto/GetRegistros", "POST", {
+  return callErp("CentroCusto/GetRegistros", "POST", {
     QuantidadeRegistroPagina: 9999,
     IndicePagina: 1,
   });
@@ -189,7 +318,7 @@ export async function fetchFaturasERP(dataIni: string, dataFim: string, codigoBa
     filtro += ` AND CodigoTipoPagRec = '${codigoBanco}'`;
   }
 
-  const result = await callErpViaProxy("FaturaFin/GetRegistros", "POST", {
+  const result = await callErp("FaturaFin/GetRegistros", "POST", {
     filtro,
     propriedades: "Id, Numero, DataVencimento, ValorBruto, ObservacaoDocFin, CodigoNomeEntidade, Tipo, Realizado",
   });
@@ -205,15 +334,11 @@ export async function fetchFaturasERP(dataIni: string, dataFim: string, codigoBa
       details: JSON.stringify(result.data).substring(0, 300),
     };
   }
-  return {
-    success: true,
-    data: items,
-    error_code: items.length === 0 ? "EMPTY_RESPONSE" : undefined,
-  };
+  return { success: true, data: items, error_code: items.length === 0 ? "EMPTY_RESPONSE" : undefined };
 }
 
 export async function fetchExtratoCaixa(dataInicial: string, dataFinal: string): Promise<AlvoResponse> {
-  const result = await callErpViaProxy("DocFin/GetListaRelatorio", "POST", {
+  const result = await callErp("DocFin/GetListaRelatorio", "POST", {
     DataIni: dataInicial,
     DataFim: dataFinal,
   });
@@ -229,11 +354,7 @@ export async function fetchExtratoCaixa(dataInicial: string, dataFinal: string):
       details: JSON.stringify(result.data).substring(0, 300),
     };
   }
-  return {
-    success: true,
-    data: items,
-    error_code: items.length === 0 ? "EMPTY_RESPONSE" : undefined,
-  };
+  return { success: true, data: items, error_code: items.length === 0 ? "EMPTY_RESPONSE" : undefined };
 }
 
 export interface BaixaTituloResult {
@@ -244,24 +365,21 @@ export interface BaixaTituloResult {
 }
 
 export async function baixarTitulo(erpId: string, dataPagamento: string): Promise<BaixaTituloResult> {
-  const result = await callErpViaProxy("FaturaFin/GerarRealizado", "POST", {
+  const result = await callErp("FaturaFin/GerarRealizado", "POST", {
     Id: erpId,
     DataPagamento: dataPagamento,
   });
 
   if (!result.success) {
-    return {
-      success: false,
-      erpId,
-      error: result.error,
-      error_code: result.error_code,
-    };
+    return { success: false, erpId, error: result.error, error_code: result.error_code };
   }
   return { success: true, erpId };
 }
 
+// ── Laboratório de API ──
+
 export async function fetchEstoqueERP(): Promise<AlvoResponse> {
-  return callErpViaProxy("Produto/GetRegistros", "POST", {
+  return callErp("Produto/GetRegistros", "POST", {
     QuantidadeRegistroPagina: 9999,
     IndicePagina: 1,
   });
