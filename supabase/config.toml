@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.import-email-nfe-to-compras]
 verify_jwt = false
+
+[functions.admin-create-user-fin]
+verify_jwt = false
