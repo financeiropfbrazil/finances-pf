@@ -10,29 +10,33 @@
   - conta_contabil_reduzida integer
   - conta_contabil_classificacao text
   - created_at, updated_at timestamptz
+
+  Migrado para usar erp-proxy (7/Mai/2026):
+  - sync via /alvo/passthrough → ClasseRecDesp/RetornaListaClasseRecDespSistemaExterno
+  - enriquecimento via alvoClassesEnriquecimentoService → /alvo/passthrough → ClasseRecDesp/Load
 */
 
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { authenticateAlvo, clearAlvoToken } from "@/services/alvoService";
 import {
   enriquecerClassesComContaContabil,
   type EnrichClassesResult,
 } from "@/services/alvoClassesEnriquecimentoService";
-import { RefreshCw, Search, BookOpen, Hash, Layers, CreditCard, ArrowDownLeft, ArrowUpRight, Sparkles, BookMarked } from "lucide-react";
+import { RefreshCw, Search, BookOpen, Hash, Layers, ArrowDownLeft, ArrowUpRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 
@@ -49,21 +53,34 @@ interface ClasseRecDesp {
   updated_at: string | null;
 }
 
-const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
+const GATEWAY_URL = "https://erp-proxy.onrender.com";
 
-function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+function getSupabaseAccessToken(): string | null {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        return parsed?.access_token ?? null;
+      }
+    }
+  } catch (e) {
+    console.error("Erro lendo access token", e);
+  }
+  return null;
+}
 
 export default function ClassesRecDesp() {
   const [items, setItems] = useState<ClasseRecDesp[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
 
-  // filters
   const [search, setSearch] = useState("");
   const [filterGrupo, setFilterGrupo] = useState("all");
   const [filterNatureza, setFilterNatureza] = useState("all");
 
-  // enrich
   const [enrichOpen, setEnrichOpen] = useState(false);
   const [enriching, setEnriching] = useState(false);
   const [enrichProgress, setEnrichProgress] = useState(0);
@@ -71,15 +88,14 @@ export default function ClassesRecDesp() {
   const [enrichResult, setEnrichResult] = useState<EnrichClassesResult | null>(null);
 
   const fetchData = async () => {
-    const { data } = await (supabase as any)
-      .from("classes_rec_desp")
-      .select("*")
-      .order("codigo", { ascending: true });
+    const { data } = await (supabase as any).from("classes_rec_desp").select("*").order("codigo", { ascending: true });
     setItems((data as ClasseRecDesp[]) || []);
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const filtered = useMemo(() => {
     return items.filter((i) => {
@@ -93,70 +109,51 @@ export default function ClassesRecDesp() {
     });
   }, [items, search, filterGrupo, filterNatureza]);
 
-  // Summary cards
   const totalClasses = items.length;
   const totalTitulos = items.filter((i) => i.grupo === "T").length;
   const totalFolhas = items.filter((i) => i.grupo === "F").length;
   const totalDebito = items.filter((i) => i.natureza === "Débito" && i.grupo === "F").length;
   const totalCredito = items.filter((i) => i.natureza === "Crédito" && i.grupo === "F").length;
 
-  // ── Sync with Alvo ERP ──
+  // ── Sync via gateway passthrough ──
   const handleSync = async () => {
     setSyncing(true);
-    toast({ title: "Sincronizando classes de receita/despesa com o Alvo ERP..." });
+    toast({ title: "Sincronizando classes via gateway..." });
 
     try {
-      const auth = await authenticateAlvo();
-      if (!auth.success || !auth.token) {
-        throw new Error(auth.error || "Autenticação falhou");
-      }
-      let currentToken = auth.token;
-
-      const MAX_RETRIES = 3;
-      let resp: Response | null = null;
-
-      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        resp = await fetch(
-          `${ERP_BASE_URL}/ClasseRecDesp/RetornaListaClasseRecDespSistemaExterno`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "riosoft-token": currentToken,
-            },
-            body: JSON.stringify({
-              Nome: "",
-              Grupo: "",
-              CodigoGrupo: "",
-            }),
-          }
-        );
-
-        if (resp.status !== 409) break;
-
-        console.warn(`[ClassesRecDesp] 409 session conflict (tentativa ${attempt}/${MAX_RETRIES})`);
-
-        if (attempt === MAX_RETRIES) {
-          throw new Error(
-            "Conflito de sessão ERP persistente. Aguarde alguns minutos e tente novamente."
-          );
-        }
-
-        clearAlvoToken();
-        await delay(1000 * attempt);
-
-        const reAuth = await authenticateAlvo();
-        if (!reAuth.success || !reAuth.token) {
-          throw new Error("Falha na re-autenticação após conflito de sessão");
-        }
-        currentToken = reAuth.token;
+      const supabaseToken = getSupabaseAccessToken();
+      if (!supabaseToken) {
+        throw new Error("Token Supabase não encontrado — faça login novamente.");
       }
 
-      if (!resp || !resp.ok) {
-        throw new Error(`HTTP ${resp?.status ?? "desconhecido"}`);
+      const resp = await fetch(`${GATEWAY_URL}/alvo/passthrough`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supabaseToken}`,
+        },
+        body: JSON.stringify({
+          endpoint: "ClasseRecDesp/RetornaListaClasseRecDespSistemaExterno",
+          method: "POST",
+          payload: {
+            Nome: "",
+            Grupo: "",
+            CodigoGrupo: "",
+          },
+        }),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`Gateway HTTP ${resp.status}: ${errText.slice(0, 200)}`);
       }
 
-      const data = await resp.json();
+      const result = await resp.json();
+      if (!result.ok) {
+        throw new Error(result.error || `Alvo retornou status ${result.status}`);
+      }
+
+      const data = result.data;
 
       if (!Array.isArray(data) || data.length === 0) {
         toast({
@@ -177,9 +174,7 @@ export default function ClassesRecDesp() {
         updated_at: new Date().toISOString(),
       }));
 
-      const { error } = await (supabase as any)
-        .from("classes_rec_desp")
-        .upsert(payload, { onConflict: "codigo" });
+      const { error } = await (supabase as any).from("classes_rec_desp").upsert(payload, { onConflict: "codigo" });
 
       if (error) {
         toast({
@@ -202,20 +197,17 @@ export default function ClassesRecDesp() {
     setSyncing(false);
   };
 
-  // ── Enrich with conta contábil ──
+  // ── Enrich ──
   const handleEnrich = async () => {
     setEnriching(true);
     setEnrichResult(null);
     setEnrichProgress(0);
     setEnrichMessage("Iniciando...");
     try {
-      const result = await enriquecerClassesComContaContabil(
-        (current, total, message) => {
-          setEnrichMessage(message);
-          if (total > 0)
-            setEnrichProgress(Math.round((current / total) * 100));
-        }
-      );
+      const result = await enriquecerClassesComContaContabil((current, total, message) => {
+        setEnrichMessage(message);
+        if (total > 0) setEnrichProgress(Math.round((current / total) * 100));
+      });
       setEnrichResult(result);
       toast({
         title: "Enriquecimento concluído",
@@ -238,7 +230,6 @@ export default function ClassesRecDesp() {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Classes de Receita/Despesa</h1>
@@ -266,7 +257,6 @@ export default function ClassesRecDesp() {
         </div>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-2">
@@ -320,7 +310,6 @@ export default function ClassesRecDesp() {
         </Card>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -353,12 +342,10 @@ export default function ClassesRecDesp() {
         </Select>
       </div>
 
-      {/* Counter */}
       <p className="text-xs text-muted-foreground">
         {filtered.length} classes encontradas (de {items.length} total)
       </p>
 
-      {/* Content */}
       {!loading && items.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <BookOpen className="mb-4 h-12 w-12" />
@@ -385,20 +372,18 @@ export default function ClassesRecDesp() {
             <TableBody>
               {filtered.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {item.codigo}
-                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{item.codigo}</TableCell>
                   <TableCell className="font-medium">{item.nome}</TableCell>
                   <TableCell>
                     {item.grupo === "T" ? (
                       <Badge variant="secondary">Título</Badge>
                     ) : item.grupo === "F" ? (
                       <Badge className="bg-primary/10 text-primary border-primary/20">Folha</Badge>
-                    ) : "—"}
+                    ) : (
+                      "—"
+                    )}
                   </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {item.nivel || "—"}
-                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{item.nivel || "—"}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {item.conta_contabil_reduzida ?? "—"}
                   </TableCell>
@@ -407,7 +392,9 @@ export default function ClassesRecDesp() {
                       <Badge className="bg-destructive/10 text-destructive border-destructive/20">Débito</Badge>
                     ) : item.natureza === "Crédito" ? (
                       <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Crédito</Badge>
-                    ) : "—"}
+                    ) : (
+                      "—"
+                    )}
                   </TableCell>
                   <TableCell>
                     {item.is_active ? (
@@ -423,22 +410,19 @@ export default function ClassesRecDesp() {
         </div>
       )}
 
-      {/* Enrich Dialog */}
       <Dialog open={enrichOpen} onOpenChange={(v) => !enriching && setEnrichOpen(v)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Enriquecer Conta Contábil</DialogTitle>
             <DialogDescription>
-              Busca a conta contábil reduzida de cada classe Folha
-              no ERP Alvo via ClasseRecDesp/Load.
-              Apenas classes sem conta contábil serão processadas.
+              Busca a conta contábil reduzida de cada classe Folha no ERP Alvo via gateway. Apenas classes sem conta
+              contábil serão processadas.
             </DialogDescription>
           </DialogHeader>
 
           {!enriching && !enrichResult && (
             <p className="text-sm text-muted-foreground">
-              Clique em "Iniciar" para buscar as contas contábeis
-              das classes cadastradas. O processo pode levar alguns
+              Clique em "Iniciar" para buscar as contas contábeis das classes cadastradas. O processo pode levar alguns
               minutos dependendo da quantidade de classes.
             </p>
           )}
@@ -446,25 +430,15 @@ export default function ClassesRecDesp() {
           {enriching && (
             <div className="space-y-3">
               <Progress value={enrichProgress} />
-              <p className="text-xs text-muted-foreground">
-                {enrichMessage}
-              </p>
+              <p className="text-xs text-muted-foreground">{enrichMessage}</p>
             </div>
           )}
 
           {enrichResult && (
             <div className="space-y-2">
-              <p className="text-sm text-emerald-600">
-                ✓ Enriquecidas: {enrichResult.enriched}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                ⊘ Sem conta no ERP: {enrichResult.skipped}
-              </p>
-              {enrichResult.errors > 0 && (
-                <p className="text-sm text-destructive">
-                  ✗ Erros: {enrichResult.errors}
-                </p>
-              )}
+              <p className="text-sm text-emerald-600">✓ Enriquecidas: {enrichResult.enriched}</p>
+              <p className="text-sm text-muted-foreground">⊘ Sem conta no ERP: {enrichResult.skipped}</p>
+              {enrichResult.errors > 0 && <p className="text-sm text-destructive">✗ Erros: {enrichResult.errors}</p>}
             </div>
           )}
 
