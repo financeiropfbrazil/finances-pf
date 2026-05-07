@@ -33,7 +33,6 @@ function getSupabaseAccessToken(): string | null {
 
 /**
  * Chama uma classe via gateway passthrough. Retorna o objeto detalhado.
- * Gateway trata 401/403/409 internamente com retry — não precisa lidar aqui.
  */
 async function loadClasseViaGateway(codigo: string, token: string): Promise<any> {
   const endpoint = `ClasseRecDesp/Load?codigoEmpresaFilial=1.01&codigo=${encodeURIComponent(codigo)}`;
@@ -108,17 +107,14 @@ export async function enriquecerClassesComContaContabil(
         continue;
       }
 
-      const { error: updateErr, data: updateData } = await (supabase as any)
-        .from("classes_rec_desp")
-        .update({ conta_contabil_reduzida: contaReduzida })
-        .eq("codigo", cls.codigo)
-        .select("id");
+      // ⚠️ Usa RPC em vez de .update() — evita CORS issue do PATCH no Supabase hospedado
+      const { error: rpcErr } = await (supabase as any).rpc("enriquecer_classe_conta_contabil", {
+        p_codigo: cls.codigo,
+        p_conta_contabil_reduzida: contaReduzida,
+      });
 
-      if (updateErr) {
-        console.error(`Erro atualizando ${cls.codigo}:`, updateErr.message);
-        result.errors++;
-      } else if (!updateData || updateData.length === 0) {
-        console.warn(`Update sem efeito para ${cls.codigo}`);
+      if (rpcErr) {
+        console.error(`Erro RPC ${cls.codigo}:`, rpcErr.message);
         result.errors++;
       } else {
         result.enriched++;
