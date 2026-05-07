@@ -34,7 +34,7 @@ import Entidades from "./pages/Entidades";
 import EntidadesUploadCodigos from "./pages/EntidadesUploadCodigos";
 import Commodatum from "./pages/Commodatum";
 import Taxes from "./pages/Taxes";
-import Intercompany from "./pages/Intercompany";
+
 import Settings from "./pages/Settings";
 import CostCenters from "./pages/settings/CostCenters";
 import ClassesRecDesp from "./pages/settings/ClassesRecDesp";
