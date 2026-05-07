@@ -18,6 +18,13 @@ export const PERMISSIONS = {
 
   // ─── Administração global ───────────────────────────────────────
   ADMIN_USERS_MANAGE: "admin.users.manage",
+
+  // ─── Módulo Intercompany / Master ───────────────────────────────
+  INTERCOMPANY_MASTER_VIEW_ALL: "intercompany.master.view_all",
+  INTERCOMPANY_MASTER_CREATE_REEMBOLSO: "intercompany.master.create_reembolso",
+  INTERCOMPANY_MASTER_VINCULAR_NF: "intercompany.master.vincular_nf",
+  INTERCOMPANY_MASTER_EDIT_DESCRICAO: "intercompany.master.edit_descricao",
+  INTERCOMPANY_MASTER_DELETE: "intercompany.master.delete",
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
