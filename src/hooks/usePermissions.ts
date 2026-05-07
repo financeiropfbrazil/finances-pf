@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
  */
 const MENU_TO_PERMISSION: Record<string, string> = {
   suprimentos_requisicoes: "compras.requisicoes.access",
+  intercompany: "intercompany.access",
 };
 
 export function usePermissions() {
