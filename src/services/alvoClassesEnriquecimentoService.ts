@@ -1,8 +1,6 @@
-import { authenticateAlvo, clearAlvoToken } from "./alvoService";
 import { supabase } from "@/integrations/supabase/client";
 
-const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
-const MAX_SESSION_RETRIES = 3;
+const GATEWAY_URL = "https://erp-proxy.onrender.com";
 const DELAY_MS = 200;
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -13,48 +11,60 @@ export interface EnrichClassesResult {
   errors: number;
 }
 
-async function loadClasseComRetry(
-  codigo: string,
-  token: string
-): Promise<{ data: any; usedToken: string }> {
-  let currentToken = token;
-
-  for (let attempt = 1; attempt <= MAX_SESSION_RETRIES; attempt++) {
-    const url =
-      `${ERP_BASE_URL}/ClasseRecDesp/Load` +
-      `?codigoEmpresaFilial=1.01&codigo=${encodeURIComponent(codigo)}`;
-
-    const resp = await fetch(url, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "riosoft-token": currentToken,
-      },
-    });
-
-    if (resp.status !== 409) {
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      return { data, usedToken: currentToken };
+/**
+ * Pega o access_token do Supabase do localStorage.
+ */
+function getSupabaseAccessToken(): string | null {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        return parsed?.access_token ?? null;
+      }
     }
-
-    if (attempt === MAX_SESSION_RETRIES) {
-      throw new Error("Conflito de sessão ERP persistente (HTTP 409).");
-    }
-
-    clearAlvoToken();
-    await delay(1000 * attempt);
-    const reAuth = await authenticateAlvo();
-    if (!reAuth.success || !reAuth.token) {
-      throw new Error("Falha na re-autenticação.");
-    }
-    currentToken = reAuth.token;
+  } catch (e) {
+    console.error("Erro lendo access token", e);
   }
-  throw new Error("Falha inesperada no fluxo de retry");
+  return null;
+}
+
+/**
+ * Chama uma classe via gateway passthrough. Retorna o objeto detalhado.
+ * Gateway trata 401/403/409 internamente com retry — não precisa lidar aqui.
+ */
+async function loadClasseViaGateway(codigo: string, token: string): Promise<any> {
+  const endpoint = `ClasseRecDesp/Load?codigoEmpresaFilial=1.01&codigo=${encodeURIComponent(codigo)}`;
+
+  const resp = await fetch(`${GATEWAY_URL}/alvo/passthrough`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      endpoint,
+      method: "GET",
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Gateway HTTP ${resp.status}: ${text.slice(0, 200)}`);
+  }
+
+  const json = await resp.json();
+  if (!json.ok) {
+    throw new Error(json.error || `Alvo retornou status ${json.status}`);
+  }
+
+  return json.data;
 }
 
 export async function enriquecerClassesComContaContabil(
-  onProgress?: (current: number, total: number, message: string) => void
+  onProgress?: (current: number, total: number, message: string) => void,
 ): Promise<EnrichClassesResult> {
   // 1. Buscar apenas classes Folha sem conta contábil ainda
   const { data: classes, error } = await (supabase as any)
@@ -68,15 +78,13 @@ export async function enriquecerClassesComContaContabil(
     return { enriched: 0, skipped: 0, errors: 0 };
   }
 
-  onProgress?.(0, classes.length,
-    `${classes.length} classes para enriquecer. Autenticando...`
-  );
+  onProgress?.(0, classes.length, `${classes.length} classes para enriquecer. Iniciando...`);
 
-  const auth = await authenticateAlvo();
-  if (!auth.success || !auth.token) {
-    throw new Error(`Falha na autenticação: ${auth.error}`);
+  // 2. Pega token do Supabase (pra autenticar no gateway)
+  const supabaseToken = getSupabaseAccessToken();
+  if (!supabaseToken) {
+    throw new Error("Token Supabase não encontrado — faça login novamente.");
   }
-  let currentToken = auth.token;
 
   const result: EnrichClassesResult = {
     enriched: 0,
@@ -86,21 +94,13 @@ export async function enriquecerClassesComContaContabil(
 
   for (let i = 0; i < classes.length; i++) {
     const cls = classes[i];
+
     try {
-      onProgress?.(
-        i + 1,
-        classes.length,
-        `${i + 1}/${classes.length}: ${cls.codigo} — ${cls.nome}...`
-      );
+      onProgress?.(i + 1, classes.length, `${i + 1}/${classes.length}: ${cls.codigo} — ${cls.nome}...`);
 
-      const { data: detail, usedToken } = await loadClasseComRetry(
-        cls.codigo,
-        currentToken
-      );
-      currentToken = usedToken;
+      const detail = await loadClasseViaGateway(cls.codigo, supabaseToken);
 
-      const contaReduzida: number | null =
-        detail?.ClasseRecDespUserFieldsObject?.UserConta_Contab ?? null;
+      const contaReduzida: number | null = detail?.ClasseRecDespUserFieldsObject?.UserConta_Contab ?? null;
 
       if (!contaReduzida) {
         result.skipped++;
@@ -115,7 +115,7 @@ export async function enriquecerClassesComContaContabil(
         .select("id");
 
       if (updateErr) {
-        console.error(`Erro atualizando ${cls.codigo}:`, updateErr.message, updateErr.details);
+        console.error(`Erro atualizando ${cls.codigo}:`, updateErr.message);
         result.errors++;
       } else if (!updateData || updateData.length === 0) {
         console.warn(`Update sem efeito para ${cls.codigo}`);
