@@ -68,7 +68,7 @@ const navItems = [
   // Contas a Pagar handled separately as expandable
   { titleKey: "nav.loans", url: "/loans", icon: Wallet },
   { titleKey: "nav.taxes", url: "/taxes", icon: Receipt },
-  { titleKey: "nav.intercompany", url: "/intercompany", icon: ArrowLeftRight },
+  
   { titleKey: "nav.credit_cards", url: "/credit-cards", icon: CreditCard },
   { titleKey: "nav.projetos", url: "/projetos", icon: FolderKanban },
   { titleKey: "nav.closing", url: "/closing", icon: ClipboardCheck },
@@ -85,7 +85,7 @@ const routePermMap: Record<string, string> = {
   "/entidades": "entidades",
   "/loans": "loans",
   "/taxes": "taxes",
-  "/intercompany": "intercompany",
+  
   "/credit-cards": "credit_cards",
   "/contas-a-pagar": "contas_pagar",
   "/projetos": "projetos",

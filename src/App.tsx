@@ -149,7 +149,7 @@ function AppRoutes() {
         <Route path="/contas-a-pagar/dashboard" element={<PermissionRoute permKey="contas_pagar"><ContasPagarDashboard /></PermissionRoute>} />
         <Route path="/loans" element={<PermissionRoute permKey="loans"><PlaceholderPage titleKey="nav.loans" /></PermissionRoute>} />
         <Route path="/taxes" element={<PermissionRoute permKey="taxes"><Taxes /></PermissionRoute>} />
-        <Route path="/intercompany" element={<PermissionRoute permKey="intercompany"><Intercompany /></PermissionRoute>} />
+        
         <Route path="/credit-cards" element={<PermissionRoute permKey="credit_cards"><CreditCards /></PermissionRoute>} />
         <Route path="/credit-cards/:cardId" element={<PermissionRoute permKey="credit_cards"><CreditCardDetail /></PermissionRoute>} />
         <Route path="/credit-cards/:cardId/invoices/:invoiceId" element={<PermissionRoute permKey="credit_cards"><CreditCardInvoice /></PermissionRoute>} />
