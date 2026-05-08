@@ -70,8 +70,6 @@ export default function Users() {
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [password, setPassword] = useState("");
   const [selectedRoleCode, setSelectedRoleCode] = useState<string>("requisitante");
 
   // Edit user dialog (nome + funcionário alvo)
@@ -138,65 +136,65 @@ export default function Users() {
   }
 
   // --------------------------------------------------------------------------
-  // Criar usuário
+  // Convidar usuário (chama Edge Function hub-invite-user)
   // --------------------------------------------------------------------------
   const handleCreate = async () => {
-    if (!email || !fullName || !password) {
-      toast({ title: "Preencha todos os campos obrigatórios", variant: "destructive" });
-      return;
-    }
-    if (password.length < 6) {
-      toast({ title: "A senha deve ter no mínimo 6 caracteres", variant: "destructive" });
+    if (!email) {
+      toast({ title: "Email obrigatório", variant: "destructive" });
       return;
     }
     if (!selectedRoleCode) {
-      toast({ title: "Selecione um papel inicial para o usuário", variant: "destructive" });
+      toast({ title: "Selecione um papel inicial", variant: "destructive" });
       return;
     }
 
     setCreating(true);
     try {
-      // 1. Criar usuário via Supabase Auth
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: fullName } },
-      });
-      if (signUpError) throw signUpError;
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+      const accessToken = currentSession?.access_token;
 
-      if (authData.user) {
-        // 2. Criar profile
-        await (supabase as any).from("profiles").upsert(
-          {
-            user_id: authData.user.id,
-            full_name: fullName,
-            email,
-            is_admin: selectedRoleCode === "admin",
-            is_active: true,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "user_id" },
-        );
-
-        // 3. Atribuir papel via RPC (faz atribuição composta se for analista_compras)
-        const { error: roleError } = await (supabase as any).rpc("hub_assign_role", {
-          p_target_user_id: authData.user.id,
-          p_role_code: selectedRoleCode,
-          p_motivo: "Atribuído durante criação do usuário",
-        });
-        if (roleError) throw roleError;
+      if (!accessToken) {
+        throw new Error("Sessão expirada. Faça login novamente.");
       }
 
-      toast({ title: "Usuário criado com sucesso!" });
+      const resp = await fetch("https://hbtggrbauguukewiknew.supabase.co/functions/v1/hub-invite-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          role_code: selectedRoleCode,
+        }),
+      });
+
+      const result = await resp.json();
+
+      if (!resp.ok || !result.success) {
+        throw new Error(result.error || "Falha ao convidar usuário");
+      }
+
+      const msg = result.is_existing_user
+        ? `Senha redefinida e enviada para ${result.email}`
+        : `Convite enviado para ${result.email}`;
+
+      toast({
+        title: msg,
+        description: result.email_sent
+          ? "O usuário receberá um email com a senha temporária."
+          : "⚠️ Email NÃO foi enviado. Verifique configuração do Resend.",
+      });
+
       setCreateOpen(false);
       setEmail("");
-      setFullName("");
-      setPassword("");
       setSelectedRoleCode("requisitante");
       fetchData();
     } catch (err: any) {
       toast({
-        title: "Erro ao criar usuário",
+        title: "Erro ao convidar usuário",
         description: err?.message || String(err),
         variant: "destructive",
       });
