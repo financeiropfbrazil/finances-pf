@@ -106,7 +106,10 @@ const comprasSubItems = [
 
 const suprimentosSubItems = [{ label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList }];
 
-const intercompanySubItems = [{ label: "Novo Reembolso", url: "/intercompany/reembolsos/novo", icon: FileText }];
+const intercompanySubItems = [
+  { label: "Master", url: "/intercompany/master", icon: ClipboardList },
+  { label: "Novo Reembolso", url: "/intercompany/reembolsos/novo", icon: FileText },
+];
 
 const entidadesSubItems = [
   { label: "Lista de Entidades", url: "/entidades", icon: UsersIcon },
