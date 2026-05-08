@@ -662,7 +662,7 @@ interface MasterRowProps {
 }
 
 function MasterRow({ item, expanded, onToggle }: MasterRowProps) {
-  const ClassIcon = classificationIcon[item.classification_status_agregado];
+  const classEmoji = classificationEmoji[item.classification_status_agregado];
 
   return (
     <>
