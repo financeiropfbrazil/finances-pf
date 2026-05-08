@@ -123,9 +123,9 @@ export default function IntercompanyMaster() {
     () => ({
       data_de: dataDe ? format(dataDe, "yyyy-MM-dd") : null,
       data_ate: dataAte ? format(dataAte, "yyyy-MM-dd") : null,
-      tipo: tipo || null,
-      status: statusF || null,
-      origem: origem || null,
+      tipo: (tipo || null) as any,
+      status: (statusF || null) as any,
+      origem: (origem || null) as any,
       classe_codigo: classe || null,
       konto_at_numero: konto || null,
       cc_erp_code: ccCode || null,
