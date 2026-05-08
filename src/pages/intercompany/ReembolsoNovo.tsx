@@ -169,7 +169,12 @@ export default function ReembolsoNovo() {
       descricao_rica: descricaoRica.trim(),
       classe_codigo: classeCodigo,
       konto_austria_numero: kontoAtNumero,
-      centro_custo_erp_code: centroCustoErpCode,
+      rateios_cc: [
+        {
+          centro_custo_erp_code: centroCustoErpCode,
+          percentual: 100,
+        },
+      ],
       cambio_eur_brl: cambioNum,
       valor_eur: valorEurNum,
       observacoes: observacoes.trim() || undefined,
