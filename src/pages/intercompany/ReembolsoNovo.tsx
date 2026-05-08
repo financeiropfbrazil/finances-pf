@@ -50,6 +50,33 @@ interface RateioLinha extends RateioCC {
 }
 
 const MAX_RATEIOS = 5;
+/**
+ * Recalcula os valor_eur de cada rateio garantindo que a soma feche EXATAMENTE
+ * com o valor_eur_total. Estratégia: as N-1 primeiras linhas usam (pct/100)×total
+ * arredondado a 2 casas; a última linha absorve o resto pra zerar diferença.
+ * Necessário porque o Alvo rejeita diferença entre soma do rateio e valor da classe.
+ */
+function recalcularValoresRateio<T extends { percentual: number; valor_eur: number }>(
+  linhas: T[],
+  valorTotal: number,
+): T[] {
+  if (linhas.length === 0 || valorTotal <= 0) {
+    return linhas.map((l) => ({ ...l, valor_eur: 0 }));
+  }
+  const n = linhas.length;
+  let acumulado = 0;
+  return linhas.map((linha, idx) => {
+    let valor: number;
+    if (idx === n - 1) {
+      // Última linha absorve o resto pra zerar a diferença
+      valor = +(valorTotal - acumulado).toFixed(2);
+    } else {
+      valor = +((linha.percentual / 100) * valorTotal).toFixed(2);
+      acumulado += valor;
+    }
+    return { ...linha, valor_eur: valor };
+  });
+}
 
 const formatBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const formatEUR = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "EUR" });
@@ -143,14 +170,8 @@ export default function ReembolsoNovo() {
     [classeCodigo, classes],
   );
 
-  // Recalcula valor_eur de cada rateio sempre que valorEurNum muda OU percentuais mudam
   useEffect(() => {
-    setRateios((prev) =>
-      prev.map((r) => ({
-        ...r,
-        valor_eur: valorEurNum > 0 ? +((r.percentual / 100) * valorEurNum).toFixed(4) : 0,
-      })),
-    );
+    setRateios((prev) => recalcularValoresRateio(prev, valorEurNum));
   }, [valorEurNum]);
 
   // Validação dos rateios
@@ -197,34 +218,28 @@ export default function ReembolsoNovo() {
   };
 
   const atualizarRateio = (tempId: string, patch: Partial<RateioLinha>) => {
-    setRateios((prev) =>
-      prev.map((r) => {
-        if (r.tempId !== tempId) return r;
-        const updated = { ...r, ...patch };
-        // Recalcula valor_eur sempre que percentual mudar
-        if ("percentual" in patch) {
-          updated.valor_eur = valorEurNum > 0 ? +((updated.percentual / 100) * valorEurNum).toFixed(4) : 0;
-        }
-        return updated;
-      }),
-    );
+    setRateios((prev) => {
+      const novo = prev.map((r) => (r.tempId === tempId ? { ...r, ...patch } : r));
+      // Se mudou percentual, recalcula valores garantindo soma exata
+      if ("percentual" in patch) {
+        return recalcularValoresRateio(novo, valorEurNum);
+      }
+      return novo;
+    });
   };
 
   const dividirIgualmente = () => {
     const n = rateios.length;
     if (n === 0) return;
-    const base = Math.floor((100 / n) * 100) / 100; // 2 casas
+    const base = Math.floor((100 / n) * 100) / 100;
     const resto = +(100 - base * n).toFixed(2);
-    setRateios((prev) =>
-      prev.map((r, idx) => {
-        const pct = idx === n - 1 ? +(base + resto).toFixed(2) : base;
-        return {
-          ...r,
-          percentual: pct,
-          valor_eur: valorEurNum > 0 ? +((pct / 100) * valorEurNum).toFixed(4) : 0,
-        };
-      }),
-    );
+    setRateios((prev) => {
+      const comPercentuais = prev.map((r, idx) => ({
+        ...r,
+        percentual: idx === n - 1 ? +(base + resto).toFixed(2) : base,
+      }));
+      return recalcularValoresRateio(comPercentuais, valorEurNum);
+    });
   };
 
   // Validação geral
