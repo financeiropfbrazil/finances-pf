@@ -40,7 +40,7 @@ export function useEmitReembolso() {
         numero_sequencial: criar.numero_sequencial,
         descricao_rica: input.descricao_rica,
         classe_codigo: input.classe_codigo,
-        centro_custo_erp_code: input.centro_custo_erp_code, // ✅ NOVO
+        rateios_cc: criar.rateios, // ✅ usa rateios completos retornados pelo backend
         cambio_eur_brl: input.cambio_eur_brl,
         valor_eur: input.valor_eur,
         valor_brl: criar.valor_brl,
