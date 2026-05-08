@@ -82,10 +82,10 @@ const classificationLabel: Record<MasterClassificationStatus, string> = {
   unclassified: "Unclassified",
 };
 
-const classificationIcon: Record<MasterClassificationStatus, typeof CheckCircle2> = {
-  classified: CheckCircle2,
-  needs_konto_at: CircleAlert,
-  unclassified: CircleHelp,
+const classificationEmoji: Record<MasterClassificationStatus, string> = {
+  classified: "✓",
+  needs_konto_at: "!",
+  unclassified: "?",
 };
 
 export default function IntercompanyMaster() {
