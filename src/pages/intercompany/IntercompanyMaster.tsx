@@ -730,7 +730,7 @@ function MasterRow({ item, expanded, onToggle }: MasterRowProps) {
             variant="outline"
             className={`text-[10px] border ${classificationColor[item.classification_status_agregado]}`}
           >
-            <ClassIcon className="mr-1 h-2.5 w-2.5" />
+            <span className="mr-1 font-bold">{classEmoji}</span>
             {classificationLabel[item.classification_status_agregado]}
           </Badge>
         </td>
@@ -809,7 +809,7 @@ function MasterRowDetails({ item }: { item: MasterItem }) {
 // ─── Card de cada bloco ──────────────────────────────────────────────────
 
 function BlocoCard({ bloco }: { bloco: MasterBlocoDetalhe }) {
-  const ClassIcon = classificationIcon[bloco.classification_status];
+  const classEmoji = classificationEmoji[bloco.classification_status];
 
   return (
     <div className="rounded-md border border-border bg-background p-3 space-y-2">
@@ -826,7 +826,7 @@ function BlocoCard({ bloco }: { bloco: MasterBlocoDetalhe }) {
               variant="outline"
               className={`text-[9px] border ${classificationColor[bloco.classification_status]}`}
             >
-              <ClassIcon className="mr-1 h-2 w-2" />
+              <span className="mr-1 font-bold">{classEmoji}</span>
               {classificationLabel[bloco.classification_status]}
             </Badge>
           </div>
