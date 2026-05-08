@@ -113,6 +113,10 @@ const suprimentosSubItems = [
   { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
 ];
 
+const intercompanySubItems = [
+  { label: "Novo Reembolso", url: "/intercompany/reembolsos/novo", icon: FileText },
+];
+
 const entidadesSubItems = [
   { label: "Lista de Entidades", url: "/entidades", icon: UsersIcon },
   { label: "Upload de Códigos", url: "/entidades/upload-codigos", icon: Upload },
