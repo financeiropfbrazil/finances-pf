@@ -321,12 +321,7 @@ export function AppSidebar() {
             <SidebarMenu>
               {settingsItems.map((item) => {
                 if ("adminOnly" in item && item.adminOnly && !isAdmin) return null;
-                if (
-                  item.titleKey !== "settings.users" &&
-                  item.titleKey !== "settings.sync_jobs" &&
-                  !hasAccess("settings")
-                )
-                  return null;
+                if (item.titleKey !== "settings.users" && !hasAccess("settings")) return null;
                 return (
                   <SidebarMenuItem key={item.url}>
                     <SidebarMenuButton asChild>
