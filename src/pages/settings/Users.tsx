@@ -395,10 +395,10 @@ export default function Users() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Criar Usuário</DialogTitle>
+                <DialogTitle>Convidar Usuário</DialogTitle>
                 <DialogDescription>
-                  O usuário será criado com o papel selecionado. Você pode atribuir papéis adicionais depois pelo botão
-                  "Papéis".
+                  Uma senha temporária será gerada e enviada por email. O usuário será obrigado a trocar a senha no
+                  primeiro acesso.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-2">
@@ -409,19 +409,6 @@ export default function Users() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="usuario@empresa.com"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Nome Completo *</Label>
-                  <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nome do usuário" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Senha *</Label>
-                  <Input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Mínimo 6 caracteres"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -439,8 +426,7 @@ export default function Users() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Analista de Compras recebe automaticamente também o papel Requisitante (para criar requisições
-                    próprias).
+                    Se o email já existe, a senha será redefinida e enviada novamente.
                   </p>
                 </div>
               </div>
@@ -450,7 +436,7 @@ export default function Users() {
                 </Button>
                 <Button onClick={handleCreate} disabled={creating}>
                   {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Criar Usuário
+                  Enviar Convite
                 </Button>
               </DialogFooter>
             </DialogContent>
