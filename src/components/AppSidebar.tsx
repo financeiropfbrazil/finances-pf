@@ -152,6 +152,7 @@ export function AppSidebar() {
   const isEntidadesActive = location.pathname.startsWith("/entidades");
   const isContasPagarActive = location.pathname.startsWith("/contas-a-pagar");
   const isSuprimentosActive = location.pathname.startsWith("/suprimentos");
+  const isIntercompanyActive = location.pathname.startsWith("/intercompany");
 
   return (
     <Sidebar className="border-r border-sidebar-border">
