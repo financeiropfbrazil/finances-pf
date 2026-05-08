@@ -20,13 +20,36 @@ const Login = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
     if (error) {
       toast.error(t("auth.error"), { description: error.message });
-    } else {
-      navigate("/");
+      setLoading(false);
+      return;
     }
+
+    // ✅ NOVO: detecta must_change_password antes de redirecionar pra "/"
+    if (data?.user) {
+      const { data: profileData } = await (supabase as any)
+        .from("profiles")
+        .select("must_change_password")
+        .eq("user_id", data.user.id)
+        .maybeSingle();
+
+      setLoading(false);
+
+      if (profileData?.must_change_password === true) {
+        toast.info("Senha temporária detectada", {
+          description: "Por segurança, defina uma nova senha agora.",
+        });
+        navigate("/reset-password");
+        return;
+      }
+    }
+
+    setLoading(false);
+    navigate("/");
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
@@ -46,7 +69,6 @@ const Login = () => {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
-        {/* Language toggle */}
         <div className="mb-6 flex justify-end">
           <Button
             variant="ghost"
@@ -101,11 +123,7 @@ const Login = () => {
               )}
 
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading
-                  ? t("auth.signing_in")
-                  : forgotMode
-                    ? t("auth.send_reset")
-                    : t("auth.login")}
+                {loading ? t("auth.signing_in") : forgotMode ? t("auth.send_reset") : t("auth.login")}
               </Button>
             </form>
 
