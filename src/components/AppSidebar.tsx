@@ -267,6 +267,9 @@ export function AppSidebar() {
                       {/* Suprimentos expandable */}
                       {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
 
+                      {/* Intercompany expandable */}
+                      {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
+
                       {/* Compras expandable */}
                       {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
 
