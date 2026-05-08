@@ -35,7 +35,7 @@ export async function buscarSugestaoNumero(ano?: number): Promise<SugestaoNumero
 }
 
 export async function listarClassesPorTipo(
-  tipo: "venda" | "servico" | "reembolso" | "nota_credito"
+  tipo: "venda" | "servico" | "reembolso" | "nota_credito",
 ): Promise<ClasseIntercompanyOption[]> {
   const { data, error } = await (supabase as any).rpc("get_classes_intercompany_by_tipo", {
     p_tipo: tipo,
@@ -44,14 +44,13 @@ export async function listarClassesPorTipo(
   return (data ?? []) as ClasseIntercompanyOption[];
 }
 
-export async function criarRascunhoReembolso(
-  input: CriarReembolsoInput
-): Promise<CriarReembolsoResult> {
+export async function criarRascunhoReembolso(input: CriarReembolsoInput): Promise<CriarReembolsoResult> {
   const { data, error } = await (supabase as any).rpc("criar_invoice_reembolso", {
     p_numero_invoice: input.numero_invoice,
     p_descricao_rica: input.descricao_rica,
     p_classe_codigo: input.classe_codigo,
     p_konto_austria_numero: input.konto_austria_numero,
+    p_centro_custo_erp_code: input.centro_custo_erp_code, // ✅ NOVO
     p_cambio_eur_brl: input.cambio_eur_brl,
     p_valor_eur: input.valor_eur,
     p_observacoes: input.observacoes ?? null,
@@ -66,6 +65,7 @@ export async function emitirReembolsoNoAlvo(params: {
   numero_sequencial: string;
   descricao_rica: string;
   classe_codigo: string;
+  centro_custo_erp_code: string; // ✅ NOVO
   cambio_eur_brl: number;
   valor_eur: number;
   valor_brl: number;
@@ -93,7 +93,7 @@ export async function atualizarStatusEmissao(
   master_id: string,
   sucesso: boolean,
   chave_alvo?: number,
-  motivo?: string
+  motivo?: string,
 ) {
   const { data, error } = await (supabase as any).rpc("atualizar_emissao_reembolso", {
     p_master_id: master_id,
