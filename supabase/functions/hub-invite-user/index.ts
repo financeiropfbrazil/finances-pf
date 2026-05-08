@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
     );
 
     // 6. Atribuir role via RPC
-    const { error: roleErr } = await adminClient.rpc("hub_assign_role", {
+    const { error: roleErr } = await adminClient.rpc("hub_assign_role_internal", {
       p_target_user_id: userId,
       p_role_code: roleCode,
       p_motivo: isExistingUser ? "Reenvio de convite" : "Criação inicial via convite",
