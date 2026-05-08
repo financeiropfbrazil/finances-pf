@@ -1,15 +1,20 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
+  ChevronsUpDown,
   FileText,
   Loader2,
   RefreshCw,
@@ -24,7 +29,6 @@ import type { SugestaoNumeroInvoice, ClasseIntercompanyOption } from "@/types/in
 /**
  * Catálogo fixo de Kontos AT (Áustria).
  * São apenas 8 e mudam raramente. Hardcoded evita query extra.
- * Atualizar aqui se PEF Áustria adicionar/remover Kontos.
  */
 const KONTOS_AT_AUSTRIA: { numero: string; descricao: string }[] = [
   { numero: "57520", descricao: "CMV" },
@@ -37,6 +41,12 @@ const KONTOS_AT_AUSTRIA: { numero: string; descricao: string }[] = [
   { numero: "77930", descricao: "Outras Operacionais (Markup 25%)" },
 ];
 
+interface CostCenterOption {
+  erp_code: string;
+  name: string;
+  department_type: string | null;
+}
+
 const formatBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const formatEUR = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "EUR" });
 
@@ -44,18 +54,36 @@ export default function ReembolsoNovo() {
   const navigate = useNavigate();
   const { status, error: emitError, resultado, emitir, reset } = useEmitReembolso();
 
-  // Loading state inicial
+  // Loading state inicial (sugestão + classes)
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [metaError, setMetaError] = useState<string | null>(null);
 
-  // Dados de apoio (sugestão + classes)
+  // Dados de apoio
   const [sugestao, setSugestao] = useState<SugestaoNumeroInvoice | null>(null);
   const [classes, setClasses] = useState<ClasseIntercompanyOption[]>([]);
+
+  // CCs via React Query (cache)
+  const { data: costCenters = [] } = useQuery({
+    queryKey: ["cost_centers_reembolso"],
+    queryFn: async (): Promise<CostCenterOption[]> => {
+      const { data, error } = await (supabase as any)
+        .from("cost_centers")
+        .select("erp_code, name, department_type")
+        .eq("is_active", true)
+        .eq("group_type", "F")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return (data || []) as CostCenterOption[];
+    },
+  });
 
   // Form state
   const [numeroInvoice, setNumeroInvoice] = useState("");
   const [classeCodigo, setClasseCodigo] = useState("");
   const [kontoAtNumero, setKontoAtNumero] = useState("");
+  const [centroCustoErpCode, setCentroCustoErpCode] = useState("");
+  const [ccPopoverOpen, setCcPopoverOpen] = useState(false);
+  const [ccSearch, setCcSearch] = useState("");
   const [descricaoRica, setDescricaoRica] = useState("");
   const [cambioStr, setCambioStr] = useState("");
   const [valorEurStr, setValorEurStr] = useState("");
@@ -70,7 +98,6 @@ export default function ReembolsoNovo() {
       setSugestao(sug);
       setClasses(cls);
 
-      // Auto-preenche número sugerido (D1: editável)
       if (!numeroInvoice && sug?.sugestao) {
         setNumeroInvoice(sug.sugestao);
       }
@@ -101,24 +128,40 @@ export default function ReembolsoNovo() {
     [classeCodigo, classes],
   );
 
+  // ── CC selecionado (memo) ──
+  const ccSelecionado = useMemo(
+    () => costCenters.find((cc) => cc.erp_code === centroCustoErpCode) ?? null,
+    [centroCustoErpCode, costCenters],
+  );
+
+  // ── CCs filtrados pela busca ──
+  const ccsFiltrados = useMemo(() => {
+    const q = ccSearch.trim().toLowerCase();
+    if (!q) return costCenters.slice(0, 50);
+    return costCenters
+      .filter((cc) => cc.name.toLowerCase().includes(q) || cc.erp_code.toLowerCase().includes(q))
+      .slice(0, 50);
+  }, [costCenters, ccSearch]);
+
   // ── Cálculos derivados ──
   const cambioNum = parseFloat(cambioStr.replace(",", ".")) || 0;
   const valorEurNum = parseFloat(valorEurStr.replace(",", ".")) || 0;
   const valorBrlCalc = cambioNum > 0 && valorEurNum > 0 ? +(valorEurNum * cambioNum).toFixed(2) : 0;
 
-  // ── Validação do submit ──
+  // ── Validação ──
   const camposValidos =
     numeroInvoice.trim().length > 0 &&
     /^\d{3,4}\/\d{4}$/.test(numeroInvoice.trim()) &&
     descricaoRica.trim().length > 0 &&
     classeCodigo.length > 0 &&
     kontoAtNumero.length > 0 &&
+    centroCustoErpCode.length > 0 &&
     cambioNum > 0 &&
     valorEurNum > 0;
 
   const podeEmitir = camposValidos && status === "idle";
 
-  // ── Handler do submit ──
+  // ── Submit ──
   const handleEmitir = async () => {
     if (!podeEmitir) return;
     await emitir({
@@ -126,26 +169,26 @@ export default function ReembolsoNovo() {
       descricao_rica: descricaoRica.trim(),
       classe_codigo: classeCodigo,
       konto_austria_numero: kontoAtNumero,
+      centro_custo_erp_code: centroCustoErpCode,
       cambio_eur_brl: cambioNum,
       valor_eur: valorEurNum,
       observacoes: observacoes.trim() || undefined,
     });
   };
 
-  // ── Quando emit completa com sucesso, mostra toast e redireciona ──
+  // ── Sucesso → toast + redirect ──
   useEffect(() => {
     if (status === "sucesso" && resultado) {
       toast({
         title: "Reembolso emitido com sucesso!",
         description: `Invoice ${resultado.numero_invoice} criada no Alvo (Chave ${resultado.chave_alvo}).`,
       });
-      // D3: redireciona pra /master (lista geral)
       const t = setTimeout(() => navigate("/intercompany/master"), 1500);
       return () => clearTimeout(t);
     }
   }, [status, resultado, navigate]);
 
-  // ── Render: estado de loading inicial ──
+  // ── Loading ──
   if (loadingMeta) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -154,7 +197,6 @@ export default function ReembolsoNovo() {
     );
   }
 
-  // ── Render: erro ao carregar ──
   if (metaError) {
     return (
       <div className="p-6">
@@ -191,7 +233,7 @@ export default function ReembolsoNovo() {
         </div>
       </div>
 
-      {/* Card sugestão de numeração */}
+      {/* Sugestão de numeração */}
       {sugestao && (
         <Card className="border-primary/20 bg-primary/5">
           <CardContent className="flex items-center gap-3 p-4">
@@ -212,13 +254,13 @@ export default function ReembolsoNovo() {
         </Card>
       )}
 
-      {/* Formulário principal */}
+      {/* Formulário */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Dados da Invoice</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
-          {/* Linha 1: número da invoice */}
+          {/* Número da Invoice */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-1">
               <Label htmlFor="numero">Número da Invoice *</Label>
@@ -234,7 +276,7 @@ export default function ReembolsoNovo() {
             </div>
           </div>
 
-          {/* Linha 2: classe */}
+          {/* Classe */}
           <div>
             <Label htmlFor="classe">Classe Intercompany *</Label>
             <Select value={classeCodigo} onValueChange={setClasseCodigo} disabled={status !== "idle"}>
@@ -252,7 +294,7 @@ export default function ReembolsoNovo() {
             </Select>
           </div>
 
-          {/* Triple Match contábil — só aparece quando há classe selecionada */}
+          {/* Triple Match Contábil */}
           {classeSelecionada && (
             <Card className="border-muted bg-muted/30">
               <CardContent className="p-4 space-y-2">
@@ -287,7 +329,7 @@ export default function ReembolsoNovo() {
             </Card>
           )}
 
-          {/* Konto AT — editável (D3 = b: dropdown com todos) */}
+          {/* Konto AT */}
           <div>
             <Label htmlFor="konto">Konto Áustria *</Label>
             <Select value={kontoAtNumero} onValueChange={setKontoAtNumero} disabled={status !== "idle"}>
@@ -308,7 +350,69 @@ export default function ReembolsoNovo() {
             </p>
           </div>
 
-          {/* Linha valores */}
+          {/* Centro de Custo */}
+          <div>
+            <Label>Centro de Custo *</Label>
+            <Popover open={ccPopoverOpen} onOpenChange={setCcPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between font-normal"
+                  disabled={status !== "idle"}
+                >
+                  {ccSelecionado ? (
+                    <span className="truncate text-left">
+                      <span className="font-mono text-xs mr-2">{ccSelecionado.erp_code}</span>
+                      {ccSelecionado.name}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Selecione um Centro de Custo</span>
+                  )}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50 shrink-0" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Buscar por código ou nome..."
+                    value={ccSearch}
+                    onValueChange={setCcSearch}
+                  />
+                  <CommandList>
+                    <CommandEmpty>Nenhum centro de custo encontrado.</CommandEmpty>
+                    <CommandGroup>
+                      {ccsFiltrados.map((cc) => (
+                        <CommandItem
+                          key={cc.erp_code}
+                          value={cc.erp_code}
+                          onSelect={() => {
+                            setCentroCustoErpCode(cc.erp_code);
+                            setCcPopoverOpen(false);
+                            setCcSearch("");
+                          }}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-medium text-sm">{cc.name}</span>
+                            <span className="text-xs text-muted-foreground font-mono">
+                              {cc.erp_code}
+                              {cc.department_type && ` · ${cc.department_type}`}
+                            </span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Centro de Custo onde o reembolso será alocado no DRE BR.
+              {costCenters.length > 0 && ` (${costCenters.length} disponíveis)`}
+            </p>
+          </div>
+
+          {/* Valores */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <Label htmlFor="valor-eur">Valor em EUR *</Label>
@@ -348,7 +452,7 @@ export default function ReembolsoNovo() {
             </div>
           </div>
 
-          {/* Descrição rica */}
+          {/* Descrição */}
           <div>
             <Label htmlFor="descricao">Descrição (Observação) *</Label>
             <Textarea
@@ -364,7 +468,7 @@ export default function ReembolsoNovo() {
             </p>
           </div>
 
-          {/* Observações internas (opcional) */}
+          {/* Observações internas */}
           <div>
             <Label htmlFor="obs">Observações internas (opcional)</Label>
             <Textarea
@@ -379,7 +483,7 @@ export default function ReembolsoNovo() {
         </CardContent>
       </Card>
 
-      {/* Erro de emissão */}
+      {/* Erro */}
       {status === "erro" && emitError && (
         <Card className="border-destructive/30 bg-destructive/5">
           <CardContent className="flex items-start gap-3 p-4">
@@ -412,7 +516,7 @@ export default function ReembolsoNovo() {
         </Card>
       )}
 
-      {/* Botões de ação */}
+      {/* Botões */}
       <div className="flex items-center justify-end gap-2 pb-6">
         <Button
           variant="outline"
@@ -455,7 +559,7 @@ export default function ReembolsoNovo() {
         </Button>
       </div>
 
-      {/* Estado de progress visual durante emissão */}
+      {/* Progress visual */}
       {(status === "criando" || status === "emitindo") && (
         <Card className="border-primary/20 bg-primary/5 fixed bottom-4 right-4 z-50 w-80 shadow-lg">
           <CardContent className="flex items-center gap-3 p-4">
