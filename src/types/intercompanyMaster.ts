@@ -25,9 +25,11 @@ export type MasterStatusUnificado =
   | "validada"
   | "reconciliada";
 
+export type MasterClassificationStatus = "classified" | "needs_konto_at" | "unclassified";
+
 export interface MasterItem {
-  id: string; // uuid (master) ou uuid (invoices)
-  source_table: "master" | "invoices"; // discriminador interno
+  id: string;
+  source_table: "master" | "invoices";
   origem: MasterOrigem;
   numero_invoice: string | null;
   tipo: MasterTipo;
@@ -46,17 +48,19 @@ export interface MasterItem {
   chave_docfin_alvo: number | null;
   numero_documento_alvo: string | null;
   descricao: string | null;
+  total_blocos: number; // ✅ NOVO: quantos blocos a invoice tem
   total_ccs: number;
-  ccs_codigos: string[]; // array vazio se não houver rateios
+  ccs_codigos: string[];
   origem_categoria: string | null;
-  created_at: string; // ISO timestamp
+  classification_status_agregado: MasterClassificationStatus; // ✅ NOVO: status agregado dos blocos
+  created_at: string;
   emitida_em: string | null;
 }
 
 // ─── Filtros ──────────────────────────────────────────────────────────
 
 export interface MasterFiltros {
-  data_de?: string | null; // YYYY-MM-DD
+  data_de?: string | null;
   data_ate?: string | null;
   tipo?: MasterTipo | null;
   status?: MasterStatusUnificado | null;
@@ -109,7 +113,20 @@ export interface MasterFiltrosDisponiveis {
   ccs: { erp_code: string; name: string }[];
 }
 
-// ─── Detalhes do rateio (consumido pelo accordion ao expandir linha) ──
+// ─── Detalhes do bloco (consumido pelo accordion ao expandir) ─────────
+
+export interface MasterBlocoDetalhe {
+  id: string;
+  ordem: number;
+  tipo_bloco: string | null;
+  descricao: string;
+  classe_codigo: string | null;
+  konto_at_numero: string | null;
+  konto_at_descricao: string | null;
+  valor_eur: number;
+  classification_status: MasterClassificationStatus;
+  rateios: MasterRateioDetalhe[];
+}
 
 export interface MasterRateioDetalhe {
   centro_custo_erp_code: string;
