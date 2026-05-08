@@ -191,6 +191,7 @@ export function AppSidebar() {
                     return (
                       <div key="nf-entrada-and-compras-group">
                         {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
+                        {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
                         {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
                         {hasAccess("entidades") && renderEntidadesGroup(t, isEntidadesActive)}
                       </div>
