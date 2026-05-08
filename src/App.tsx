@@ -52,6 +52,7 @@ import EmailNfe from "./pages/EmailNfe";
 import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
 import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
+import ReembolsoNovo from "./pages/intercompany/ReembolsoNovo";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -145,6 +146,7 @@ function AppRoutes() {
         <Route path="/compras/pedidos-compra" element={<PermissionRoute permKey="compras"><ComprasPedidosCompra /></PermissionRoute>} />
         <Route path="/entidades" element={<PermissionRoute permKey="entidades"><Entidades /></PermissionRoute>} />
         <Route path="/entidades/upload-codigos" element={<PermissionRoute permKey="entidades"><EntidadesUploadCodigos /></PermissionRoute>} />
+        <Route path="/intercompany/reembolsos/novo" element={<ReembolsoNovo />} />
         <Route path="/contas-a-pagar" element={<PermissionRoute permKey="contas_pagar"><ContasPagar /></PermissionRoute>} />
         <Route path="/contas-a-pagar/dashboard" element={<PermissionRoute permKey="contas_pagar"><ContasPagarDashboard /></PermissionRoute>} />
         <Route path="/loans" element={<PermissionRoute permKey="loans"><PlaceholderPage titleKey="nav.loans" /></PermissionRoute>} />

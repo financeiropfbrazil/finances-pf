@@ -8,7 +8,7 @@ import {
   PackageCheck,
   Wallet,
   Receipt,
-  ArrowLeftRight,
+  
   CreditCard,
   Settings,
   TrendingUp,
@@ -91,6 +91,7 @@ const routePermMap: Record<string, string> = {
   "/projetos": "projetos",
   "/closing": "closing",
   "/suprimentos/requisicoes": "suprimentos_requisicoes",
+  "/intercompany/reembolsos/novo": "intercompany",
 };
 
 const inventorySubItems = [
@@ -110,6 +111,10 @@ const comprasSubItems = [
 
 const suprimentosSubItems = [
   { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
+];
+
+const intercompanySubItems = [
+  { label: "Novo Reembolso", url: "/intercompany/reembolsos/novo", icon: FileText },
 ];
 
 const entidadesSubItems = [
@@ -147,6 +152,7 @@ export function AppSidebar() {
   const isEntidadesActive = location.pathname.startsWith("/entidades");
   const isContasPagarActive = location.pathname.startsWith("/contas-a-pagar");
   const isSuprimentosActive = location.pathname.startsWith("/suprimentos");
+  const isIntercompanyActive = location.pathname.startsWith("/intercompany");
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -181,10 +187,11 @@ export function AppSidebar() {
                     );
                   }
                   if (item.titleKey === "nav.nf_entrada") {
-                    if (!hasAccess("compras") && !hasAccess("entidades") && !hasAccess("suprimentos_requisicoes")) return null;
+                    if (!hasAccess("compras") && !hasAccess("entidades") && !hasAccess("suprimentos_requisicoes") && !hasAccess("intercompany")) return null;
                     return (
                       <div key="nf-entrada-and-compras-group">
                         {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
+                        {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
                         {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
                         {hasAccess("entidades") && renderEntidadesGroup(t, isEntidadesActive)}
                       </div>
@@ -259,6 +266,9 @@ export function AppSidebar() {
 
                       {/* Suprimentos expandable */}
                       {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
+
+                      {/* Intercompany expandable */}
+                      {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
 
                       {/* Compras expandable */}
                       {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
@@ -556,6 +566,44 @@ function renderSuprimentosGroup(t: any, isActive: boolean) {
         <CollapsibleContent>
           <SidebarMenuSub>
             {suprimentosSubItems.map((sub) => (
+              <SidebarMenuSubItem key={sub.url}>
+                <SidebarMenuSubButton asChild>
+                  <NavLink
+                    to={sub.url}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                  >
+                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+
+function renderIntercompanyGroup(t: any, isActive: boolean) {
+  return (
+    <Collapsible defaultOpen={isActive} className="group/collapsible-intercompany">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
+            }`}
+          >
+            <Handshake className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Intercompany</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-intercompany:rotate-[-90deg]" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {intercompanySubItems.map((sub) => (
               <SidebarMenuSubItem key={sub.url}>
                 <SidebarMenuSubButton asChild>
                   <NavLink
