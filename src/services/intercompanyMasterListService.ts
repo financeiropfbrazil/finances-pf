@@ -1,14 +1,13 @@
 import { supabase } from "@/integrations/supabase/client";
 import type {
+  MasterBlocoDetalhe,
   MasterFiltros,
   MasterFiltrosDisponiveis,
   MasterListResponse,
-  MasterRateioDetalhe,
 } from "@/types/intercompanyMaster";
 
 /**
  * Busca filtros disponíveis (anos, tipos, status, classes, kontos, CCs).
- * Cacheia bem porque muda raramente.
  */
 export async function buscarFiltrosDisponiveis(): Promise<MasterFiltrosDisponiveis> {
   const { data, error } = await (supabase as any).rpc("get_master_filtros_disponiveis");
@@ -18,14 +17,12 @@ export async function buscarFiltrosDisponiveis(): Promise<MasterFiltrosDisponive
 
 /**
  * Lista invoices da master unificada com filtros, paginação e resumo agregado.
- * Retorna items + pagination + resumo num único request.
  */
 export async function listarMaster(
   filtros: MasterFiltros = {},
   page: number = 1,
   pageSize: number = 20,
 ): Promise<MasterListResponse> {
-  // Sanitiza: remove chaves null/undefined/'' antes de mandar
   const filtrosLimpos: Record<string, any> = {};
   Object.entries(filtros).forEach(([k, v]) => {
     if (v !== null && v !== undefined && v !== "") {
@@ -43,15 +40,38 @@ export async function listarMaster(
 }
 
 /**
- * Busca rateios detalhados de um invoice Hub específico (com nome do CC).
- * Usado pelo accordion ao expandir uma linha "Hub".
- * Não chama RPC — query direta porque só precisa de SELECT + JOIN.
+ * Busca blocos detalhados de um invoice (com rateios e nomes de CCs).
+ * Usado pelo accordion ao expandir uma linha.
  */
-export async function buscarRateiosDetalhe(masterId: string): Promise<MasterRateioDetalhe[]> {
-  const { data, error } = await (supabase as any)
-    .from("intercompany_invoices_master_rateios")
+export async function buscarBlocosDetalhe(masterId: string): Promise<MasterBlocoDetalhe[]> {
+  // 1. Busca blocos da master
+  const { data: blocos, error: errBlocos } = await (supabase as any)
+    .from("intercompany_invoices_master_blocos")
     .select(
       `
+      id,
+      ordem,
+      tipo_bloco,
+      descricao,
+      classe_codigo,
+      konto_at_numero,
+      valor_eur,
+      classification_status
+    `,
+    )
+    .eq("master_id", masterId)
+    .order("ordem", { ascending: true });
+
+  if (errBlocos) throw new Error(errBlocos.message);
+  if (!blocos || blocos.length === 0) return [];
+
+  // 2. Busca todos os rateios desses blocos numa query só
+  const blocoIds = blocos.map((b: any) => b.id);
+  const { data: rateios, error: errRateios } = await (supabase as any)
+    .from("intercompany_invoices_master_bloco_rateios")
+    .select(
+      `
+      bloco_id,
       centro_custo_erp_code,
       percentual,
       valor_eur,
@@ -59,27 +79,47 @@ export async function buscarRateiosDetalhe(masterId: string): Promise<MasterRate
       cost_centers!inner (name)
     `,
     )
-    .eq("master_id", masterId)
+    .in("bloco_id", blocoIds)
     .order("ordem", { ascending: true });
 
-  if (error) throw new Error(error.message);
+  if (errRateios) throw new Error(errRateios.message);
 
-  return (data ?? []).map((r: any) => ({
-    centro_custo_erp_code: r.centro_custo_erp_code,
-    centro_custo_nome: r.cost_centers?.name ?? null,
-    percentual: Number(r.percentual),
-    valor_eur: Number(r.valor_eur),
-    ordem: r.ordem,
+  // 3. Busca descrições dos kontos AT
+  const kontosUnicos = Array.from(new Set(blocos.map((b: any) => b.konto_at_numero).filter(Boolean)));
+  const kontosMap = new Map<string, string>();
+  if (kontosUnicos.length > 0) {
+    const { data: kontos } = await (supabase as any)
+      .from("intercompany_kontos")
+      .select("numero, descricao_pt")
+      .in("numero", kontosUnicos);
+    (kontos || []).forEach((k: any) => kontosMap.set(k.numero, k.descricao_pt));
+  }
+
+  // 4. Monta resposta agrupando rateios por bloco
+  return blocos.map((b: any) => ({
+    id: b.id,
+    ordem: b.ordem,
+    tipo_bloco: b.tipo_bloco,
+    descricao: b.descricao,
+    classe_codigo: b.classe_codigo,
+    konto_at_numero: b.konto_at_numero,
+    konto_at_descricao: b.konto_at_numero ? (kontosMap.get(b.konto_at_numero) ?? null) : null,
+    valor_eur: Number(b.valor_eur),
+    classification_status: b.classification_status,
+    rateios: (rateios || [])
+      .filter((r: any) => r.bloco_id === b.id)
+      .map((r: any) => ({
+        centro_custo_erp_code: r.centro_custo_erp_code,
+        centro_custo_nome: r.cost_centers?.name ?? null,
+        percentual: Number(r.percentual),
+        valor_eur: Number(r.valor_eur),
+        ordem: r.ordem,
+      })),
   }));
 }
 
 /**
- * Exporta a listagem completa (TODAS as linhas que batem nos filtros, sem paginação)
- * pra alimentar a geração de Excel client-side.
- *
- * Estratégia: chama listarMaster com page_size=200 (limite da RPC) e itera páginas
- * até esgotar. Funciona bem pra até ~10k linhas; pra mais que isso vamos precisar
- * mudar pra streaming server-side (futuro).
+ * Exporta lista completa pra Excel (varre todas as páginas).
  */
 export async function buscarTudoParaExportar(filtros: MasterFiltros = {}): Promise<MasterListResponse["items"]> {
   const PAGE_SIZE = 200;
@@ -92,7 +132,6 @@ export async function buscarTudoParaExportar(filtros: MasterFiltros = {}): Promi
     allItems.push(...resp.items);
     totalPages = resp.pagination.total_pages;
     page++;
-    // safety: máximo 50 páginas (10k linhas)
     if (page > 50) {
       console.warn("[buscarTudoParaExportar] Atingido limite de 50 páginas (10000 linhas).");
       break;
