@@ -45,8 +45,12 @@ interface CostCenterOption {
   department_type: string | null;
 }
 
-interface RateioLinha extends RateioCC {
+interface RateioLinha {
   tempId: string;
+  centro_custo_erp_code: string;
+  percentual: number;
+  valor_eur: number; // sempre presente no estado interno
+  ordem?: number;
 }
 
 const MAX_RATEIOS = 5;
@@ -56,7 +60,7 @@ const MAX_RATEIOS = 5;
  * arredondado a 2 casas; a última linha absorve o resto pra zerar diferença.
  * Necessário porque o Alvo rejeita diferença entre soma do rateio e valor da classe.
  */
-function recalcularValoresRateio<T extends { percentual: number; valor_eur: number }>(
+function recalcularValoresRateio<T extends { percentual: number; valor_eur?: number }>(
   linhas: T[],
   valorTotal: number,
 ): T[] {
