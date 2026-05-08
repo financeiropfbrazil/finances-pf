@@ -14,6 +14,8 @@ export interface ClasseIntercompanyOption {
   classe_codigo: string;
   classe_nome: string;
   classe_grupo: string;
+  classe_natureza: string;
+  conta_contabil_reduzida: number | null;
   konto_at_default: string;
   konto_at_descricao: string;
   prioridade: number;
