@@ -91,6 +91,7 @@ const routePermMap: Record<string, string> = {
   "/projetos": "projetos",
   "/closing": "closing",
   "/suprimentos/requisicoes": "suprimentos_requisicoes",
+  "/intercompany/reembolsos/novo": "intercompany",
 };
 
 const inventorySubItems = [
