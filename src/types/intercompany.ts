@@ -26,6 +26,7 @@ export interface CriarReembolsoInput {
   descricao_rica: string;
   classe_codigo: string;
   konto_austria_numero: string;
+  centro_custo_erp_code: string; // ✅ NOVO
   cambio_eur_brl: number;
   valor_eur: number;
   observacoes?: string;
@@ -37,6 +38,7 @@ export interface CriarReembolsoResult {
   numero_invoice: string;
   numero_sequencial: string;
   valor_brl: number;
+  centro_custo_erp_code?: string; // ✅ NOVO (opcional pra retro-compat)
   status: string;
 }
 
