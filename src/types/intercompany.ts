@@ -21,12 +21,23 @@ export interface ClasseIntercompanyOption {
   prioridade: number;
 }
 
+/**
+ * Item individual de rateio de CC.
+ * Usado tanto na criação (input) quanto no retorno (output).
+ */
+export interface RateioCC {
+  centro_custo_erp_code: string;
+  percentual: number; // 0 < pct ≤ 100
+  valor_eur?: number; // calculado pelo backend; opcional no input
+  ordem?: number; // calculado pelo backend; opcional no input
+}
+
 export interface CriarReembolsoInput {
   numero_invoice: string;
   descricao_rica: string;
   classe_codigo: string;
   konto_austria_numero: string;
-  centro_custo_erp_code: string; // ✅ NOVO
+  rateios_cc: RateioCC[]; // ✅ NOVO: substitui centro_custo_erp_code (1-5 items, soma=100%)
   cambio_eur_brl: number;
   valor_eur: number;
   observacoes?: string;
@@ -38,7 +49,7 @@ export interface CriarReembolsoResult {
   numero_invoice: string;
   numero_sequencial: string;
   valor_brl: number;
-  centro_custo_erp_code?: string; // ✅ NOVO (opcional pra retro-compat)
+  rateios: RateioCC[]; // ✅ NOVO: array completo retornado pelo backend
   status: string;
 }
 
