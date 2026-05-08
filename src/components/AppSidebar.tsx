@@ -187,7 +187,7 @@ export function AppSidebar() {
                     );
                   }
                   if (item.titleKey === "nav.nf_entrada") {
-                    if (!hasAccess("compras") && !hasAccess("entidades") && !hasAccess("suprimentos_requisicoes")) return null;
+                    if (!hasAccess("compras") && !hasAccess("entidades") && !hasAccess("suprimentos_requisicoes") && !hasAccess("intercompany")) return null;
                     return (
                       <div key="nf-entrada-and-compras-group">
                         {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
