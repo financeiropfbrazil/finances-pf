@@ -10,6 +10,7 @@ interface Profile {
   email: string | null;
   is_admin: boolean;
   is_active: boolean;
+  must_change_password: boolean; // ✅ NOVO
 }
 
 interface UserRole {
@@ -27,6 +28,7 @@ interface AuthContextType {
   loading: boolean;
   signOut: () => Promise<void>;
   refreshPermissions: () => Promise<void>;
+  refreshProfile: () => Promise<void>; // ✅ NOVO — usado pra recarregar profile após troca de senha
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -84,7 +86,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (nextSession?.user) {
         const userId = nextSession.user.id;
-        // Carrega profile, permissions e roles em paralelo
         const [profileData, permsData, rolesData] = await Promise.all([
           loadProfile(userId),
           loadPermissions(userId),
@@ -144,16 +145,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRoles([]);
   };
 
-  /**
-   * Recarrega permissões e papéis do usuário atual.
-   * Útil quando um admin muda o papel de alguém e quer refletir sem logout.
-   */
   const refreshPermissions = async () => {
     if (!session?.user) return;
     const userId = session.user.id;
     const [permsData, rolesData] = await Promise.all([loadPermissions(userId), loadRoles(userId)]);
     setPermissions(permsData);
     setRoles(rolesData);
+  };
+
+  // ✅ NOVO — recarrega profile (útil após mudar must_change_password)
+  const refreshProfile = async () => {
+    if (!session?.user) return;
+    const profileData = await loadProfile(session.user.id);
+    setProfile(profileData);
   };
 
   return (
@@ -167,6 +171,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         signOut,
         refreshPermissions,
+        refreshProfile,
       }}
     >
       {children}
