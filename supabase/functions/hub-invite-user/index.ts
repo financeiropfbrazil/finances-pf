@@ -1,4 +1,5 @@
 // supabase/functions/hub-invite-user/index.ts
+// redeploy trigger
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
