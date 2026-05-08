@@ -16,7 +16,25 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ArrowRight, Plus, Pencil, Trash2, Package, Wrench, Check, ChevronsUpDown, ClipboardList, Calendar as CalendarIcon, Send, Loader2, Paperclip, FileText, Image as ImageIcon, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Plus,
+  Pencil,
+  Trash2,
+  Package,
+  Wrench,
+  Check,
+  ChevronsUpDown,
+  ClipboardList,
+  Calendar as CalendarIcon,
+  Send,
+  Loader2,
+  Paperclip,
+  FileText,
+  Image as ImageIcon,
+  X,
+} from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -112,6 +130,9 @@ export default function SuprimentosRequisicaoNova() {
   const [codigoFuncionario, setCodigoFuncionario] = useState("");
   const [funcionarioNome, setFuncionarioNome] = useState("");
   const [codigoCentroCtrl, setCodigoCentroCtrl] = useState("");
+  const [ccPreenchidoAutomatico, setCcPreenchidoAutomatico] = useState(false); // ✅ NOVO
+  const [ccPopoverOpen, setCcPopoverOpen] = useState(false); // ✅ NOVO
+  const [ccSearch, setCcSearch] = useState(""); // ✅ NOVO
   const [funcionarioPopoverOpen, setFuncionarioPopoverOpen] = useState(false);
   const [funcionarioSearch, setFuncionarioSearch] = useState("");
 
@@ -164,13 +185,13 @@ export default function SuprimentosRequisicaoNova() {
     }
 
     if (novos.length > 0) {
-      setArquivos(prev => [...prev, ...novos]);
+      setArquivos((prev) => [...prev, ...novos]);
     }
     event.target.value = "";
   };
 
   const handleRemoverArquivo = (guid: string) => {
-    setArquivos(prev => prev.filter(a => a.upload_identify_guid !== guid));
+    setArquivos((prev) => prev.filter((a) => a.upload_identify_guid !== guid));
   };
 
   const formatarTamanho = (bytes: number): string => {
@@ -228,6 +249,20 @@ export default function SuprimentosRequisicaoNova() {
     },
     enabled: isAdmin,
   });
+  // Buscar centros de custo (Folha ativo) para dropdown
+  const { data: costCenters = [] } = useQuery({
+    queryKey: ["cost_centers_requisicao_wizard"],
+    queryFn: async (): Promise<{ erp_code: string; name: string; department_type: string | null }[]> => {
+      const { data, error } = await (supabase as any)
+        .from("cost_centers")
+        .select("erp_code, name, department_type")
+        .eq("is_active", true)
+        .eq("group_type", "F")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+  });
 
   // Auto-preenchimento do funcionário e CC ao montar
   useEffect(() => {
@@ -250,6 +285,7 @@ export default function SuprimentosRequisicaoNova() {
         setCodigoFuncionario(data.codigo);
         setFuncionarioNome(data.nome);
         setCodigoCentroCtrl(data.codigo_centro_ctrl || "");
+        setCcPreenchidoAutomatico(!!data.codigo_centro_ctrl); // ✅ marca como auto
       }
     };
     carregarFuncionarioPadrao();
@@ -259,11 +295,12 @@ export default function SuprimentosRequisicaoNova() {
     setCodigoFuncionario(f.codigo);
     setFuncionarioNome(f.nome);
     setCodigoCentroCtrl(f.codigo_centro_ctrl || "");
+    setCcPreenchidoAutomatico(!!f.codigo_centro_ctrl); // ✅ marca como auto
     setFuncionarioPopoverOpen(false);
   };
 
   const getFinalidadeLabel = (codigo: string) => {
-    return FINALIDADES_COMPRA.find(f => f.codigo === codigo)?.label || codigo;
+    return FINALIDADES_COMPRA.find((f) => f.codigo === codigo)?.label || codigo;
   };
 
   const handleEnviar = async () => {
@@ -327,9 +364,10 @@ export default function SuprimentosRequisicaoNova() {
         })),
       };
 
-      const result = arquivos.length > 0
-        ? await enviarRequisicaoComArquivos({ ...inputBase, arquivos })
-        : await enviarRequisicao(inputBase);
+      const result =
+        arquivos.length > 0
+          ? await enviarRequisicaoComArquivos({ ...inputBase, arquivos })
+          : await enviarRequisicao(inputBase);
 
       if (result.sucesso) {
         toast({
@@ -358,17 +396,19 @@ export default function SuprimentosRequisicaoNova() {
   };
   const produtosFiltrados = useMemo(() => {
     const q = produtoSearch.trim().toLowerCase();
-    return produtos.filter(p => {
-      const isServico = p.tipo_produto_fiscal === "09";
-      if (itemTipo === "servico" && !isServico) return false;
-      if (itemTipo === "produto" && isServico) return false;
-      if (!q) return true;
-      return (
-        p.nome_produto.toLowerCase().includes(q) ||
-        p.codigo_produto.toLowerCase().includes(q) ||
-        (p.codigo_alternativo || "").toLowerCase().includes(q)
-      );
-    }).slice(0, 100);
+    return produtos
+      .filter((p) => {
+        const isServico = p.tipo_produto_fiscal === "09";
+        if (itemTipo === "servico" && !isServico) return false;
+        if (itemTipo === "produto" && isServico) return false;
+        if (!q) return true;
+        return (
+          p.nome_produto.toLowerCase().includes(q) ||
+          p.codigo_produto.toLowerCase().includes(q) ||
+          (p.codigo_alternativo || "").toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 100);
   }, [produtos, itemTipo, produtoSearch]);
 
   const resetItemForm = () => {
@@ -431,7 +471,7 @@ export default function SuprimentosRequisicaoNova() {
       toast({ title: "Adicione ao menos uma classe ao rateio", variant: "destructive" });
       return;
     }
-    if (itemRateio.some(r => !r.codigo_classe_rec_desp)) {
+    if (itemRateio.some((r) => !r.codigo_classe_rec_desp)) {
       toast({ title: "Todas as linhas do rateio precisam ter uma classe selecionada", variant: "destructive" });
       return;
     }
@@ -456,33 +496,36 @@ export default function SuprimentosRequisicaoNova() {
     };
 
     if (editingItemId) {
-      setItens(prev => prev.map(i => i.tempId === editingItemId ? novoItem : i));
+      setItens((prev) => prev.map((i) => (i.tempId === editingItemId ? novoItem : i)));
     } else {
-      setItens(prev => [...prev, novoItem]);
+      setItens((prev) => [...prev, novoItem]);
     }
     setItemDialogOpen(false);
     resetItemForm();
   };
 
   const handleRemoveItem = (tempId: string) => {
-    setItens(prev => prev.filter(i => i.tempId !== tempId));
+    setItens((prev) => prev.filter((i) => i.tempId !== tempId));
   };
 
   const addRateioLinha = () => {
-    setItemRateio(prev => [...prev, {
-      tempRateioId: `rat-${Date.now()}-${Math.random()}`,
-      codigo_classe_rec_desp: "",
-      classe_rec_desp_label: "",
-      percentual: 0,
-    }]);
+    setItemRateio((prev) => [
+      ...prev,
+      {
+        tempRateioId: `rat-${Date.now()}-${Math.random()}`,
+        codigo_classe_rec_desp: "",
+        classe_rec_desp_label: "",
+        percentual: 0,
+      },
+    ]);
   };
 
   const removeRateioLinha = (tempRateioId: string) => {
-    setItemRateio(prev => prev.filter(r => r.tempRateioId !== tempRateioId));
+    setItemRateio((prev) => prev.filter((r) => r.tempRateioId !== tempRateioId));
   };
 
   const updateRateioLinha = (tempRateioId: string, patch: Partial<RateioClasseItem>) => {
-    setItemRateio(prev => prev.map(r => r.tempRateioId === tempRateioId ? { ...r, ...patch } : r));
+    setItemRateio((prev) => prev.map((r) => (r.tempRateioId === tempRateioId ? { ...r, ...patch } : r)));
   };
 
   const dividirIgualmente = () => {
@@ -490,17 +533,20 @@ export default function SuprimentosRequisicaoNova() {
     const n = itemRateio.length;
     const base = Math.floor((100 / n) * 100) / 100;
     const resto = Math.round((100 - base * n) * 100) / 100;
-    setItemRateio(prev => prev.map((r, idx) => ({
-      ...r,
-      percentual: idx === n - 1 ? Math.round((base + resto) * 100) / 100 : base,
-    })));
+    setItemRateio((prev) =>
+      prev.map((r, idx) => ({
+        ...r,
+        percentual: idx === n - 1 ? Math.round((base + resto) * 100) / 100 : base,
+      })),
+    );
   };
 
   const somaRateio = useMemo(() => itemRateio.reduce((s, r) => s + r.percentual, 0), [itemRateio]);
 
   const canAdvance = (() => {
     if (currentStep === 1) return itens.length > 0;
-    if (currentStep === 2) return !!dataNecessidade && !!codigoFinalidadeCompra && !!descricao.trim() && isValidCnpjLength(cnpjSugestao);
+    if (currentStep === 2)
+      return !!dataNecessidade && !!codigoFinalidadeCompra && !!descricao.trim() && isValidCnpjLength(cnpjSugestao);
     if (currentStep === 3) return !!codigoFuncionario && !!codigoCentroCtrl;
     return true;
   })();
@@ -522,11 +568,19 @@ export default function SuprimentosRequisicaoNova() {
       <div className="flex items-center gap-2">
         {STEPS.map((step, idx) => (
           <div key={step.id} className="flex items-center gap-2">
-            <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${currentStep === step.id ? "bg-primary text-primary-foreground" : currentStep > step.id ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground"}`}>
+            <div
+              className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${currentStep === step.id ? "bg-primary text-primary-foreground" : currentStep > step.id ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground"}`}
+            >
               {currentStep > step.id ? <Check className="h-4 w-4" /> : step.id}
             </div>
-            <span className={`text-sm hidden sm:inline ${currentStep === step.id ? "font-semibold text-foreground" : "text-muted-foreground"}`}>{step.label}</span>
-            {idx < STEPS.length - 1 && <div className={`h-px w-6 sm:w-10 ${currentStep > step.id ? "bg-emerald-500" : "bg-muted"}`} />}
+            <span
+              className={`text-sm hidden sm:inline ${currentStep === step.id ? "font-semibold text-foreground" : "text-muted-foreground"}`}
+            >
+              {step.label}
+            </span>
+            {idx < STEPS.length - 1 && (
+              <div className={`h-px w-6 sm:w-10 ${currentStep > step.id ? "bg-emerald-500" : "bg-muted"}`} />
+            )}
           </div>
         ))}
       </div>
@@ -539,7 +593,9 @@ export default function SuprimentosRequisicaoNova() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="text-lg font-semibold text-foreground">O que você precisa?</h2>
-                  <p className="text-sm text-muted-foreground">Adicione os produtos ou serviços que você quer solicitar.</p>
+                  <p className="text-sm text-muted-foreground">
+                    Adicione os produtos ou serviços que você quer solicitar.
+                  </p>
                 </div>
                 <Button size="sm" onClick={openNewItemDialog}>
                   <Plus className="h-4 w-4 mr-1" /> Adicionar item
@@ -553,21 +609,31 @@ export default function SuprimentosRequisicaoNova() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {itens.map(item => (
+                  {itens.map((item) => (
                     <div key={item.tempId} className="flex items-start gap-3 rounded-lg border p-3">
                       <div className="mt-0.5 rounded-md bg-muted p-2">
-                        {item.item_servico ? <Wrench className="h-4 w-4 text-muted-foreground" /> : <Package className="h-4 w-4 text-muted-foreground" />}
+                        {item.item_servico ? (
+                          <Wrench className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-sm text-foreground truncate">{item.produto_nome}</p>
-                          <Badge variant="outline" className="text-[10px] shrink-0">{item.item_servico ? "Serviço" : "Produto"}</Badge>
+                          <Badge variant="outline" className="text-[10px] shrink-0">
+                            {item.item_servico ? "Serviço" : "Produto"}
+                          </Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground">{item.quantidade} {item.produto_unidade} · {item.codigo_produto}</p>
-                        {item.observacao && <p className="text-xs text-muted-foreground italic mt-1">"{item.observacao}"</p>}
+                        <p className="text-xs text-muted-foreground">
+                          {item.quantidade} {item.produto_unidade} · {item.codigo_produto}
+                        </p>
+                        {item.observacao && (
+                          <p className="text-xs text-muted-foreground italic mt-1">"{item.observacao}"</p>
+                        )}
                         {item.rateio.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
-                            {item.rateio.map(r => (
+                            {item.rateio.map((r) => (
                               <Badge key={r.tempRateioId} variant="secondary" className="text-[10px] font-normal">
                                 {r.codigo_classe_rec_desp} ({r.percentual}%)
                               </Badge>
@@ -575,10 +641,20 @@ export default function SuprimentosRequisicaoNova() {
                           </div>
                         )}
                       </div>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => openEditItemDialog(item)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => openEditItemDialog(item)}
+                      >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive" onClick={() => handleRemoveItem(item.tempId)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
+                        onClick={() => handleRemoveItem(item.tempId)}
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -603,7 +679,13 @@ export default function SuprimentosRequisicaoNova() {
               <Label>Data de Necessidade *</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !dataNecessidade && "text-muted-foreground")}>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                      !dataNecessidade && "text-muted-foreground",
+                    )}
+                  >
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {dataNecessidade ? format(dataNecessidade, "dd/MM/yyyy", { locale: ptBR }) : "Selecione a data"}
                   </Button>
@@ -629,8 +711,10 @@ export default function SuprimentosRequisicaoNova() {
                   <SelectValue placeholder="Selecione a finalidade" />
                 </SelectTrigger>
                 <SelectContent>
-                  {FINALIDADES_COMPRA.map(f => (
-                    <SelectItem key={f.codigo} value={f.codigo}>{f.label}</SelectItem>
+                  {FINALIDADES_COMPRA.map((f) => (
+                    <SelectItem key={f.codigo} value={f.codigo}>
+                      {f.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -638,7 +722,11 @@ export default function SuprimentosRequisicaoNova() {
 
             <div className="space-y-2">
               <Label>Descrição *</Label>
-              <Textarea value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Ex: Compra mensal de material de escritório" />
+              <Textarea
+                value={descricao}
+                onChange={(e) => setDescricao(e.target.value)}
+                placeholder="Ex: Compra mensal de material de escritório"
+              />
             </div>
 
             <div className="space-y-2">
@@ -648,9 +736,11 @@ export default function SuprimentosRequisicaoNova() {
                 placeholder="00.000.000/0000-00"
                 maxLength={18}
                 value={cnpjSugestao}
-                onChange={e => setCnpjSugestao(applyCnpjMask(e.target.value))}
+                onChange={(e) => setCnpjSugestao(applyCnpjMask(e.target.value))}
               />
-              <p className="text-xs text-muted-foreground">CNPJ do fornecedor sugerido, se aplicável. Serve apenas como orientação.</p>
+              <p className="text-xs text-muted-foreground">
+                CNPJ do fornecedor sugerido, se aplicável. Serve apenas como orientação.
+              </p>
               {cnpjSugestao && !isValidCnpjLength(cnpjSugestao) && (
                 <p className="text-xs text-destructive">CNPJ deve ter 14 dígitos</p>
               )}
@@ -680,22 +770,29 @@ export default function SuprimentosRequisicaoNova() {
                   </PopoverTrigger>
                   <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                     <Command shouldFilter={false}>
-                      <CommandInput placeholder="Buscar funcionário..." value={funcionarioSearch} onValueChange={setFuncionarioSearch} />
+                      <CommandInput
+                        placeholder="Buscar funcionário..."
+                        value={funcionarioSearch}
+                        onValueChange={setFuncionarioSearch}
+                      />
                       <CommandList>
                         <CommandEmpty>Nenhum funcionário encontrado.</CommandEmpty>
                         <CommandGroup>
-                          {funcionarios.filter(f => {
-                            const q = funcionarioSearch.trim().toLowerCase();
-                            if (!q) return true;
-                            return f.nome.toLowerCase().includes(q) || f.codigo.includes(q);
-                          }).slice(0, 50).map(f => (
-                            <CommandItem key={f.codigo} value={f.codigo} onSelect={() => handleSelectFuncionario(f)}>
-                              <div className="flex flex-col">
-                                <span className="font-medium">{f.nome}</span>
-                                <span className="text-xs text-muted-foreground">{f.codigo}</span>
-                              </div>
-                            </CommandItem>
-                          ))}
+                          {funcionarios
+                            .filter((f) => {
+                              const q = funcionarioSearch.trim().toLowerCase();
+                              if (!q) return true;
+                              return f.nome.toLowerCase().includes(q) || f.codigo.includes(q);
+                            })
+                            .slice(0, 50)
+                            .map((f) => (
+                              <CommandItem key={f.codigo} value={f.codigo} onSelect={() => handleSelectFuncionario(f)}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{f.nome}</span>
+                                  <span className="text-xs text-muted-foreground">{f.codigo}</span>
+                                </div>
+                              </CommandItem>
+                            ))}
                         </CommandGroup>
                       </CommandList>
                     </Command>
@@ -705,11 +802,17 @@ export default function SuprimentosRequisicaoNova() {
                 <div className="rounded-md border bg-muted/30 px-3 py-2.5">
                   {funcionarioNome ? (
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-foreground">{funcionarioNome} ({codigoFuncionario})</span>
-                      <Badge variant="secondary" className="text-[10px]">automático</Badge>
+                      <span className="text-sm text-foreground">
+                        {funcionarioNome} ({codigoFuncionario})
+                      </span>
+                      <Badge variant="secondary" className="text-[10px]">
+                        automático
+                      </Badge>
                     </div>
                   ) : (
-                    <span className="text-sm text-muted-foreground">Nenhum funcionário vinculado ao seu usuário. Contate o administrador.</span>
+                    <span className="text-sm text-muted-foreground">
+                      Nenhum funcionário vinculado ao seu usuário. Contate o administrador.
+                    </span>
                   )}
                 </div>
               )}
@@ -717,16 +820,74 @@ export default function SuprimentosRequisicaoNova() {
 
             <div className="space-y-2">
               <Label>Centro de Custo *</Label>
-              <div className="rounded-md border bg-muted/30 px-3 py-2.5">
-                {codigoCentroCtrl ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-foreground">{codigoCentroCtrl}</span>
-                    <Badge variant="secondary" className="text-[10px]">automático do funcionário</Badge>
-                  </div>
-                ) : (
-                  <span className="text-sm text-muted-foreground">Funcionário não tem CC cadastrado.</span>
-                )}
-              </div>
+              <Popover open={ccPopoverOpen} onOpenChange={setCcPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                    {codigoCentroCtrl ? (
+                      <span className="flex items-center gap-2 truncate text-left">
+                        <span className="font-mono text-xs">{codigoCentroCtrl}</span>
+                        <span className="truncate">
+                          {costCenters.find((cc) => cc.erp_code === codigoCentroCtrl)?.name ?? ""}
+                        </span>
+                        {ccPreenchidoAutomatico && (
+                          <Badge variant="secondary" className="text-[10px] shrink-0">
+                            automático do funcionário
+                          </Badge>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Selecione um Centro de Custo</span>
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50 shrink-0" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Buscar por código ou nome..."
+                      value={ccSearch}
+                      onValueChange={setCcSearch}
+                    />
+                    <CommandList>
+                      <CommandEmpty>Nenhum centro de custo encontrado.</CommandEmpty>
+                      <CommandGroup>
+                        {costCenters
+                          .filter((cc) => {
+                            const q = ccSearch.trim().toLowerCase();
+                            if (!q) return true;
+                            return cc.name.toLowerCase().includes(q) || cc.erp_code.toLowerCase().includes(q);
+                          })
+                          .slice(0, 50)
+                          .map((cc) => (
+                            <CommandItem
+                              key={cc.erp_code}
+                              value={cc.erp_code}
+                              onSelect={() => {
+                                setCodigoCentroCtrl(cc.erp_code);
+                                setCcPreenchidoAutomatico(false); // ANA escolheu manualmente
+                                setCcPopoverOpen(false);
+                                setCcSearch("");
+                              }}
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-medium text-sm">{cc.name}</span>
+                                <span className="text-xs text-muted-foreground font-mono">
+                                  {cc.erp_code}
+                                  {cc.department_type && ` · ${cc.department_type}`}
+                                </span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {ccPreenchidoAutomatico
+                  ? "Pré-preenchido com o CC do funcionário. Pode alterar se necessário."
+                  : "Selecione manualmente o Centro de Custo da requisição."}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -766,9 +927,7 @@ export default function SuprimentosRequisicaoNova() {
                           {item.quantidade} {item.produto_unidade} · {item.codigo_produto}
                         </div>
                         {item.observacao && (
-                          <div className="mt-1 text-xs italic text-muted-foreground">
-                            "{item.observacao}"
-                          </div>
+                          <div className="mt-1 text-xs italic text-muted-foreground">"{item.observacao}"</div>
                         )}
                         <div className="mt-2 flex flex-wrap gap-1">
                           {item.rateio.map((r) => (
@@ -811,7 +970,9 @@ export default function SuprimentosRequisicaoNova() {
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">CNPJ de referência</div>
-                  <div className="font-medium">{cnpjSugestao || <span className="text-muted-foreground">Não informado</span>}</div>
+                  <div className="font-medium">
+                    {cnpjSugestao || <span className="text-muted-foreground">Não informado</span>}
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -830,8 +991,7 @@ export default function SuprimentosRequisicaoNova() {
                 <div>
                   <div className="text-xs text-muted-foreground">Funcionário</div>
                   <div className="font-medium">
-                    {funcionarioNome}{" "}
-                    <span className="text-xs text-muted-foreground">({codigoFuncionario})</span>
+                    {funcionarioNome} <span className="text-xs text-muted-foreground">({codigoFuncionario})</span>
                   </div>
                 </div>
                 <div>
@@ -847,9 +1007,7 @@ export default function SuprimentosRequisicaoNova() {
             <CardContent className="space-y-3 p-6">
               <div>
                 <h3 className="font-semibold">Observação adicional (opcional)</h3>
-                <p className="text-xs text-muted-foreground">
-                  Informação extra que será enviada junto ao ERP.
-                </p>
+                <p className="text-xs text-muted-foreground">Informação extra que será enviada junto ao ERP.</p>
               </div>
               <Textarea
                 value={observacaoLivre}
@@ -869,8 +1027,8 @@ export default function SuprimentosRequisicaoNova() {
                   <h3 className="font-semibold">Anexos (opcional)</h3>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Anexe até {MAX_ARQUIVOS} arquivos (PDF, JPG ou PNG — máx {MAX_TAMANHO_MB}MB cada).
-                  Eles serão enviados ao ERP junto com a requisição.
+                  Anexe até {MAX_ARQUIVOS} arquivos (PDF, JPG ou PNG — máx {MAX_TAMANHO_MB}MB cada). Eles serão enviados
+                  ao ERP junto com a requisição.
                 </p>
               </div>
 
@@ -885,12 +1043,8 @@ export default function SuprimentosRequisicaoNova() {
                           <IconeArq className="h-4 w-4 text-muted-foreground" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate">
-                            {arq.file.name}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {formatarTamanho(arq.file.size)}
-                          </div>
+                          <div className="text-sm font-medium truncate">{arq.file.name}</div>
+                          <div className="text-xs text-muted-foreground">{formatarTamanho(arq.file.size)}</div>
                         </div>
                         <Button
                           variant="ghost"
@@ -935,9 +1089,7 @@ export default function SuprimentosRequisicaoNova() {
               )}
 
               {arquivos.length === MAX_ARQUIVOS && (
-                <p className="text-xs text-muted-foreground">
-                  Limite máximo de {MAX_ARQUIVOS} arquivos atingido.
-                </p>
+                <p className="text-xs text-muted-foreground">Limite máximo de {MAX_ARQUIVOS} arquivos atingido.</p>
               )}
             </CardContent>
           </Card>
@@ -988,10 +1140,20 @@ export default function SuprimentosRequisicaoNova() {
 
           {itemStep === 1 && (
             <div className="space-y-4 py-2">
-              <Tabs value={itemTipo} onValueChange={(v) => { setItemTipo(v as any); setProdutoSelecionado(null); }}>
+              <Tabs
+                value={itemTipo}
+                onValueChange={(v) => {
+                  setItemTipo(v as any);
+                  setProdutoSelecionado(null);
+                }}
+              >
                 <TabsList className="w-full">
-                  <TabsTrigger value="produto" className="flex-1"><Package className="h-4 w-4 mr-1" /> Produto</TabsTrigger>
-                  <TabsTrigger value="servico" className="flex-1"><Wrench className="h-4 w-4 mr-1" /> Serviço</TabsTrigger>
+                  <TabsTrigger value="produto" className="flex-1">
+                    <Package className="h-4 w-4 mr-1" /> Produto
+                  </TabsTrigger>
+                  <TabsTrigger value="servico" className="flex-1">
+                    <Wrench className="h-4 w-4 mr-1" /> Serviço
+                  </TabsTrigger>
                 </TabsList>
               </Tabs>
 
@@ -1000,22 +1162,36 @@ export default function SuprimentosRequisicaoNova() {
                 <Popover open={produtoPopoverOpen} onOpenChange={setProdutoPopoverOpen}>
                   <PopoverTrigger asChild>
                     <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                      {produtoSelecionado ? `${produtoSelecionado.nome_produto} (${produtoSelecionado.codigo_produto})` : `Buscar ${itemTipo === "servico" ? "serviço" : "produto"}...`}
+                      {produtoSelecionado
+                        ? `${produtoSelecionado.nome_produto} (${produtoSelecionado.codigo_produto})`
+                        : `Buscar ${itemTipo === "servico" ? "serviço" : "produto"}...`}
                       <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                     <Command shouldFilter={false}>
-                      <CommandInput placeholder="Digite para buscar..." value={produtoSearch} onValueChange={setProdutoSearch} />
+                      <CommandInput
+                        placeholder="Digite para buscar..."
+                        value={produtoSearch}
+                        onValueChange={setProdutoSearch}
+                      />
                       <CommandList>
                         <CommandEmpty>Nenhum resultado.</CommandEmpty>
                         <CommandGroup>
-                          {produtosFiltrados.map(p => (
-                            <CommandItem key={p.codigo_produto} value={p.codigo_produto} onSelect={() => { setProdutoSelecionado(p); setProdutoPopoverOpen(false); }}>
+                          {produtosFiltrados.map((p) => (
+                            <CommandItem
+                              key={p.codigo_produto}
+                              value={p.codigo_produto}
+                              onSelect={() => {
+                                setProdutoSelecionado(p);
+                                setProdutoPopoverOpen(false);
+                              }}
+                            >
                               <div className="flex flex-col">
                                 <span className="font-medium">{p.nome_produto}</span>
                                 <span className="text-xs text-muted-foreground">
-                                  {p.codigo_produto}{p.unidade_medida ? ` · ${p.unidade_medida}` : ""}
+                                  {p.codigo_produto}
+                                  {p.unidade_medida ? ` · ${p.unidade_medida}` : ""}
                                 </span>
                               </div>
                             </CommandItem>
@@ -1029,12 +1205,16 @@ export default function SuprimentosRequisicaoNova() {
 
               <div className="space-y-2">
                 <Label>Quantidade</Label>
-                <Input type="text" inputMode="decimal" value={itemQtd} onChange={e => setItemQtd(e.target.value)} />
+                <Input type="text" inputMode="decimal" value={itemQtd} onChange={(e) => setItemQtd(e.target.value)} />
               </div>
 
               <div className="space-y-2">
                 <Label>Observação (opcional)</Label>
-                <Textarea value={itemObs} onChange={e => setItemObs(e.target.value)} placeholder="Ex: link do produto, fornecedor preferido, urgência..." />
+                <Textarea
+                  value={itemObs}
+                  onChange={(e) => setItemObs(e.target.value)}
+                  placeholder="Ex: link do produto, fornecedor preferido, urgência..."
+                />
               </div>
             </div>
           )}
@@ -1042,12 +1222,11 @@ export default function SuprimentosRequisicaoNova() {
           {itemStep === 2 && (
             <div className="space-y-4 py-2">
               <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-                Defina como o custo deste item será rateado entre classes contábeis.
-                A soma deve totalizar 100%.
+                Defina como o custo deste item será rateado entre classes contábeis. A soma deve totalizar 100%.
               </div>
               <div className="space-y-2">
                 {itemRateio.map((r) => {
-                  const classe = classes.find(c => c.codigo === r.codigo_classe_rec_desp);
+                  const classe = classes.find((c) => c.codigo === r.codigo_classe_rec_desp);
                   return (
                     <div key={r.tempRateioId} className="flex items-start gap-2">
                       <div className="flex-1 min-w-0">
@@ -1056,7 +1235,11 @@ export default function SuprimentosRequisicaoNova() {
                           onOpenChange={(v) => setClassePopoverOpen(v ? r.tempRateioId : null)}
                         >
                           <PopoverTrigger asChild>
-                            <Button variant="outline" role="combobox" className="w-full justify-between font-normal text-xs h-9">
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className="w-full justify-between font-normal text-xs h-9"
+                            >
                               <span className="truncate">
                                 {classe ? `${classe.codigo} — ${classe.nome}` : "Selecione uma classe..."}
                               </span>
@@ -1069,7 +1252,7 @@ export default function SuprimentosRequisicaoNova() {
                               <CommandList>
                                 <CommandEmpty>Nenhuma classe encontrada.</CommandEmpty>
                                 <CommandGroup>
-                                  {classes.map(c => (
+                                  {classes.map((c) => (
                                     <CommandItem
                                       key={c.codigo}
                                       value={`${c.codigo} ${c.nome}`}
@@ -1099,7 +1282,9 @@ export default function SuprimentosRequisicaoNova() {
                         max="100"
                         step="0.01"
                         value={r.percentual}
-                        onChange={(e) => updateRateioLinha(r.tempRateioId, { percentual: parseFloat(e.target.value) || 0 })}
+                        onChange={(e) =>
+                          updateRateioLinha(r.tempRateioId, { percentual: parseFloat(e.target.value) || 0 })
+                        }
                         className="w-20 h-9 text-right text-xs"
                         placeholder="%"
                       />
@@ -1120,10 +1305,18 @@ export default function SuprimentosRequisicaoNova() {
                 <Button variant="outline" size="sm" onClick={addRateioLinha} className="gap-1.5 text-xs">
                   <Plus className="h-3 w-3" /> Adicionar classe
                 </Button>
-                <Button variant="outline" size="sm" onClick={dividirIgualmente} className="gap-1.5 text-xs" disabled={itemRateio.length < 2}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={dividirIgualmente}
+                  className="gap-1.5 text-xs"
+                  disabled={itemRateio.length < 2}
+                >
                   Dividir igualmente
                 </Button>
-                <div className={`ml-auto text-sm font-semibold ${Math.abs(somaRateio - 100) <= 0.01 ? "text-emerald-600" : "text-destructive"}`}>
+                <div
+                  className={`ml-auto text-sm font-semibold ${Math.abs(somaRateio - 100) <= 0.01 ? "text-emerald-600" : "text-destructive"}`}
+                >
                   Total: {somaRateio.toFixed(2)}%
                 </div>
               </div>
@@ -1133,8 +1326,12 @@ export default function SuprimentosRequisicaoNova() {
           <DialogFooter>
             {itemStep === 1 ? (
               <>
-                <Button variant="outline" onClick={() => setItemDialogOpen(false)}>Cancelar</Button>
-                <Button onClick={handleNextToRateio}>Próximo <ArrowRight className="ml-2 h-4 w-4" /></Button>
+                <Button variant="outline" onClick={() => setItemDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={handleNextToRateio}>
+                  Próximo <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
               </>
             ) : (
               <>
