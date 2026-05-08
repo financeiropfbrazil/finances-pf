@@ -30,6 +30,7 @@ export function useEmitReembolso() {
       setError(null);
       setResultado(null);
       setStatus("criando");
+
       const criar = await criarRascunhoReembolso(input);
 
       setStatus("emitindo");
@@ -39,6 +40,7 @@ export function useEmitReembolso() {
         numero_sequencial: criar.numero_sequencial,
         descricao_rica: input.descricao_rica,
         classe_codigo: input.classe_codigo,
+        centro_custo_erp_code: input.centro_custo_erp_code, // ✅ NOVO
         cambio_eur_brl: input.cambio_eur_brl,
         valor_eur: input.valor_eur,
         valor_brl: criar.valor_brl,
@@ -48,7 +50,7 @@ export function useEmitReembolso() {
         criar.master_id,
         emit.success,
         emit.chave_docfin_alvo,
-        emit.success ? undefined : emit.error
+        emit.success ? undefined : emit.error,
       );
 
       if (emit.success) {
