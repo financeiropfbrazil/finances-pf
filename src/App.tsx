@@ -52,6 +52,7 @@ import EmailNfe from "./pages/EmailNfe";
 import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
 import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
+import ReembolsoNovo from "./pages/intercompany/ReembolsoNovo";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
