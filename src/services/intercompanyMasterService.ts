@@ -5,6 +5,7 @@ import type {
   CriarReembolsoInput,
   CriarReembolsoResult,
   EmitInvGatewayResponse,
+  RateioCC,
 } from "@/types/intercompany";
 
 const GATEWAY_URL = "https://erp-proxy.onrender.com";
@@ -44,13 +45,24 @@ export async function listarClassesPorTipo(
   return (data ?? []) as ClasseIntercompanyOption[];
 }
 
+/**
+ * Cria invoice de reembolso na master (status='rascunho').
+ * Persiste 1-5 rateios de CC na tabela intercompany_invoices_master_rateios.
+ * Não chama o ERP Alvo — isso é feito por emitirReembolsoNoAlvo.
+ */
 export async function criarRascunhoReembolso(input: CriarReembolsoInput): Promise<CriarReembolsoResult> {
+  // Sanitiza rateios pro formato esperado pela RPC: [{cc, percentual}]
+  const rateiosPayload = input.rateios_cc.map((r) => ({
+    cc: r.centro_custo_erp_code,
+    percentual: r.percentual,
+  }));
+
   const { data, error } = await (supabase as any).rpc("criar_invoice_reembolso", {
     p_numero_invoice: input.numero_invoice,
     p_descricao_rica: input.descricao_rica,
     p_classe_codigo: input.classe_codigo,
     p_konto_austria_numero: input.konto_austria_numero,
-    p_centro_custo_erp_code: input.centro_custo_erp_code, // ✅ NOVO
+    p_rateios_cc: rateiosPayload,
     p_cambio_eur_brl: input.cambio_eur_brl,
     p_valor_eur: input.valor_eur,
     p_observacoes: input.observacoes ?? null,
@@ -59,13 +71,17 @@ export async function criarRascunhoReembolso(input: CriarReembolsoInput): Promis
   return data as CriarReembolsoResult;
 }
 
+/**
+ * Emite o reembolso no ERP Alvo via gateway.
+ * Espera que o invoice já exista no master (criado por criarRascunhoReembolso).
+ */
 export async function emitirReembolsoNoAlvo(params: {
   master_id: string;
   numero_invoice: string;
   numero_sequencial: string;
   descricao_rica: string;
   classe_codigo: string;
-  centro_custo_erp_code: string; // ✅ NOVO
+  rateios_cc: RateioCC[]; // ✅ NOVO: substitui centro_custo_erp_code único
   cambio_eur_brl: number;
   valor_eur: number;
   valor_brl: number;
