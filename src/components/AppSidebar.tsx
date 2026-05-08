@@ -8,7 +8,6 @@ import {
   PackageCheck,
   Wallet,
   Receipt,
-  
   CreditCard,
   Settings,
   TrendingUp,
@@ -48,11 +47,7 @@ import {
   SidebarHeader,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 const navItems = [
   { titleKey: "nav.dashboard", url: "/", icon: BarChart3 },
@@ -68,7 +63,7 @@ const navItems = [
   // Contas a Pagar handled separately as expandable
   { titleKey: "nav.loans", url: "/loans", icon: Wallet },
   { titleKey: "nav.taxes", url: "/taxes", icon: Receipt },
-  
+
   { titleKey: "nav.credit_cards", url: "/credit-cards", icon: CreditCard },
   { titleKey: "nav.projetos", url: "/projetos", icon: FolderKanban },
   { titleKey: "nav.closing", url: "/closing", icon: ClipboardCheck },
@@ -85,7 +80,7 @@ const routePermMap: Record<string, string> = {
   "/entidades": "entidades",
   "/loans": "loans",
   "/taxes": "taxes",
-  
+
   "/credit-cards": "credit_cards",
   "/contas-a-pagar": "contas_pagar",
   "/projetos": "projetos",
@@ -109,13 +104,9 @@ const comprasSubItems = [
   { label: "Certificado Digital", url: "/compras/certificado", icon: ShieldCheck },
 ];
 
-const suprimentosSubItems = [
-  { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
-];
+const suprimentosSubItems = [{ label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList }];
 
-const intercompanySubItems = [
-  { label: "Novo Reembolso", url: "/intercompany/reembolsos/novo", icon: FileText },
-];
+const intercompanySubItems = [{ label: "Novo Reembolso", url: "/intercompany/reembolsos/novo", icon: FileText }];
 
 const entidadesSubItems = [
   { label: "Lista de Entidades", url: "/entidades", icon: UsersIcon },
@@ -137,7 +128,7 @@ const settingsItems = [
   { titleKey: "settings.api_connection", url: "/settings/api", icon: Settings },
   { titleKey: "settings.cost_centers", url: "/settings/cost-centers", icon: Tag },
   { titleKey: "settings.classes_rec_desp", url: "/settings/classes-rec-desp", icon: BookOpen },
-  { titleKey: "settings.sync_jobs", url: "/configuracoes/sincronizacoes", icon: RefreshCw },
+  { titleKey: "settings.sync_jobs", url: "/configuracoes/sincronizacoes", icon: RefreshCw, adminOnly: true },
   { titleKey: "settings.users", url: "/settings/users", icon: UsersIcon, adminOnly: true },
 ] as const;
 
@@ -161,9 +152,7 @@ export function AppSidebar() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
             <BarChart3 className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="text-sm font-bold tracking-tight text-sidebar-foreground">
-            P&F
-          </span>
+          <span className="text-sm font-bold tracking-tight text-sidebar-foreground">P&F</span>
         </div>
       </SidebarHeader>
       <SidebarContent className="px-2 py-4">
@@ -187,7 +176,13 @@ export function AppSidebar() {
                     );
                   }
                   if (item.titleKey === "nav.nf_entrada") {
-                    if (!hasAccess("compras") && !hasAccess("entidades") && !hasAccess("suprimentos_requisicoes") && !hasAccess("intercompany")) return null;
+                    if (
+                      !hasAccess("compras") &&
+                      !hasAccess("entidades") &&
+                      !hasAccess("suprimentos_requisicoes") &&
+                      !hasAccess("intercompany")
+                    )
+                      return null;
                     return (
                       <div key="nf-entrada-and-compras-group">
                         {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
@@ -199,11 +194,7 @@ export function AppSidebar() {
                   }
                   if (item.titleKey === "nav.loans") {
                     if (!hasAccess("contas_pagar")) return null;
-                    return (
-                      <div key="contaspagar-only">
-                        {renderContasPagarGroup(t, isContasPagarActive)}
-                      </div>
-                    );
+                    return <div key="contaspagar-only">{renderContasPagarGroup(t, isContasPagarActive)}</div>;
                   }
                   return null;
                 }
@@ -279,7 +270,6 @@ export function AppSidebar() {
                   );
                 }
 
-
                 // Insert Contas a Pagar expandable before Loans
                 if (item.titleKey === "nav.loans") {
                   return (
@@ -330,8 +320,13 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {settingsItems.map((item) => {
-                if ('adminOnly' in item && item.adminOnly && !isAdmin) return null;
-                if (item.titleKey !== "settings.users" && item.titleKey !== "settings.sync_jobs" && !hasAccess("settings")) return null;
+                if ("adminOnly" in item && item.adminOnly && !isAdmin) return null;
+                if (
+                  item.titleKey !== "settings.users" &&
+                  item.titleKey !== "settings.sync_jobs" &&
+                  !hasAccess("settings")
+                )
+                  return null;
                 return (
                   <SidebarMenuItem key={item.url}>
                     <SidebarMenuButton asChild>
@@ -341,7 +336,9 @@ export function AppSidebar() {
                         activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
                       >
                         <item.icon className="h-4 w-4 shrink-0" />
-                        <span>{item.titleKey === "settings.sync_jobs" ? "Sincronizações" : t(item.titleKey as any)}</span>
+                        <span>
+                          {item.titleKey === "settings.sync_jobs" ? "Sincronizações" : t(item.titleKey as any)}
+                        </span>
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
