@@ -10,7 +10,7 @@ interface Profile {
   email: string | null;
   is_admin: boolean;
   is_active: boolean;
-  must_change_password: boolean; // ✅ NOVO
+  must_change_password?: boolean; // ✅ opcional pra TS aceitar (coluna existe em runtime)
 }
 
 interface UserRole {
