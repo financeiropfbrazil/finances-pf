@@ -17,19 +17,17 @@ import {
   ChevronsUpDown,
   FileText,
   Loader2,
+  Plus,
   RefreshCw,
   Sparkles,
+  Trash2,
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useEmitReembolso } from "@/hooks/useEmitReembolso";
 import { buscarSugestaoNumero, listarClassesPorTipo } from "@/services/intercompanyMasterService";
-import type { SugestaoNumeroInvoice, ClasseIntercompanyOption } from "@/types/intercompany";
+import type { SugestaoNumeroInvoice, ClasseIntercompanyOption, RateioCC } from "@/types/intercompany";
 
-/**
- * Catálogo fixo de Kontos AT (Áustria).
- * São apenas 8 e mudam raramente. Hardcoded evita query extra.
- */
 const KONTOS_AT_AUSTRIA: { numero: string; descricao: string }[] = [
   { numero: "57520", descricao: "CMV" },
   { numero: "57530", descricao: "CMV USA" },
@@ -47,6 +45,12 @@ interface CostCenterOption {
   department_type: string | null;
 }
 
+interface RateioLinha extends RateioCC {
+  tempId: string;
+}
+
+const MAX_RATEIOS = 5;
+
 const formatBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const formatEUR = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "EUR" });
 
@@ -54,15 +58,12 @@ export default function ReembolsoNovo() {
   const navigate = useNavigate();
   const { status, error: emitError, resultado, emitir, reset } = useEmitReembolso();
 
-  // Loading state inicial (sugestão + classes)
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [metaError, setMetaError] = useState<string | null>(null);
 
-  // Dados de apoio
   const [sugestao, setSugestao] = useState<SugestaoNumeroInvoice | null>(null);
   const [classes, setClasses] = useState<ClasseIntercompanyOption[]>([]);
 
-  // CCs via React Query (cache)
   const { data: costCenters = [] } = useQuery({
     queryKey: ["cost_centers_reembolso"],
     queryFn: async (): Promise<CostCenterOption[]> => {
@@ -81,15 +82,25 @@ export default function ReembolsoNovo() {
   const [numeroInvoice, setNumeroInvoice] = useState("");
   const [classeCodigo, setClasseCodigo] = useState("");
   const [kontoAtNumero, setKontoAtNumero] = useState("");
-  const [centroCustoErpCode, setCentroCustoErpCode] = useState("");
-  const [ccPopoverOpen, setCcPopoverOpen] = useState(false);
-  const [ccSearch, setCcSearch] = useState("");
   const [descricaoRica, setDescricaoRica] = useState("");
   const [cambioStr, setCambioStr] = useState("");
   const [valorEurStr, setValorEurStr] = useState("");
   const [observacoes, setObservacoes] = useState("");
 
-  // ── Carrega sugestão + classes ao montar ──
+  // Rateios — sempre inicializa com 1 linha vazia
+  const [rateios, setRateios] = useState<RateioLinha[]>([
+    {
+      tempId: `rt-${Date.now()}-0`,
+      centro_custo_erp_code: "",
+      percentual: 100,
+      valor_eur: 0,
+    },
+  ]);
+
+  // Popover de busca de CC por linha (key = tempId, value = open?)
+  const [ccPopoverOpenId, setCcPopoverOpenId] = useState<string | null>(null);
+  const [ccSearch, setCcSearch] = useState("");
+
   const carregarMeta = async () => {
     setLoadingMeta(true);
     setMetaError(null);
@@ -113,7 +124,7 @@ export default function ReembolsoNovo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Quando classe muda: auto-seleciona Konto AT default ──
+  // Auto-seleciona Konto AT default ao escolher classe
   useEffect(() => {
     if (!classeCodigo) return;
     const cls = classes.find((c) => c.classe_codigo === classeCodigo);
@@ -122,46 +133,112 @@ export default function ReembolsoNovo() {
     }
   }, [classeCodigo, classes]);
 
-  // ── Classe selecionada (memo) ──
+  // Cálculos derivados
+  const cambioNum = parseFloat(cambioStr.replace(",", ".")) || 0;
+  const valorEurNum = parseFloat(valorEurStr.replace(",", ".")) || 0;
+  const valorBrlCalc = cambioNum > 0 && valorEurNum > 0 ? +(valorEurNum * cambioNum).toFixed(2) : 0;
+
   const classeSelecionada = useMemo(
     () => classes.find((c) => c.classe_codigo === classeCodigo) ?? null,
     [classeCodigo, classes],
   );
 
-  // ── CC selecionado (memo) ──
-  const ccSelecionado = useMemo(
-    () => costCenters.find((cc) => cc.erp_code === centroCustoErpCode) ?? null,
-    [centroCustoErpCode, costCenters],
-  );
+  // Recalcula valor_eur de cada rateio sempre que valorEurNum muda OU percentuais mudam
+  useEffect(() => {
+    setRateios((prev) =>
+      prev.map((r) => ({
+        ...r,
+        valor_eur: valorEurNum > 0 ? +((r.percentual / 100) * valorEurNum).toFixed(4) : 0,
+      })),
+    );
+  }, [valorEurNum]);
 
-  // ── CCs filtrados pela busca ──
-  const ccsFiltrados = useMemo(() => {
+  // Validação dos rateios
+  const somaPercentuais = useMemo(() => rateios.reduce((s, r) => s + (r.percentual || 0), 0), [rateios]);
+  const rateiosValidos = useMemo(() => {
+    if (rateios.length === 0 || rateios.length > MAX_RATEIOS) return false;
+    if (rateios.some((r) => !r.centro_custo_erp_code)) return false;
+    if (rateios.some((r) => r.percentual <= 0 || r.percentual > 100)) return false;
+    if (Math.abs(somaPercentuais - 100) > 0.01) return false;
+    return true;
+  }, [rateios, somaPercentuais]);
+
+  // CCs disponíveis pra cada linha (exclui CCs já selecionados em outras linhas)
+  const getCcsDisponiveis = (currentTempId: string) => {
+    const ccsJaSelecionados = new Set(
+      rateios.filter((r) => r.tempId !== currentTempId && r.centro_custo_erp_code).map((r) => r.centro_custo_erp_code),
+    );
     const q = ccSearch.trim().toLowerCase();
-    if (!q) return costCenters.slice(0, 50);
     return costCenters
-      .filter((cc) => cc.name.toLowerCase().includes(q) || cc.erp_code.toLowerCase().includes(q))
+      .filter((cc) => !ccsJaSelecionados.has(cc.erp_code))
+      .filter((cc) => {
+        if (!q) return true;
+        return cc.name.toLowerCase().includes(q) || cc.erp_code.toLowerCase().includes(q);
+      })
       .slice(0, 50);
-  }, [costCenters, ccSearch]);
+  };
 
-  // ── Cálculos derivados ──
-  const cambioNum = parseFloat(cambioStr.replace(",", ".")) || 0;
-  const valorEurNum = parseFloat(valorEurStr.replace(",", ".")) || 0;
-  const valorBrlCalc = cambioNum > 0 && valorEurNum > 0 ? +(valorEurNum * cambioNum).toFixed(2) : 0;
+  const adicionarRateio = () => {
+    if (rateios.length >= MAX_RATEIOS) return;
+    setRateios((prev) => [
+      ...prev,
+      {
+        tempId: `rt-${Date.now()}-${Math.random()}`,
+        centro_custo_erp_code: "",
+        percentual: 0,
+        valor_eur: 0,
+      },
+    ]);
+  };
 
-  // ── Validação ──
-  const camposValidos =
+  const removerRateio = (tempId: string) => {
+    if (rateios.length === 1) return; // ao menos 1 linha
+    setRateios((prev) => prev.filter((r) => r.tempId !== tempId));
+  };
+
+  const atualizarRateio = (tempId: string, patch: Partial<RateioLinha>) => {
+    setRateios((prev) =>
+      prev.map((r) => {
+        if (r.tempId !== tempId) return r;
+        const updated = { ...r, ...patch };
+        // Recalcula valor_eur sempre que percentual mudar
+        if ("percentual" in patch) {
+          updated.valor_eur = valorEurNum > 0 ? +((updated.percentual / 100) * valorEurNum).toFixed(4) : 0;
+        }
+        return updated;
+      }),
+    );
+  };
+
+  const dividirIgualmente = () => {
+    const n = rateios.length;
+    if (n === 0) return;
+    const base = Math.floor((100 / n) * 100) / 100; // 2 casas
+    const resto = +(100 - base * n).toFixed(2);
+    setRateios((prev) =>
+      prev.map((r, idx) => {
+        const pct = idx === n - 1 ? +(base + resto).toFixed(2) : base;
+        return {
+          ...r,
+          percentual: pct,
+          valor_eur: valorEurNum > 0 ? +((pct / 100) * valorEurNum).toFixed(4) : 0,
+        };
+      }),
+    );
+  };
+
+  // Validação geral
+  const camposBasicosValidos =
     numeroInvoice.trim().length > 0 &&
     /^\d{3,4}\/\d{4}$/.test(numeroInvoice.trim()) &&
     descricaoRica.trim().length > 0 &&
     classeCodigo.length > 0 &&
     kontoAtNumero.length > 0 &&
-    centroCustoErpCode.length > 0 &&
     cambioNum > 0 &&
     valorEurNum > 0;
 
-  const podeEmitir = camposValidos && status === "idle";
+  const podeEmitir = camposBasicosValidos && rateiosValidos && status === "idle";
 
-  // ── Submit ──
   const handleEmitir = async () => {
     if (!podeEmitir) return;
     await emitir({
@@ -169,19 +246,17 @@ export default function ReembolsoNovo() {
       descricao_rica: descricaoRica.trim(),
       classe_codigo: classeCodigo,
       konto_austria_numero: kontoAtNumero,
-      rateios_cc: [
-        {
-          centro_custo_erp_code: centroCustoErpCode,
-          percentual: 100,
-        },
-      ],
+      rateios_cc: rateios.map((r) => ({
+        centro_custo_erp_code: r.centro_custo_erp_code,
+        percentual: r.percentual,
+        valor_eur: r.valor_eur,
+      })),
       cambio_eur_brl: cambioNum,
       valor_eur: valorEurNum,
       observacoes: observacoes.trim() || undefined,
     });
   };
 
-  // ── Sucesso → toast + redirect ──
   useEffect(() => {
     if (status === "sucesso" && resultado) {
       toast({
@@ -193,7 +268,6 @@ export default function ReembolsoNovo() {
     }
   }, [status, resultado, navigate]);
 
-  // ── Loading ──
   if (loadingMeta) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -224,7 +298,6 @@ export default function ReembolsoNovo() {
 
   return (
     <div className="space-y-6 p-6 max-w-4xl mx-auto">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => navigate("/intercompany/master")} disabled={status !== "idle"}>
           <ArrowLeft className="mr-1.5 h-4 w-4" />
@@ -238,7 +311,6 @@ export default function ReembolsoNovo() {
         </div>
       </div>
 
-      {/* Sugestão de numeração */}
       {sugestao && (
         <Card className="border-primary/20 bg-primary/5">
           <CardContent className="flex items-center gap-3 p-4">
@@ -259,7 +331,6 @@ export default function ReembolsoNovo() {
         </Card>
       )}
 
-      {/* Formulário */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Dados da Invoice</CardTitle>
@@ -299,7 +370,7 @@ export default function ReembolsoNovo() {
             </Select>
           </div>
 
-          {/* Triple Match Contábil */}
+          {/* Triple Match */}
           {classeSelecionada && (
             <Card className="border-muted bg-muted/30">
               <CardContent className="p-4 space-y-2">
@@ -355,68 +426,6 @@ export default function ReembolsoNovo() {
             </p>
           </div>
 
-          {/* Centro de Custo */}
-          <div>
-            <Label>Centro de Custo *</Label>
-            <Popover open={ccPopoverOpen} onOpenChange={setCcPopoverOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  className="w-full justify-between font-normal"
-                  disabled={status !== "idle"}
-                >
-                  {ccSelecionado ? (
-                    <span className="truncate text-left">
-                      <span className="font-mono text-xs mr-2">{ccSelecionado.erp_code}</span>
-                      {ccSelecionado.name}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">Selecione um Centro de Custo</span>
-                  )}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50 shrink-0" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                <Command shouldFilter={false}>
-                  <CommandInput
-                    placeholder="Buscar por código ou nome..."
-                    value={ccSearch}
-                    onValueChange={setCcSearch}
-                  />
-                  <CommandList>
-                    <CommandEmpty>Nenhum centro de custo encontrado.</CommandEmpty>
-                    <CommandGroup>
-                      {ccsFiltrados.map((cc) => (
-                        <CommandItem
-                          key={cc.erp_code}
-                          value={cc.erp_code}
-                          onSelect={() => {
-                            setCentroCustoErpCode(cc.erp_code);
-                            setCcPopoverOpen(false);
-                            setCcSearch("");
-                          }}
-                        >
-                          <div className="flex flex-col">
-                            <span className="font-medium text-sm">{cc.name}</span>
-                            <span className="text-xs text-muted-foreground font-mono">
-                              {cc.erp_code}
-                              {cc.department_type && ` · ${cc.department_type}`}
-                            </span>
-                          </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            <p className="text-[10px] text-muted-foreground mt-1">
-              Centro de Custo onde o reembolso será alocado no DRE BR.
-              {costCenters.length > 0 && ` (${costCenters.length} disponíveis)`}
-            </p>
-          </div>
-
           {/* Valores */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
@@ -456,6 +465,156 @@ export default function ReembolsoNovo() {
               )}
             </div>
           </div>
+
+          {/* ✅ NOVO — Rateio de Centros de Custo */}
+          <Card className="border-muted">
+            <CardContent className="pt-4 pb-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-sm font-semibold">Rateio de Centros de Custo *</Label>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Distribua o valor entre 1 e {MAX_RATEIOS} CCs. A soma deve ser exatamente 100%.
+                  </p>
+                </div>
+                <span
+                  className={`text-sm font-semibold ${
+                    Math.abs(somaPercentuais - 100) <= 0.01 ? "text-emerald-600" : "text-destructive"
+                  }`}
+                >
+                  Total: {somaPercentuais.toFixed(2)}%
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {rateios.map((r) => {
+                  const ccSelecionado = costCenters.find((cc) => cc.erp_code === r.centro_custo_erp_code) ?? null;
+                  return (
+                    <div key={r.tempId} className="flex items-start gap-2">
+                      {/* Dropdown CC */}
+                      <div className="flex-1 min-w-0">
+                        <Popover
+                          open={ccPopoverOpenId === r.tempId}
+                          onOpenChange={(v) => {
+                            setCcPopoverOpenId(v ? r.tempId : null);
+                            if (!v) setCcSearch("");
+                          }}
+                        >
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className="w-full justify-between font-normal h-9 text-xs"
+                              disabled={status !== "idle"}
+                            >
+                              {ccSelecionado ? (
+                                <span className="truncate text-left">
+                                  <span className="font-mono mr-2">{ccSelecionado.erp_code}</span>
+                                  {ccSelecionado.name}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">Selecione um Centro de Custo</span>
+                              )}
+                              <ChevronsUpDown className="ml-2 h-3 w-3 opacity-50 shrink-0" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                            <Command shouldFilter={false}>
+                              <CommandInput
+                                placeholder="Buscar por código ou nome..."
+                                value={ccSearch}
+                                onValueChange={setCcSearch}
+                              />
+                              <CommandList>
+                                <CommandEmpty>Nenhum centro de custo disponível.</CommandEmpty>
+                                <CommandGroup>
+                                  {getCcsDisponiveis(r.tempId).map((cc) => (
+                                    <CommandItem
+                                      key={cc.erp_code}
+                                      value={cc.erp_code}
+                                      onSelect={() => {
+                                        atualizarRateio(r.tempId, { centro_custo_erp_code: cc.erp_code });
+                                        setCcPopoverOpenId(null);
+                                        setCcSearch("");
+                                      }}
+                                    >
+                                      <div className="flex flex-col">
+                                        <span className="font-medium text-sm">{cc.name}</span>
+                                        <span className="text-xs text-muted-foreground font-mono">
+                                          {cc.erp_code}
+                                          {cc.department_type && ` · ${cc.department_type}`}
+                                        </span>
+                                      </div>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+
+                      {/* Percentual */}
+                      <div className="w-24">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={r.percentual}
+                          onChange={(e) => atualizarRateio(r.tempId, { percentual: parseFloat(e.target.value) || 0 })}
+                          className="h-9 text-right text-xs"
+                          placeholder="%"
+                          disabled={status !== "idle"}
+                        />
+                      </div>
+
+                      {/* Valor EUR (readonly, calculado) */}
+                      <div className="w-28 h-9 px-2.5 flex items-center justify-end rounded-md border border-input bg-muted/30 text-xs font-mono">
+                        {r.valor_eur > 0 ? formatEUR(r.valor_eur) : "—"}
+                      </div>
+
+                      {/* Botão remover */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 shrink-0"
+                        onClick={() => removerRateio(r.tempId)}
+                        disabled={rateios.length === 1 || status !== "idle"}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={adicionarRateio}
+                  disabled={rateios.length >= MAX_RATEIOS || status !== "idle"}
+                  className="gap-1.5 text-xs h-8"
+                >
+                  <Plus className="h-3 w-3" /> Adicionar CC
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={dividirIgualmente}
+                  disabled={rateios.length < 2 || status !== "idle"}
+                  className="gap-1.5 text-xs h-8"
+                >
+                  Dividir igualmente
+                </Button>
+                {rateios.length >= MAX_RATEIOS && (
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    Limite de {MAX_RATEIOS} CCs atingido
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Descrição */}
           <div>
