@@ -3,8 +3,8 @@
 // Envia notificação por email ao aprovador designado de um projeto
 // quando o Responsável clica "Enviar para Aprovação".
 //
-// V4 — force redeploy 2026-05-11T16:15 (touch file content to trigger Lovable Cloud deploy)
-const _BUILD_VERSION = "v4-2026-05-11-16-15";
+// V5 — deploy limpo após delete manual no Supabase (2026-05-11)
+const _BUILD_VERSION = "v5-2026-05-11-clean-deploy";
 //
 // Payload esperado (POST JSON):
 // {
