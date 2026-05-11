@@ -1,4 +1,4 @@
-// notificação ao aprovador (redeploy)
+// notificação ao aprovador (redeploy 2026-05-11)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
