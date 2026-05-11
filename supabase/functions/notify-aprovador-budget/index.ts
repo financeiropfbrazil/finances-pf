@@ -3,7 +3,7 @@
 // Envia notificação por email ao aprovador designado de um projeto
 // quando o Responsável clica "Enviar para Aprovação".
 //
-// V2 — Visual identidade P&F + lista de pedidos individuais (redeploy 2026-05-11)
+// V3 — Visual identidade P&F + lista de pedidos individuais (redeploy 2026-05-11 #3)
 //
 // Payload esperado (POST JSON):
 // {
