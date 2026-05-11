@@ -1,892 +1,202 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from "@/hooks/use-toast";
-import {
-  UserPlus,
-  Shield,
-  Loader2,
-  Pencil,
-  UserCog,
-  Check,
-  ChevronsUpDown,
-  X,
-  Plus,
-  KeyRound,
-  Copy,
-  AlertTriangle,
-} from "lucide-react";
-import { format } from "date-fns";
-import { cn } from "@/lib/utils";
+// supabase/functions/hub-reset-user-password/index.ts
+//
+// Permite que um admin gere uma nova senha temporária para um user existente
+// do Hub Financial. Útil para casos onde o email de convite/reset não chegou
+// (ex: quarentena MS365) e o admin precisa enviar manualmente via Teams/Slack.
+//
+// A senha gerada:
+//  - Nunca é persistida no banco
+//  - Trafega apenas em memória (Edge → Frontend → clipboard)
+//  - Força must_change_password=true (user troca no primeiro login)
+//  - Registra entrada na hub_user_roles_audit por motivo de auditoria
+//
+// Payload (POST JSON):
+//   { target_user_id: string }
+//
+// Retorno:
+//   { success: true, email: string, temp_password: string, target_user_id: string }
+//
+// Segurança:
+//   - JWT obrigatório (caller precisa ser admin)
+//   - Caller validado via profiles.is_admin === true
+//   - Não permite admin resetar a própria senha (use o fluxo /reset-password)
 
-interface UserRoleInfo {
-  codigo: string;
-  nome: string;
-  modulo: string;
-  atribuido_em: string;
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+function generatePassword(length = 12): string {
+  // 12 chars, alphanumeric only — mesma estratégia do hub-invite-user
+  // pra reduzir confusão visual quando o admin envia via Teams/Slack
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, (b) => chars[b % chars.length]).join("");
 }
 
-interface UserWithRoles {
-  user_id: string;
-  full_name: string | null;
-  email: string | null;
-  is_admin: boolean;
-  is_active: boolean;
-  must_change_password?: boolean;
-  funcionario_alvo_codigo: string | null;
-  roles: UserRoleInfo[];
-  created_at: string;
-}
-
-interface AvailableRole {
-  id: string;
-  codigo: string;
-  nome: string;
-  descricao: string | null;
-  modulo: string;
-  is_system: boolean;
-}
-
-interface FuncionarioAlvo {
-  codigo: string;
-  nome: string;
-  status: string;
-  codigo_centro_ctrl: string | null;
-}
-
-interface PasswordResult {
-  email: string;
-  full_name: string | null;
-  temp_password: string;
-}
-
-export default function Users() {
-  const { profile } = useAuth();
-  const [users, setUsers] = useState<UserWithRoles[]>([]);
-  const [availableRoles, setAvailableRoles] = useState<AvailableRole[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Create user dialog
-  const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [email, setEmail] = useState("");
-  const [selectedRoleCode, setSelectedRoleCode] = useState<string>("requisitante");
-
-  // Edit user dialog (nome + funcionário alvo)
-  const [editOpen, setEditOpen] = useState(false);
-  const [editUser, setEditUser] = useState<UserWithRoles | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editFuncionarioCodigo, setEditFuncionarioCodigo] = useState<string | null>(null);
-  const [funcionarios, setFuncionarios] = useState<FuncionarioAlvo[]>([]);
-  const [funcSearch, setFuncSearch] = useState("");
-  const [showDemitidos, setShowDemitidos] = useState(false);
-  const [funcPopoverOpen, setFuncPopoverOpen] = useState(false);
-
-  // Manage roles dialog
-  const [rolesOpen, setRolesOpen] = useState(false);
-  const [rolesUser, setRolesUser] = useState<UserWithRoles | null>(null);
-  const [rolesLoading, setRolesLoading] = useState(false);
-  const [addRoleCode, setAddRoleCode] = useState<string>("");
-  const [addMotivo, setAddMotivo] = useState("");
-
-  // Reset password — confirmation + result
-  const [resetTarget, setResetTarget] = useState<UserWithRoles | null>(null);
-  const [resetting, setResetting] = useState(false);
-  const [passwordResult, setPasswordResult] = useState<PasswordResult | null>(null);
-
-  const isCurrentUserAdmin = profile?.is_admin === true;
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const { data: usersData, error: usersError } = await (supabase as any).rpc("hub_list_users_with_roles");
-      if (usersError) throw usersError;
-      setUsers((usersData || []) as UserWithRoles[]);
-
-      const { data: rolesData, error: rolesError } = await (supabase as any)
-        .from("hub_roles")
-        .select("id, codigo, nome, descricao, modulo, is_system")
-        .order("nome");
-      if (rolesError) throw rolesError;
-      setAvailableRoles((rolesData || []) as AvailableRole[]);
-    } catch (err: any) {
-      toast({
-        title: "Erro ao carregar usuários",
-        description: err?.message || "Verifique suas permissões.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isCurrentUserAdmin) fetchData();
-    else setLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCurrentUserAdmin]);
-
-  if (!isCurrentUserAdmin) {
-    return (
-      <div className="p-6">
-        <Card>
-          <CardContent className="flex items-center justify-center py-12">
-            <p className="text-muted-foreground">Acesso restrito a administradores.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
-  // --------------------------------------------------------------------------
-  // Convidar usuário (chama Edge Function hub-invite-user)
-  // --------------------------------------------------------------------------
-  const handleCreate = async () => {
-    if (!email) {
-      toast({ title: "Email obrigatório", variant: "destructive" });
-      return;
-    }
-    if (!selectedRoleCode) {
-      toast({ title: "Selecione um papel inicial", variant: "destructive" });
-      return;
+  try {
+    // ── 1. Auth header ──
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Missing authorization" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    setCreating(true);
-    try {
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
-      const accessToken = currentSession?.access_token;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SB_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-      if (!accessToken) {
-        throw new Error("Sessão expirada. Faça login novamente.");
-      }
+    // ── 2. Valida caller é admin ──
+    const callerClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const {
+      data: { user: caller },
+      error: authError,
+    } = await callerClient.auth.getUser();
 
-      const resp = await fetch("https://hbtggrbauguukewiknew.supabase.co/functions/v1/hub-invite-user", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          role_code: selectedRoleCode,
+    if (authError || !caller) {
+      return new Response(JSON.stringify({ error: "Invalid token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+    const { data: callerProfile } = await adminClient
+      .from("profiles")
+      .select("is_admin")
+      .eq("user_id", caller.id)
+      .maybeSingle();
+
+    if (!callerProfile?.is_admin) {
+      return new Response(JSON.stringify({ error: "Apenas administradores podem resetar senhas de outros usuários" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── 3. Parse body ──
+    const body = await req.json();
+    const targetUserId = String(body?.target_user_id ?? "").trim();
+
+    if (!targetUserId) {
+      return new Response(JSON.stringify({ error: "target_user_id é obrigatório" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── 4. Bloqueia self-reset (admin deve usar /reset-password) ──
+    if (targetUserId === caller.id) {
+      return new Response(
+        JSON.stringify({
+          error: "Você não pode resetar a própria senha por aqui. Use a opção 'Esqueci minha senha' na tela de login.",
         }),
-      });
-
-      const result = await resp.json();
-
-      if (!resp.ok || !result.success) {
-        throw new Error(result.error || "Falha ao convidar usuário");
-      }
-
-      const msg = result.is_existing_user
-        ? `Senha redefinida e enviada para ${result.email}`
-        : `Convite enviado para ${result.email}`;
-
-      toast({
-        title: msg,
-        description: result.email_sent
-          ? "O usuário receberá um email com a senha temporária."
-          : "⚠️ Email NÃO foi enviado. Verifique configuração do Resend.",
-      });
-
-      setCreateOpen(false);
-      setEmail("");
-      setSelectedRoleCode("requisitante");
-      fetchData();
-    } catch (err: any) {
-      toast({
-        title: "Erro ao convidar usuário",
-        description: err?.message || String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setCreating(false);
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
-  };
 
-  // --------------------------------------------------------------------------
-  // Toggle ativo/inativo
-  // --------------------------------------------------------------------------
-  const handleToggleActive = async (u: UserWithRoles) => {
-    if (u.user_id === profile?.user_id) return;
-    const newActive = !u.is_active;
+    // ── 5. Busca user-alvo ──
+    const { data: targetProfile, error: targetErr } = await adminClient
+      .from("profiles")
+      .select("user_id, email, full_name, is_active, must_change_password")
+      .eq("user_id", targetUserId)
+      .maybeSingle();
 
-    const { error } = await (supabase as any).from("profiles").upsert(
-      {
-        user_id: u.user_id,
-        full_name: u.full_name,
-        email: u.email,
-        is_admin: u.is_admin,
-        is_active: newActive,
-        funcionario_alvo_codigo: u.funcionario_alvo_codigo,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
-
-    if (error) {
-      toast({ title: "Erro ao atualizar", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: newActive ? "Usuário ativado" : "Usuário desativado" });
-      fetchData();
-    }
-  };
-
-  // --------------------------------------------------------------------------
-  // Editar usuário (nome + funcionário alvo)
-  // --------------------------------------------------------------------------
-  const openEdit = async (u: UserWithRoles) => {
-    setEditUser(u);
-    setEditName(u.full_name || "");
-    setEditFuncionarioCodigo(u.funcionario_alvo_codigo || null);
-    setFuncSearch("");
-    setShowDemitidos(false);
-    setEditOpen(true);
-
-    const { data } = await (supabase as any)
-      .from("funcionarios_alvo_cache")
-      .select("codigo, nome, status, codigo_centro_ctrl")
-      .order("nome", { ascending: true });
-    if (data) setFuncionarios(data as FuncionarioAlvo[]);
-  };
-
-  const handleEdit = async () => {
-    if (!editUser) return;
-
-    const { error } = await (supabase as any).from("profiles").upsert(
-      {
-        user_id: editUser.user_id,
-        full_name: editName,
-        email: editUser.email,
-        is_admin: editUser.is_admin,
-        is_active: editUser.is_active,
-        funcionario_alvo_codigo: editFuncionarioCodigo,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
-
-    if (error) {
-      toast({ title: "Erro ao atualizar", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Usuário atualizado com sucesso!" });
-      setEditOpen(false);
-      fetchData();
-    }
-  };
-
-  // --------------------------------------------------------------------------
-  // Gerenciar papéis
-  // --------------------------------------------------------------------------
-  const openRoles = (u: UserWithRoles) => {
-    setRolesUser(u);
-    setAddRoleCode("");
-    setAddMotivo("");
-    setRolesOpen(true);
-  };
-
-  const handleAddRole = async () => {
-    if (!rolesUser || !addRoleCode) {
-      toast({ title: "Selecione um papel para atribuir", variant: "destructive" });
-      return;
-    }
-    setRolesLoading(true);
-    try {
-      const { error } = await (supabase as any).rpc("hub_assign_role", {
-        p_target_user_id: rolesUser.user_id,
-        p_role_code: addRoleCode,
-        p_motivo: addMotivo || "Atribuído via UI de Gestão de Usuários",
+    if (targetErr || !targetProfile) {
+      return new Response(JSON.stringify({ error: "Usuário não encontrado" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-      if (error) throw error;
-      toast({ title: "Papel atribuído com sucesso!" });
-      setAddRoleCode("");
-      setAddMotivo("");
-      await fetchData();
-      const updated = users.find((u) => u.user_id === rolesUser.user_id);
-      if (updated) setRolesUser(updated);
-    } catch (err: any) {
-      toast({
-        title: "Erro ao atribuir papel",
-        description: err?.message || String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setRolesLoading(false);
     }
-  };
 
-  const handleRevokeRole = async (roleCode: string) => {
-    if (!rolesUser) return;
-    setRolesLoading(true);
-    try {
-      const { error } = await (supabase as any).rpc("hub_revoke_role", {
-        p_target_user_id: rolesUser.user_id,
-        p_role_code: roleCode,
-        p_motivo: "Revogado via UI de Gestão de Usuários",
+    if (!targetProfile.email) {
+      return new Response(JSON.stringify({ error: "Usuário sem email cadastrado" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-      if (error) throw error;
-      toast({ title: "Papel revogado com sucesso!" });
-      await fetchData();
-    } catch (err: any) {
-      toast({
-        title: "Erro ao revogar papel",
-        description: err?.message || String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setRolesLoading(false);
     }
-  };
 
-  // --------------------------------------------------------------------------
-  // Resetar senha (gerar nova + copiar)
-  // --------------------------------------------------------------------------
-  const handleResetPassword = async () => {
-    if (!resetTarget) return;
-    setResetting(true);
-    try {
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
-      const accessToken = currentSession?.access_token;
-      if (!accessToken) throw new Error("Sessão expirada. Faça login novamente.");
-
-      const resp = await fetch("https://hbtggrbauguukewiknew.supabase.co/functions/v1/hub-reset-user-password", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ target_user_id: resetTarget.user_id }),
-      });
-
-      const result = await resp.json();
-
-      if (!resp.ok || !result.success) {
-        throw new Error(result.error || "Falha ao resetar senha");
-      }
-
-      // Auto-copia para clipboard
-      try {
-        await navigator.clipboard.writeText(result.temp_password);
-      } catch {
-        // se clipboard falhar (HTTP, ou sem permissão), só não copia — o user pode copiar manualmente do dialog
-      }
-
-      // Fecha o dialog de confirmação e abre o de resultado
-      setResetTarget(null);
-      setPasswordResult({
-        email: result.email,
-        full_name: result.full_name,
-        temp_password: result.temp_password,
-      });
-
-      toast({ title: "Senha gerada e copiada para a área de transferência!" });
-      fetchData();
-    } catch (err: any) {
-      toast({
-        title: "Erro ao resetar senha",
-        description: err?.message || String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setResetting(false);
+    if (!targetProfile.is_active) {
+      return new Response(
+        JSON.stringify({
+          error: "Usuário está inativo. Reative-o antes de resetar a senha.",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
-  };
 
-  const copyPasswordToClipboard = async () => {
-    if (!passwordResult) return;
-    try {
-      await navigator.clipboard.writeText(passwordResult.temp_password);
-      toast({ title: "Senha copiada!" });
-    } catch {
-      toast({ title: "Falha ao copiar", description: "Copie manualmente o texto exibido.", variant: "destructive" });
-    }
-  };
+    // ── 6. Gera senha temporária ──
+    const tempPassword = generatePassword();
 
-  // --------------------------------------------------------------------------
-  // Util
-  // --------------------------------------------------------------------------
-  const getRolesAvailableToAdd = (): AvailableRole[] => {
-    if (!rolesUser) return availableRoles;
-    const currentCodes = new Set(rolesUser.roles.map((r) => r.codigo));
-    return availableRoles.filter((r) => !currentCodes.has(r.codigo));
-  };
-
-  const filteredFuncionarios = funcionarios
-    .filter((f) => showDemitidos || f.status === "Trabalhando")
-    .filter((f) => {
-      const q = funcSearch.trim().toLowerCase();
-      if (!q) return true;
-      return f.nome.toLowerCase().includes(q) || f.codigo.includes(q);
+    // ── 7. Atualiza no auth.users ──
+    const { error: updateErr } = await adminClient.auth.admin.updateUserById(targetUserId, {
+      password: tempPassword,
+      email_confirm: true,
     });
 
-  const getRoleBadgeClass = (codigo: string): string => {
-    switch (codigo) {
-      case "admin":
-        return "bg-purple-500/15 text-purple-600 border-purple-500/30";
-      case "analista_compras":
-        return "bg-blue-500/15 text-blue-600 border-blue-500/30";
-      case "requisitante":
-        return "bg-slate-500/15 text-slate-600 border-slate-500/30";
-      case "responsavel_projeto":
-        return "bg-emerald-500/15 text-emerald-600 border-emerald-500/30";
-      case "aprovador_projetos":
-        return "bg-amber-500/15 text-amber-600 border-amber-500/30";
-      default:
-        return "bg-muted text-muted-foreground";
+    if (updateErr) {
+      console.error("[hub-reset-user-password] updateUserById falhou:", updateErr);
+      return new Response(JSON.stringify({ error: `Falha ao atualizar senha: ${updateErr.message}` }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
-  };
 
-  useEffect(() => {
-    if (rolesUser) {
-      const updated = users.find((u) => u.user_id === rolesUser.user_id);
-      if (updated) setRolesUser(updated);
+    // ── 8. Força must_change_password=true no profile ──
+    await adminClient.from("profiles").upsert(
+      {
+        ...targetProfile,
+        must_change_password: true,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
+
+    // ── 9. Log de auditoria ──
+    // Insere registro pra rastreabilidade (quem resetou senha de quem e quando)
+    // Reusa a tabela hub_user_roles_audit como log genérico de ações admin
+    try {
+      await adminClient.from("hub_user_roles_audit").insert({
+        user_id: targetUserId,
+        action: "password_reset_by_admin",
+        performed_by: caller.id,
+        motivo: `Senha temporária gerada por ${caller.email || caller.id}`,
+      });
+    } catch (auditErr) {
+      // Audit log falha não-bloqueante
+      console.warn("[hub-reset-user-password] audit log falhou:", auditErr);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [users]);
 
-  return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Gerenciamento de Usuários</h1>
-        <p className="text-sm text-muted-foreground">Crie, edite e gerencie papéis de acesso dos usuários do Hub.</p>
-      </div>
+    console.log(`[hub-reset-user-password] OK — caller=${caller.email} target=${targetProfile.email}`);
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-4">
-          <CardTitle className="text-base">Usuários</CardTitle>
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="gap-1.5">
-                <UserPlus className="h-4 w-4" /> Novo Usuário
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Convidar Usuário</DialogTitle>
-                <DialogDescription>
-                  Uma senha temporária será gerada e enviada por email. O usuário será obrigado a trocar a senha no
-                  primeiro acesso.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                <div className="space-y-1.5">
-                  <Label>Email *</Label>
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="usuario@empresa.com"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Papel inicial *</Label>
-                  <Select value={selectedRoleCode} onValueChange={setSelectedRoleCode}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um papel" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableRoles.map((r) => (
-                        <SelectItem key={r.codigo} value={r.codigo}>
-                          {r.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Se o email já existe, a senha será redefinida e enviada novamente.
-                  </p>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setCreateOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button onClick={handleCreate} disabled={creating}>
-                  {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Enviar Convite
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Papéis</TableHead>
-                  <TableHead>Ativo</TableHead>
-                  <TableHead>Criado em</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((u) => {
-                  const isSelf = u.user_id === profile?.user_id;
-                  // Label adaptativo: "Inicial" se nunca trocou a senha; "Reset" se já está usando
-                  const isInitialAccess = u.must_change_password === true;
-                  return (
-                    <TableRow key={u.user_id}>
-                      <TableCell className="font-medium">{u.full_name || "—"}</TableCell>
-                      <TableCell className="text-sm">{u.email || "—"}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {u.roles.length === 0 ? (
-                            <Badge variant="outline" className="text-muted-foreground">
-                              Sem papéis
-                            </Badge>
-                          ) : (
-                            u.roles.map((r) => (
-                              <Badge key={r.codigo} variant="outline" className={getRoleBadgeClass(r.codigo)}>
-                                {r.codigo === "admin" && <Shield className="mr-1 h-3 w-3" />}
-                                {r.nome}
-                              </Badge>
-                            ))
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Switch
-                          checked={u.is_active !== false}
-                          onCheckedChange={() => handleToggleActive(u)}
-                          disabled={isSelf}
-                        />
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {format(new Date(u.created_at), "dd/MM/yyyy")}
-                      </TableCell>
-                      <TableCell className="text-right space-x-1">
-                        {/* Botão de Reset de Senha — não aparece para o próprio admin */}
-                        {!isSelf && u.is_active && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-1 text-xs"
-                            title={isInitialAccess ? "Gerar senha de acesso inicial" : "Resetar e copiar nova senha"}
-                            onClick={() => setResetTarget(u)}
-                          >
-                            <KeyRound className="h-3 w-3" />
-                            {isInitialAccess ? "Senha inicial" : "Reset senha"}
-                          </Button>
-                        )}
-                        <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => openRoles(u)}>
-                          <UserCog className="h-3 w-3" /> Papéis
-                        </Button>
-                        <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => openEdit(u)}>
-                          <Pencil className="h-3 w-3" /> Editar
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Dialog: Editar nome + vinculação de funcionário */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar Usuário</DialogTitle>
-            <DialogDescription>
-              Edite o nome e a vinculação ao funcionário do Alvo. Para alterar papéis, use o botão "Papéis" na listagem.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Nome Completo</Label>
-              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Funcionário no ERP Alvo</Label>
-              <Popover open={funcPopoverOpen} onOpenChange={setFuncPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                    {editFuncionarioCodigo
-                      ? (() => {
-                          const f = funcionarios.find((x) => x.codigo === editFuncionarioCodigo);
-                          return f ? `${f.nome} (${f.codigo})` : editFuncionarioCodigo;
-                        })()
-                      : "Nenhum funcionário vinculado"}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                  <Command shouldFilter={false}>
-                    <CommandInput
-                      placeholder="Buscar por nome ou código..."
-                      value={funcSearch}
-                      onValueChange={setFuncSearch}
-                    />
-
-                    <div className="flex items-center gap-2 px-3 py-2 border-b">
-                      <Checkbox
-                        id="show-demitidos"
-                        checked={showDemitidos}
-                        onCheckedChange={(v) => setShowDemitidos(v === true)}
-                      />
-                      <Label htmlFor="show-demitidos" className="text-xs font-normal cursor-pointer">
-                        Mostrar demitidos
-                      </Label>
-                    </div>
-
-                    <CommandList>
-                      <CommandEmpty>Nenhum funcionário encontrado.</CommandEmpty>
-                      <CommandGroup>
-                        <CommandItem
-                          onSelect={() => {
-                            setEditFuncionarioCodigo(null);
-                            setFuncPopoverOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn("mr-2 h-4 w-4", editFuncionarioCodigo === null ? "opacity-100" : "opacity-0")}
-                          />
-                          Nenhum (desvincular)
-                        </CommandItem>
-                        {filteredFuncionarios.map((f) => (
-                          <CommandItem
-                            key={f.codigo}
-                            onSelect={() => {
-                              setEditFuncionarioCodigo(f.codigo);
-                              setFuncPopoverOpen(false);
-                            }}
-                          >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                editFuncionarioCodigo === f.codigo ? "opacity-100" : "opacity-0",
-                              )}
-                            />
-                            <div className="flex flex-col">
-                              <span className="text-sm">{f.nome}</span>
-                              <span className="text-xs text-muted-foreground">
-                                {f.codigo} {f.status === "Demitido" && "· Demitido"}
-                              </span>
-                            </div>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-              <p className="text-xs text-muted-foreground">
-                Vincular a um funcionário do Alvo é necessário para criar Requisições de Compra.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleEdit}>Salvar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog: Gerenciar Papéis */}
-      <Dialog open={rolesOpen} onOpenChange={setRolesOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Papéis de {rolesUser?.full_name || "Usuário"}</DialogTitle>
-            <DialogDescription>{rolesUser?.email}</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Papéis atuais</Label>
-              <div className="space-y-1.5">
-                {rolesUser && rolesUser.roles.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic">Nenhum papel atribuído.</p>
-                ) : (
-                  rolesUser?.roles.map((r) => (
-                    <div key={r.codigo} className="flex items-center justify-between rounded-lg border p-3">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={getRoleBadgeClass(r.codigo)}>
-                          {r.codigo === "admin" && <Shield className="mr-1 h-3 w-3" />}
-                          {r.nome}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          Atribuído em {format(new Date(r.atribuido_em), "dd/MM/yyyy")}
-                        </span>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 gap-1 text-destructive hover:text-destructive"
-                        onClick={() => handleRevokeRole(r.codigo)}
-                        disabled={rolesLoading}
-                      >
-                        <X className="h-3 w-3" /> Revogar
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {getRolesAvailableToAdd().length > 0 && (
-              <div className="space-y-2 pt-2 border-t">
-                <Label className="text-xs text-muted-foreground">Adicionar papel</Label>
-                <div className="flex gap-2">
-                  <Select value={addRoleCode} onValueChange={setAddRoleCode}>
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Selecione um papel" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getRolesAvailableToAdd().map((r) => (
-                        <SelectItem key={r.codigo} value={r.codigo}>
-                          {r.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button size="sm" onClick={handleAddRole} disabled={rolesLoading || !addRoleCode} className="gap-1">
-                    {rolesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                    Atribuir
-                  </Button>
-                </div>
-                <Input
-                  placeholder="Motivo (opcional)"
-                  value={addMotivo}
-                  onChange={(e) => setAddMotivo(e.target.value)}
-                  className="text-xs"
-                />
-                {addRoleCode === "analista_compras" && (
-                  <p className="text-xs text-muted-foreground italic">
-                    Ao atribuir Analista de Compras, o papel Requisitante também será atribuído automaticamente.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRolesOpen(false)}>
-              Fechar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* AlertDialog: Confirmação de reset de senha */}
-      <AlertDialog open={!!resetTarget} onOpenChange={(o) => !o && setResetTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-yellow-600" />
-              {resetTarget?.must_change_password ? "Gerar senha de acesso inicial?" : "Resetar senha?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {resetTarget?.must_change_password ? (
-                <>
-                  Será gerada uma nova senha temporária para{" "}
-                  <strong>{resetTarget?.full_name || resetTarget?.email}</strong> e copiada para sua área de
-                  transferência. Você poderá enviá-la manualmente (Teams/Slack) caso o email original não tenha chegado.
-                </>
-              ) : (
-                <>
-                  Isso <strong>invalidará a senha atual</strong> de{" "}
-                  <strong>{resetTarget?.full_name || resetTarget?.email}</strong>. Uma nova senha temporária será gerada
-                  e copiada para a área de transferência. O usuário será obrigado a trocá-la no próximo login.
-                </>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={resetting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleResetPassword} disabled={resetting}>
-              {resetting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Confirmar e Gerar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Dialog: Exibe a senha gerada */}
-      <Dialog open={!!passwordResult} onOpenChange={(o) => !o && setPasswordResult(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="h-5 w-5 text-emerald-600" />
-              Senha Temporária Gerada
-            </DialogTitle>
-            <DialogDescription>
-              Senha temporária para <strong>{passwordResult?.full_name || passwordResult?.email}</strong>. A senha foi
-              copiada automaticamente para a área de transferência. O usuário precisará trocá-la no primeiro login.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">EMAIL</Label>
-              <Input value={passwordResult?.email || ""} readOnly className="font-mono text-sm" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">SENHA TEMPORÁRIA</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={passwordResult?.temp_password || ""}
-                  readOnly
-                  className="font-mono text-sm font-semibold tracking-wider"
-                />
-                <Button variant="outline" size="icon" onClick={copyPasswordToClipboard} title="Copiar senha">
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
-              <strong>Atenção:</strong> Esta senha só é exibida uma vez. Anote ou copie agora.
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setPasswordResult(null)}>Fechar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
+    return new Response(
+      JSON.stringify({
+        success: true,
+        email: targetProfile.email,
+        full_name: targetProfile.full_name,
+        target_user_id: targetUserId,
+        temp_password: tempPassword,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  } catch (err) {
+    console.error("[hub-reset-user-password] erro não tratado:", err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
