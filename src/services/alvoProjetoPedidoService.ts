@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
 const MAX_RETRIES = 3;
-const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const SERVICO_TIPOS = ["05", "06", "07", "08", "09"];
 
@@ -18,21 +18,20 @@ function hoje(): Date {
 // ── Fetch & Validate ──
 
 async function fetchRequisicao(requisicaoId: string) {
-  const { data, error } = await supabase
-    .from("projeto_requisicoes")
-    .select("*")
-    .eq("id", requisicaoId)
-    .single();
+  const { data, error } = await supabase.from("projeto_requisicoes").select("*").eq("id", requisicaoId).single();
   if (error || !data) throw new Error("Requisição não encontrada");
   return data;
 }
 
+// ── P7: Gate de segurança — só permite POST ao Alvo se projeto está aprovado ──
+async function fetchProjetoFase(projetoId: string): Promise<{ fase_atual: string; status: string }> {
+  const { data, error } = await supabase.from("projetos").select("fase_atual, status").eq("id", projetoId).single();
+  if (error || !data) throw new Error("Projeto não encontrado");
+  return data as { fase_atual: string; status: string };
+}
+
 async function fetchCondPag(codigo: string) {
-  const { data, error } = await supabase
-    .from("condicoes_pagamento")
-    .select("*")
-    .eq("codigo", codigo)
-    .single();
+  const { data, error } = await supabase.from("condicoes_pagamento").select("*").eq("codigo", codigo).single();
   if (error || !data) throw new Error(`Condição de pagamento "${codigo}" não encontrada`);
   return data;
 }
@@ -45,7 +44,8 @@ function validar(req: any) {
   if (!itens?.length) throw new Error("Requisição sem itens");
   for (const item of itens) {
     if (!item.codigoProduto) throw new Error(`Item "${item.descricao}" sem código de produto`);
-    if (!Number(item.valor_unitario)) throw new Error(`Item "${item.descricao}" com valor unitário zero ou não informado`);
+    if (!Number(item.valor_unitario))
+      throw new Error(`Item "${item.descricao}" com valor unitário zero ou não informado`);
   }
 
   const rateio = req.classe_rateio as any[];
@@ -54,13 +54,29 @@ function validar(req: any) {
   if (Math.abs(soma - 100) > 0.01) throw new Error(`Rateio soma ${soma.toFixed(2)}% (deve ser 100%)`);
 }
 
+// ── P7: Validações específicas do pedido vs projeto ──
+function validarPedidoVsProjeto(req: any, projetoFase: { fase_atual: string; status: string }) {
+  // Pedido precisa estar na fase Actual
+  if (req.fase !== "actual") {
+    throw new Error(`Apenas pedidos da fase Actual podem ser enviados ao ERP. Este pedido está em "${req.fase}".`);
+  }
+
+  // Projeto precisa estar com Budget aprovado (fase_atual=actual + status=aprovado)
+  if (projetoFase.fase_atual !== "actual") {
+    throw new Error(
+      `O Budget deste projeto ainda não foi aprovado (fase atual: "${projetoFase.fase_atual}"). Aprove o Budget antes de enviar pedidos ao ERP.`,
+    );
+  }
+  if (projetoFase.status !== "aprovado") {
+    throw new Error(
+      `O projeto ainda não está aprovado (status: "${projetoFase.status}"). Não é possível enviar pedidos ao ERP.`,
+    );
+  }
+}
+
 // ── Build Payload ──
 
-function buildPayload(
-  req: any,
-  condPag: any,
-  projetoNome: string,
-) {
+function buildPayload(req: any, condPag: any, projetoNome: string) {
   const now = hoje();
   const nowStr = fmtDate(now);
   const itens = req.itens as any[];
@@ -71,23 +87,22 @@ function buildPayload(
   const texto = `Projeto: ${projetoNome} | Req #${req.sequencia} - ${req.descricao}`;
 
   // Calculate service vs product totals separately
-    let valorMercadoria = 0;
-    let valorServicoTotal = 0;
-    itens.forEach((item: any) => {
-      const total = (Number(item.quantidade) || 1) * (Number(item.valor_unitario) || 0);
-      if (SERVICO_TIPOS.includes(item.codigoTipoProdFisc)) {
-        valorServicoTotal += total;
-      } else {
-        valorMercadoria += total;
-      }
-    });
+  let valorMercadoria = 0;
+  let valorServicoTotal = 0;
+  itens.forEach((item: any) => {
+    const total = (Number(item.quantidade) || 1) * (Number(item.valor_unitario) || 0);
+    if (SERVICO_TIPOS.includes(item.codigoTipoProdFisc)) {
+      valorServicoTotal += total;
+    } else {
+      valorMercadoria += total;
+    }
+  });
 
   // DataCompetencia = first day of current month
   const dataCompetencia = nowStr.substring(0, 8) + "01T00:00:00";
 
   // Detect if any item is service
-  const _isService = (item: any) =>
-    SERVICO_TIPOS.includes(item.codigoTipoProdFisc);
+  const _isService = (item: any) => SERVICO_TIPOS.includes(item.codigoTipoProdFisc);
 
   // ── Items ──
   const itemChildList = itens.map((item: any) => {
@@ -125,7 +140,7 @@ function buildPayload(
         CodigoProduto: item.codigoProduto,
         SequenciaItemPedComp: 0,
         CodigoClasseRecDesp: r.classe_codigo,
-        Valor: Math.round(total * r.percentual / 100 * 100) / 100,
+        Valor: Math.round(((total * r.percentual) / 100) * 100) / 100,
         Percentual: r.percentual,
         ExcluiCentroControleValorZero: "Sim",
         RateioItemPedCompChildList: [
@@ -136,7 +151,7 @@ function buildPayload(
             SequenciaItemPedComp: 0,
             CodigoClasseRecDesp: r.classe_codigo,
             CodigoCentroCtrl: r.centro_custo_codigo,
-            Valor: Math.round(total * r.percentual / 100 * 100) / 100,
+            Valor: Math.round(((total * r.percentual) / 100) * 100) / 100,
             Percentual: r.percentual,
           },
         ],
@@ -157,9 +172,7 @@ function buildPayload(
     venc.setDate(venc.getDate() + diasOffset);
 
     const isLast = i === qtdParcelas - 1;
-    const valor = isLast
-      ? valorTotal - valorParcela * (qtdParcelas - 1)
-      : valorParcela;
+    const valor = isLast ? valorTotal - valorParcela * (qtdParcelas - 1) : valorParcela;
 
     parcelas.push({
       CodigoEmpresaFilial: "",
@@ -250,17 +263,14 @@ async function postPedido(payload: any): Promise<any> {
   if (!token) throw new Error("Falha na autenticação ERP");
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const resp = await fetch(
-      `${ERP_BASE_URL}/PedComp/SavePartial?action=Insert`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "riosoft-token": token,
-        },
-        body: JSON.stringify(payload),
+    const resp = await fetch(`${ERP_BASE_URL}/PedComp/SavePartial?action=Insert`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "riosoft-token": token,
       },
-    );
+      body: JSON.stringify(payload),
+    });
 
     if (resp.status === 409) {
       console.warn(`[PedComp/Insert] 409 tentativa ${attempt}/${MAX_RETRIES}`);
@@ -275,7 +285,11 @@ async function postPedido(payload: any): Promise<any> {
 
     const text = await resp.text();
     let data: any;
-    try { data = JSON.parse(text); } catch { data = text; }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
 
     if (!resp.ok) {
       const detail = typeof data === "string" ? data : JSON.stringify(data).substring(0, 500);
@@ -303,6 +317,12 @@ export async function enviarRequisicaoAlvo(
       };
     }
 
+    // ── P7: Gate de fase ──
+    // Defesa em profundidade: mesmo que o frontend escape, aqui não passa.
+    // Valida em paralelo: pedido está em fase=actual E projeto está aprovado.
+    const projetoFase = await fetchProjetoFase(req.projeto_id);
+    validarPedidoVsProjeto(req, projetoFase);
+
     validar(req);
 
     const condPag = await fetchCondPag(req.cond_pagamento_codigo);
@@ -312,50 +332,47 @@ export async function enviarRequisicaoAlvo(
 
     const result = await postPedido(payload);
 
-    const numeroPedido =
-      result?.Numero || result?.numero || result?.NumeroPedComp || null;
+    const numeroPedido = result?.Numero || result?.numero || result?.NumeroPedComp || null;
 
     console.log("[PedComp] Atualizando requisição:", requisicaoId, "pedido:", numeroPedido);
-    
+
     // Buscar registro completo para fazer upsert (POST, evita CORS block no PATCH)
     const { data: reqAtual, error: fetchReqErr } = await supabase
       .from("projeto_requisicoes")
       .select("*")
       .eq("id", requisicaoId)
       .single();
-    
+
     if (fetchReqErr || !reqAtual) {
       console.error("[PedComp] Não encontrou requisição para atualizar:", fetchReqErr);
-      return { 
-        success: true, 
+      return {
+        success: true,
         numeroPedido,
-        error: `Pedido criado no Alvo (#${numeroPedido}) mas não encontrou registro local para atualizar` 
+        error: `Pedido criado no Alvo (#${numeroPedido}) mas não encontrou registro local para atualizar`,
       };
     }
 
-    const { error: upsertError } = await supabase
-      .from("projeto_requisicoes")
-      .upsert({
-        ...reqAtual,
-        status: "enviado",
-        numero_pedido_alvo: numeroPedido,
-        enviado_em: new Date().toISOString(),
-        erro_envio: null,
-        bloqueado: true,
-        enviado_alvo_em: new Date().toISOString(),
-        enviado_alvo_por: "sistema",
-        updated_at: new Date().toISOString(),
-      });
-    
+    const { error: upsertError } = await supabase.from("projeto_requisicoes").upsert({
+      ...reqAtual,
+      status: "enviado",
+      numero_pedido_alvo: numeroPedido,
+      enviado_em: new Date().toISOString(),
+      erro_envio: null,
+      bloqueado: true,
+      enviado_alvo_em: new Date().toISOString(),
+      enviado_alvo_por: "sistema",
+      updated_at: new Date().toISOString(),
+    });
+
     if (upsertError) {
       console.error("[PedComp] Erro ao atualizar via upsert:", upsertError);
-      return { 
-        success: true, 
+      return {
+        success: true,
         numeroPedido,
-        error: `Pedido criado no Alvo (#${numeroPedido}) mas erro ao atualizar status local: ${upsertError.message}` 
+        error: `Pedido criado no Alvo (#${numeroPedido}) mas erro ao atualizar status local: ${upsertError.message}`,
       };
     }
-    
+
     console.log("[PedComp] Requisição atualizada com sucesso via upsert:", requisicaoId);
 
     return { success: true, numeroPedido };
@@ -363,23 +380,16 @@ export async function enviarRequisicaoAlvo(
     const msg = err.message || "Erro desconhecido";
     console.error("[PedComp] Erro ao enviar:", msg);
 
-    // Update requisição → erro (com log)
-    // Usar upsert para evitar CORS block no PATCH
-    const { data: reqErr } = await supabase
-      .from("projeto_requisicoes")
-      .select("*")
-      .eq("id", requisicaoId)
-      .single();
-    
+    // Update requisição → erro (com log) via upsert pra evitar CORS PATCH
+    const { data: reqErr } = await supabase.from("projeto_requisicoes").select("*").eq("id", requisicaoId).single();
+
     if (reqErr) {
-      const { error: errUpsert } = await supabase
-        .from("projeto_requisicoes")
-        .upsert({
-          ...reqErr,
-          status: "erro",
-          erro_envio: msg,
-          updated_at: new Date().toISOString(),
-        });
+      const { error: errUpsert } = await supabase.from("projeto_requisicoes").upsert({
+        ...reqErr,
+        status: "erro",
+        erro_envio: msg,
+        updated_at: new Date().toISOString(),
+      });
       if (errUpsert) {
         console.error("[PedComp] Falha ao salvar erro via upsert:", errUpsert);
       }
