@@ -3,8 +3,7 @@
 // Envia notificação por email ao aprovador designado de um projeto
 // quando o Responsável clica "Enviar para Aprovação".
 //
-// V7 — verify_jwt=false p/ pipeline Lovable Cloud (2026-05-11)
-const _BUILD_VERSION = "v7-2026-05-11-verify-jwt-false";
+// V2 — Visual identidade P&F + lista de pedidos individuais
 //
 // Payload esperado (POST JSON):
 // {
