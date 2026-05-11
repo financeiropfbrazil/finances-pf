@@ -987,7 +987,8 @@ export default function ProjetoRequisicoes() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl sm:text-2xl font-bold">{projData.nome}</h1>
-              <Badge className={statusCfg.className}>{statusCfg.label}</Badge>
+              {/* Badge de status: esconde quando fase=budget_em_aprovacao para evitar duplicação com badge de fase */}
+              {faseAtual !== "budget_em_aprovacao" && <Badge className={statusCfg.className}>{statusCfg.label}</Badge>}
               {faseAtual === "budget" && (
                 <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400">
                   Budget
