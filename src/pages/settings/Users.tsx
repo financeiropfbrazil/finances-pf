@@ -17,12 +17,35 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { UserPlus, Shield, ShieldOff, Loader2, Pencil, UserCog, Check, ChevronsUpDown, X, Plus } from "lucide-react";
+import {
+  UserPlus,
+  Shield,
+  Loader2,
+  Pencil,
+  UserCog,
+  Check,
+  ChevronsUpDown,
+  X,
+  Plus,
+  KeyRound,
+  Copy,
+  AlertTriangle,
+} from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +62,7 @@ interface UserWithRoles {
   email: string | null;
   is_admin: boolean;
   is_active: boolean;
+  must_change_password?: boolean;
   funcionario_alvo_codigo: string | null;
   roles: UserRoleInfo[];
   created_at: string;
@@ -58,6 +82,12 @@ interface FuncionarioAlvo {
   nome: string;
   status: string;
   codigo_centro_ctrl: string | null;
+}
+
+interface PasswordResult {
+  email: string;
+  full_name: string | null;
+  temp_password: string;
 }
 
 export default function Users() {
@@ -89,17 +119,20 @@ export default function Users() {
   const [addRoleCode, setAddRoleCode] = useState<string>("");
   const [addMotivo, setAddMotivo] = useState("");
 
+  // Reset password — confirmation + result
+  const [resetTarget, setResetTarget] = useState<UserWithRoles | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [passwordResult, setPasswordResult] = useState<PasswordResult | null>(null);
+
   const isCurrentUserAdmin = profile?.is_admin === true;
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Lista usuários com papéis via RPC
       const { data: usersData, error: usersError } = await (supabase as any).rpc("hub_list_users_with_roles");
       if (usersError) throw usersError;
       setUsers((usersData || []) as UserWithRoles[]);
 
-      // Lista papéis disponíveis (catálogo)
       const { data: rolesData, error: rolesError } = await (supabase as any)
         .from("hub_roles")
         .select("id, codigo, nome, descricao, modulo, is_system")
@@ -210,7 +243,6 @@ export default function Users() {
     if (u.user_id === profile?.user_id) return;
     const newActive = !u.is_active;
 
-    // Usa upsert para evitar .update (CORS PATCH)
     const { error } = await (supabase as any).from("profiles").upsert(
       {
         user_id: u.user_id,
@@ -302,7 +334,6 @@ export default function Users() {
       setAddRoleCode("");
       setAddMotivo("");
       await fetchData();
-      // Atualiza o rolesUser local pra refletir as novas roles
       const updated = users.find((u) => u.user_id === rolesUser.user_id);
       if (updated) setRolesUser(updated);
     } catch (err: any) {
@@ -339,7 +370,75 @@ export default function Users() {
     }
   };
 
-  // Filtra papéis disponíveis para adicionar (exclui os que o user já tem)
+  // --------------------------------------------------------------------------
+  // Resetar senha (gerar nova + copiar)
+  // --------------------------------------------------------------------------
+  const handleResetPassword = async () => {
+    if (!resetTarget) return;
+    setResetting(true);
+    try {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+      const accessToken = currentSession?.access_token;
+      if (!accessToken) throw new Error("Sessão expirada. Faça login novamente.");
+
+      const resp = await fetch("https://hbtggrbauguukewiknew.supabase.co/functions/v1/hub-reset-user-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ target_user_id: resetTarget.user_id }),
+      });
+
+      const result = await resp.json();
+
+      if (!resp.ok || !result.success) {
+        throw new Error(result.error || "Falha ao resetar senha");
+      }
+
+      // Auto-copia para clipboard
+      try {
+        await navigator.clipboard.writeText(result.temp_password);
+      } catch {
+        // se clipboard falhar (HTTP, ou sem permissão), só não copia — o user pode copiar manualmente do dialog
+      }
+
+      // Fecha o dialog de confirmação e abre o de resultado
+      setResetTarget(null);
+      setPasswordResult({
+        email: result.email,
+        full_name: result.full_name,
+        temp_password: result.temp_password,
+      });
+
+      toast({ title: "Senha gerada e copiada para a área de transferência!" });
+      fetchData();
+    } catch (err: any) {
+      toast({
+        title: "Erro ao resetar senha",
+        description: err?.message || String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const copyPasswordToClipboard = async () => {
+    if (!passwordResult) return;
+    try {
+      await navigator.clipboard.writeText(passwordResult.temp_password);
+      toast({ title: "Senha copiada!" });
+    } catch {
+      toast({ title: "Falha ao copiar", description: "Copie manualmente o texto exibido.", variant: "destructive" });
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // Util
+  // --------------------------------------------------------------------------
   const getRolesAvailableToAdd = (): AvailableRole[] => {
     if (!rolesUser) return availableRoles;
     const currentCodes = new Set(rolesUser.roles.map((r) => r.codigo));
@@ -354,7 +453,6 @@ export default function Users() {
       return f.nome.toLowerCase().includes(q) || f.codigo.includes(q);
     });
 
-  // Cores dos badges por papel
   const getRoleBadgeClass = (codigo: string): string => {
     switch (codigo) {
       case "admin":
@@ -363,12 +461,15 @@ export default function Users() {
         return "bg-blue-500/15 text-blue-600 border-blue-500/30";
       case "requisitante":
         return "bg-slate-500/15 text-slate-600 border-slate-500/30";
+      case "responsavel_projeto":
+        return "bg-emerald-500/15 text-emerald-600 border-emerald-500/30";
+      case "aprovador_projetos":
+        return "bg-amber-500/15 text-amber-600 border-amber-500/30";
       default:
         return "bg-muted text-muted-foreground";
     }
   };
 
-  // Sempre que os users mudam, atualiza o rolesUser local (se o modal estiver aberto)
   useEffect(() => {
     if (rolesUser) {
       const updated = users.find((u) => u.user_id === rolesUser.user_id);
@@ -462,6 +563,8 @@ export default function Users() {
               <TableBody>
                 {users.map((u) => {
                   const isSelf = u.user_id === profile?.user_id;
+                  // Label adaptativo: "Inicial" se nunca trocou a senha; "Reset" se já está usando
+                  const isInitialAccess = u.must_change_password === true;
                   return (
                     <TableRow key={u.user_id}>
                       <TableCell className="font-medium">{u.full_name || "—"}</TableCell>
@@ -493,6 +596,19 @@ export default function Users() {
                         {format(new Date(u.created_at), "dd/MM/yyyy")}
                       </TableCell>
                       <TableCell className="text-right space-x-1">
+                        {/* Botão de Reset de Senha — não aparece para o próprio admin */}
+                        {!isSelf && u.is_active && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1 text-xs"
+                            title={isInitialAccess ? "Gerar senha de acesso inicial" : "Resetar e copiar nova senha"}
+                            onClick={() => setResetTarget(u)}
+                          >
+                            <KeyRound className="h-3 w-3" />
+                            {isInitialAccess ? "Senha inicial" : "Reset senha"}
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => openRoles(u)}>
                           <UserCog className="h-3 w-3" /> Papéis
                         </Button>
@@ -621,7 +737,6 @@ export default function Users() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Papéis atuais */}
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Papéis atuais</Label>
               <div className="space-y-1.5">
@@ -654,7 +769,6 @@ export default function Users() {
               </div>
             </div>
 
-            {/* Adicionar novo papel */}
             {getRolesAvailableToAdd().length > 0 && (
               <div className="space-y-2 pt-2 border-t">
                 <Label className="text-xs text-muted-foreground">Adicionar papel</Label>
@@ -695,6 +809,81 @@ export default function Users() {
             <Button variant="outline" onClick={() => setRolesOpen(false)}>
               Fechar
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AlertDialog: Confirmação de reset de senha */}
+      <AlertDialog open={!!resetTarget} onOpenChange={(o) => !o && setResetTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-600" />
+              {resetTarget?.must_change_password ? "Gerar senha de acesso inicial?" : "Resetar senha?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {resetTarget?.must_change_password ? (
+                <>
+                  Será gerada uma nova senha temporária para{" "}
+                  <strong>{resetTarget?.full_name || resetTarget?.email}</strong> e copiada para sua área de
+                  transferência. Você poderá enviá-la manualmente (Teams/Slack) caso o email original não tenha chegado.
+                </>
+              ) : (
+                <>
+                  Isso <strong>invalidará a senha atual</strong> de{" "}
+                  <strong>{resetTarget?.full_name || resetTarget?.email}</strong>. Uma nova senha temporária será gerada
+                  e copiada para a área de transferência. O usuário será obrigado a trocá-la no próximo login.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resetting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleResetPassword} disabled={resetting}>
+              {resetting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirmar e Gerar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog: Exibe a senha gerada */}
+      <Dialog open={!!passwordResult} onOpenChange={(o) => !o && setPasswordResult(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-emerald-600" />
+              Senha Temporária Gerada
+            </DialogTitle>
+            <DialogDescription>
+              Senha temporária para <strong>{passwordResult?.full_name || passwordResult?.email}</strong>. A senha foi
+              copiada automaticamente para a área de transferência. O usuário precisará trocá-la no primeiro login.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">EMAIL</Label>
+              <Input value={passwordResult?.email || ""} readOnly className="font-mono text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">SENHA TEMPORÁRIA</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={passwordResult?.temp_password || ""}
+                  readOnly
+                  className="font-mono text-sm font-semibold tracking-wider"
+                />
+                <Button variant="outline" size="icon" onClick={copyPasswordToClipboard} title="Copiar senha">
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
+              <strong>Atenção:</strong> Esta senha só é exibida uma vez. Anote ou copie agora.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setPasswordResult(null)}>Fechar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
