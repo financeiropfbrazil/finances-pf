@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.notify-aprovador-budget]
 verify_jwt = false
+
+[functions.hub-reset-user-password]
+verify_jwt = false
