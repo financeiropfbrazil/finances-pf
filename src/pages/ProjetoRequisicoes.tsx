@@ -533,15 +533,74 @@ export default function ProjetoRequisicoes() {
     if (!projetoId) return;
     setEnviandoAprovacao(true);
     try {
+      // 1. Muda fase no banco via RPC
       const { data, error } = await (supabase as any).rpc("enviar_budget_para_aprovacao", {
         p_projeto_id: projetoId,
       });
       if (error) throw error;
-      toast({
-        title: "Enviado para aprovação!",
-        description: `Aprovador ${data?.aprovador_nome || data?.aprovador_email || ""} será notificado.`,
-      });
-      // TODO P3: chamar Edge Function notify-aprovador-budget via fetch
+
+      // 2. Chama Edge Function de email (não-bloqueante para o status, mas reporta erro)
+      let emailEnviado = false;
+      let emailError: string | null = null;
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const accessToken = session?.access_token;
+        if (!accessToken) throw new Error("Sessão expirada — faça login novamente");
+
+        const resp = await fetch("https://hbtggrbauguukewiknew.supabase.co/functions/v1/notify-aprovador-budget", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            projeto_id: data?.projeto_id,
+            projeto_nome: data?.projeto_nome,
+            aprovador_email: data?.aprovador_email,
+            aprovador_nome: data?.aprovador_nome,
+            responsavel_email: data?.responsavel_email,
+            total_budget: data?.total_budget,
+            orcamento: data?.orcamento,
+            count_pedidos: data?.count_pedidos,
+          }),
+        });
+
+        const result = await resp.json();
+        if (!resp.ok || !result.success) {
+          throw new Error(result?.error || `Falha no envio do email (HTTP ${resp.status})`);
+        }
+        emailEnviado = true;
+
+        // 3. Registra timestamp do envio (upsert pra evitar CORS PATCH)
+        const { data: projAtual } = await supabase.from("projetos").select("*").eq("id", projetoId).single();
+        if (projAtual) {
+          await supabase.from("projetos").upsert({
+            ...projAtual,
+            email_aprovacao_enviado_em: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } catch (emailErr: any) {
+        emailError = emailErr?.message || String(emailErr);
+        console.error("[handleEnviarParaAprovacao] Falha ao enviar email:", emailError);
+      }
+
+      // 4. Toast unificado
+      if (emailEnviado) {
+        toast({
+          title: "Enviado para aprovação!",
+          description: `Email enviado para ${data?.aprovador_nome || data?.aprovador_email || "aprovador"}.`,
+        });
+      } else {
+        toast({
+          title: "Status atualizado, mas falha no email",
+          description: `Aprovador ${data?.aprovador_email || ""} pode não ter sido notificado: ${emailError}`,
+          variant: "destructive",
+        });
+      }
+
       queryClient.invalidateQueries({ queryKey: ["projeto", projetoId] });
     } catch (err: any) {
       console.error("Erro ao enviar para aprovação:", err);
