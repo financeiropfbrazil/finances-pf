@@ -3,8 +3,8 @@
 // Envia notificação por email ao aprovador designado de um projeto
 // quando o Responsável clica "Enviar para Aprovação".
 //
-// V6 — retry deploy sem deno.lock raiz (2026-05-11)
-const _BUILD_VERSION = "v6-2026-05-11-no-root-deno-lock";
+// V7 — verify_jwt=false p/ pipeline Lovable Cloud (2026-05-11)
+const _BUILD_VERSION = "v7-2026-05-11-verify-jwt-false";
 //
 // Payload esperado (POST JSON):
 // {
