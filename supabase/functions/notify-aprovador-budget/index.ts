@@ -3,7 +3,8 @@
 // Envia notificação por email ao aprovador designado de um projeto
 // quando o Responsável clica "Enviar para Aprovação".
 //
-// V3 — Visual identidade P&F + lista de pedidos individuais (redeploy 2026-05-11 #3)
+// V4 — force redeploy 2026-05-11T16:15 (touch file content to trigger Lovable Cloud deploy)
+const _BUILD_VERSION = "v4-2026-05-11-16-15";
 //
 // Payload esperado (POST JSON):
 // {
