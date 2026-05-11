@@ -272,6 +272,7 @@ export default function ProjetoRequisicoes() {
   // Pode enviar pedido ao Alvo
   const canSendToAlvo = (r: any) =>
     faseAtual === "actual" &&
+    r.fase === "actual" &&
     (isAdmin || (canReenviar && isResponsavel)) &&
     (r.status === "rascunho" || r.status === "erro");
   // Pode enviar Budget para aprovação
