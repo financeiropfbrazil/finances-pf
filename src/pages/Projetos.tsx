@@ -12,36 +12,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
 import {
-  Plus,
-  Pencil,
-  ClipboardList,
-  User,
-  UserCheck,
-  Calendar,
-  Wallet,
-  Search,
-  FolderKanban,
-  Loader2,
-  Trash2,
+  Plus, Pencil, ClipboardList, User, UserCheck, Calendar, Wallet, Search,
+  FolderKanban, Loader2, Trash2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -72,7 +52,8 @@ interface UserOption {
   email: string | null;
 }
 
-const fmtCurrency = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const fmtCurrency = (v: number) =>
+  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const fmtDate = (d: string | null) => {
   if (!d) return "—";
@@ -132,11 +113,14 @@ export default function Projetos() {
     enabled: dialogOpen,
   });
 
-  // Fetch projects (RLS filtra automaticamente conforme escopo)
+  / Fetch projects (RLS filtra automaticamente conforme escopo)
   const { data: projetos = [], isLoading } = useQuery({
     queryKey: ["projetos"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("projetos").select("*").order("created_at", { ascending: false });
+      const { data, error } = await supabase
+        .from("projetos")
+        .select("*")
+        .order("created_at", { ascending: false });
       if (error) throw error;
 
       // Hidrata nomes do responsável e aprovador
@@ -146,7 +130,7 @@ export default function Projetos() {
         if (p.aprovador_id) userIds.add(p.aprovador_id);
       });
 
-      if (userIds.size === 0) return data as Projeto[];
+      if (userIds.size === 0) return (data || []) as unknown as Projeto[];
 
       const { data: profilesData } = await supabase
         .from("profiles")
@@ -164,7 +148,7 @@ export default function Projetos() {
         responsavel_email: p.responsavel_id ? profMap[p.responsavel_id]?.email : null,
         aprovador_nome: p.aprovador_id ? profMap[p.aprovador_id]?.nome : null,
         aprovador_email: p.aprovador_id ? profMap[p.aprovador_id]?.email : null,
-      })) as Projeto[];
+      })) as unknown as Projeto[];
     },
   });
 
@@ -172,7 +156,9 @@ export default function Projetos() {
   const { data: usageMap = {} } = useQuery({
     queryKey: ["projetos-usage"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("projeto_requisicoes").select("projeto_id, valor_total");
+      const { data, error } = await supabase
+        .from("projeto_requisicoes")
+        .select("projeto_id, valor_total");
       if (error) throw error;
       const map: Record<string, number> = {};
       (data || []).forEach((r: any) => {
@@ -290,7 +276,8 @@ export default function Projetos() {
   });
 
   // UI helpers para mostrar/ocultar ações
-  const canEditThis = (p: Projeto) => isAdmin || (canEditOwn && p.criado_por === user?.id && p.fase_atual === "budget");
+  const canEditThis = (p: Projeto) =>
+    isAdmin || (canEditOwn && p.criado_por === user?.id && p.fase_atual === "budget");
 
   const canDeleteThis = (p: Projeto) =>
     isAdmin || (canDeleteOwn && p.criado_por === user?.id && p.fase_atual === "budget");
@@ -465,7 +452,9 @@ export default function Projetos() {
               <Textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={3} />
             </div>
             <div className="space-y-1.5">
-              <Label>Orçamento (R$) *{!isAdmin && editingProject ? " — somente admin" : ""}</Label>
+              <Label>
+                Orçamento (R$) *{!isAdmin && editingProject ? " — somente admin" : ""}
+              </Label>
               <Input
                 type="number"
                 step="0.01"
