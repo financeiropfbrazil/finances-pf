@@ -826,6 +826,7 @@ export default function IntercompanyMaster() {
                 <tr className="border-b border-border bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-3 py-3 font-medium w-8" />
                   <th className="px-3 py-3 font-medium">Nº Invoice</th>
+                  <th className="px-3 py-3 font-medium">Nº NF/Doc</th>
                   <th className="px-3 py-3 font-medium">Data</th>
                   <th className="px-3 py-3 font-medium">Tipo</th>
                   <th className="px-3 py-3 font-medium">Classe</th>
@@ -928,6 +929,9 @@ function MasterRow({ item, expanded, onToggle, onEditCambio }: MasterRowProps) {
           )}
         </td>
         <td className="px-3 py-2.5 font-mono text-xs">{item.numero_invoice ?? "—"}</td>
+        <td className="px-3 py-2.5 font-mono text-xs">
+          {item.numero_documento_alvo ?? <span className="text-muted-foreground">—</span>}
+        </td>
         <td className="px-3 py-2.5 whitespace-nowrap">{formatDate(item.data_emissao)}</td>
         <td className="px-3 py-2.5">
           <Badge variant="outline" className="text-[10px] capitalize">
@@ -1009,7 +1013,7 @@ function MasterRowDetails({ item }: { item: MasterItem }) {
 
   return (
     <tr className="bg-muted/10">
-      <td colSpan={14} className="px-6 py-4">
+      <td colSpan={15} className="px-6 py-4">
         <div className="space-y-3">
           {/* Header da invoice */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
@@ -1019,7 +1023,6 @@ function MasterRowDetails({ item }: { item: MasterItem }) {
               value={item.cambio == null ? "—" : item.cambio.toLocaleString("pt-BR", { minimumFractionDigits: 4 })}
             />
             {item.chave_docfin_alvo && <DetailField label="Chave Alvo" value={String(item.chave_docfin_alvo)} mono />}
-            {item.numero_documento_alvo && <DetailField label="Nº Doc Alvo" value={item.numero_documento_alvo} mono />}
             {item.origem_categoria && <DetailField label="Categoria" value={item.origem_categoria} />}
             {item.emitida_em && (
               <DetailField label="Emitida em" value={format(new Date(item.emitida_em), "dd/MM/yyyy HH:mm")} />
