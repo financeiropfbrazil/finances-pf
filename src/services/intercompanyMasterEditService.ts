@@ -26,7 +26,7 @@ export interface SetMasterCambioResult {
  * @throws Error com mensagem da RPC se câmbio inválido ou master não encontrado
  */
 export async function setMasterCambio(input: SetMasterCambioInput): Promise<SetMasterCambioResult> {
-  const { data, error } = await supabase.rpc("set_master_cambio", {
+  const { data, error } = await (supabase as any).rpc("set_master_cambio", {
     p_master_id: input.masterId,
     p_cambio: input.cambio,
   });
