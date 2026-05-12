@@ -20,6 +20,7 @@ import {
   ChevronRight,
   ChevronsUpDown,
   AlertTriangle,
+  CloudDownload,
   HelpCircle,
   FileText,
   Filter,
@@ -38,6 +39,8 @@ import {
   buscarTudoParaExportar,
   listarMaster,
 } from "@/services/intercompanyMasterListService";
+import { syncIntercompanyFromAlvo, type SyncBatchResponse } from "@/services/intercompanySyncService";
+import { useToast } from "@/hooks/use-toast";
 import type {
   MasterBlocoDetalhe,
   MasterClassificationStatus,
@@ -90,10 +93,18 @@ const classificationEmoji: Record<MasterClassificationStatus, string> = {
 
 export default function IntercompanyMaster() {
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   // ─── STATE ────────────────────────────────────────────────────────────
   const [dataDe, setDataDe] = useState<Date | undefined>(undefined);
   const [dataAte, setDataAte] = useState<Date | undefined>(undefined);
+
+  // Sync modal state
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncDataDe, setSyncDataDe] = useState<Date | undefined>(undefined);
+  const [syncDataAte, setSyncDataAte] = useState<Date | undefined>(undefined);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncBatchResponse | null>(null);
   const [tipo, setTipo] = useState<string>("");
   const [statusF, setStatusF] = useState<string>("");
   const [origem, setOrigem] = useState<string>("");
@@ -233,6 +244,63 @@ export default function IntercompanyMaster() {
       alert(`Erro ao exportar: ${(err as Error).message}`);
     } finally {
       setExportando(false);
+    }
+  };
+
+  // ─── Sync do Alvo ─────────────────────────────────────────────────────
+  const handleSync = async () => {
+    if (!syncDataDe) {
+      toast({
+        title: "Data inicial obrigatória",
+        description: "Selecione a data de início da janela de sincronização.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const result = await syncIntercompanyFromAlvo({
+        dataInicial: format(syncDataDe, "yyyy-MM-dd"),
+        dataFinal: syncDataAte ? format(syncDataAte, "yyyy-MM-dd") : undefined,
+      });
+
+      setSyncResult(result);
+
+      const { summary, persistence } = result;
+      const persistOk = persistence?.success ?? false;
+      const persisted = persistence ? persistence.inserted + persistence.updated : 0;
+
+      if (persistOk && summary.total_failed === 0) {
+        toast({
+          title: "Sincronização concluída",
+          description: `${persisted} invoice(s) atualizadas (${persistence!.inserted} novas, ${persistence!.updated} atualizadas).`,
+        });
+      } else if (persistOk && summary.total_failed > 0) {
+        toast({
+          title: "Sincronização parcial",
+          description: `${persisted} persistidas. ${summary.total_failed} falharam no Alvo.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Falha na persistência",
+          description: persistence?.fatal_error ?? "Erro desconhecido ao gravar no banco.",
+          variant: "destructive",
+        });
+      }
+
+      // Refetch o Master pra mostrar invoices que tenham virado master
+      listQuery.refetch();
+    } catch (err) {
+      toast({
+        title: "Erro ao sincronizar",
+        description: (err as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setSyncing(false);
     }
   };
 
