@@ -53,8 +53,10 @@ import type {
 
 const PAGE_SIZE = 20;
 
-const formatBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const formatEUR = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "EUR" });
+const formatBRL = (v: number | null | undefined) =>
+  v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const formatEUR = (v: number | null | undefined) =>
+  v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "EUR" });
 const formatDate = (iso: string | null) => {
   if (!iso) return "—";
   const [y, m, d] = iso.split("-");
@@ -984,7 +986,10 @@ function MasterRowDetails({ item }: { item: MasterItem }) {
           {/* Header da invoice */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
             <DetailField label="Espécie" value={item.especie} />
-            <DetailField label="Câmbio" value={item.cambio.toLocaleString("pt-BR", { minimumFractionDigits: 4 })} />
+            <DetailField
+              label="Câmbio"
+              value={item.cambio == null ? "—" : item.cambio.toLocaleString("pt-BR", { minimumFractionDigits: 4 })}
+            />
             {item.chave_docfin_alvo && <DetailField label="Chave Alvo" value={String(item.chave_docfin_alvo)} mono />}
             {item.numero_documento_alvo && <DetailField label="Nº Doc Alvo" value={item.numero_documento_alvo} mono />}
             {item.origem_categoria && <DetailField label="Categoria" value={item.origem_categoria} />}
