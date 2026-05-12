@@ -26,6 +26,7 @@ import {
   FileText,
   Filter,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -42,6 +43,7 @@ import {
 } from "@/services/intercompanyMasterListService";
 import { syncIntercompanyFromAlvo, type SyncBatchResponse } from "@/services/intercompanySyncService";
 import { useToast } from "@/hooks/use-toast";
+import { MasterCambioModal } from "@/components/intercompany/MasterCambioModal";
 import type {
   MasterBlocoDetalhe,
   MasterClassificationStatus,
@@ -115,12 +117,9 @@ export default function IntercompanyMaster() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
 
-  // ─── STATE: Sync modal ────────────────────────────────────────────────
-  const [syncModalOpen, setSyncModalOpen] = useState(false);
-  const [syncDataDe, setSyncDataDe] = useState<Date | undefined>(undefined);
-  const [syncDataAte, setSyncDataAte] = useState<Date | undefined>(undefined);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<SyncBatchResponse | null>(null);
+  // ─── STATE: Modal câmbio ──────────────────────────────────────────────
+  const [cambioModalOpen, setCambioModalOpen] = useState(false);
+  const [cambioMasterItem, setCambioMasterItem] = useState<MasterItem | null>(null);
 
   // Debounce busca
   useEffect(() => {
@@ -831,6 +830,7 @@ export default function IntercompanyMaster() {
                   <th className="px-3 py-3 font-medium">Origem</th>
                   <th className="px-3 py-3 font-medium">Status</th>
                   <th className="px-3 py-3 font-medium">Classific.</th>
+                  <th className="px-3 py-3 font-medium w-12 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -844,6 +844,10 @@ export default function IntercompanyMaster() {
                         prev === `${item.source_table}-${item.id}` ? null : `${item.source_table}-${item.id}`,
                       )
                     }
+                    onEditCambio={() => {
+                      setCambioMasterItem(item);
+                      setCambioModalOpen(true);
+                    }}
                   />
                 ))}
               </tbody>
@@ -852,46 +856,35 @@ export default function IntercompanyMaster() {
 
           {/* Paginação */}
           <div className="flex items-center justify-between border-t border-border bg-muted/30 px-4 py-2.5 text-xs">
-            <span className="text-muted-foreground">
-              Mostrando {listQuery.data.items.length} de {listQuery.data.pagination.total} · Página{" "}
-              {listQuery.data.pagination.page} de {listQuery.data.pagination.total_pages}
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1 || listQuery.isFetching}
-                className="h-7 text-xs"
-              >
-                Anterior
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => p + 1)}
-                disabled={page >= listQuery.data.pagination.total_pages || listQuery.isFetching}
-                className="h-7 text-xs"
-              >
-                Próximo
-              </Button>
-            </div>
+            ...
           </div>
         </Card>
       )}
+
+      <MasterCambioModal
+        open={cambioModalOpen}
+        onOpenChange={setCambioModalOpen}
+        masterId={cambioMasterItem?.id ?? null}
+        numeroInvoice={cambioMasterItem?.numero_invoice ?? null}
+        valorBrl={cambioMasterItem?.valor_brl ?? null}
+        cambioAtual={cambioMasterItem?.cambio ?? null}
+        valorEurAtual={cambioMasterItem?.valor_eur ?? null}
+        onSaved={() => {
+          listQuery.refetch();
+        }}
+      />
     </div>
   );
 }
-
-// ─── Linha da tabela ────────────────────────────────────────────────────
 
 interface MasterRowProps {
   item: MasterItem;
   expanded: boolean;
   onToggle: () => void;
+  onEditCambio: () => void;
 }
 
-function MasterRow({ item, expanded, onToggle }: MasterRowProps) {
+function MasterRow({ item, expanded, onToggle, onEditCambio }: MasterRowProps) {
   const classEmoji = classificationEmoji[item.classification_status_agregado];
 
   return (
@@ -964,6 +957,11 @@ function MasterRow({ item, expanded, onToggle }: MasterRowProps) {
             {classificationLabel[item.classification_status_agregado]}
           </Badge>
         </td>
+        <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEditCambio} title="Editar câmbio">
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        </td>
       </tr>
       {expanded && <MasterRowDetails item={item} />}
     </>
@@ -981,7 +979,7 @@ function MasterRowDetails({ item }: { item: MasterItem }) {
 
   return (
     <tr className="bg-muted/10">
-      <td colSpan={13} className="px-6 py-4">
+      <td colSpan={14} className="px-6 py-4">
         <div className="space-y-3">
           {/* Header da invoice */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
