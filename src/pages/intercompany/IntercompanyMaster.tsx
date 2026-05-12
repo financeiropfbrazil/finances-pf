@@ -436,7 +436,9 @@ export default function IntercompanyMaster() {
               <Card className="border-muted bg-muted/20">
                 <CardContent className="space-y-2 p-3 text-xs">
                   <div className="flex items-center gap-1.5 font-semibold">
-                    {syncResult.persistence?.success ? (
+                    {syncResult.summary.total_mapped === 0 && syncResult.summary.total_failed === 0 ? (
+                      <CheckCircle2 className="h-4 w-4 text-slate-500" />
+                    ) : syncResult.persistence?.success ? (
                       <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     ) : (
                       <AlertCircle className="h-4 w-4 text-destructive" />
