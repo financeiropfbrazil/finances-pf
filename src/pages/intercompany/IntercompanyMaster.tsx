@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -95,16 +96,9 @@ export default function IntercompanyMaster() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // ─── STATE ────────────────────────────────────────────────────────────
+  // ─── STATE: Filtros ───────────────────────────────────────────────────
   const [dataDe, setDataDe] = useState<Date | undefined>(undefined);
   const [dataAte, setDataAte] = useState<Date | undefined>(undefined);
-
-  // Sync modal state
-  const [syncModalOpen, setSyncModalOpen] = useState(false);
-  const [syncDataDe, setSyncDataDe] = useState<Date | undefined>(undefined);
-  const [syncDataAte, setSyncDataAte] = useState<Date | undefined>(undefined);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<SyncBatchResponse | null>(null);
   const [tipo, setTipo] = useState<string>("");
   const [statusF, setStatusF] = useState<string>("");
   const [origem, setOrigem] = useState<string>("");
@@ -118,6 +112,13 @@ export default function IntercompanyMaster() {
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
+
+  // ─── STATE: Sync modal ────────────────────────────────────────────────
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncDataDe, setSyncDataDe] = useState<Date | undefined>(undefined);
+  const [syncDataAte, setSyncDataAte] = useState<Date | undefined>(undefined);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncBatchResponse | null>(null);
 
   // Debounce busca
   useEffect(() => {
