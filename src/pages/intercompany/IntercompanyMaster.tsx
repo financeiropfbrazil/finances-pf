@@ -863,7 +863,30 @@ export default function IntercompanyMaster() {
 
           {/* Paginação */}
           <div className="flex items-center justify-between border-t border-border bg-muted/30 px-4 py-2.5 text-xs">
-            ...
+            <span className="text-muted-foreground">
+              Mostrando {listQuery.data.items.length} de {listQuery.data.pagination.total} · Página{" "}
+              {listQuery.data.pagination.page} de {listQuery.data.pagination.total_pages}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1 || listQuery.isFetching}
+                className="h-7 text-xs"
+              >
+                Anterior
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={page >= listQuery.data.pagination.total_pages || listQuery.isFetching}
+                className="h-7 text-xs"
+              >
+                Próximo
+              </Button>
+            </div>
           </div>
         </Card>
       )}
