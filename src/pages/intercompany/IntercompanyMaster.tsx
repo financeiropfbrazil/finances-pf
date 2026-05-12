@@ -273,18 +273,30 @@ export default function IntercompanyMaster() {
       const persistOk = persistence?.success ?? false;
       const persisted = persistence ? persistence.inserted + persistence.updated : 0;
 
-      if (persistOk && summary.total_failed === 0) {
+      // Caso 1: nada encontrado no Alvo (não é erro, é resultado válido)
+      if (summary.total_mapped === 0 && summary.total_failed === 0) {
+        toast({
+          title: "Nenhum documento encontrado",
+          description: "O Alvo não retornou DocFins intercompany nessa janela de datas.",
+        });
+      }
+      // Caso 2: tudo OK
+      else if (persistOk && summary.total_failed === 0) {
         toast({
           title: "Sincronização concluída",
           description: `${persisted} invoice(s) atualizadas (${persistence!.inserted} novas, ${persistence!.updated} atualizadas).`,
         });
-      } else if (persistOk && summary.total_failed > 0) {
+      }
+      // Caso 3: parcial — Alvo OK mas algumas falhas
+      else if (persistOk && summary.total_failed > 0) {
         toast({
           title: "Sincronização parcial",
           description: `${persisted} persistidas. ${summary.total_failed} falharam no Alvo.`,
           variant: "destructive",
         });
-      } else {
+      }
+      // Caso 4: falha real na persistência
+      else {
         toast({
           title: "Falha na persistência",
           description: persistence?.fatal_error ?? "Erro desconhecido ao gravar no banco.",
