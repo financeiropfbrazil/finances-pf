@@ -117,6 +117,13 @@ export default function IntercompanyMaster() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
 
+  // ─── STATE: Sync modal ────────────────────────────────────────────────
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncDataDe, setSyncDataDe] = useState<Date | undefined>(undefined);
+  const [syncDataAte, setSyncDataAte] = useState<Date | undefined>(undefined);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncBatchResponse | null>(null);
+
   // ─── STATE: Modal câmbio ──────────────────────────────────────────────
   const [cambioModalOpen, setCambioModalOpen] = useState(false);
   const [cambioMasterItem, setCambioMasterItem] = useState<MasterItem | null>(null);
