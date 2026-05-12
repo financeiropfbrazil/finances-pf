@@ -314,6 +314,19 @@ export default function IntercompanyMaster() {
           <p className="text-sm text-muted-foreground">Invoices intercompany P&amp;F ↔ PEF Áustria</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setSyncDataDe(undefined);
+              setSyncDataAte(undefined);
+              setSyncResult(null);
+              setSyncModalOpen(true);
+            }}
+          >
+            <CloudDownload className="mr-1.5 h-3.5 w-3.5" />
+            Sincronizar do Alvo
+          </Button>
           <Button variant="outline" size="sm" onClick={() => listQuery.refetch()} disabled={listQuery.isFetching}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${listQuery.isFetching ? "animate-spin" : ""}`} />
             Atualizar
@@ -337,6 +350,138 @@ export default function IntercompanyMaster() {
           </Button>
         </div>
       </div>
+
+      {/* ─── Modal: Sincronizar do Alvo ─── */}
+      <Dialog open={syncModalOpen} onOpenChange={(open) => !syncing && setSyncModalOpen(open)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CloudDownload className="h-5 w-5" />
+              Sincronizar do Alvo
+            </DialogTitle>
+            <DialogDescription>
+              Busca DocFins intercompany (NF-e, NFS-e, INV) da PEF Áustria no Alvo e atualiza o Hub. Operação
+              idempotente — rodar duas vezes não duplica.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs uppercase text-muted-foreground">Data inicial *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        "w-full justify-start text-left font-normal h-9 text-xs",
+                        !syncDataDe && "text-muted-foreground",
+                      )}
+                      disabled={syncing}
+                    >
+                      <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
+                      {syncDataDe ? format(syncDataDe, "dd/MM/yyyy", { locale: ptBR }) : "Selecione..."}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={syncDataDe} onSelect={setSyncDataDe} initialFocus locale={ptBR} />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs uppercase text-muted-foreground">Data final (opcional)</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        "w-full justify-start text-left font-normal h-9 text-xs",
+                        !syncDataAte && "text-muted-foreground",
+                      )}
+                      disabled={syncing}
+                    >
+                      <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
+                      {syncDataAte ? format(syncDataAte, "dd/MM/yyyy", { locale: ptBR }) : "Hoje"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={syncDataAte} onSelect={setSyncDataAte} locale={ptBR} />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground italic">
+              Janelas pequenas (~1 semana) levam ~5s. Janelas grandes (~3 meses) podem levar até 30s.
+            </p>
+
+            {/* Resultado da sincronização */}
+            {syncResult && (
+              <Card className="border-muted bg-muted/20">
+                <CardContent className="space-y-2 p-3 text-xs">
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    {syncResult.persistence?.success ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 text-destructive" />
+                    )}
+                    Última execução
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 pl-5">
+                    <span className="text-muted-foreground">Listados no Alvo:</span>
+                    <span className="font-mono">{syncResult.summary.total_listed}</span>
+                    <span className="text-muted-foreground">Mapeados:</span>
+                    <span className="font-mono">{syncResult.summary.total_mapped}</span>
+                    {syncResult.persistence && (
+                      <>
+                        <span className="text-muted-foreground">Inseridos:</span>
+                        <span className="font-mono text-emerald-700">{syncResult.persistence.inserted}</span>
+                        <span className="text-muted-foreground">Atualizados:</span>
+                        <span className="font-mono text-blue-700">{syncResult.persistence.updated}</span>
+                      </>
+                    )}
+                    {syncResult.summary.total_failed > 0 && (
+                      <>
+                        <span className="text-muted-foreground">Falhas:</span>
+                        <span className="font-mono text-destructive">{syncResult.summary.total_failed}</span>
+                      </>
+                    )}
+                    <span className="text-muted-foreground">Tempo:</span>
+                    <span className="font-mono">{(syncResult.summary.elapsed_ms / 1000).toFixed(1)}s</span>
+                  </div>
+                  {syncResult.persistence?.fatal_error && (
+                    <p className="text-destructive pl-5 pt-1 break-words">
+                      <strong>Erro:</strong> {syncResult.persistence.fatal_error}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setSyncModalOpen(false)} disabled={syncing}>
+              {syncResult ? "Fechar" : "Cancelar"}
+            </Button>
+            <Button onClick={handleSync} disabled={syncing || !syncDataDe}>
+              {syncing ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  Sincronizando...
+                </>
+              ) : (
+                <>
+                  <CloudDownload className="mr-1.5 h-3.5 w-3.5" />
+                  Sincronizar
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Barra de Filtros */}
       <Card>
