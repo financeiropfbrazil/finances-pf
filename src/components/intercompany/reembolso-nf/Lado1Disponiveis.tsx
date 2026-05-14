@@ -10,6 +10,11 @@
  *
  * Granularidade canônica: rateio_id (sub-linha da view).
  * Agrupamento por chave_movestq é puramente visual.
+ *
+ * Layout: 3 áreas verticais dentro do Card —
+ *   1. Header de filtros (shrink-0, fixo no topo)
+ *   2. Lista scrollável (flex-1, única área que scrolla)
+ *   3. Rodapé com botão Adicionar (shrink-0, fixo no fundo)
  */
 
 import { useMemo, useState } from "react";
@@ -75,7 +80,6 @@ interface GrupoNF {
   chave_movestq: number;
   itens: MovEstqDisponivel[];
   mode: RenderMode;
-  /** Quando flat ou single-classe, esses ids são todos os filhos. Quando multi-classe, ids agregados. */
   todosRateioIds: string[];
 }
 
@@ -102,7 +106,6 @@ function agruparPorNF(itens: MovEstqDisponivel[]): GrupoNF[] {
       todosRateioIds: items.map((i) => i.rateio_id).filter((id): id is string => id !== null),
     });
   }
-  // Mantém ordem de data_emissao da query (DESC) — primeira ocorrência de cada NF
   const ordem = new Map<number, number>();
   itens.forEach((it, idx) => {
     if (!ordem.has(it.chave_movestq)) ordem.set(it.chave_movestq, idx);
@@ -111,7 +114,6 @@ function agruparPorNF(itens: MovEstqDisponivel[]): GrupoNF[] {
   return grupos;
 }
 
-/** Agrupa items de uma NF multi-classe por codigo_classe. */
 function agruparPorClasse(itens: MovEstqDisponivel[]) {
   const map = new Map<string, MovEstqDisponivel[]>();
   for (const item of itens) {
@@ -169,7 +171,6 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
   const [busca, setBusca] = useState<string>("");
   const [especie, setEspecie] = useState<Especie | "_all">("_all");
   const [status, setStatus] = useState<StatusClassificacao | "_all">("classificado");
-  // Client-side
   const [classeFilter, setClasseFilter] = useState<string>("_all");
   const [ccFilter, setCcFilter] = useState<string>("_all");
 
@@ -197,7 +198,7 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
 
   const { data: itensRaw = [], isLoading, isError, error, refetch } = useMovEstqDisponivel(filtrosServer);
 
-  // ─── Filtro client-side (classe / CC) ───
+  // ─── Filtro client-side ───
   const itensFiltrados = useMemo(() => {
     return itensRaw.filter((item) => {
       if (classeFilter !== "_all" && item.codigo_classe !== classeFilter) return false;
@@ -206,7 +207,6 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
     });
   }, [itensRaw, classeFilter, ccFilter]);
 
-  // ─── Listas de classes/CCs disponíveis (derivadas do server-side, antes do filtro client) ───
   const classesDisponiveis = useMemo(() => {
     const seen = new Map<string, string>();
     for (const item of itensRaw) {
@@ -263,7 +263,6 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
     setIsAdding(true);
 
     const idsArray = Array.from(selectedIds);
-    // Map rateio_id → NF info pra usar na mensagem de erro
     const infoById = new Map<string, { especie: string; numero: string; chave: number }>();
     for (const item of itensRaw) {
       if (item.rateio_id) {
@@ -290,17 +289,14 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
 
     setIsAdding(false);
 
-    // Limpa apenas os que tiveram sucesso (mantém marcados os que falharam pra Sandra ver)
     setSelectedIds((prev) => {
       const next = new Set(prev);
       sucessos.forEach((id) => next.delete(id));
       return next;
     });
 
-    // Refetch da view e da cesta
     qc.invalidateQueries({ queryKey: ["reembolso-nf"] });
 
-    // Toast
     if (falhas.length === 0) {
       toast({
         title: `${sucessos.length} ${sucessos.length === 1 ? "item adicionado" : "itens adicionados"}`,
@@ -328,7 +324,6 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
     }
   };
 
-  // ─── Limpar filtros ───
   const handleLimparFiltros = () => {
     setDataDe(trintaDiasAtras());
     setDataAte("");
@@ -348,11 +343,11 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
     status !== "classificado" ||
     filtrosClientAtivos;
 
-  // ─── Render ───
   return (
-    <Card className="flex flex-col h-full min-h-0">
-      {/* ─── Header com filtros e botão sync ─── */}
-      <div className="border-b border-border p-3 space-y-3 shrink-0">
+    <>
+      <Card className="flex flex-col h-full min-h-0">
+        {/* ─── Header com filtros e botão sync ─── */}
+        <div className="border-b border-border p-3 space-y-3 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <h2 className="text-sm font-semibold whitespace-nowrap">NFs disponíveis</h2>
@@ -377,7 +372,6 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
             </TooltipProvider>
           </div>
 
-          {/* Filtros principais — linha 1: data e busca */}
           <div className="grid grid-cols-12 gap-2">
             <div className="col-span-3">
               <Label className="text-[10px] text-muted-foreground">Emissão de</Label>
@@ -401,7 +395,6 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
             </div>
           </div>
 
-          {/* Filtros — linha 2: espécie, status, classe, CC */}
           <div className="grid grid-cols-12 gap-2 items-end">
             <div className="col-span-3">
               <Label className="text-[10px] text-muted-foreground">Espécie</Label>
@@ -477,8 +470,8 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
           )}
         </div>
 
-        {/* ─── Corpo: lista ─── */}
-        <CardContent className="flex-1 overflow-y-auto p-3 min-h-0">
+        {/* ─── Corpo: lista (única área scrollável) ─── */}
+        <div className="flex-1 overflow-y-auto p-3 min-h-0">
           {isLoading && (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -519,9 +512,9 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
               ))}
             </div>
           )}
-        </CardContent>
+        </div>
 
-        {/* ─── Rodapé: botão Adicionar ─── */}
+        {/* ─── Rodapé fixo: botão Adicionar ─── */}
         <div className="border-t border-border p-3 shrink-0 flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">{selectedIds.size}</span>{" "}
@@ -537,7 +530,8 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
               <>Adicionar selecionados</>
             )}
           </Button>
-        </Card>
+        </div>
+      </Card>
 
       {/* ─── Modal Sincronizar ─── */}
       <Dialog open={syncOpen} onOpenChange={setSyncOpen}>
@@ -588,12 +582,12 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 
 // ═════════════════════════════════════════════════════════════
-// Subcomponente: card de NF (escolhe o modo de render)
+// Subcomponentes: cards de NF
 // ═════════════════════════════════════════════════════════════
 
 interface NFCardProps {
@@ -610,7 +604,6 @@ function NFCard({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
   return <NFMultiClasse grupo={grupo} selectedIds={selectedIds} setSelectedIds={setSelectedIds} />;
 }
 
-// ─── Modo: aguardando ──────────────────────────────────────────
 function NFAguardando({ grupo }: { grupo: GrupoNF }) {
   const item = grupo.itens[0];
   return (
@@ -642,7 +635,6 @@ function NFAguardando({ grupo }: { grupo: GrupoNF }) {
   );
 }
 
-// ─── Modo: flat (single-classe single-rateio) ──────────────────
 function NFFlat({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
   const item = grupo.itens[0];
   if (!item.rateio_id) return null;
@@ -691,7 +683,6 @@ function NFFlat({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
   );
 }
 
-// ─── Modo: single-classe (1 nível de agrupamento) ──────────────
 function NFSingleClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
   const item = grupo.itens[0];
   const [open, setOpen] = useState(true);
@@ -700,7 +691,6 @@ function NFSingleClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
   return (
     <Card>
       <CardContent className="p-3">
-        {/* Header da NF */}
         <div className="flex items-start gap-2">
           <button
             onClick={() => setOpen((v) => !v)}
@@ -733,7 +723,6 @@ function NFSingleClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
         {open && (
           <>
             <Separator className="my-2" />
-            {/* Header de seleção */}
             <div className="flex items-center gap-3 pl-6 mb-2">
               <Checkbox
                 checked={headerState}
@@ -743,7 +732,6 @@ function NFSingleClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
                 Selecionar todos os {grupo.todosRateioIds.length} rateios
               </span>
             </div>
-            {/* Sub-linhas */}
             <div className="pl-6 space-y-1.5">
               {grupo.itens.map((it) =>
                 it.rateio_id ? (
@@ -758,7 +746,6 @@ function NFSingleClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
   );
 }
 
-// ─── Modo: multi-classe (2 níveis de agrupamento) ──────────────
 function NFMultiClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
   const item = grupo.itens[0];
   const [open, setOpen] = useState(true);
@@ -768,7 +755,6 @@ function NFMultiClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
   return (
     <Card>
       <CardContent className="p-3">
-        {/* Header da NF */}
         <div className="flex items-start gap-2">
           <button
             onClick={() => setOpen((v) => !v)}
@@ -811,13 +797,11 @@ function NFMultiClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
               </span>
             </div>
 
-            {/* Grupos por classe */}
             <div className="pl-6 space-y-3">
               {classes.map((c) => {
                 const classeHeaderState = getHeaderState(selectedIds, c.ids);
                 return (
                   <div key={c.codigo_classe} className="space-y-1.5">
-                    {/* Header da classe */}
                     <div className="flex items-center gap-2 bg-muted/30 rounded px-2 py-1">
                       <Checkbox
                         checked={classeHeaderState}
@@ -830,7 +814,6 @@ function NFMultiClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
                       </span>
                       <span className="font-mono text-[11px] font-semibold">{formatBRL(c.subtotal)}</span>
                     </div>
-                    {/* Sub-linhas da classe */}
                     <div className="pl-4 space-y-1">
                       {c.rateios.map((it) =>
                         it.rateio_id ? (
@@ -855,7 +838,6 @@ function NFMultiClasse({ grupo, selectedIds, setSelectedIds }: NFCardProps) {
   );
 }
 
-// ─── Sub-linha individual (usado em single-classe e multi-classe) ─
 interface SubLinhaProps {
   item: MovEstqDisponivel;
   selectedIds: Set<string>;
