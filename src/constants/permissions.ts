@@ -22,6 +22,11 @@ export const PERMISSIONS = {
   INTERCOMPANY_MASTER_VINCULAR_NF: "intercompany.master.vincular_nf",
   INTERCOMPANY_MASTER_EDIT_DESCRICAO: "intercompany.master.edit_descricao",
   INTERCOMPANY_MASTER_DELETE: "intercompany.master.delete",
+  // ─── Módulo Intercompany / Reembolso NF ─────────────────────────
+  INTERCOMPANY_REEMBOLSO_NF_VIEW_ALL: "intercompany.reembolso_nf.view_all",
+  INTERCOMPANY_REEMBOLSO_NF_CREATE: "intercompany.reembolso_nf.create",
+  INTERCOMPANY_REEMBOLSO_NF_EMIT_ALVO: "intercompany.reembolso_nf.emit_alvo",
+  INTERCOMPANY_REEMBOLSO_NF_DELETE_RASCUNHO: "intercompany.reembolso_nf.delete_rascunho",
   // ─── Módulo Projetos ────────────────────────────────────────────
   PROJETOS_ACCESS: "projetos.access",
   PROJETOS_CREATE: "projetos.create",
