@@ -2,11 +2,7 @@
  * Tipos da Frente 3 — Intercompany / Reembolso NF.
  *
  * Esta frente converte NFs do MovEstq Alvo (compras BR) em INVs intercompany
- * multi-classe para PEF Áustria. Diferença vs Frente Master (intercompanyMaster.ts)
- * e Frente 2 (intercompany.ts):
- *   - Origem: rateios do MovEstq do Alvo (Cenário A — link, não reuso).
- *   - Multi-classe: 1 INV agrega N items de classes contábeis diferentes.
- *   - Rascunho: cesta persistida em `intercompany_reembolso_nf_rascunho`.
+ * multi-classe para PEF Áustria.
  *
  * ⚠️ IMPORTANTE — Sincronização com gateway:
  *   `EmitReembolsoNFRequest`, `EmitReembolsoNFResponse` e `RascunhoDetails*`
@@ -33,10 +29,7 @@ export type TipoBloco =
   | "travel_expenses"
   | "other_operating_expenses";
 
-/**
- * Label amigável pro dropdown da Sandra no Lado 2.
- * Formato: "Descrição (Konto AT)".
- */
+/** Label amigável pro dropdown da Sandra no Lado 2. */
 export const TIPO_BLOCO_LABELS: Record<TipoBloco, string> = {
   product_cmv: "Product CMV (57520)",
   product_cmv_usa: "Product CMV USA (57530)",
@@ -48,10 +41,7 @@ export const TIPO_BLOCO_LABELS: Record<TipoBloco, string> = {
   other_operating_expenses: "Other Operating Expenses (77930)",
 };
 
-/**
- * Mapeamento TipoBloco → número do Konto AT.
- * Usado pra extrair o `konto_at_numero` que vai pra RPC `set_rascunho_item_konto`.
- */
+/** TipoBloco → número do Konto AT. */
 export const TIPO_BLOCO_KONTO: Record<TipoBloco, string> = {
   product_cmv: "57520",
   product_cmv_usa: "57530",
@@ -64,7 +54,7 @@ export const TIPO_BLOCO_KONTO: Record<TipoBloco, string> = {
 };
 
 /**
- * Mapeamento TipoBloco → classe Alvo (07.x / 01.x).
+ * TipoBloco → classe Alvo (07.x / 01.x).
  * Espelhado em `erp-proxy/src/types/intercompany-reembolso-nf-emit.ts`
  * e no CASE da RPC `convert_rascunho_to_master_for_user`.
  */
@@ -79,7 +69,7 @@ export const TIPO_BLOCO_TO_CLASSE_ALVO: Record<TipoBloco, string> = {
   other_operating_expenses: "07.06",
 };
 
-/** Array ordenado pra iterar no dropdown (mantém ordem visual estável). */
+/** Ordem visual estável pro dropdown. */
 export const TIPOS_BLOCO_ORDENADOS: TipoBloco[] = [
   "rd_materials",
   "service_rd_namsa",
@@ -96,67 +86,83 @@ export const TIPOS_BLOCO_ORDENADOS: TipoBloco[] = [
 // ═════════════════════════════════════════════════════════════
 
 /**
- * Status do rateio MovEstq na view.
- * - "disponivel": pronto pra adicionar à cesta.
- * - "aguardando_classificacao": NF entrou no cache mas não tem classe/CC preenchido
- *   no Alvo (ex: LAUDOs BioCollagen). Não selecionável.
- * Campo é opcional: a view pode filtrar e nunca retornar o status amarelo;
- * nesse caso, tudo que aparece é implicitamente "disponivel".
+ * 8 espécies de documento que aparecem no MovEstq.
+ * Sandra pode filtrar por espécie no Lado 1.
  */
-export type MovEstqStatus = "disponivel" | "aguardando_classificacao";
+export type Especie = "NF-e" | "NFS-e" | "CT-e" | "DIV" | "FAT" | "NFCom" | "NF3E" | "LAUDO";
+
+export const ESPECIES_DISPONIVEIS: Especie[] = ["NF-e", "NFS-e", "CT-e", "DIV", "FAT", "NFCom", "NF3E", "LAUDO"];
 
 /**
- * Linha da view `v_movestq_disponivel`. Granularidade = sub-linha de rateio
- * (uma NF com 3 classes × 2 CCs aparece como 6 linhas).
+ * Status de classificação contábil:
+ * - "classificado": tem classe + CC + rateio preenchidos → SELECIONÁVEL.
+ * - "aguardando_classificacao": NF entrou no cache mas contabilidade ainda
+ *   não preencheu classe/CC no Alvo (ex: LAUDOs BioCollagen). Aparece na UI
+ *   com cadeado, NÃO selecionável. Filtro default esconde.
+ */
+export type StatusClassificacao = "classificado" | "aguardando_classificacao";
+
+/**
+ * Linha da view `v_movestq_disponivel`. Granularidade canônica = sub-linha
+ * de rateio (uma NF com 3 classes × 2 CCs aparece como 6 linhas).
+ *
+ * Quando status = "aguardando_classificacao":
+ *   - `rateio_id`, `codigo_classe`, `nome_classe`, `codigo_centro_ctrl`,
+ *     `nome_centro_ctrl`, `valor_rateio`, `percentual` vêm NULL.
+ *   - `valor_doc_total` e demais campos do header sempre vêm preenchidos.
  */
 export interface MovEstqDisponivel {
-  /** UUID da sub-linha em intercompany_movestq_rateio. É o que vai pra add_rateio_to_rascunho. */
-  rateio_id: string;
+  /**
+   * UUID da sub-linha em intercompany_movestq_rateio.
+   * É o que vai pra add_rateio_to_rascunho.
+   * NULL quando status = "aguardando_classificacao" (não selecionável).
+   */
+  rateio_id: string | null;
 
   /** Chave do MovEstq no Alvo (header da NF). */
   chave_movestq: number;
 
-  /** Ex: "NF-e", "DIV", "NFS-e". */
-  especie: string;
+  /** Espécie do documento. */
+  especie: Especie;
 
-  /** Número da NF (ex: "30597", "1485"). */
+  /** Número do documento (ex: "30597", "1485"). */
   numero: string;
 
-  /** Data de emissão. ISO YYYY-MM-DD. */
-  data_emissao: string;
+  /** Data de movimentação no estoque. ISO YYYY-MM-DD. */
+  data_movimento: string;
 
   /** Razão social do fornecedor. */
   nome_entidade: string;
 
-  /** CNPJ/CPF do fornecedor (pra filtro). */
-  cnpj_entidade: string | null;
+  /** Valor TOTAL da NF (header). Mostrado no header agrupado. */
+  valor_doc_total: number;
 
-  /** Classe contábil BR (ex: "11.01", "14.04"). */
-  codigo_classe: string;
+  /** Classe contábil BR (ex: "11.01"). NULL quando aguardando. */
+  codigo_classe: string | null;
 
-  /** Nome da classe contábil BR (pode estar vazio se não enriquecido). */
+  /** Nome da classe contábil BR. NULL quando aguardando. */
   nome_classe: string | null;
 
-  /** Centro de custo (ex: "00001.00004.00002"). */
-  codigo_centro_ctrl: string;
+  /** Centro de custo (ex: "00001.00004.00002"). NULL quando aguardando. */
+  codigo_centro_ctrl: string | null;
 
-  /** Nome do CC (pode estar vazio). */
+  /** Nome do CC. NULL quando aguardando. */
   nome_centro_ctrl: string | null;
 
-  /**
-   * Ordem da classe dentro da NF (1, 2, 3...). Junto com ordem_rateio compõe
-   * a granularidade canônica da Solução C.
-   */
-  ordem_classe: number;
+  /** Valor BRL desta sub-linha (já com split de rateio). NULL quando aguardando. */
+  valor_rateio: number | null;
 
-  /** Ordem do rateio dentro da classe. */
-  ordem_rateio: number;
+  /** Percentual desta sub-linha dentro da classe. NULL quando aguardando. */
+  percentual: number | null;
 
-  /** Valor BRL desta sub-linha (após split de rateio se houver). */
-  valor_brl: number;
+  /** Total de sub-linhas (rateios) que essa NF tem. Define modo de render. */
+  total_rateios_na_nf: number;
 
-  /** Status do rateio. Opcional: ver MovEstqStatus. */
-  status?: MovEstqStatus;
+  /** Total de classes contábeis distintas na NF. Define modo de render. */
+  total_classes_na_nf: number;
+
+  /** Status de classificação. Filtra quem é selecionável. */
+  status_classificacao: StatusClassificacao;
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -164,32 +170,15 @@ export interface MovEstqDisponivel {
 // ═════════════════════════════════════════════════════════════
 
 /**
- * Item da cesta. Espelha `RascunhoDetailsItem` do gateway, mas com `tipo_bloco`
+ * Item da cesta. Espelha `RascunhoDetailsItem` do gateway, com `tipo_bloco`
  * apertado pra `TipoBloco | null` em vez de `string`.
- *
- * Por que nullable: enquanto a Sandra não escolhe o Konto no dropdown,
- * `tipo_bloco` e `konto_at_numero` vêm null da RPC.
  */
 export interface RascunhoItem {
   item_id: string;
-
-  /** Ordem do item dentro do rascunho (1, 2, 3...). */
   ordem: number;
-
-  /** UUID do rateio MovEstq de origem (FK pra intercompany_movestq_rateio). */
   movestq_rateio_id: string;
-
-  /** Tipo de bloco escolhido pela Sandra. Null até ela preencher. */
   tipo_bloco: TipoBloco | null;
-
-  /** Número do Konto AT correspondente. Null até a Sandra preencher. */
   konto_at_numero: string | null;
-
-  /**
-   * Status de classificação:
-   * - "classified": tipo_bloco e konto_at_numero preenchidos.
-   * - "needs_konto_at": item adicionado mas sem Konto escolhido.
-   */
   classification_status: "classified" | "needs_konto_at";
 
   // ─── Dados da NF de origem (denormalizados pra UI não precisar de join) ───
@@ -207,29 +196,19 @@ export interface RascunhoItem {
 }
 
 /**
- * Retorno da RPC `get_rascunho_details()`. Estado completo da cesta da Sandra.
+ * Retorno da RPC `get_rascunho_details()`. Estado completo da cesta.
  *
- * ⚠️ Atenção: `total_eur` NÃO existe aqui. EUR só existe depois da Sandra
- * preencher câmbio no modal — o cálculo é client-side.
+ * ⚠️ `total_eur` NÃO existe aqui. EUR só existe depois da Sandra preencher
+ * câmbio no modal — cálculo client-side.
  */
 export interface RascunhoDetails {
   rascunho_id: string | null;
   descricao: string | null;
   items: RascunhoItem[];
-
-  /** Quantidade total de itens na cesta. */
   total_itens: number;
-
-  /** Soma dos valor_brl de todos os itens. */
   total_brl: number;
-
-  /** Quantos itens ainda precisam de Konto AT. */
   total_needs_konto_at: number;
-
-  /** Quantos itens já estão classificados. */
   total_classified: number;
-
-  /** True quando total_needs_konto_at = 0 e total_itens > 0. Habilita botão "Gerar INV". */
   ready_to_emit: boolean;
 }
 
@@ -244,7 +223,6 @@ export interface InitOrResumeRascunhoResult {
 export interface RascunhoMutationResult {
   success: boolean;
   message?: string;
-  /** Item criado/atualizado quando aplicável. */
   item?: RascunhoItem;
 }
 
@@ -252,12 +230,6 @@ export interface RascunhoMutationResult {
 // 4. Sugestão de número de invoice
 // ═════════════════════════════════════════════════════════════
 
-/**
- * Retorno da RPC `sugerir_proximo_numero_invoice(p_ano)`.
- *
- * Estrutura idêntica à da Frente Master/Frente 2 — re-declarada aqui em vez
- * de importar de @/types/intercompany pra manter a Frente 3 auto-contida.
- */
 export interface SugestaoNumeroInvoice {
   ano: number;
   sugestao: string;
@@ -274,28 +246,13 @@ export interface SugestaoNumeroInvoice {
 // 5. Rota /intercompany/reembolso-nf/emit (gateway)
 // ═════════════════════════════════════════════════════════════
 
-/**
- * Body do POST /intercompany/reembolso-nf/emit.
- * Espelha `EmitReembolsoNFRequest` do erp-proxy.
- */
 export interface EmitReembolsoNFRequest {
-  /** Formato "NNN/AAAA". Sandra preenche/edita o sugerido. Valida UNIQUE no banco. */
   numero_invoice: string;
-
-  /** Cotação EUR→BRL no momento do emit. Sandra preenche manualmente. */
   cambio_eur_brl: number;
-
-  /** YYYY-MM-DD. Default = hoje. */
   data_emissao: string;
-
-  /** Texto livre p/ campo Observacao do DocFin. */
   descricao_rica: string;
 }
 
-/**
- * Resultado da conversão rascunho → master (parte da resposta de sucesso).
- * Espelha `ConvertRascunhoResult` do erp-proxy.
- */
 export interface ConvertRascunhoResult {
   success: boolean;
   master_id: string;
@@ -307,16 +264,6 @@ export interface ConvertRascunhoResult {
   cambio_eur_brl: number;
 }
 
-/**
- * Resposta do POST /intercompany/reembolso-nf/emit.
- * Espelha `EmitReembolsoNFResponse` do erp-proxy.
- *
- * Campos opcionais cobrem 3 cenários:
- *   - Sucesso: success=true, master + alvo_response + payload_alvo_enviado preenchidos.
- *   - Erro Alvo (validação rejeitada): success=false, error + payload_alvo_enviado.
- *   - Erro tardio (Alvo OK, Hub falhou): success=false, error + chave_docfin_alvo_orfa.
- *     Sandra precisa avisar TI — DocFin existe no Alvo mas não tem master no Hub.
- */
 export interface EmitReembolsoNFResponse {
   success: boolean;
   error?: string;
@@ -324,7 +271,6 @@ export interface EmitReembolsoNFResponse {
   payload_alvo_enviado?: unknown;
   alvo_response?: unknown;
   master?: ConvertRascunhoResult;
-  /** Chave DocFin órfã em caso de erro tardio. UI mostra alerta pra TI. */
   chave_docfin_alvo_orfa?: number;
 }
 
@@ -333,9 +279,7 @@ export interface EmitReembolsoNFResponse {
 // ═════════════════════════════════════════════════════════════
 
 export interface SyncMovEstqRequest {
-  /** YYYY-MM-DD. */
   dataInicial: string;
-  /** YYYY-MM-DD. */
   dataFinal: string;
 }
 
@@ -355,15 +299,18 @@ export interface SyncMovEstqResponse {
 // ═════════════════════════════════════════════════════════════
 
 /**
- * Filtros aplicados client-side sobre `MovEstqDisponivel[]`.
- * Mantemos client-side porque 603 NFs cabem tranquilo em memória.
+ * Filtros aplicados como WHERE clause no SELECT da view.
+ *
+ * Defaults aplicados pelo service quando não informado:
+ *   - status_classificacao = "classificado" (esconde aguardando)
+ *   - data_movimento_de = hoje - 30 dias (evita query gigante)
  */
 export interface MovEstqFiltros {
-  /** Range de data de emissão. */
-  data_de?: string | null;
-  data_ate?: string | null;
+  /** Range de data de movimentação. */
+  data_movimento_de?: string | null;
+  data_movimento_ate?: string | null;
 
-  /** Texto livre — busca em fornecedor, número, classe. */
+  /** Texto livre — busca em fornecedor e número. */
   busca?: string | null;
 
   /** Filtro exato por classe BR (ex: "11.01"). */
@@ -371,4 +318,13 @@ export interface MovEstqFiltros {
 
   /** Filtro exato por CC. */
   codigo_centro_ctrl?: string | null;
+
+  /** Filtro por espécie. */
+  especie?: Especie | null;
+
+  /**
+   * Filtro por status. Default = "classificado" se não informado.
+   * Use null EXPLÍCITO pra ver todos (incluindo aguardando).
+   */
+  status_classificacao?: StatusClassificacao | null;
 }
