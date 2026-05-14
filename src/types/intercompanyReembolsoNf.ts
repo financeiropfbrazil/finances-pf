@@ -189,6 +189,9 @@ export interface RascunhoItem {
   tipo_bloco: TipoBloco | null;
   konto_at_numero: string | null;
   classification_status: "classified" | "needs_konto_at";
+  description_pdf: string | null;
+
+  // ─── Dados da NF de origem (denormalizados pra UI não precisar de join) ───
 
   // ─── Dados da NF de origem (denormalizados pra UI não precisar de join) ───
   chave_movestq: number;
@@ -233,6 +236,12 @@ export interface RascunhoMutationResult {
   success: boolean;
   message?: string;
   item?: RascunhoItem;
+}
+
+/** Request da RPC set_rascunho_item_description. */
+export interface SetRascunhoItemDescriptionRequest {
+  itemId: string;
+  description: string;
 }
 
 // ═════════════════════════════════════════════════════════════
