@@ -537,8 +537,7 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
               <>Adicionar selecionados</>
             )}
           </Button>
-        </div>
-      </Card>
+        </Card>
 
       {/* ─── Modal Sincronizar ─── */}
       <Dialog open={syncOpen} onOpenChange={setSyncOpen}>
