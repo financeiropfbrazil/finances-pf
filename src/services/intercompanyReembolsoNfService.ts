@@ -280,23 +280,18 @@ export async function setRascunhoItemKonto(itemId: string, tipoBloco: TipoBloco)
   if (error) throw classifySupabaseError(error);
   return data as RascunhoMutationResult;
 }
+
 /**
  * Atualiza a description_pdf de um item da cesta.
  * Vai pro PDF que será gerado na emissão.
  */
-export async function setRascunhoItemDescription(itemId: string, description: string): Promise<void> {
-  const { data, error } = await supabase.rpc("set_rascunho_item_description", {
+export async function setRascunhoItemDescription(itemId: string, description: string): Promise<RascunhoMutationResult> {
+  const { data, error } = await (supabase as any).rpc("set_rascunho_item_description", {
     p_item_id: itemId,
     p_description: description,
   });
-
-  if (error) {
-    throw new ReembolsoNfError(friendlyErrorMessage(error), "validation", { rpc_error: error });
-  }
-
-  if (data && typeof data === "object" && "success" in data && !data.success) {
-    throw new ReembolsoNfError("Falha ao atualizar descrição", "validation", { rpc_response: data });
-  }
+  if (error) throw classifySupabaseError(error);
+  return data as RascunhoMutationResult;
 }
 
 export async function discardRascunho(): Promise<RascunhoMutationResult> {
