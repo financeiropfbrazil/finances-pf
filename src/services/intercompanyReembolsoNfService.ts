@@ -190,9 +190,10 @@ async function callGateway<TResp>(path: string, body: unknown): Promise<TResp> {
  *
  * Defaults aplicados quando filtros não informados:
  *   - status_classificacao = "classificado" (esconde aguardando)
- *   - data_movimento_de = hoje - 30 dias
+ *   - data_emissao_de = hoje - 30 dias
  *
  * Para mostrar NFs aguardando, passe status_classificacao: null EXPLICITAMENTE.
+ * Ordenado por data_emissao DESC (mais recentes primeiro).
  */
 export async function getMovEstqDisponivel(filtros: MovEstqFiltros = {}): Promise<MovEstqDisponivel[]> {
   // Default: últimos 30 dias se data_de não foi passada
@@ -201,13 +202,13 @@ export async function getMovEstqDisponivel(filtros: MovEstqFiltros = {}): Promis
   trintaDiasAtras.setDate(hoje.getDate() - 30);
   const dataDeDefault = trintaDiasAtras.toISOString().slice(0, 10);
 
-  let query = (supabase as any).from("v_movestq_disponivel").select("*").order("data_movimento", { ascending: false });
+  let query = (supabase as any).from("v_movestq_disponivel").select("*").order("data_emissao", { ascending: false });
 
   // Datas (com default de 30 dias se não passada)
-  const dataDe = filtros.data_movimento_de ?? dataDeDefault;
-  query = query.gte("data_movimento", dataDe);
-  if (filtros.data_movimento_ate) {
-    query = query.lte("data_movimento", filtros.data_movimento_ate);
+  const dataDe = filtros.data_emissao_de ?? dataDeDefault;
+  query = query.gte("data_emissao", dataDe);
+  if (filtros.data_emissao_ate) {
+    query = query.lte("data_emissao", filtros.data_emissao_ate);
   }
 
   // Classe / CC / Espécie
