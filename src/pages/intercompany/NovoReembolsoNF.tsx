@@ -89,7 +89,9 @@ export default function NovoReembolsoNF() {
 
       {/* Split 50/50 */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 overflow-hidden min-h-0">
-        <Lado1Disponiveis selectedIds={selectedIds} setSelectedIds={setSelectedIds} />
+        <div className="min-h-0 overflow-hidden">
+          <Lado1Disponiveis selectedIds={selectedIds} setSelectedIds={setSelectedIds} />
+        </div>
 
         {/* Lado 2 — placeholder até 3.5.b */}
         <Card className="h-full">
