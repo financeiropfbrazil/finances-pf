@@ -54,6 +54,7 @@ import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
 import ReembolsoNovo from "./pages/intercompany/ReembolsoNovo";
 import IntercompanyMaster from "./pages/intercompany/IntercompanyMaster";
+import NovoReembolsoNF from "./pages/intercompany/NovoReembolsoNF";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -324,6 +325,7 @@ function AppRoutes() {
         />
         <Route path="/intercompany/master" element={<IntercompanyMaster />} />
         <Route path="/intercompany/reembolsos/novo" element={<ReembolsoNovo />} />
+        <Route path="/intercompany/reembolsos-nf/novo" element={<NovoReembolsoNF />} />
         <Route
           path="/contas-a-pagar"
           element={
