@@ -9,8 +9,8 @@
  *   5. Tratamento de erro de init com retry.
  *
  * Componentes filhos:
- *   - Lado1Disponiveis      → implementado em 3.5.a.2
- *   - Lado2Cesta            → 3.5.b (placeholder por enquanto)
+ *   - Lado1Disponiveis  (3.5.a.2)
+ *   - Lado2Cesta        (3.5.b)
  *
  * O state selectedIds:
  *   - É efêmero: zera ao sair da página (não persiste).
@@ -22,10 +22,11 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, ArrowLeft, Construction, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowLeft, Loader2, RefreshCw } from "lucide-react";
 import { useInitOrResumeRascunho } from "@/hooks/useReembolsoNf";
 import { friendlyErrorMessage } from "@/services/intercompanyReembolsoNfService";
 import { Lado1Disponiveis } from "@/components/intercompany/reembolso-nf/Lado1Disponiveis";
+import { Lado2Cesta } from "@/components/intercompany/reembolso-nf/Lado2Cesta";
 
 export default function NovoReembolsoNF() {
   const navigate = useNavigate();
@@ -92,17 +93,9 @@ export default function NovoReembolsoNF() {
         <div className="min-h-0 overflow-hidden">
           <Lado1Disponiveis selectedIds={selectedIds} setSelectedIds={setSelectedIds} />
         </div>
-
-        {/* Lado 2 — placeholder até 3.5.b */}
-        <Card className="h-full">
-          <CardContent className="p-6 flex flex-col items-center justify-center text-center min-h-[300px]">
-            <Construction className="h-10 w-10 text-muted-foreground mb-3" />
-            <h2 className="text-base font-semibold mb-1">Lado 2 — Cesta de rascunho</h2>
-            <p className="text-xs text-muted-foreground max-w-sm">
-              Itens adicionados, classificação Konto AT, totais BRL e botão Emitir. Disponível em 3.5.b.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="min-h-0 overflow-hidden">
+          <Lado2Cesta />
+        </div>
       </div>
     </div>
   );
