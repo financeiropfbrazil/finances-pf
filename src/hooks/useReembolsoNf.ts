@@ -30,6 +30,7 @@ import {
   getRascunhoDetails,
   initOrResumeRascunho,
   removeRateioFromRascunho,
+  setRascunhoItemDescription,
   setRascunhoItemKonto,
   syncMovEstq,
 } from "@/services/intercompanyReembolsoNfService";
@@ -125,6 +126,21 @@ export function useSetRascunhoItemKonto() {
       setRascunhoItemKonto(itemId, tipoBloco),
     onSuccess: () => {
       // Só a cesta muda — view não é afetada
+      qc.invalidateQueries({ queryKey: QK.rascunho() });
+    },
+  });
+}
+
+/**
+ * Atualiza description_pdf de um item da cesta.
+ * Só afeta a cesta — view não é invalidada.
+ */
+export function useSetRascunhoItemDescription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, description }: { itemId: string; description: string }) =>
+      setRascunhoItemDescription(itemId, description),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.rascunho() });
     },
   });
