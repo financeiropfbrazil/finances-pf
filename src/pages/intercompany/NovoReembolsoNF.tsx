@@ -8,15 +8,14 @@
  *   4. Loading global enquanto rascunho inicializa.
  *   5. Tratamento de erro de init com retry.
  *
- * Componentes filhos (a serem criados nos próximos sub-passos):
- *   - Lado1Disponiveis      → 3.5.a.2 (lista filtrável + sincronizar)
- *   - Lado2Cesta            → 3.5.b   (cesta + dropdowns Konto + descartar)
+ * Componentes filhos:
+ *   - Lado1Disponiveis      → implementado em 3.5.a.2
+ *   - Lado2Cesta            → 3.5.b (placeholder por enquanto)
  *
  * O state selectedIds:
  *   - É efêmero: zera ao sair da página (não persiste).
  *   - Granularidade canônica: cada ID é um rateio_id da view v_movestq_disponivel.
- *   - A "verdade" do que está na cesta vive no banco (rascunho), não aqui.
- *     selectedIds é só o "marcador" pré-adição.
+ *   - A "verdade" do que está na cesta vive no banco (rascunho).
  */
 
 import { useEffect, useState } from "react";
@@ -26,28 +25,19 @@ import { Button } from "@/components/ui/button";
 import { AlertCircle, ArrowLeft, Construction, Loader2, RefreshCw } from "lucide-react";
 import { useInitOrResumeRascunho } from "@/hooks/useReembolsoNf";
 import { friendlyErrorMessage } from "@/services/intercompanyReembolsoNfService";
+import { Lado1Disponiveis } from "@/components/intercompany/reembolso-nf/Lado1Disponiveis";
 
 export default function NovoReembolsoNF() {
   const navigate = useNavigate();
   const initMutation = useInitOrResumeRascunho();
 
-  /**
-   * Estado da seleção do Lado 1 (efêmero).
-   * Cada string é um rateio_id. Quando Sandra clica "Adicionar selecionados",
-   * o Lado 1 dispara mutations e limpa este Set.
-   */
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  /**
-   * Init na montagem. Cria ou recupera rascunho do user.
-   * Idempotente — se já existe, só recupera.
-   */
   useEffect(() => {
     initMutation.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Loading global enquanto rascunho inicializa ───
   if (initMutation.isPending || initMutation.isIdle) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -59,7 +49,6 @@ export default function NovoReembolsoNF() {
     );
   }
 
-  // ─── Erro no init ───
   if (initMutation.isError) {
     return (
       <div className="p-6 max-w-2xl mx-auto">
@@ -82,7 +71,6 @@ export default function NovoReembolsoNF() {
     );
   }
 
-  // ─── Render principal (rascunho pronto) ───
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
       {/* Header */}
@@ -101,57 +89,19 @@ export default function NovoReembolsoNF() {
 
       {/* Split 50/50 */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 overflow-hidden min-h-0">
-        {/* Lado 1 — NFs disponíveis (placeholder até 3.5.a.2) */}
-        <div className="overflow-y-auto">
-          <Lado1Placeholder selectedIds={selectedIds} setSelectedIds={setSelectedIds} />
-        </div>
+        <Lado1Disponiveis selectedIds={selectedIds} setSelectedIds={setSelectedIds} />
 
-        {/* Lado 2 — Cesta (placeholder até 3.5.b) */}
-        <div className="overflow-y-auto">
-          <Lado2Placeholder />
-        </div>
+        {/* Lado 2 — placeholder até 3.5.b */}
+        <Card className="h-full">
+          <CardContent className="p-6 flex flex-col items-center justify-center text-center min-h-[300px]">
+            <Construction className="h-10 w-10 text-muted-foreground mb-3" />
+            <h2 className="text-base font-semibold mb-1">Lado 2 — Cesta de rascunho</h2>
+            <p className="text-xs text-muted-foreground max-w-sm">
+              Itens adicionados, classificação Konto AT, totais BRL e botão Emitir. Disponível em 3.5.b.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// Placeholders temporários — serão substituídos nos próximos sub-passos
-// ─────────────────────────────────────────────────────────────
-
-interface Lado1PlaceholderProps {
-  selectedIds: Set<string>;
-  setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
-}
-
-function Lado1Placeholder({ selectedIds }: Lado1PlaceholderProps) {
-  return (
-    <Card className="h-full">
-      <CardContent className="p-6 flex flex-col items-center justify-center text-center min-h-[300px]">
-        <Construction className="h-10 w-10 text-muted-foreground mb-3" />
-        <h2 className="text-base font-semibold mb-1">Lado 1 — NFs disponíveis</h2>
-        <p className="text-xs text-muted-foreground max-w-sm">
-          Lista filtrável de NFs do MovEstq Alvo com agrupamento por classe contábil. Disponível no próximo passo
-          (3.5.a.2).
-        </p>
-        <p className="text-[10px] text-muted-foreground mt-3">
-          Selecionados nesta sessão: <span className="font-mono font-semibold">{selectedIds.size}</span>
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Lado2Placeholder() {
-  return (
-    <Card className="h-full">
-      <CardContent className="p-6 flex flex-col items-center justify-center text-center min-h-[300px]">
-        <Construction className="h-10 w-10 text-muted-foreground mb-3" />
-        <h2 className="text-base font-semibold mb-1">Lado 2 — Cesta de rascunho</h2>
-        <p className="text-xs text-muted-foreground max-w-sm">
-          Itens adicionados, classificação Konto AT, totais BRL e botão Emitir. Disponível em 3.5.b.
-        </p>
-      </CardContent>
-    </Card>
   );
 }
