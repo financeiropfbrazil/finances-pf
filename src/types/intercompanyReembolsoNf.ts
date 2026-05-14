@@ -110,6 +110,12 @@ export type StatusClassificacao = "classificado" | "aguardando_classificacao";
  *   - `rateio_id`, `codigo_classe`, `nome_classe`, `codigo_centro_ctrl`,
  *     `nome_centro_ctrl`, `valor_rateio`, `percentual` vêm NULL.
  *   - `valor_doc_total` e demais campos do header sempre vêm preenchidos.
+ *
+ * Datas:
+ *   - `data_emissao`: data da NF do fornecedor. CANÔNICA pra Sandra
+ *     (filtro, ordenação, exibição). É o "quando o gasto aconteceu".
+ *   - `data_movimento`: data do lançamento no estoque. Disponível pra uso
+ *     futuro (tooltip, coluna alternativa). UI atual não usa.
  */
 export interface MovEstqDisponivel {
   /**
@@ -128,7 +134,10 @@ export interface MovEstqDisponivel {
   /** Número do documento (ex: "30597", "1485"). */
   numero: string;
 
-  /** Data de movimentação no estoque. ISO YYYY-MM-DD. */
+  /** Data de emissão da NF pelo fornecedor. ISO YYYY-MM-DD. CANÔNICA. */
+  data_emissao: string;
+
+  /** Data de movimentação no estoque. ISO YYYY-MM-DD. Disponível, não usado pela UI atual. */
   data_movimento: string;
 
   /** Razão social do fornecedor. */
@@ -303,12 +312,12 @@ export interface SyncMovEstqResponse {
  *
  * Defaults aplicados pelo service quando não informado:
  *   - status_classificacao = "classificado" (esconde aguardando)
- *   - data_movimento_de = hoje - 30 dias (evita query gigante)
+ *   - data_emissao_de = hoje - 30 dias (evita query gigante)
  */
 export interface MovEstqFiltros {
-  /** Range de data de movimentação. */
-  data_movimento_de?: string | null;
-  data_movimento_ate?: string | null;
+  /** Range de data de emissão da NF. Canônica pra Sandra. */
+  data_emissao_de?: string | null;
+  data_emissao_ate?: string | null;
 
   /** Texto livre — busca em fornecedor e número. */
   busca?: string | null;
