@@ -350,10 +350,9 @@ export function Lado1Disponiveis({ selectedIds, setSelectedIds }: Lado1Props) {
 
   // ─── Render ───
   return (
-    <div className="flex flex-col h-full">
-      <Card className="flex-1 flex flex-col min-h-0">
-        {/* ─── Header com filtros e botão sync ─── */}
-        <div className="border-b border-border p-3 space-y-3 shrink-0">
+    <Card className="flex flex-col h-full min-h-0">
+      {/* ─── Header com filtros e botão sync ─── */}
+      <div className="border-b border-border p-3 space-y-3 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <h2 className="text-sm font-semibold whitespace-nowrap">NFs disponíveis</h2>
