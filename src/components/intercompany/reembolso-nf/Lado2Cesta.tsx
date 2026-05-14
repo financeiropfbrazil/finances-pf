@@ -5,6 +5,7 @@
  *   - Lê estado da cesta via useRascunhoDetails().
  *   - Agrupa itens por classe BR (codigo_classe) com subtotal e contadores.
  *   - Permite classificar cada item escolhendo TipoBloco no dropdown.
+ *   - Permite editar description_pdf por item (texto curto que vai pro PDF).
  *   - Remove item individual.
  *   - Descarta cesta inteira (com AlertDialog de confirmação).
  *   - Abre modal Emitir quando ready_to_emit = true.
@@ -14,12 +15,19 @@
  *   2. Lista agrupada por classe BR (única área scrollável)
  *   3. Rodapé fixo com botão Emitir
  *
- * O Modal Emitir é importado de ModalEmitir.tsx (3.5.b parte 2).
+ * Cada item tem 3 linhas visuais:
+ *   linha 1: badge espécie + número + fornecedor + valor
+ *   linha 2: CC + dropdown Konto AT
+ *   linha 3: input description_pdf (auto-populado, editável)
+ *
+ * Description é "debounced" — salva no banco 600ms após Sandra parar
+ * de digitar, pra não disparar uma RPC por tecla.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -39,6 +47,7 @@ import {
   useDiscardRascunho,
   useRascunhoDetails,
   useRemoveRateioFromRascunho,
+  useSetRascunhoItemDescription,
   useSetRascunhoItemKonto,
 } from "@/hooks/useReembolsoNf";
 import { friendlyErrorMessage } from "@/services/intercompanyReembolsoNfService";
@@ -148,7 +157,7 @@ export function Lado2Cesta() {
     return null;
   }
 
-  const { items, total_itens, total_brl, total_classified, total_needs_konto_at, ready_to_emit } = rascunho;
+  const { total_itens, total_brl, total_classified, total_needs_konto_at, ready_to_emit } = rascunho;
   const cestaVazia = total_itens === 0;
 
   return (
@@ -296,7 +305,7 @@ function GrupoClasseCard({ grupo }: { grupo: GrupoClasse }) {
         <Separator />
 
         {/* Itens */}
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {grupo.itens.map((item) => (
             <ItemRow key={item.item_id} item={item} />
           ))}
@@ -313,7 +322,56 @@ function GrupoClasseCard({ grupo }: { grupo: GrupoClasse }) {
 function ItemRow({ item }: { item: RascunhoItem }) {
   const setKontoMutation = useSetRascunhoItemKonto();
   const removeMutation = useRemoveRateioFromRascunho();
+  const setDescriptionMutation = useSetRascunhoItemDescription();
   const isClassified = item.classification_status === "classified";
+
+  // ─── Description local + debounce ───
+  const [descLocal, setDescLocal] = useState<string>(item.description_pdf ?? "");
+  const lastSavedRef = useRef<string>(item.description_pdf ?? "");
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sincroniza quando o server retorna um valor diferente (ex: outra aba editou,
+  // ou auto-populate inicial). Só sobrescreve se NÃO há edição local pendente.
+  useEffect(() => {
+    const serverValue = item.description_pdf ?? "";
+    if (serverValue !== lastSavedRef.current) {
+      setDescLocal(serverValue);
+      lastSavedRef.current = serverValue;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.description_pdf]);
+
+  const handleDescChange = (newValue: string) => {
+    setDescLocal(newValue);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      // Só salva se mudou do último valor salvo
+      if (newValue !== lastSavedRef.current) {
+        setDescriptionMutation.mutate(
+          { itemId: item.item_id, description: newValue },
+          {
+            onSuccess: () => {
+              lastSavedRef.current = newValue;
+            },
+            onError: (err) => {
+              toast({
+                title: "Falha ao salvar descrição",
+                description: friendlyErrorMessage(err),
+                variant: "destructive",
+              });
+            },
+          },
+        );
+      }
+    }, 600);
+  };
+
+  // Cleanup do timer no unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, []);
 
   const handleSetKonto = async (tipoBloco: TipoBloco) => {
     try {
@@ -340,8 +398,8 @@ function ItemRow({ item }: { item: RascunhoItem }) {
   };
 
   return (
-    <div className="flex items-center gap-2 py-1">
-      <div className="flex-1 min-w-0 space-y-0.5">
+    <div className="flex items-start gap-2 py-1">
+      <div className="flex-1 min-w-0 space-y-1">
         {/* Linha 1: badge espécie + número + fornecedor + valor */}
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-[10px] shrink-0">
@@ -382,13 +440,29 @@ function ItemRow({ item }: { item: RascunhoItem }) {
             </SelectContent>
           </Select>
         </div>
+
+        {/* Linha 3: description_pdf (auto-populada, editável) */}
+        <div className="flex items-center gap-2 pl-1">
+          <span className="text-[10px] text-muted-foreground shrink-0 w-[28px]">PDF:</span>
+          <Input
+            value={descLocal}
+            onChange={(e) => handleDescChange(e.target.value)}
+            placeholder="Descrição que vai pro PDF"
+            className="h-7 text-[11px] flex-1"
+            maxLength={120}
+            disabled={setDescriptionMutation.isPending}
+          />
+          {setDescriptionMutation.isPending && (
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground shrink-0" />
+          )}
+        </div>
       </div>
 
       {/* Botão remover */}
       <Button
         variant="ghost"
         size="icon"
-        className="h-7 w-7 shrink-0"
+        className="h-7 w-7 shrink-0 mt-0.5"
         onClick={handleRemove}
         disabled={removeMutation.isPending}
         title="Remover item da cesta"
