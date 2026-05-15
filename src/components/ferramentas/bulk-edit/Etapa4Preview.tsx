@@ -11,12 +11,12 @@
  *    - Botão Cancelar mantém snapshots já carregados mas não cria job
  *    - Se algum Load falhar, marca o produto como erro mas continua
  * 3. Após carregamento: tabela 1 linha por produto, células coloridas por
- *    campo: "sem mudança" (cinza) ou "antigo → novo" (amarelo destaque)
+ *    campo: "sem mudança" (cinza) ou "antigo -> novo" (amarelo destaque)
  * 4. Confirmação textual: digitar "ALTERAR" para habilitar criação do job
  * 5. Ao confirmar: chama bulk_edit_create_job RPC e avança para Etapa 5
  *
- * IMPORTANTE: os snapshots completos (Load JSON inteiro) são guardados em
- * state porque vão para o registro do job na Etapa 5 (necessário para restore).
+ * IMPORTANTE: os snapshots completos (Load JSON inteiro) sao guardados em
+ * state porque vao para o registro do job na Etapa 5 (necessario para restore).
  */
 
 import { useState, useRef, useMemo } from "react";
@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ArrowLeft, ArrowRight, CheckCircle2, XCircle, AlertTriangle, Loader2, Play, Ban } from "lucide-react";
 import { loadProduto, createBulkJob } from "@/services/produtoBulkService";
-import { BULK_EDIT_PRODUTO_FIELDS, getBulkEditFieldByKey } from "@/constants/bulkEditFields";
+import { BULK_EDIT_PRODUTO_FIELDS } from "@/constants/bulkEditFields";
 import type { LinhaPreCheckOk } from "./Etapa3PreCheck";
 
 // ─── Tipos públicos exportados ────────────────────────────────────
@@ -49,6 +49,9 @@ interface Etapa4Props {
   onAvancar: (jobId: string, linhasPreview: LinhaPreviewPronta[]) => void;
 }
 
+// Tipos internos — extraidos como aliases para evitar genericos inline
+// que podem confundir o parser markdown ao copiar codigo
+type EstadoEtapa4 = "inicial" | "carregando" | "carregado" | "criando_job";
 type LoadStatus = "pendente" | "carregando" | "ok" | "erro";
 
 interface LinhaCarregamento {
@@ -58,14 +61,14 @@ interface LinhaCarregamento {
   status: LoadStatus;
   snapshot: any | null;
   erro: string | null;
-  // calculados após Load
-  valoresAntigos: Record<string, string>; // só os campos que vão mudar
+  valoresAntigos: Record<string, string>;
 }
 
 export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAvancar }: Etapa4Props) {
-  // State do carregamento
-  const [estado, setEstado] = useState;
-  "inicial" | "carregando" | "carregado" | ("criando_job" > "inicial");
+  // Estado da operação
+  const [estado, setEstado] = useState<EstadoEtapa4>("inicial");
+
+  // Linhas com status do Load
   const [linhas, setLinhas] = useState<LinhaCarregamento[]>(() =>
     linhasPreCheck.map((l) => ({
       sequencia: l.sequencia,
@@ -229,7 +232,6 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
         input_planilha: {
           total_linhas: linhasPreCheck.length,
           campos: camposEscolhidos,
-          // Não gravamos a planilha inteira — referência suficiente
         },
         parametros: {
           erros_pre_save: comErro,
@@ -305,7 +307,6 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
               </Button>
             </div>
             <Progress value={progresso} className="h-2" />
-            {/* Mostra qual produto está sendo carregado agora */}
             {(() => {
               const carregandoAgora = linhas.find((l) => l.status === "carregando");
               if (carregandoAgora) {
@@ -401,10 +402,8 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
                           <td className="px-3 py-2 font-mono text-xs">{linha.codigoAlvo}</td>
                           <td className="px-3 py-2 font-mono text-xs">{linha.codigoAlternativo}</td>
                           {camposOrdenados.map((f) => {
-                            // Só mostra diff se o campo está na lista de valores novos desta linha
                             const valorNovo = preCheck.valoresNovos[f.key];
                             if (valorNovo == null) {
-                              // Linha não pretende alterar esse campo
                               return (
                                 <td key={f.key} className="px-3 py-2 text-muted-foreground/30">
                                   —
