@@ -20,7 +20,7 @@ import {
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-const STATUS_CONFIG: Record
+const STATUS_CONFIG: Record<
   string,
   { label: string; className: string; icon: typeof CheckCircle2 }
 > = {
