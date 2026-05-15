@@ -63,6 +63,7 @@ interface LinhaCarregamento {
 }
 
 export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAvancar }: Etapa4Props) {
+  console.log("Etapa4 mount:", { camposEscolhidos, linhasPreCheck });
   // State do carregamento
   const [estado, setEstado] = useState;
   "inicial" | "carregando" | "carregado" | ("criando_job" > "inicial");
