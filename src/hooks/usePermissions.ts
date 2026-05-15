@@ -15,6 +15,7 @@ const MENU_TO_PERMISSION: Record<string, string> = {
   suprimentos_requisicoes: "compras.requisicoes.access",
   intercompany: "intercompany.access",
   projetos: "projetos.access",
+  ferramentas_bulk_edit_produtos_campos: "ferramentas.bulk_edit.execute",
 };
 
 export function usePermissions() {
