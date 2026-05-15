@@ -24,6 +24,7 @@ import { ShieldX, Wrench, AlertTriangle, History } from "lucide-react";
 import { WizardStepper } from "@/components/ferramentas/bulk-edit/WizardStepper";
 import { Etapa1ConfigurarColunas } from "@/components/ferramentas/bulk-edit/Etapa1ConfigurarColunas";
 import { Etapa2Upload, type LinhaPlanilhaValida } from "@/components/ferramentas/bulk-edit/Etapa2Upload";
+import { Etapa3PreCheck, type LinhaPreCheckOk } from "@/components/ferramentas/bulk-edit/Etapa3PreCheck";
 
 /**
  * Estado completo do wizard. Cada etapa recebe e atualiza partes diferentes.
@@ -34,8 +35,8 @@ interface WizardState {
   // Etapa 2 -> Etapa 3
   linhasPlanilha: LinhaPlanilhaValida[];
   nomeArquivo: string;
-  // Etapa 3 -> Etapa 4 (resultado do pre-check)
-  // produtosEncontrados, produtosNaoEncontrados...
+  // Etapa 3 -> Etapa 4
+  linhasPreCheck: LinhaPreCheckOk[];
   // Etapa 4 -> Etapa 5 (job criado)
   // jobId: string;
 }
@@ -44,6 +45,7 @@ const INITIAL_STATE: WizardState = {
   camposEscolhidos: [],
   linhasPlanilha: [],
   nomeArquivo: "",
+  linhasPreCheck: [],
 };
 
 export default function BulkEditProdutosCampos() {
@@ -80,6 +82,15 @@ export default function BulkEditProdutosCampos() {
   const avancarEtapa2 = (linhasPlanilha: LinhaPlanilhaValida[], nomeArquivo: string) => {
     setWizardState((prev) => ({ ...prev, linhasPlanilha, nomeArquivo }));
     setEtapa(3);
+  };
+
+  const voltarEtapa3 = () => {
+    setEtapa(2);
+  };
+
+  const avancarEtapa3 = (linhasPreCheck: LinhaPreCheckOk[]) => {
+    setWizardState((prev) => ({ ...prev, linhasPreCheck }));
+    setEtapa(4);
   };
 
   // (handlers das outras etapas virão nos próximos prompts)
@@ -141,7 +152,11 @@ export default function BulkEditProdutosCampos() {
         />
       )}
 
-      {etapa >= 3 && (
+      {etapa === 3 && (
+        <Etapa3PreCheck linhasPlanilha={wizardState.linhasPlanilha} onVoltar={voltarEtapa3} onAvancar={avancarEtapa3} />
+      )}
+
+      {etapa >= 4 && (
         <Card>
           <CardContent className="flex min-h-[40vh] flex-col items-center justify-center gap-4 p-8 text-center">
             <Wrench className="h-12 w-12 text-muted-foreground" />
@@ -149,12 +164,15 @@ export default function BulkEditProdutosCampos() {
               <p className="font-medium text-foreground">Etapa {etapa} em construção</p>
               <p className="max-w-md text-sm text-muted-foreground">Esta etapa será construída no próximo prompt.</p>
               <p className="mt-2 text-xs text-muted-foreground">
-                Recebido da Etapa 2: <strong>{wizardState.linhasPlanilha.length}</strong> linha(s) válida(s) do arquivo
-                "{wizardState.nomeArquivo}".
+                Recebido da Etapa 3: <strong>{wizardState.linhasPreCheck.length}</strong> produto(s) confirmado(s) no
+                Alvo, prontos para preview e execução.
               </p>
-              <p className="text-xs text-muted-foreground">
-                Campos a alterar: {wizardState.camposEscolhidos.join(", ")}
-              </p>
+              {wizardState.linhasPreCheck.length > 0 && (
+                <p className="text-xs text-muted-foreground/70">
+                  Primeiro: {wizardState.linhasPreCheck[0].codigoAlternativo} →{" "}
+                  {wizardState.linhasPreCheck[0].codigoAlvo} — {wizardState.linhasPreCheck[0].nomeAtualAlvo}
+                </p>
+              )}
             </div>
             <Button variant="outline" onClick={() => setEtapa(1)}>
               ← Voltar ao início
