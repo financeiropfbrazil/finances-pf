@@ -196,79 +196,58 @@ export async function sincronizarProdutosDoERP(onProgress?: (msg: string) => voi
   result.totalERP = allProducts.length;
   if (allProducts.length === 0) return result;
 
-  // Busca produtos existentes para detectar quais são novos vs quais serão atualizados.
-  // IMPORTANTE: a sincronização agora UPSERTA TODOS os produtos do ERP, mas preserva
-  // campos populados por features secundárias (codigo_alternativo via "Importar Código
-  // Alternativo" e unidade_medida via "Enriquecer Unidades"). Isso garante que mudanças
-  // feitas no Alvo (nome, status, classificação fiscal, etc.) sejam refletidas no Hub.
-  onProgress?.("Verificando produtos existentes...");
-  const existingCodes = new Set<string>();
-  let from = 0;
-  const batchDb = 1000;
-  let done = false;
-  while (!done) {
-    const { data } = await supabase
-      .from("stock_products")
-      .select("codigo_produto")
-      .range(from, from + batchDb - 1);
-    if (data && data.length > 0) {
-      for (const r of data) existingCodes.add(r.codigo_produto);
-      from += batchDb;
-      if (data.length < batchDb) done = true;
-    } else {
-      done = true;
-    }
-  }
+  // Sincronização via RPC SECURITY DEFINER (sync_stock_products_from_erp).
+  //
+  // Por que RPC: o Supabase hospedado bloqueia PATCH no CORS preflight,
+  // o que impedia o upsert direto de atualizar registros existentes (só
+  // inseria os novos, silenciosamente ignorava os updates). A RPC roda
+  // via POST (que passa pelo CORS) e executa INSERT/UPDATE no servidor.
+  //
+  // Comportamento de preservação implementado dentro da RPC:
+  // - codigo_alternativo: preservado se já tem valor (vem de "Importar Código Alternativo")
+  // - unidade_medida: preservada se já tem valor (vem de "Enriquecer Unidades")
+  // - todos os outros campos: atualizados com o que vier do ERP
+  onProgress?.(`Sincronizando ${allProducts.length} produtos via RPC...`);
 
-  // Conta novos vs atualizados (informativo, sem filtrar)
-  const novosCount = allProducts.filter((p) => !existingCodes.has(p.codigo_produto)).length;
-  result.ignorados = 0; // não vamos mais ignorar — vamos atualizar
-  let atualizadosCount = 0;
+  // Processa em lotes para evitar payloads gigantes na chamada RPC
+  const chunkSize = 200;
+  let totalNovos = 0;
+  let totalAtualizados = 0;
+  let totalErros = 0;
 
-  // UPSERT TODOS os produtos. Para os existentes, NÃO sobrescrever campos
-  // preenchidos por features secundárias (codigo_alternativo e unidade_medida).
-  // Estratégia: omitir esses campos do payload de upsert para os produtos
-  // já existentes, deixando o ON CONFLICT preservar o valor atual.
-  onProgress?.(
-    `Sincronizando ${allProducts.length} produtos (${novosCount} novos, ${allProducts.length - novosCount} para atualizar)...`,
-  );
-
-  const chunkSize = 100;
   for (let i = 0; i < allProducts.length; i += chunkSize) {
-    const chunkRaw = allProducts.slice(i, i + chunkSize);
+    const chunk = allProducts.slice(i, i + chunkSize);
+    const loteAtual = Math.floor(i / chunkSize) + 1;
+    const totalLotes = Math.ceil(allProducts.length / chunkSize);
 
-    // Limpa codigo_alternativo e unidade_medida dos existentes para não sobrescrever
-    // valores enriquecidos localmente. Para os novos, mantém null/undefined que
-    // virá do payload (não há dado a preservar).
-    const chunk = chunkRaw.map((p) => {
-      const existe = existingCodes.has(p.codigo_produto);
-      if (existe) {
-        const { codigo_alternativo, unidade_medida, ...resto } = p;
-        return resto;
-      }
-      return p;
+    onProgress?.(`Sincronizando lote ${loteAtual}/${totalLotes} (${chunk.length} produtos)...`);
+
+    const { data, error } = await (supabase as any).rpc("sync_stock_products_from_erp", {
+      produtos: chunk,
     });
 
-    const { error } = await supabase
-      .from("stock_products")
-      .upsert(chunk, { onConflict: "codigo_produto", ignoreDuplicates: false });
-
     if (error) {
-      result.erros.push(`Lote ${Math.floor(i / chunkSize) + 1}: ${error.message}`);
-    } else {
-      // Conta novos e atualizados separadamente
-      for (const p of chunkRaw) {
-        if (existingCodes.has(p.codigo_produto)) atualizadosCount++;
-        else result.novos++;
-      }
+      result.erros.push(`Lote ${loteAtual}: ${error.message}`);
+      totalErros += chunk.length;
+      continue;
+    }
+
+    // RPC retorna { total, novos, atualizados, erros }
+    if (data && typeof data === "object") {
+      totalNovos += Number(data.novos ?? 0);
+      totalAtualizados += Number(data.atualizados ?? 0);
+      totalErros += Number(data.erros ?? 0);
     }
   }
 
-  // Reaproveita o campo "ignorados" para mostrar "atualizados" no toast atual
-  // (evita mudar a interface SyncProdutosResult e quebrar o toast da página).
-  result.ignorados = atualizadosCount;
+  result.novos = totalNovos;
+  result.ignorados = totalAtualizados; // reusa o campo "ignorados" para "atualizados" no toast existente
 
-  onProgress?.(`Sincronização de produtos concluída: ${result.novos} novos, ${atualizadosCount} atualizados.`);
+  if (totalErros > 0) {
+    result.erros.push(`${totalErros} produto(s) com erro durante UPSERT`);
+  }
+
+  onProgress?.(`Sincronização concluída: ${totalNovos} novos, ${totalAtualizados} atualizados, ${totalErros} erros.`);
   return result;
 }
 
