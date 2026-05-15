@@ -510,9 +510,11 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
           <ArrowLeft className="h-4 w-4" />
           Voltar
         </Button>
-        {(estado === "carregado" || estado === "criando_job") && totalComMudanca > 0 && (
-          <Button onClick={criarJob} disabled={!podeConfirmar || estado === "criando_job"}>
-            {estado === "criando_job" ? (
+        {(estado === "carregado" || estado === "criando_job") && totalComMudanca > 0 && (() => {
+  const estaCriando = estado === "criando_job";
+  return (
+    <Button onClick={criarJob} disabled={!podeConfirmar || estaCriando}>
+      {estaCriando ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Criando job...
