@@ -37,6 +37,10 @@ export const PERMISSIONS = {
   PROJETOS_APPROVE: "projetos.approve",
   PROJETOS_PEDIDOS_CREATE: "projetos.pedidos.create",
   PROJETOS_PEDIDOS_REENVIAR: "projetos.pedidos.reenviar",
+  // ─── Módulo Ferramentas ─────────────────────────────────────────
+  FERRAMENTAS_ACCESS: "ferramentas.access",
+  FERRAMENTAS_BULK_EDIT_EXECUTE: "ferramentas.bulk_edit.execute",
+  FERRAMENTAS_BULK_EDIT_RESTORE: "ferramentas.bulk_edit.restore",
 } as const;
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 /**
