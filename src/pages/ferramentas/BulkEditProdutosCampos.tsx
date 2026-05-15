@@ -14,6 +14,7 @@ import { Etapa1ConfigurarColunas } from "@/components/ferramentas/bulk-edit/Etap
 import { Etapa2Upload, type LinhaPlanilhaValida } from "@/components/ferramentas/bulk-edit/Etapa2Upload";
 import { Etapa3PreCheck, type LinhaPreCheckOk } from "@/components/ferramentas/bulk-edit/Etapa3PreCheck";
 import { Etapa4Preview, type LinhaPreviewPronta } from "@/components/ferramentas/bulk-edit/Etapa4Preview";
+import { Etapa5Execucao } from "@/components/ferramentas/bulk-edit/Etapa5Execucao";
 
 interface WizardState {
   camposEscolhidos: string[];
@@ -49,7 +50,7 @@ export default function BulkEditProdutosCampos() {
     );
   }
 
-  // ─── Handlers de transição entre etapas ───────────────────────────
+  // ─── Handlers de transição ───────────────────────────────────────
 
   const avancarEtapa1 = (camposEscolhidos: string[]) => {
     setWizardState((prev) => ({ ...prev, camposEscolhidos }));
@@ -144,27 +145,12 @@ export default function BulkEditProdutosCampos() {
         />
       )}
 
-      {etapa === 5 && (
-        <Card>
-          <CardContent className="flex min-h-[40vh] flex-col items-center justify-center gap-4 p-8 text-center">
-            <Wrench className="h-12 w-12 text-muted-foreground" />
-            <div className="space-y-2">
-              <p className="font-medium text-foreground">Etapa 5 em construção — Execução</p>
-              <p className="max-w-md text-sm text-muted-foreground">
-                Esta etapa será construída no próximo prompt: loop Load + Save + grava resultados no Supabase.
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Job criado: <strong>{wizardState.jobId}</strong>
-              </p>
-              <p className="text-xs text-muted-foreground/70">
-                {wizardState.linhasPreview.length} produto(s) prontos para alteração.
-              </p>
-            </div>
-            <Button variant="outline" onClick={() => setEtapa(1)}>
-              ← Voltar ao início
-            </Button>
-          </CardContent>
-        </Card>
+      {etapa === 5 && wizardState.jobId && (
+        <Etapa5Execucao
+          jobId={wizardState.jobId}
+          camposEscolhidos={wizardState.camposEscolhidos}
+          linhasPreview={wizardState.linhasPreview}
+        />
       )}
     </div>
   );
