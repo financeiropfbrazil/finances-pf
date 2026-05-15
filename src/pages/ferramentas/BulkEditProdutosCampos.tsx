@@ -3,8 +3,8 @@
  *
  * Responsabilidades:
  * - Controlar a etapa atual (1-5)
- * - Manter state compartilhado entre etapas (campos escolhidos, planilha
- *   parseada, resultado do pre-check, etc) — passado como props para cada
+ * - Manter state compartilhado entre etapas (campos escolhidos, linhas
+ *   parseadas, resultado do pre-check, etc) — passado como props para cada
  *   componente de etapa
  * - Renderizar o componente da etapa atual
  * - Renderizar header + stepper sempre visíveis
@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { ShieldX, Wrench, AlertTriangle, History } from "lucide-react";
 import { WizardStepper } from "@/components/ferramentas/bulk-edit/WizardStepper";
 import { Etapa1ConfigurarColunas } from "@/components/ferramentas/bulk-edit/Etapa1ConfigurarColunas";
+import { Etapa2Upload, type LinhaPlanilhaValida } from "@/components/ferramentas/bulk-edit/Etapa2Upload";
 
 /**
  * Estado completo do wizard. Cada etapa recebe e atualiza partes diferentes.
@@ -30,8 +31,9 @@ import { Etapa1ConfigurarColunas } from "@/components/ferramentas/bulk-edit/Etap
 interface WizardState {
   // Etapa 1 -> Etapa 2
   camposEscolhidos: string[];
-  // Etapa 2 -> Etapa 3 (planilha parseada)
-  // linhasPlanilha: ProdutoBulkRow[];  // será populado na Etapa 2
+  // Etapa 2 -> Etapa 3
+  linhasPlanilha: LinhaPlanilhaValida[];
+  nomeArquivo: string;
   // Etapa 3 -> Etapa 4 (resultado do pre-check)
   // produtosEncontrados, produtosNaoEncontrados...
   // Etapa 4 -> Etapa 5 (job criado)
@@ -40,6 +42,8 @@ interface WizardState {
 
 const INITIAL_STATE: WizardState = {
   camposEscolhidos: [],
+  linhasPlanilha: [],
+  nomeArquivo: "",
 };
 
 export default function BulkEditProdutosCampos() {
@@ -67,6 +71,15 @@ export default function BulkEditProdutosCampos() {
   const avancarEtapa1 = (camposEscolhidos: string[]) => {
     setWizardState((prev) => ({ ...prev, camposEscolhidos }));
     setEtapa(2);
+  };
+
+  const voltarEtapa2 = () => {
+    setEtapa(1);
+  };
+
+  const avancarEtapa2 = (linhasPlanilha: LinhaPlanilhaValida[], nomeArquivo: string) => {
+    setWizardState((prev) => ({ ...prev, linhasPlanilha, nomeArquivo }));
+    setEtapa(3);
   };
 
   // (handlers das outras etapas virão nos próximos prompts)
@@ -121,23 +134,11 @@ export default function BulkEditProdutosCampos() {
       )}
 
       {etapa === 2 && (
-        <Card>
-          <CardContent className="flex min-h-[40vh] flex-col items-center justify-center gap-4 p-8 text-center">
-            <Wrench className="h-12 w-12 text-muted-foreground" />
-            <div className="space-y-2">
-              <p className="font-medium text-foreground">Etapa 2 em construção</p>
-              <p className="max-w-md text-sm text-muted-foreground">
-                Próximo passo: upload da planilha preenchida e validação inicial.
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Campos configurados: {wizardState.camposEscolhidos.join(", ") || "(nenhum)"}
-              </p>
-            </div>
-            <Button variant="outline" onClick={() => setEtapa(1)}>
-              ← Voltar para Etapa 1
-            </Button>
-          </CardContent>
-        </Card>
+        <Etapa2Upload
+          camposEscolhidos={wizardState.camposEscolhidos}
+          onVoltar={voltarEtapa2}
+          onAvancar={avancarEtapa2}
+        />
       )}
 
       {etapa >= 3 && (
@@ -147,6 +148,13 @@ export default function BulkEditProdutosCampos() {
             <div className="space-y-2">
               <p className="font-medium text-foreground">Etapa {etapa} em construção</p>
               <p className="max-w-md text-sm text-muted-foreground">Esta etapa será construída no próximo prompt.</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Recebido da Etapa 2: <strong>{wizardState.linhasPlanilha.length}</strong> linha(s) válida(s) do arquivo
+                "{wizardState.nomeArquivo}".
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Campos a alterar: {wizardState.camposEscolhidos.join(", ")}
+              </p>
             </div>
             <Button variant="outline" onClick={() => setEtapa(1)}>
               ← Voltar ao início
