@@ -196,6 +196,11 @@ export async function sincronizarProdutosDoERP(onProgress?: (msg: string) => voi
   result.totalERP = allProducts.length;
   if (allProducts.length === 0) return result;
 
+  // Busca produtos existentes para detectar quais são novos vs quais serão atualizados.
+  // IMPORTANTE: a sincronização agora UPSERTA TODOS os produtos do ERP, mas preserva
+  // campos populados por features secundárias (codigo_alternativo via "Importar Código
+  // Alternativo" e unidade_medida via "Enriquecer Unidades"). Isso garante que mudanças
+  // feitas no Alvo (nome, status, classificação fiscal, etc.) sejam refletidas no Hub.
   onProgress?.("Verificando produtos existentes...");
   const existingCodes = new Set<string>();
   let from = 0;
@@ -215,26 +220,55 @@ export async function sincronizarProdutosDoERP(onProgress?: (msg: string) => voi
     }
   }
 
-  const novos = allProducts.filter((p) => !existingCodes.has(p.codigo_produto));
-  result.ignorados = allProducts.length - novos.length;
+  // Conta novos vs atualizados (informativo, sem filtrar)
+  const novosCount = allProducts.filter((p) => !existingCodes.has(p.codigo_produto)).length;
+  result.ignorados = 0; // não vamos mais ignorar — vamos atualizar
+  let atualizadosCount = 0;
 
-  if (novos.length > 0) {
-    onProgress?.(`Inserindo ${novos.length} produtos novos...`);
-    const chunkSize = 100;
-    for (let i = 0; i < novos.length; i += chunkSize) {
-      const chunk = novos.slice(i, i + chunkSize);
-      const { error } = await supabase
-        .from("stock_products")
-        .upsert(chunk, { onConflict: "codigo_produto", ignoreDuplicates: true });
-      if (error) {
-        result.erros.push(`Lote ${Math.floor(i / chunkSize) + 1}: ${error.message}`);
-      } else {
-        result.novos += chunk.length;
+  // UPSERT TODOS os produtos. Para os existentes, NÃO sobrescrever campos
+  // preenchidos por features secundárias (codigo_alternativo e unidade_medida).
+  // Estratégia: omitir esses campos do payload de upsert para os produtos
+  // já existentes, deixando o ON CONFLICT preservar o valor atual.
+  onProgress?.(
+    `Sincronizando ${allProducts.length} produtos (${novosCount} novos, ${allProducts.length - novosCount} para atualizar)...`,
+  );
+
+  const chunkSize = 100;
+  for (let i = 0; i < allProducts.length; i += chunkSize) {
+    const chunkRaw = allProducts.slice(i, i + chunkSize);
+
+    // Limpa codigo_alternativo e unidade_medida dos existentes para não sobrescrever
+    // valores enriquecidos localmente. Para os novos, mantém null/undefined que
+    // virá do payload (não há dado a preservar).
+    const chunk = chunkRaw.map((p) => {
+      const existe = existingCodes.has(p.codigo_produto);
+      if (existe) {
+        const { codigo_alternativo, unidade_medida, ...resto } = p;
+        return resto;
+      }
+      return p;
+    });
+
+    const { error } = await supabase
+      .from("stock_products")
+      .upsert(chunk, { onConflict: "codigo_produto", ignoreDuplicates: false });
+
+    if (error) {
+      result.erros.push(`Lote ${Math.floor(i / chunkSize) + 1}: ${error.message}`);
+    } else {
+      // Conta novos e atualizados separadamente
+      for (const p of chunkRaw) {
+        if (existingCodes.has(p.codigo_produto)) atualizadosCount++;
+        else result.novos++;
       }
     }
   }
 
-  onProgress?.("Sincronização de produtos concluída.");
+  // Reaproveita o campo "ignorados" para mostrar "atualizados" no toast atual
+  // (evita mudar a interface SyncProdutosResult e quebrar o toast da página).
+  result.ignorados = atualizadosCount;
+
+  onProgress?.(`Sincronização de produtos concluída: ${result.novos} novos, ${atualizadosCount} atualizados.`);
   return result;
 }
 
@@ -390,9 +424,7 @@ async function processarProduto(
 
   // Após retries, ainda falhou — propaga o erro pra cair no try/catch externo
   if (lastError) {
-    throw new Error(
-      `Falha após ${MAX_RETRIES} tentativas: ${lastError.message || lastError}`,
-    );
+    throw new Error(`Falha após ${MAX_RETRIES} tentativas: ${lastError.message || lastError}`);
   }
 
   const items: FichaEstoqueItem[] = Array.isArray(data) ? data : [];
@@ -450,9 +482,7 @@ async function processarProduto(
   // com um CustoMedio anômalo (negativo ou inflado). O cálculo direto valor/qtd é
   // matematicamente coerente com os outros campos do Hub. Para qtd zero ou negativa,
   // usar a âncora como fallback.
-  const custoMedioFinal = quantidadeFinal > 0
-    ? valorFinal / quantidadeFinal
-    : (ancora?.valor_medio_unitario ?? null);
+  const custoMedioFinal = quantidadeFinal > 0 ? valorFinal / quantidadeFinal : (ancora?.valor_medio_unitario ?? null);
 
   return {
     product_id: produto.id,
