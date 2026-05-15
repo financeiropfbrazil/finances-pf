@@ -55,6 +55,8 @@ import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
 import ReembolsoNovo from "./pages/intercompany/ReembolsoNovo";
 import IntercompanyMaster from "./pages/intercompany/IntercompanyMaster";
 import NovoReembolsoNF from "./pages/intercompany/NovoReembolsoNF";
+import BulkEditProdutosCampos from "./pages/ferramentas/BulkEditProdutosCampos";
+import BulkEditHistorico from "./pages/ferramentas/BulkEditHistorico";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -433,6 +435,22 @@ function AppRoutes() {
         />
         <Route path="/settings/users" element={<UsersSettings />} />
         <Route path="/configuracoes/sincronizacoes" element={<ConfigSyncJobs />} />
+        <Route
+          path="/ferramentas/bulk-edit/produtos-campos"
+          element={
+            <PermissionRoute permKey="ferramentas_bulk_edit_produtos_campos">
+              <BulkEditProdutosCampos />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/ferramentas/bulk-edit/historico"
+          element={
+            <PermissionRoute permKey="ferramentas_bulk_edit_produtos_campos">
+              <BulkEditHistorico />
+            </PermissionRoute>
+          }
+        />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>
