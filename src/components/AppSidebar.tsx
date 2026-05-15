@@ -120,8 +120,6 @@ const ferramentasSubItems = [
 ];
 
 const entidadesSubItems = [
-
-const entidadesSubItems = [
   { label: "Lista de Entidades", url: "/entidades", icon: UsersIcon },
   { label: "Upload de Códigos", url: "/entidades/upload-codigos", icon: Upload },
 ];
