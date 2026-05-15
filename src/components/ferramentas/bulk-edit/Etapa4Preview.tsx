@@ -1,22 +1,19 @@
 /**
  * Etapa 4 do wizard de Bulk Edit Produtos: Preview antes/depois + criação do job.
  *
- * Etapa crítica — última oportunidade do usuário ver o que vai acontecer.
+ * Etapa critica — ultima oportunidade do usuario ver o que vai acontecer.
  *
  * Fluxo:
- * 1. Estado inicial: botão "Preparar preview"
+ * 1. Estado inicial: botao "Preparar preview"
  * 2. Loop SERIAL de Load por produto (GET /produto/load?codigo=X)
  *    - Contador em tempo real (X/N)
  *    - Barra de progresso
- *    - Botão Cancelar mantém snapshots já carregados mas não cria job
+ *    - Botao Cancelar mantem snapshots ja carregados mas nao cria job
  *    - Se algum Load falhar, marca o produto como erro mas continua
- * 3. Após carregamento: tabela 1 linha por produto, células coloridas por
- *    campo: "sem mudança" (cinza) ou "antigo -> novo" (amarelo destaque)
- * 4. Confirmação textual: digitar "ALTERAR" para habilitar criação do job
- * 5. Ao confirmar: chama bulk_edit_create_job RPC e avança para Etapa 5
- *
- * IMPORTANTE: os snapshots completos (Load JSON inteiro) sao guardados em
- * state porque vao para o registro do job na Etapa 5 (necessario para restore).
+ * 3. Apos carregamento: tabela 1 linha por produto, celulas coloridas por
+ *    campo: "sem mudanca" (cinza) ou "antigo -> novo" (amarelo destaque)
+ * 4. Confirmacao textual: digitar "ALTERAR" para habilitar criacao do job
+ * 5. Ao confirmar: chama bulk_edit_create_job RPC e avanca para Etapa 5
  */
 
 import { useState, useRef, useMemo } from "react";
@@ -31,14 +28,13 @@ import { loadProduto, createBulkJob } from "@/services/produtoBulkService";
 import { BULK_EDIT_PRODUTO_FIELDS } from "@/constants/bulkEditFields";
 import type { LinhaPreCheckOk } from "./Etapa3PreCheck";
 
-// ─── Tipos públicos exportados ────────────────────────────────────
-
+// Tipos publicos exportados
 export interface LinhaPreviewPronta {
   sequencia: number;
   codigoAlternativo: string;
   codigoAlvo: string;
-  snapshotCompleto: any; // JSON completo do Load (para gravar no job + restore)
-  valoresAntigos: Record<string, string>; // {campo: valorAtualAlvo}
+  snapshotCompleto: any;
+  valoresAntigos: Record<string, string>;
   valoresNovos: Record<string, string>;
 }
 
@@ -49,8 +45,7 @@ interface Etapa4Props {
   onAvancar: (jobId: string, linhasPreview: LinhaPreviewPronta[]) => void;
 }
 
-// Tipos internos — extraidos como aliases para evitar genericos inline
-// que podem confundir o parser markdown ao copiar codigo
+// Tipos internos
 type EstadoEtapa4 = "inicial" | "carregando" | "carregado" | "criando_job";
 type LoadStatus = "pendente" | "carregando" | "ok" | "erro";
 
@@ -65,10 +60,8 @@ interface LinhaCarregamento {
 }
 
 export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAvancar }: Etapa4Props) {
-  // Estado da operação
   const [estado, setEstado] = useState<EstadoEtapa4>("inicial");
 
-  // Linhas com status do Load
   const [linhas, setLinhas] = useState<LinhaCarregamento[]>(() =>
     linhasPreCheck.map((l) => ({
       sequencia: l.sequencia,
@@ -81,10 +74,7 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
     })),
   );
 
-  // Flag de cancelamento (ref para o loop ler em tempo real)
   const cancelarRef = useRef(false);
-
-  // Confirmação textual
   const [confirmacao, setConfirmacao] = useState("");
 
   const camposOrdenados = useMemo(
@@ -92,13 +82,11 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
     [camposEscolhidos],
   );
 
-  // ─── Loop serial de Load ─────────────────────────────────────────
-
+  // Loop serial de Load
   const carregarSnapshots = async () => {
     setEstado("carregando");
     cancelarRef.current = false;
 
-    // Reset
     setLinhas((prev) =>
       prev.map((l) => ({
         ...l,
@@ -114,13 +102,11 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
 
       const linhaPreCheck = linhasPreCheck[i];
 
-      // Marca como carregando
       setLinhas((prev) => prev.map((l, idx) => (idx === i ? { ...l, status: "carregando" as LoadStatus } : l)));
 
       try {
         const snapshot = await loadProduto(linhaPreCheck.codigoAlvo);
 
-        // Extrai valoresAntigos só dos campos que serão alterados
         const valoresAntigos: Record<string, string> = {};
         for (const campoKey of Object.keys(linhaPreCheck.valoresNovos)) {
           const valAtual = snapshot[campoKey];
@@ -164,11 +150,10 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
 
   const cancelarCarregamento = () => {
     cancelarRef.current = true;
-    toast.info("Cancelando após o produto atual...");
+    toast.info("Cancelando apos o produto atual...");
   };
 
-  // ─── Estatísticas ────────────────────────────────────────────────
-
+  // Estatisticas
   const totalLinhas = linhas.length;
   const carregadasOk = linhas.filter((l) => l.status === "ok").length;
   const comErro = linhas.filter((l) => l.status === "erro").length;
@@ -176,7 +161,6 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
   const atual = carregadasOk + comErro;
   const progresso = totalLinhas > 0 ? (atual / totalLinhas) * 100 : 0;
 
-  // Determina se uma linha tem alguma mudança real (valor antigo != valor novo)
   const linhaTemMudanca = (l: LinhaCarregamento): boolean => {
     if (l.status !== "ok") return false;
     const preCheck = linhasPreCheck.find((lp) => lp.codigoAlvo === l.codigoAlvo);
@@ -191,23 +175,28 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
   const totalComMudanca = linhas.filter(linhaTemMudanca).length;
   const totalSemMudanca = carregadasOk - totalComMudanca;
 
-  // ─── Confirmação e criação do job ────────────────────────────────
+  // Workaround para narrowing agressivo do TS:
+  // extrai estado como string para evitar inferencia que considera
+  // comparacoes "carregado" vs "criando_job" como inalcancaveis
+  const estadoStr = estado as string;
+  const estaCriandoJob = estadoStr === "criando_job";
+  const estaCarregado = estadoStr === "carregado";
+  const podeRenderizarBotaoCriar = (estaCarregado || estaCriandoJob) && totalComMudanca > 0;
 
-  const podeConfirmar = estado === "carregado" && carregadasOk > 0 && confirmacao.trim().toUpperCase() === "ALTERAR";
+  const podeConfirmar = estaCarregado && carregadasOk > 0 && confirmacao.trim().toUpperCase() === "ALTERAR";
 
   const criarJob = async () => {
     if (!podeConfirmar) return;
     setEstado("criando_job");
 
     try {
-      // Monta lista de linhas prontas (só as carregadas com sucesso E com mudança)
       const linhasParaJob: LinhaPreviewPronta[] = [];
       linhasPreCheck.forEach((preCheck, idx) => {
         const linha = linhas[idx];
         if (linha.status !== "ok") return;
-        if (!linhaTemMudanca(linha)) return; // pula linhas sem mudança real
+        if (!linhaTemMudanca(linha)) return;
         linhasParaJob.push({
-          sequencia: linhasParaJob.length + 1, // re-numera
+          sequencia: linhasParaJob.length + 1,
           codigoAlternativo: preCheck.codigoAlternativo,
           codigoAlvo: preCheck.codigoAlvo,
           snapshotCompleto: linha.snapshot,
@@ -218,13 +207,12 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
 
       if (linhasParaJob.length === 0) {
         toast.error(
-          "Nenhuma linha com mudança real para executar. Todos os valores propostos já são iguais aos atuais.",
+          "Nenhuma linha com mudanca real para executar. Todos os valores propostos ja sao iguais aos atuais.",
         );
         setEstado("carregado");
         return;
       }
 
-      // Cria o job no Supabase
       const jobId = await createBulkJob({
         tipo: "produtos_campos",
         total_itens: linhasParaJob.length,
@@ -239,7 +227,7 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
         },
       });
 
-      toast.success(`Job criado: ${linhasParaJob.length} produto(s) prontos para alteração.`);
+      toast.success(`Job criado: ${linhasParaJob.length} produto(s) prontos para alteracao.`);
       onAvancar(jobId, linhasParaJob);
     } catch (err: any) {
       console.error("Erro ao criar job:", err);
@@ -248,19 +236,16 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
     }
   };
 
-  // ─── Render ──────────────────────────────────────────────────────
-
   return (
     <div className="space-y-6">
-      {/* Header explicativo */}
       <Card className="border-blue-500/30 bg-blue-500/5">
         <CardContent className="flex items-start gap-3 p-4">
           <AlertTriangle className="h-5 w-5 shrink-0 text-blue-600" />
           <div className="space-y-1 text-sm">
-            <p className="font-medium text-foreground">Última verificação antes da execução</p>
+            <p className="font-medium text-foreground">Ultima verificacao antes da execucao</p>
             <p className="text-muted-foreground">
-              Vamos carregar o estado atual de cada produto no Alvo (1 chamada por produto, ~3s cada). Você verá o diff
-              "antes → depois" linha por linha. Os snapshots ficam salvos no job para permitir reversão. Para{" "}
+              Vamos carregar o estado atual de cada produto no Alvo (1 chamada por produto, ~3s cada). Voce vera o diff
+              "antes -&gt; depois" linha por linha. Os snapshots ficam salvos no job para permitir reversao. Para{" "}
               {linhasPreCheck.length} produtos, estime{" "}
               <strong>~{Math.ceil((linhasPreCheck.length * 3) / 60)} min</strong>.
             </p>
@@ -268,7 +253,6 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
         </CardContent>
       </Card>
 
-      {/* ESTADO: INICIAL */}
       {estado === "inicial" && (
         <Card>
           <CardContent className="flex min-h-[200px] flex-col items-center justify-center gap-4 p-8 text-center">
@@ -285,7 +269,6 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
         </Card>
       )}
 
-      {/* ESTADO: CARREGANDO */}
       {estado === "carregando" && (
         <Card>
           <CardContent className="space-y-4 p-6">
@@ -312,7 +295,7 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
               if (carregandoAgora) {
                 return (
                   <p className="text-xs text-muted-foreground">
-                    Carregando agora: {carregandoAgora.codigoAlternativo} → {carregandoAgora.codigoAlvo}
+                    Carregando agora: {carregandoAgora.codigoAlternativo} -&gt; {carregandoAgora.codigoAlvo}
                   </p>
                 );
               }
@@ -322,8 +305,7 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
         </Card>
       )}
 
-      {/* ESTADO: CARREGADO — cards de resumo + tabela */}
-      {(estado === "carregado" || estado === "criando_job") && (
+      {(estaCarregado || estaCriandoJob) && (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <Card className="border-emerald-500/30 bg-emerald-500/5">
@@ -331,7 +313,7 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
                 <CheckCircle2 className="h-5 w-5 text-emerald-600" />
                 <div>
                   <p className="text-2xl font-bold text-foreground">{totalComMudanca}</p>
-                  <p className="text-xs text-muted-foreground">Com mudanças</p>
+                  <p className="text-xs text-muted-foreground">Com mudancas</p>
                 </div>
               </CardContent>
             </Card>
@@ -340,7 +322,7 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
                 <AlertTriangle className="h-5 w-5 text-muted-foreground" />
                 <div>
                   <p className="text-2xl font-bold text-foreground">{totalSemMudanca}</p>
-                  <p className="text-xs text-muted-foreground">Sem mudança (serão puladas)</p>
+                  <p className="text-xs text-muted-foreground">Sem mudanca (serao puladas)</p>
                 </div>
               </CardContent>
             </Card>
@@ -359,7 +341,7 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
                   variant="ghost"
                   size="sm"
                   onClick={carregarSnapshots}
-                  disabled={estado === "criando_job"}
+                  disabled={estaCriandoJob}
                   className="text-muted-foreground"
                 >
                   Recarregar snapshots
@@ -368,7 +350,6 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
             </Card>
           </div>
 
-          {/* Tabela de diff antes/depois */}
           <Card>
             <CardContent className="p-0">
               <div className="max-h-[500px] overflow-auto">
@@ -417,14 +398,14 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
                                 {linha.status !== "ok" ? (
                                   <span className="text-muted-foreground/40">—</span>
                                 ) : !mudou ? (
-                                  <span className="text-xs text-muted-foreground">sem mudança</span>
+                                  <span className="text-xs text-muted-foreground">sem mudanca</span>
                                 ) : (
                                   <div className="space-y-0.5">
                                     <div className="line-through text-xs text-muted-foreground">
                                       {valorAntigo || "(vazio)"}
                                     </div>
                                     <div className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-                                      → {valorNovo}
+                                      -&gt; {valorNovo}
                                     </div>
                                   </div>
                                 )}
@@ -470,16 +451,15 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
             </CardContent>
           </Card>
 
-          {/* Confirmação textual */}
           {totalComMudanca > 0 && (
             <Card className="border-amber-500/40 bg-amber-500/5">
               <CardContent className="space-y-3 p-4">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
                   <div className="flex-1 space-y-2 text-sm">
-                    <p className="font-medium text-foreground">Confirmação final</p>
+                    <p className="font-medium text-foreground">Confirmacao final</p>
                     <p className="text-muted-foreground">
-                      Você está prestes a alterar <strong>{totalComMudanca} produto(s)</strong> em produção no ERP Alvo.
+                      Voce esta prestes a alterar <strong>{totalComMudanca} produto(s)</strong> em producao no ERP Alvo.
                       Para confirmar, digite{" "}
                       <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-xs text-foreground">
                         ALTERAR
@@ -492,7 +472,7 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
                         placeholder="Digite ALTERAR para confirmar"
                         value={confirmacao}
                         onChange={(e) => setConfirmacao(e.target.value)}
-                        disabled={estado === "criando_job"}
+                        disabled={estaCriandoJob}
                         className="max-w-sm font-mono"
                       />
                     </div>
@@ -504,17 +484,14 @@ export function Etapa4Preview({ camposEscolhidos, linhasPreCheck, onVoltar, onAv
         </>
       )}
 
-      {/* Botões de navegação */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button variant="outline" onClick={onVoltar} disabled={estado === "carregando" || estado === "criando_job"}>
+        <Button variant="outline" onClick={onVoltar} disabled={estado === "carregando" || estaCriandoJob}>
           <ArrowLeft className="h-4 w-4" />
           Voltar
         </Button>
-        {(estado === "carregado" || estado === "criando_job") && totalComMudanca > 0 && (() => {
-  const estaCriando = estado === "criando_job";
-  return (
-    <Button onClick={criarJob} disabled={!podeConfirmar || estaCriando}>
-      {estaCriando ? (
+        {podeRenderizarBotaoCriar && (
+          <Button onClick={criarJob} disabled={!podeConfirmar || estaCriandoJob}>
+            {estaCriandoJob ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Criando job...
