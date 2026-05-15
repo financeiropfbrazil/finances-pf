@@ -212,8 +212,10 @@ export default function InventoryImport() {
       });
       toast({
         title: `✅ Sincronização concluída: ${result.novos} novos, ${result.ignorados} atualizados.`,
-        description: result.erros.length > 0 ? `${result.erros.length} erros` : undefined,
+        description:
+          result.erros.length > 0 ? `${result.erros.length} erros — primeiro: ${result.erros[0]}` : undefined,
       });
+      console.log("=== SYNC RESULT ===", result);
       fetchProducts();
     } catch (err: any) {
       toast({ title: "❌ Erro na sincronização", description: err.message, variant: "destructive" });
