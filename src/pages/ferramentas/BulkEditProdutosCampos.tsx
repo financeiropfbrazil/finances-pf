@@ -1,17 +1,5 @@
 /**
  * Página orquestradora do wizard de Bulk Edit Produtos — Campos.
- *
- * Responsabilidades:
- * - Controlar a etapa atual (1-5)
- * - Manter state compartilhado entre etapas (campos escolhidos, linhas
- *   parseadas, resultado do pre-check, etc) — passado como props para cada
- *   componente de etapa
- * - Renderizar o componente da etapa atual
- * - Renderizar header + stepper sempre visíveis
- *
- * Cada etapa é um componente em src/components/ferramentas/bulk-edit/.
- * O orquestrador NÃO contém lógica de negócio nem chamadas ao Alvo/Supabase —
- * essas ficam dentro de cada componente de etapa ou no produtoBulkService.
  */
 
 import { useState } from "react";
@@ -25,20 +13,15 @@ import { WizardStepper } from "@/components/ferramentas/bulk-edit/WizardStepper"
 import { Etapa1ConfigurarColunas } from "@/components/ferramentas/bulk-edit/Etapa1ConfigurarColunas";
 import { Etapa2Upload, type LinhaPlanilhaValida } from "@/components/ferramentas/bulk-edit/Etapa2Upload";
 import { Etapa3PreCheck, type LinhaPreCheckOk } from "@/components/ferramentas/bulk-edit/Etapa3PreCheck";
+import { Etapa4Preview, type LinhaPreviewPronta } from "@/components/ferramentas/bulk-edit/Etapa4Preview";
 
-/**
- * Estado completo do wizard. Cada etapa recebe e atualiza partes diferentes.
- */
 interface WizardState {
-  // Etapa 1 -> Etapa 2
   camposEscolhidos: string[];
-  // Etapa 2 -> Etapa 3
   linhasPlanilha: LinhaPlanilhaValida[];
   nomeArquivo: string;
-  // Etapa 3 -> Etapa 4
   linhasPreCheck: LinhaPreCheckOk[];
-  // Etapa 4 -> Etapa 5 (job criado)
-  // jobId: string;
+  jobId: string | null;
+  linhasPreview: LinhaPreviewPronta[];
 }
 
 const INITIAL_STATE: WizardState = {
@@ -46,18 +29,16 @@ const INITIAL_STATE: WizardState = {
   linhasPlanilha: [],
   nomeArquivo: "",
   linhasPreCheck: [],
+  jobId: null,
+  linhasPreview: [],
 };
 
 export default function BulkEditProdutosCampos() {
   const podeExecutar = useHasPermission(PERMISSIONS.FERRAMENTAS_BULK_EDIT_EXECUTE);
 
-  // Etapa atual do wizard (1-5)
   const [etapa, setEtapa] = useState<number>(1);
-
-  // State compartilhado entre etapas
   const [wizardState, setWizardState] = useState<WizardState>(INITIAL_STATE);
 
-  // ─── Gate de permissão ─────────────────────────────────────────────
   if (!podeExecutar) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-muted-foreground">
@@ -75,25 +56,26 @@ export default function BulkEditProdutosCampos() {
     setEtapa(2);
   };
 
-  const voltarEtapa2 = () => {
-    setEtapa(1);
-  };
+  const voltarEtapa2 = () => setEtapa(1);
 
   const avancarEtapa2 = (linhasPlanilha: LinhaPlanilhaValida[], nomeArquivo: string) => {
     setWizardState((prev) => ({ ...prev, linhasPlanilha, nomeArquivo }));
     setEtapa(3);
   };
 
-  const voltarEtapa3 = () => {
-    setEtapa(2);
-  };
+  const voltarEtapa3 = () => setEtapa(2);
 
   const avancarEtapa3 = (linhasPreCheck: LinhaPreCheckOk[]) => {
     setWizardState((prev) => ({ ...prev, linhasPreCheck }));
     setEtapa(4);
   };
 
-  // (handlers das outras etapas virão nos próximos prompts)
+  const voltarEtapa4 = () => setEtapa(3);
+
+  const avancarEtapa4 = (jobId: string, linhasPreview: LinhaPreviewPronta[]) => {
+    setWizardState((prev) => ({ ...prev, jobId, linhasPreview }));
+    setEtapa(5);
+  };
 
   return (
     <div className="space-y-6 p-6">
@@ -118,14 +100,12 @@ export default function BulkEditProdutosCampos() {
         </Button>
       </div>
 
-      {/* Stepper */}
       <Card>
         <CardContent className="p-6">
           <WizardStepper etapaAtual={etapa} />
         </CardContent>
       </Card>
 
-      {/* Aviso de operação destrutiva (sempre visível) */}
       <Card className="border-amber-500/30 bg-amber-500/5">
         <CardContent className="flex items-start gap-3 p-4">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
@@ -139,7 +119,6 @@ export default function BulkEditProdutosCampos() {
         </CardContent>
       </Card>
 
-      {/* Renderiza a etapa atual */}
       {etapa === 1 && (
         <Etapa1ConfigurarColunas camposEscolhidos={wizardState.camposEscolhidos} onAvancar={avancarEtapa1} />
       )}
@@ -156,23 +135,30 @@ export default function BulkEditProdutosCampos() {
         <Etapa3PreCheck linhasPlanilha={wizardState.linhasPlanilha} onVoltar={voltarEtapa3} onAvancar={avancarEtapa3} />
       )}
 
-      {etapa >= 4 && (
+      {etapa === 4 && (
+        <Etapa4Preview
+          camposEscolhidos={wizardState.camposEscolhidos}
+          linhasPreCheck={wizardState.linhasPreCheck}
+          onVoltar={voltarEtapa4}
+          onAvancar={avancarEtapa4}
+        />
+      )}
+
+      {etapa === 5 && (
         <Card>
           <CardContent className="flex min-h-[40vh] flex-col items-center justify-center gap-4 p-8 text-center">
             <Wrench className="h-12 w-12 text-muted-foreground" />
             <div className="space-y-2">
-              <p className="font-medium text-foreground">Etapa {etapa} em construção</p>
-              <p className="max-w-md text-sm text-muted-foreground">Esta etapa será construída no próximo prompt.</p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Recebido da Etapa 3: <strong>{wizardState.linhasPreCheck.length}</strong> produto(s) confirmado(s) no
-                Alvo, prontos para preview e execução.
+              <p className="font-medium text-foreground">Etapa 5 em construção — Execução</p>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Esta etapa será construída no próximo prompt: loop Load + Save + grava resultados no Supabase.
               </p>
-              {wizardState.linhasPreCheck.length > 0 && (
-                <p className="text-xs text-muted-foreground/70">
-                  Primeiro: {wizardState.linhasPreCheck[0].codigoAlternativo} →{" "}
-                  {wizardState.linhasPreCheck[0].codigoAlvo} — {wizardState.linhasPreCheck[0].nomeAtualAlvo}
-                </p>
-              )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Job criado: <strong>{wizardState.jobId}</strong>
+              </p>
+              <p className="text-xs text-muted-foreground/70">
+                {wizardState.linhasPreview.length} produto(s) prontos para alteração.
+              </p>
             </div>
             <Button variant="outline" onClick={() => setEtapa(1)}>
               ← Voltar ao início
