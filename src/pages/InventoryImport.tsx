@@ -6,14 +6,38 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
-import { Upload, Loader2, Search, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileSpreadsheet, CheckCircle2, AlertTriangle, Info, RefreshCw, Sparkles } from "lucide-react";
+import {
+  Upload,
+  Loader2,
+  Search,
+  Package,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  FileSpreadsheet,
+  CheckCircle2,
+  AlertTriangle,
+  Info,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { seedStockProductsFromBuffer } from "@/services/stockProductsSeed";
-import { sincronizarProdutosDoERP, enriquecerUnidadesMedida, type EnrichUnidadesResult } from "@/services/alvoEstoqueService";
+import {
+  sincronizarProdutosDoERP,
+  enriquecerUnidadesMedida,
+  type EnrichUnidadesResult,
+} from "@/services/alvoEstoqueService";
 import { supabase } from "@/integrations/supabase/client";
 import * as XLSX from "xlsx";
 
@@ -71,7 +95,13 @@ export default function InventoryImport() {
   const [extPreview, setExtPreview] = useState<ExternalCodePreview[] | null>(null);
   const [extAllRows, setExtAllRows] = useState<{ codigoPrincipal: string; alternativo: string }[]>([]);
   const [extIgnoredCount, setExtIgnoredCount] = useState(0);
-  const [extResult, setExtResult] = useState<{ updated: number; notFound: string[]; ignored: number; errors: number; debug?: string } | null>(null);
+  const [extResult, setExtResult] = useState<{
+    updated: number;
+    notFound: string[];
+    ignored: number;
+    errors: number;
+    debug?: string;
+  } | null>(null);
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -87,22 +117,27 @@ export default function InventoryImport() {
         .order("codigo_produto")
         .range(from, from + batchSize - 1);
       if (data && data.length > 0) {
-        all = all.concat(data.map((d: any) => ({
-          id: d.id,
-          codigo_produto: d.codigo_produto,
-          codigo_reduzido: d.codigo_reduzido ?? null,
-          codigo_alternativo: d.codigo_alternativo ?? null,
-          nome_produto: d.nome_produto,
-          tipo_produto: d.tipo_produto ?? null,
-          familia_codigo: d.familia_codigo ?? null,
-          variacao: d.variacao ?? null,
-          unidade_medida: d.unidade_medida ?? null,
-          ativo: d.ativo,
-          codigo_barras: d.codigo_barras ?? null,
-          controla_lote: d.controla_lote ?? false,
-          classificacao_fiscal: d.classificacao_fiscal ?? null,
-          tipo_produto_fiscal: d.tipo_produto_fiscal ?? null,
-        } as StockProduct)));
+        all = all.concat(
+          data.map(
+            (d: any) =>
+              ({
+                id: d.id,
+                codigo_produto: d.codigo_produto,
+                codigo_reduzido: d.codigo_reduzido ?? null,
+                codigo_alternativo: d.codigo_alternativo ?? null,
+                nome_produto: d.nome_produto,
+                tipo_produto: d.tipo_produto ?? null,
+                familia_codigo: d.familia_codigo ?? null,
+                variacao: d.variacao ?? null,
+                unidade_medida: d.unidade_medida ?? null,
+                ativo: d.ativo,
+                codigo_barras: d.codigo_barras ?? null,
+                controla_lote: d.controla_lote ?? false,
+                classificacao_fiscal: d.classificacao_fiscal ?? null,
+                tipo_produto_fiscal: d.tipo_produto_fiscal ?? null,
+              }) as StockProduct,
+          ),
+        );
         from += batchSize;
         if (data.length < batchSize) done = true;
       } else {
@@ -113,16 +148,20 @@ export default function InventoryImport() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchProducts(); }, []);
+  useEffect(() => {
+    fetchProducts();
+  }, []);
 
   const tipoOptions = useMemo(() => {
     const tipos = new Set<string>();
-    products.forEach(p => { if (p.tipo_produto) tipos.add(p.tipo_produto); });
+    products.forEach((p) => {
+      if (p.tipo_produto) tipos.add(p.tipo_produto);
+    });
     return Array.from(tipos).sort();
   }, [products]);
 
   const filtered = useMemo(() => {
-    return products.filter(p => {
+    return products.filter((p) => {
       if (filterTipo !== "all" && p.tipo_produto !== filterTipo) return false;
       if (search) {
         const q = search.toLowerCase();
@@ -132,7 +171,8 @@ export default function InventoryImport() {
           !(p.codigo_reduzido ?? "").toLowerCase().includes(q) &&
           !(p.codigo_alternativo ?? "").toLowerCase().includes(q) &&
           !(p.familia_codigo ?? "").toLowerCase().includes(q)
-        ) return false;
+        )
+          return false;
       }
       return true;
     });
@@ -142,7 +182,9 @@ export default function InventoryImport() {
   const safePage = Math.min(page, totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
-  useEffect(() => { setPage(1); }, [search, pageSize, filterTipo]);
+  useEffect(() => {
+    setPage(1);
+  }, [search, pageSize, filterTipo]);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -169,7 +211,7 @@ export default function InventoryImport() {
         toast({ title: msg });
       });
       toast({
-        title: `✅ Sincronização concluída: ${result.novos} novos, ${result.ignorados} existentes.`,
+        title: `✅ Sincronização concluída: ${result.novos} novos, ${result.ignorados} atualizados.`,
         description: result.erros.length > 0 ? `${result.erros.length} erros` : undefined,
       });
       fetchProducts();
@@ -193,7 +235,7 @@ export default function InventoryImport() {
           setUnitEnrichMessage(message);
           if (total > 0) setUnitEnrichProgress(Math.round((current / total) * 100));
         },
-        () => cancelEnrichRef.current
+        () => cancelEnrichRef.current,
       );
       setUnitEnrichResult(result);
       const wasCancelled = cancelEnrichRef.current;
@@ -253,8 +295,14 @@ export default function InventoryImport() {
         const codigoPrincipal = String(row[colCodigo] ?? "").trim();
         const alternativo = String(row[colAlternativo] ?? "").trim();
 
-        if (!codigoPrincipal) { ignored++; continue; }
-        if (!alternativo) { ignored++; continue; }
+        if (!codigoPrincipal) {
+          ignored++;
+          continue;
+        }
+        if (!alternativo) {
+          ignored++;
+          continue;
+        }
 
         validRows.push({ codigoPrincipal, alternativo });
       }
@@ -264,9 +312,9 @@ export default function InventoryImport() {
 
       // Build preview (first 5 matched against catalog)
       const productMap = new Map<string, string>();
-      products.forEach(p => productMap.set(p.codigo_produto.trim().toLowerCase(), p.nome_produto));
+      products.forEach((p) => productMap.set(p.codigo_produto.trim().toLowerCase(), p.nome_produto));
 
-      const preview: ExternalCodePreview[] = validRows.slice(0, 5).map(r => {
+      const preview: ExternalCodePreview[] = validRows.slice(0, 5).map((r) => {
         const nome = productMap.get(r.codigoPrincipal.toLowerCase()) ?? null;
         return {
           codigoPrincipal: r.codigoPrincipal,
@@ -278,13 +326,16 @@ export default function InventoryImport() {
 
       // Debug: log first 10 codes from spreadsheet vs DB
       const dbCodes = Array.from(productMap.keys()).slice(0, 10);
-      const sheetCodes = validRows.slice(0, 10).map(r => r.codigoPrincipal);
+      const sheetCodes = validRows.slice(0, 10).map((r) => r.codigoPrincipal);
       console.log("=== DEBUG Código Alternativo Import ===");
       console.log("Sheet codes (first 10):", sheetCodes);
       console.log("DB codes (first 10):", dbCodes);
       console.log("Total valid rows:", validRows.length);
       console.log("Total products in DB:", products.length);
-      console.log("Match test:", sheetCodes.map(c => ({ code: c, found: productMap.has(c.toLowerCase()) })));
+      console.log(
+        "Match test:",
+        sheetCodes.map((c) => ({ code: c, found: productMap.has(c.toLowerCase()) })),
+      );
 
       setExtPreview(preview);
     } catch (err: any) {
@@ -296,8 +347,12 @@ export default function InventoryImport() {
   };
 
   // Normalize code for matching: trim, lowercase, remove invisible chars
-  const normalizeCode = (code: string) => 
-    code.trim().toLowerCase().normalize("NFC").replace(/[\u200B-\u200D\uFEFF\u00A0]/g, "");
+  const normalizeCode = (code: string) =>
+    code
+      .trim()
+      .toLowerCase()
+      .normalize("NFC")
+      .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, "");
 
   const handleExtConfirm = async () => {
     setExtImporting(true);
@@ -411,34 +466,22 @@ export default function InventoryImport() {
             <Package className="h-3.5 w-3.5" />
             {products.length} produtos
           </Badge>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={handleFile}
-          />
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
-            size="sm"
-            className="gap-2"
-          >
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
+          <Button onClick={() => fileInputRef.current?.click()} disabled={importing} size="sm" className="gap-2">
             {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             {importing ? "Importando..." : "Importar XLSX"}
           </Button>
-          <Button
-            onClick={handleSyncERP}
-            disabled={syncingERP}
-            variant="outline"
-            size="sm"
-            className="gap-2"
-          >
+          <Button onClick={handleSyncERP} disabled={syncingERP} variant="outline" size="sm" className="gap-2">
             {syncingERP ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {syncingERP ? "Sincronizando..." : "Sincronizar do ERP"}
           </Button>
           <Button
-            onClick={() => { setUnitEnrichResult(null); setUnitEnrichMessage(""); setUnitEnrichProgress(0); setUnitEnrichOpen(true); }}
+            onClick={() => {
+              setUnitEnrichResult(null);
+              setUnitEnrichMessage("");
+              setUnitEnrichProgress(0);
+              setUnitEnrichOpen(true);
+            }}
             variant="outline"
             size="sm"
             className="gap-2"
@@ -450,7 +493,10 @@ export default function InventoryImport() {
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={() => { resetExtDialog(); setExtDialogOpen(true); }}
+            onClick={() => {
+              resetExtDialog();
+              setExtDialogOpen(true);
+            }}
           >
             <FileSpreadsheet className="h-4 w-4" />
             Importar Código Alternativo (.xlsx)
@@ -483,7 +529,9 @@ export default function InventoryImport() {
               <SelectContent>
                 <SelectItem value="all">Todos os tipos</SelectItem>
                 {tipoOptions.map((t) => (
-                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -545,7 +593,10 @@ export default function InventoryImport() {
               {/* Pagination */}
               <div className="flex items-center justify-between flex-wrap gap-3 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
-                  <span>Exibindo {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, filtered.length)} de {filtered.length}</span>
+                  <span>
+                    Exibindo {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, filtered.length)} de{" "}
+                    {filtered.length}
+                  </span>
                   <span>·</span>
                   <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
                     <SelectTrigger className="h-8 w-[80px]">
@@ -553,25 +604,51 @@ export default function InventoryImport() {
                     </SelectTrigger>
                     <SelectContent>
                       {PAGE_SIZES.map((s) => (
-                        <SelectItem key={s} value={String(s)}>{s} / pág</SelectItem>
+                        <SelectItem key={s} value={String(s)}>
+                          {s} / pág
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="outline" size="icon" className="h-8 w-8" disabled={safePage <= 1} onClick={() => setPage(1)}>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage(1)}
+                  >
                     <ChevronsLeft className="h-4 w-4" />
                   </Button>
-                  <Button variant="outline" size="icon" className="h-8 w-8" disabled={safePage <= 1} onClick={() => setPage(p => p - 1)}>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
                   <span className="px-3 text-muted-foreground">
                     {safePage} / {totalPages}
                   </span>
-                  <Button variant="outline" size="icon" className="h-8 w-8" disabled={safePage >= totalPages} onClick={() => setPage(p => p + 1)}>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
                     <ChevronRight className="h-4 w-4" />
                   </Button>
-                  <Button variant="outline" size="icon" className="h-8 w-8" disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage(totalPages)}
+                  >
                     <ChevronsRight className="h-4 w-4" />
                   </Button>
                 </div>
@@ -582,12 +659,21 @@ export default function InventoryImport() {
       </Card>
 
       {/* External Code Import Dialog */}
-      <Dialog open={extDialogOpen} onOpenChange={(v) => { if (!v) { setExtDialogOpen(false); resetExtDialog(); } }}>
+      <Dialog
+        open={extDialogOpen}
+        onOpenChange={(v) => {
+          if (!v) {
+            setExtDialogOpen(false);
+            resetExtDialog();
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Importar Código Alternativo</DialogTitle>
             <DialogDescription>
-              Vincule o código alternativo aos produtos do catálogo. Usa a coluna 'Alternativo' (Col D) da exportação do ERP.
+              Vincule o código alternativo aos produtos do catálogo. Usa a coluna 'Alternativo' (Col D) da exportação do
+              ERP.
             </DialogDescription>
           </DialogHeader>
 
@@ -596,13 +682,17 @@ export default function InventoryImport() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <span><strong>{extResult.updated}</strong> produtos atualizados com código externo</span>
+                  <span>
+                    <strong>{extResult.updated}</strong> produtos atualizados com código externo
+                  </span>
                 </div>
                 {extResult.notFound.length > 0 && (
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 text-sm">
                       <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                      <span><strong>{extResult.notFound.length}</strong> não encontrados no catálogo</span>
+                      <span>
+                        <strong>{extResult.notFound.length}</strong> não encontrados no catálogo
+                      </span>
                     </div>
                     <div className="max-h-32 overflow-y-auto rounded border p-2 text-xs font-mono text-muted-foreground">
                       {extResult.notFound.join(", ")}
@@ -612,12 +702,16 @@ export default function InventoryImport() {
                 {extResult.errors > 0 && (
                   <div className="flex items-center gap-2 text-sm">
                     <AlertTriangle className="h-4 w-4 text-destructive" />
-                    <span><strong>{extResult.errors}</strong> erros ao atualizar</span>
+                    <span>
+                      <strong>{extResult.errors}</strong> erros ao atualizar
+                    </span>
                   </div>
                 )}
                 <div className="flex items-center gap-2 text-sm">
                   <Info className="h-4 w-4 text-blue-600" />
-                  <span><strong>{extResult.ignored}</strong> ignorados (grupos/estruturados)</span>
+                  <span>
+                    <strong>{extResult.ignored}</strong> ignorados (grupos/estruturados)
+                  </span>
                 </div>
                 {extResult.debug && (
                   <div className="rounded border p-2 text-xs font-mono text-muted-foreground bg-muted/50">
@@ -626,7 +720,14 @@ export default function InventoryImport() {
                 )}
               </div>
               <DialogFooter>
-                <Button onClick={() => { setExtDialogOpen(false); resetExtDialog(); }}>Fechar</Button>
+                <Button
+                  onClick={() => {
+                    setExtDialogOpen(false);
+                    resetExtDialog();
+                  }}
+                >
+                  Fechar
+                </Button>
               </DialogFooter>
             </div>
           ) : extPreview ? (
@@ -634,7 +735,12 @@ export default function InventoryImport() {
               <Alert>
                 <AlertDescription>
                   <strong>{extAllRows.length}</strong> produtos folha encontrados na planilha.
-                  {extIgnoredCount > 0 && <> <strong>{extIgnoredCount}</strong> grupos ignorados.</>}
+                  {extIgnoredCount > 0 && (
+                    <>
+                      {" "}
+                      <strong>{extIgnoredCount}</strong> grupos ignorados.
+                    </>
+                  )}
                 </AlertDescription>
               </Alert>
 
@@ -673,7 +779,13 @@ export default function InventoryImport() {
               </div>
 
               <DialogFooter className="gap-2">
-                <Button variant="outline" onClick={() => { setExtPreview(null); setExtAllRows([]); }}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setExtPreview(null);
+                    setExtAllRows([]);
+                  }}
+                >
                   Voltar
                 </Button>
                 <Button onClick={handleExtConfirm} disabled={extImporting} className="gap-2">
@@ -687,19 +799,20 @@ export default function InventoryImport() {
               <div className="text-sm text-muted-foreground space-y-1">
                 <p>Suba a planilha de exportação de produtos do ERP. O sistema irá:</p>
                 <ol className="list-decimal list-inside space-y-0.5">
-                  <li>Ler a coluna <strong>'Código Principal'</strong> (A) como chave de busca</li>
-                  <li>Ler a coluna <strong>'Alternativo'</strong> (D) como código externo</li>
-                  <li>Preencher o campo <code className="bg-muted px-1 rounded">codigo_alternativo</code> em cada produto encontrado</li>
+                  <li>
+                    Ler a coluna <strong>'Código Principal'</strong> (A) como chave de busca
+                  </li>
+                  <li>
+                    Ler a coluna <strong>'Alternativo'</strong> (D) como código externo
+                  </li>
+                  <li>
+                    Preencher o campo <code className="bg-muted px-1 rounded">codigo_alternativo</code> em cada produto
+                    encontrado
+                  </li>
                 </ol>
               </div>
 
-              <input
-                ref={extFileRef}
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={handleExtFile}
-              />
+              <input ref={extFileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExtFile} />
               <div
                 className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
                 onClick={() => extFileRef.current?.click()}
@@ -730,7 +843,8 @@ export default function InventoryImport() {
               Enriquecer Unidades de Medida
             </DialogTitle>
             <DialogDescription>
-              Busca a unidade de medida principal de cada produto ativo no ERP Alvo. Apenas produtos sem unidade cadastrada serão processados.
+              Busca a unidade de medida principal de cada produto ativo no ERP Alvo. Apenas produtos sem unidade
+              cadastrada serão processados.
             </DialogDescription>
           </DialogHeader>
 
@@ -739,8 +853,13 @@ export default function InventoryImport() {
               <div className="flex items-start gap-3">
                 <Info className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
                 <div className="text-sm text-muted-foreground space-y-1">
-                  <p>A operação faz uma chamada individual por produto ao ERP, respeitando um intervalo de 200ms entre cada.</p>
-                  <p>Para <strong>2.000+ produtos</strong>, o processo pode levar <strong>10–15 minutos</strong>.</p>
+                  <p>
+                    A operação faz uma chamada individual por produto ao ERP, respeitando um intervalo de 200ms entre
+                    cada.
+                  </p>
+                  <p>
+                    Para <strong>2.000+ produtos</strong>, o processo pode levar <strong>10–15 minutos</strong>.
+                  </p>
                 </div>
               </div>
             </div>
@@ -783,7 +902,9 @@ export default function InventoryImport() {
                   <p className="text-xs text-muted-foreground mt-1">Sem dados</p>
                 </div>
                 <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
-                  <p className={`text-2xl font-bold ${unitEnrichResult.errors > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                  <p
+                    className={`text-2xl font-bold ${unitEnrichResult.errors > 0 ? "text-destructive" : "text-muted-foreground"}`}
+                  >
                     {unitEnrichResult.errors}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">Erros</p>
@@ -792,7 +913,8 @@ export default function InventoryImport() {
               {unitEnrichResult.enriched > 0 && (
                 <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-sm text-emerald-500">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  {unitEnrichResult.enriched} produto{unitEnrichResult.enriched !== 1 ? "s" : ""} atualizado{unitEnrichResult.enriched !== 1 ? "s" : ""} com sucesso.
+                  {unitEnrichResult.enriched} produto{unitEnrichResult.enriched !== 1 ? "s" : ""} atualizado
+                  {unitEnrichResult.enriched !== 1 ? "s" : ""} com sucesso.
                 </div>
               )}
             </div>
@@ -800,7 +922,14 @@ export default function InventoryImport() {
 
           <DialogFooter>
             {unitEnriching ? (
-              <Button variant="destructive" size="sm" onClick={() => { cancelEnrichRef.current = true; }} className="gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  cancelEnrichRef.current = true;
+                }}
+                className="gap-2"
+              >
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 Cancelar
               </Button>
@@ -810,7 +939,9 @@ export default function InventoryImport() {
                 Iniciar Enriquecimento
               </Button>
             ) : (
-              <Button variant="outline" onClick={() => setUnitEnrichOpen(false)}>Fechar</Button>
+              <Button variant="outline" onClick={() => setUnitEnrichOpen(false)}>
+                Fechar
+              </Button>
             )}
           </DialogFooter>
         </DialogContent>
