@@ -26,6 +26,8 @@ import {
   RefreshCw,
   Mail,
   Boxes,
+  Wrench,
+  History,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -112,6 +114,13 @@ const intercompanySubItems = [
   { label: "Novo Reembolso NF", url: "/intercompany/reembolsos-nf/novo", icon: FileText },
 ];
 
+const ferramentasSubItems = [
+  { label: "Bulk Edit Produtos — Campos", url: "/ferramentas/bulk-edit/produtos-campos", icon: Wrench },
+  { label: "Histórico", url: "/ferramentas/bulk-edit/historico", icon: History },
+];
+
+const entidadesSubItems = [
+
 const entidadesSubItems = [
   { label: "Lista de Entidades", url: "/entidades", icon: UsersIcon },
   { label: "Upload de Códigos", url: "/entidades/upload-codigos", icon: Upload },
@@ -148,6 +157,7 @@ export function AppSidebar() {
   const isContasPagarActive = location.pathname.startsWith("/contas-a-pagar");
   const isSuprimentosActive = location.pathname.startsWith("/suprimentos");
   const isIntercompanyActive = location.pathname.startsWith("/intercompany");
+  const isFerramentasActive = location.pathname.startsWith("/ferramentas");
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -279,6 +289,28 @@ export function AppSidebar() {
                   return (
                     <div key="contaspagar-and-loans">
                       {hasAccess("contas_pagar") && renderContasPagarGroup(t, isContasPagarActive)}
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink
+                            to={item.url}
+                            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                          >
+                            <item.icon className="h-4 w-4 shrink-0" />
+                            <span>{t(item.titleKey as any)}</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    </div>
+                  );
+                }
+
+                // Insert Ferramentas expandable before Closing
+                if (item.titleKey === "nav.closing") {
+                  return (
+                    <div key="ferramentas-and-closing">
+                      {hasAccess("ferramentas_bulk_edit_produtos_campos") &&
+                        renderFerramentasGroup(t, isFerramentasActive)}
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
                           <NavLink
@@ -600,6 +632,43 @@ function renderIntercompanyGroup(t: any, isActive: boolean) {
         <CollapsibleContent>
           <SidebarMenuSub>
             {intercompanySubItems.map((sub) => (
+              <SidebarMenuSubItem key={sub.url}>
+                <SidebarMenuSubButton asChild>
+                  <NavLink
+                    to={sub.url}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                  >
+                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+function renderFerramentasGroup(_t: any, isActive: boolean) {
+  return (
+    <Collapsible defaultOpen={isActive} className="group/collapsible-ferramentas">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
+            }`}
+          >
+            <Wrench className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Ferramentas</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-ferramentas:rotate-[-90deg]" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {ferramentasSubItems.map((sub) => (
               <SidebarMenuSubItem key={sub.url}>
                 <SidebarMenuSubButton asChild>
                   <NavLink
