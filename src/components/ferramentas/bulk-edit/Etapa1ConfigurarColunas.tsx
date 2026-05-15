@@ -4,18 +4,19 @@
  * O usuário escolhe quais campos quer editar em massa via checkboxes.
  * Depois pode baixar uma planilha modelo (XLSX) pré-formatada com as
  * colunas escolhidas, contendo:
- * - Header em negrito (linha 1)
+ * - Header em negrito com background cinza (linha 1)
  * - Linha de exemplo (linha 2)
  * - Validação de dados (dropdown) em colunas enum
  * - Largura de coluna ajustada
  *
+ * Usa exceljs (não xlsx/SheetJS) porque a versão Community Edition do
+ * SheetJS não aplica estilos de célula nem data validations.
+ *
  * Não persiste nada ainda — só state local + download client-side.
- * Quando o usuário clica "Avançar", chama onAvancar com a lista de keys
- * dos campos escolhidos, que o orquestrador passa para a Etapa 2.
  */
 
 import { useState, useMemo } from "react";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,6 @@ interface Etapa1Props {
 }
 
 export function Etapa1ConfigurarColunas({ camposEscolhidos, onAvancar }: Etapa1Props) {
-  // State local: lista de keys dos campos marcados
   const [selecionados, setSelecionados] = useState<string[]>(camposEscolhidos);
 
   const podeAvancar = selecionados.length > 0;
@@ -42,33 +42,39 @@ export function Etapa1ConfigurarColunas({ camposEscolhidos, onAvancar }: Etapa1P
     setSelecionados((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   };
 
-  // Mantém a ordem dos campos conforme aparecem na whitelist (não na ordem de clique)
+  // Mantém a ordem dos campos conforme aparecem na whitelist
   const camposOrdenados = useMemo(
     () => BULK_EDIT_PRODUTO_FIELDS.filter((f) => selecionados.includes(f.key)),
     [selecionados],
   );
 
   /**
-   * Gera e baixa a planilha modelo no browser.
+   * Gera e baixa a planilha modelo no browser usando exceljs.
    * Estrutura:
-   * - Coluna A: CodigoAlternativo (fixa, identificador)
-   * - Colunas B em diante: campos escolhidos pelo usuário
-   * - Linha 1: headers
-   * - Linha 2: exemplo preenchido
-   * - Validação de dados em colunas enum (dropdown)
+   * - Aba "Bulk Edit Produtos": header em negrito com fill cinza + linha de exemplo
+   *   + data validation (dropdown) em colunas enum (vale para linhas 2-501)
+   * - Aba "Instruções": texto explicativo do preenchimento
    */
-  const baixarPlanilhaModelo = () => {
+  const baixarPlanilhaModelo = async () => {
     if (selecionados.length === 0) {
       toast.error("Selecione pelo menos um campo para gerar o modelo.");
       return;
     }
 
     try {
-      // 1. Montar headers
-      const headers = ["CodigoAlternativo", ...camposOrdenados.map((f) => f.key)];
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Hub P&F — Bulk Edit Produtos";
+      workbook.created = new Date();
 
-      // 2. Montar linha de exemplo
-      const exemploRow: any[] = ["82000085"]; // CodigoAlternativo de exemplo
+      // ─── ABA 1: Bulk Edit Produtos ────────────────────────────────
+      const ws = workbook.addWorksheet("Bulk Edit Produtos");
+
+      // 1. Headers (linha 1)
+      const headers = ["CodigoAlternativo", ...camposOrdenados.map((f) => f.key)];
+      ws.addRow(headers);
+
+      // 2. Linha de exemplo (linha 2)
+      const exemploRow: any[] = ["82000085"];
       for (const field of camposOrdenados) {
         if (field.type === "enum" && field.options && field.options.length > 0) {
           exemploRow.push(field.options[0].value);
@@ -80,86 +86,116 @@ export function Etapa1ConfigurarColunas({ camposEscolhidos, onAvancar }: Etapa1P
           exemploRow.push("valor exemplo");
         }
       }
+      ws.addRow(exemploRow);
 
-      // 3. Criar worksheet a partir de array de arrays (AOA)
-      const aoa = [headers, exemploRow];
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-      // 4. Ajustar largura das colunas
-      const colWidths = headers.map((h, idx) => {
-        if (idx === 0) return { wch: 18 }; // CodigoAlternativo
-        const field = camposOrdenados[idx - 1];
-        if (!field) return { wch: 20 };
-        if (field.type === "enum") return { wch: 25 };
-        return { wch: Math.max(20, field.maxLength ? Math.min(field.maxLength, 50) : 25) };
-      });
-      ws["!cols"] = colWidths;
-
-      // 5. Negrito no header (linha 1)
-      const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
-      for (let col = range.s.c; col <= range.e.c; col++) {
-        const cellRef = XLSX.utils.encode_cell({ r: 0, c: col });
-        if (!ws[cellRef]) continue;
-        ws[cellRef].s = {
-          font: { bold: true },
-          fill: { fgColor: { rgb: "FFE5E7EB" } },
+      // 3. Estilizar linha de header (negrito + fill cinza claro)
+      const headerRow = ws.getRow(1);
+      headerRow.eachCell((cell) => {
+        cell.font = { bold: true };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFE5E7EB" }, // cinza claro do design
         };
-      }
+        cell.alignment = { vertical: "middle", horizontal: "left" };
+        cell.border = {
+          bottom: { style: "thin", color: { argb: "FF9CA3AF" } },
+        };
+      });
 
-      // 6. Validação de dados (dropdown) para colunas enum
-      // Aplica em 500 linhas (linhas 2-501) para o usuário ter espaço
-      const dataValidations: any[] = [];
+      // 4. Larguras de coluna
+      ws.columns = headers.map((_h, idx) => {
+        if (idx === 0) return { width: 22 }; // CodigoAlternativo
+        const field = camposOrdenados[idx - 1];
+        if (!field) return { width: 25 };
+        if (field.type === "enum") return { width: 28 };
+        return {
+          width: Math.max(22, field.maxLength ? Math.min(field.maxLength, 50) : 28),
+        };
+      });
+
+      // 5. Data validations (dropdown) em colunas enum, válido para linhas 2-501
       camposOrdenados.forEach((field, idx) => {
         if (field.type === "enum" && field.options) {
-          const colIdx = idx + 1; // +1 porque a coluna A é CodigoAlternativo
-          const colLetter = XLSX.utils.encode_col(colIdx);
+          const colNum = idx + 2; // +2 porque coluna 1 = CodigoAlternativo, e exceljs é 1-indexed
+          const colLetter = numberToColumnLetter(colNum);
           const values = field.options.map((o) => o.value).join(",");
-          dataValidations.push({
-            type: "list",
-            allowBlank: true,
-            sqref: `${colLetter}2:${colLetter}501`,
-            formulas: [`"${values}"`],
-          });
+
+          for (let row = 2; row <= 501; row++) {
+            ws.getCell(`${colLetter}${row}`).dataValidation = {
+              type: "list",
+              allowBlank: true,
+              formulae: [`"${values}"`],
+              showErrorMessage: true,
+              errorStyle: "error",
+              errorTitle: "Valor inválido",
+              error: `Valores aceitos: ${values}`,
+            };
+          }
         }
       });
 
-      if (dataValidations.length > 0) {
-        (ws as any)["!dataValidation"] = dataValidations;
+      // 6. Freeze do header (linha 1 sempre visível ao rolar)
+      ws.views = [{ state: "frozen", ySplit: 1 }];
+
+      // 7. AutoFilter no header
+      ws.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: 1, column: headers.length },
+      };
+
+      // ─── ABA 2: Instruções ────────────────────────────────────────
+      const wsInstr = workbook.addWorksheet("Instruções");
+      wsInstr.columns = [{ width: 100 }];
+
+      wsInstr.addRow(["INSTRUÇÕES DE PREENCHIMENTO"]);
+      wsInstr.addRow([""]);
+      wsInstr.addRow(["1. Preencha 1 produto por linha, a partir da linha 2 (mantenha o header intacto)."]);
+      wsInstr.addRow(["2. A coluna 'CodigoAlternativo' é OBRIGATÓRIA — é como identificamos o produto no ERP."]);
+      wsInstr.addRow(["3. Deixe vazias as células dos campos que você NÃO quer alterar nesse produto."]);
+      wsInstr.addRow([
+        "4. Cada produto pode ter campos diferentes preenchidos — a planilha não precisa estar 100% preenchida.",
+      ]);
+      wsInstr.addRow([
+        "5. Para campos com valores específicos (Status, Tipo), use o dropdown que aparece ao clicar na célula.",
+      ]);
+      wsInstr.addRow([""]);
+      wsInstr.addRow(["CAMPOS NESTA PLANILHA:"]);
+      wsInstr.addRow([""]);
+
+      for (const f of camposOrdenados) {
+        let desc = `• ${f.key} — ${f.label}`;
+        if (f.type === "enum") {
+          desc += ` (valores aceitos: ${f.options?.map((o) => o.value).join(", ")})`;
+        } else if (f.maxLength) {
+          desc += ` (texto livre, máx ${f.maxLength} caracteres)`;
+        } else {
+          desc += " (texto livre)";
+        }
+        wsInstr.addRow([desc]);
       }
 
-      // 7. Criar workbook
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Bulk Edit Produtos");
+      // Negrito no título da aba de instruções
+      wsInstr.getRow(1).font = { bold: true, size: 14 };
+      wsInstr.getRow(9).font = { bold: true };
 
-      // 8. Aba de instruções
-      const instrucoes = [
-        ["INSTRUÇÕES DE PREENCHIMENTO"],
-        [""],
-        ["1. Preencha 1 produto por linha, a partir da linha 2 (mantenha o header intacto)."],
-        ["2. A coluna 'CodigoAlternativo' é OBRIGATÓRIA — é como identificamos o produto no ERP."],
-        ["3. Deixe vazias as células dos campos que você NÃO quer alterar nesse produto."],
-        ["4. Cada produto pode ter campos diferentes preenchidos — a planilha não precisa estar 100% preenchida."],
-        ["5. Para campos com valores específicos (Status, Tipo), use o dropdown que aparece ao clicar na célula."],
-        [""],
-        ["CAMPOS NESTA PLANILHA:"],
-        [""],
-        ...camposOrdenados.map((f) => [
-          `• ${f.key} — ${f.label}` +
-            (f.type === "enum"
-              ? ` (valores aceitos: ${f.options?.map((o) => o.value).join(", ")})`
-              : f.maxLength
-                ? ` (texto livre, máx ${f.maxLength} caracteres)`
-                : " (texto livre)"),
-        ]),
-      ];
-      const wsInstr = XLSX.utils.aoa_to_sheet(instrucoes);
-      wsInstr["!cols"] = [{ wch: 100 }];
-      XLSX.utils.book_append_sheet(wb, wsInstr, "Instruções");
-
-      // 9. Disparar download
+      // ─── Disparar download ────────────────────────────────────────
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
       const dataStr = format(new Date(), "yyyy-MM-dd");
       const fileName = `bulk-edit-produtos-modelo-${dataStr}.xlsx`;
-      XLSX.writeFile(wb, fileName);
+
+      // Cria link temporário e clica nele
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
       toast.success(`Planilha "${fileName}" baixada com ${camposOrdenados.length} campo(s) configurado(s).`);
     } catch (err: any) {
@@ -233,7 +269,8 @@ export function Etapa1ConfigurarColunas({ camposEscolhidos, onAvancar }: Etapa1P
         <Card className="border-emerald-500/30 bg-emerald-500/5">
           <CardContent className="p-4">
             <p className="text-sm font-medium text-foreground">
-              {selecionados.length} campo{selecionados.length !== 1 ? "s" : ""} selecionado
+              {selecionados.length} campo
+              {selecionados.length !== 1 ? "s" : ""} selecionado
               {selecionados.length !== 1 ? "s" : ""}:
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -257,4 +294,18 @@ export function Etapa1ConfigurarColunas({ camposEscolhidos, onAvancar }: Etapa1P
       </div>
     </div>
   );
+}
+
+/**
+ * Converte um número de coluna (1-indexed) em letra de coluna do Excel.
+ * 1 → A, 2 → B, ..., 26 → Z, 27 → AA, 28 → AB
+ */
+function numberToColumnLetter(num: number): string {
+  let result = "";
+  while (num > 0) {
+    const remainder = (num - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    num = Math.floor((num - 1) / 26);
+  }
+  return result;
 }
