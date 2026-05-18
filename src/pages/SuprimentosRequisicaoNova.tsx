@@ -724,9 +724,18 @@ export default function SuprimentosRequisicaoNova() {
               <Label>Descrição *</Label>
               <Textarea
                 value={descricao}
-                onChange={(e) => setDescricao(e.target.value)}
+                onChange={(e) => setDescricao(e.target.value.slice(0, 100))}
                 placeholder="Ex: Compra mensal de material de escritório"
+                maxLength={100}
               />
+              <p
+                className={cn(
+                  "text-xs text-right",
+                  descricao.length >= 100 ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {descricao.length}/100 — limite do ERP
+              </p>
             </div>
 
             <div className="space-y-2">
