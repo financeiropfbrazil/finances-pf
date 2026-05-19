@@ -743,3 +743,106 @@ export async function enriquecerUnidadesMedida(
 
   return result;
 }
+// ═════════════════════════════════════════════════════════════
+// FASE 3.3 — sincronizarMovimentosEstoque
+// ═════════════════════════════════════════════════════════════
+//
+// Adicionar este bloco em src/services/alvoEstoqueService.ts
+// (no final do arquivo, antes do EOF).
+//
+// Não precisa de imports novos — reutiliza supabase e callGatewayEstoque
+// que já existem no arquivo.
+// ═════════════════════════════════════════════════════════════
+
+// ─── Tipos públicos ───
+
+export interface SincronizarMovimentosRequest {
+  /** YYYY-MM-DD, obrigatório. Não pode ser anterior a 2024-08-01. */
+  dataInicial: string;
+  /** YYYY-MM-DD, opcional. Default: dataInicial (1 dia). */
+  dataFinal?: string;
+}
+
+export interface SincronizarMovimentosResponse {
+  summary: {
+    dias_solicitados: number;
+    dias_processados: number;
+    dias_ok: number;
+    dias_sem_movimento: number;
+    dias_falha_permanente: number;
+    dia_falha_auth: string | null;
+    chaves_listadas: number;
+    chaves_importadas: number;
+    chaves_falhadas: number;
+    elapsed_ms: number;
+    parado_por_auth: boolean;
+    parado_por_watchdog: boolean;
+  };
+  falhas: Array<{
+    data: string;
+    status: string;
+    erro: string;
+  }>;
+}
+
+/**
+ * Sincroniza movimentos de estoque do Alvo numa janela de datas.
+ *
+ * Chama a rota /estoque/sync-batch do erp-proxy, que:
+ *   - Lista chaves de MovEstq por dia (filtra ControlaEstoque=Sim)
+ *   - Carrega cada movimento via MovEstq/Load
+ *   - UPSERT em stock_movimentacoes_cabecalho/itens/lotes/seriais
+ *   - Atualiza stock_dias_capturados com status (OK/SEM_MOVIMENTO/FALHA_*)
+ *
+ * Limitações:
+ *   - Render timeout = 100s. Rota tem watchdog interno em 80s.
+ *   - Para janelas grandes (>14 dias), pode retornar parcial — chame de novo
+ *     pra continuar (dias PENDENTE são re-processados, dias OK são pulados
+ *     pela trava de status, sem reprocessar).
+ *   - Se senha do Alvo expirar (FALHA_AUTH), para imediato e envia email
+ *     pra pedro.scrignoli@pfbrazil.com.br.
+ *
+ * Uso típico:
+ *   // Sincronizar 1 dia específico
+ *   const r = await sincronizarMovimentosEstoque({ dataInicial: "2024-08-03" });
+ *
+ *   // Sincronizar últimos 14 dias (janela de catch-up)
+ *   const hoje = new Date().toISOString().slice(0, 10);
+ *   const inicio = new Date(Date.now() - 14*24*60*60*1000).toISOString().slice(0, 10);
+ *   const r = await sincronizarMovimentosEstoque({ dataInicial: inicio, dataFinal: hoje });
+ *
+ *   // Captura inicial (chame em loop com janelas de 5 dias pra não estourar timeout)
+ *   for (let d = "2024-08-01"; d <= hoje; d = somar5Dias(d)) {
+ *     await sincronizarMovimentosEstoque({
+ *       dataInicial: d,
+ *       dataFinal: somar4Dias(d),  // janela de 5 dias
+ *     });
+ *   }
+ *
+ * @throws Error com mensagem do gateway se a chamada falhar (timeout, 5xx, etc).
+ *         Erros de dia individual NÃO levantam exceção — vão pro summary.falhas.
+ */
+export async function sincronizarMovimentosEstoque(
+  request: SincronizarMovimentosRequest,
+): Promise<SincronizarMovimentosResponse> {
+  // Validação client-side antes de chamar o gateway
+  if (!request.dataInicial || !/^\d{4}-\d{2}-\d{2}$/.test(request.dataInicial)) {
+    throw new Error(`dataInicial obrigatória no formato YYYY-MM-DD. Recebido: "${request.dataInicial}"`);
+  }
+  if (request.dataInicial < "2024-08-01") {
+    throw new Error(`dataInicial ${request.dataInicial} é anterior à implantação do Alvo (2024-08-01).`);
+  }
+  if (request.dataFinal && !/^\d{4}-\d{2}-\d{2}$/.test(request.dataFinal)) {
+    throw new Error(`dataFinal formato YYYY-MM-DD. Recebido: "${request.dataFinal}"`);
+  }
+  if (request.dataFinal && request.dataFinal < request.dataInicial) {
+    throw new Error(`dataFinal (${request.dataFinal}) anterior a dataInicial (${request.dataInicial}).`);
+  }
+
+  const body: SincronizarMovimentosRequest = {
+    dataInicial: request.dataInicial,
+  };
+  if (request.dataFinal) body.dataFinal = request.dataFinal;
+
+  return await callGatewayEstoque("/estoque/sync-batch", body);
+}
