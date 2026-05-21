@@ -6,6 +6,10 @@ import type {
   CriarReembolsoResult,
   EmitInvGatewayResponse,
   RateioCC,
+  CriarReembolsoManualInput,
+  CriarReembolsoManualResult,
+  EmitInvManualGatewayResponse,
+  BlocoManualInput,
 } from "@/types/intercompany";
 
 const GATEWAY_URL = "https://erp-proxy.onrender.com";
@@ -27,6 +31,10 @@ function getAccessToken(): string | null {
   return null;
 }
 
+// ═════════════════════════════════════════════════════════════
+// Funções compartilhadas (sugestão + classes)
+// ═════════════════════════════════════════════════════════════
+
 export async function buscarSugestaoNumero(ano?: number): Promise<SugestaoNumeroInvoice> {
   const { data, error } = await (supabase as any).rpc("sugerir_proximo_numero_invoice", {
     p_ano: ano ?? null,
@@ -45,13 +53,16 @@ export async function listarClassesPorTipo(
   return (data ?? []) as ClasseIntercompanyOption[];
 }
 
+// ═════════════════════════════════════════════════════════════
+// Frente 3 — Reembolso vinculado a NFs (PRESERVADO)
+// ═════════════════════════════════════════════════════════════
+
 /**
  * Cria invoice de reembolso na master (status='rascunho').
  * Persiste 1-5 rateios de CC na tabela intercompany_invoices_master_rateios.
  * Não chama o ERP Alvo — isso é feito por emitirReembolsoNoAlvo.
  */
 export async function criarRascunhoReembolso(input: CriarReembolsoInput): Promise<CriarReembolsoResult> {
-  // Sanitiza rateios pro formato esperado pela RPC: [{cc, percentual}]
   const rateiosPayload = input.rateios_cc.map((r) => ({
     cc: r.centro_custo_erp_code,
     percentual: r.percentual,
@@ -72,8 +83,7 @@ export async function criarRascunhoReembolso(input: CriarReembolsoInput): Promis
 }
 
 /**
- * Emite o reembolso no ERP Alvo via gateway.
- * Espera que o invoice já exista no master (criado por criarRascunhoReembolso).
+ * Emite o reembolso no ERP Alvo via gateway (Frente 3 antiga).
  */
 export async function emitirReembolsoNoAlvo(params: {
   master_id: string;
@@ -81,7 +91,7 @@ export async function emitirReembolsoNoAlvo(params: {
   numero_sequencial: string;
   descricao_rica: string;
   classe_codigo: string;
-  rateios_cc: RateioCC[]; // ✅ NOVO: substitui centro_custo_erp_code único
+  rateios_cc: RateioCC[];
   cambio_eur_brl: number;
   valor_eur: number;
   valor_brl: number;
@@ -124,6 +134,100 @@ export async function atualizarStatusEmissao(
 export async function cancelarRascunho(master_id: string) {
   const { data, error } = await (supabase as any).rpc("cancelar_rascunho_reembolso", {
     p_master_id: master_id,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+// ═════════════════════════════════════════════════════════════
+// Frente 4 — Reembolso Manual (NOVO)
+// ═════════════════════════════════════════════════════════════
+
+/**
+ * Cria invoice de Reembolso Manual no Hub (status='rascunho').
+ * Persiste master + N blocos contábeis + rateios CC por bloco.
+ * Não chama o ERP Alvo — isso é feito por emitirReembolsoManualNoAlvo.
+ */
+export async function criarRascunhoReembolsoManual(
+  input: CriarReembolsoManualInput,
+): Promise<CriarReembolsoManualResult> {
+  // Sanitiza blocos pro formato esperado pela RPC: [{classe, konto_at, valor_eur, rateios:[{cc, pct}]}]
+  const blocosPayload = input.blocos.map((b) => ({
+    classe: b.classe_codigo,
+    konto_at: b.konto_austria_numero,
+    valor_eur: b.valor_eur,
+    rateios: b.rateios.map((r) => ({
+      cc: r.centro_custo_erp_code,
+      pct: r.percentual,
+    })),
+  }));
+
+  const { data, error } = await (supabase as any).rpc("criar_invoice_reembolso_manual", {
+    p_numero_invoice: input.numero_invoice,
+    p_descricao_observacao: input.descricao_observacao,
+    p_description_pdf: input.description_pdf,
+    p_cambio_eur_brl: input.cambio_eur_brl,
+    p_markup_aplicado: input.markup_aplicado,
+    p_valor_eur_service_fee: input.valor_eur_service_fee,
+    p_valor_eur_total: input.valor_eur_total,
+    p_observacoes_internas: input.observacoes_internas ?? null,
+    p_blocos: blocosPayload,
+  });
+  if (error) throw new Error(error.message);
+  return data as CriarReembolsoManualResult;
+}
+
+/**
+ * Emite o Reembolso Manual no ERP Alvo via gateway.
+ * Gateway cuida de: criar DocFin no Alvo + gerar PDF + anexar PDF no Alvo + subir Storage.
+ */
+export async function emitirReembolsoManualNoAlvo(params: {
+  master_id: string;
+  numero_invoice: string;
+  numero_sequencial: number;
+  ano: number;
+  descricao_observacao: string;
+  description_pdf: string;
+  cambio_eur_brl: number;
+  valor_eur_total: number; // grand total (com markup se aplicado)
+  valor_brl: number;
+  markup_aplicado: boolean;
+  valor_eur_service_fee: number;
+  valor_eur_other_expenses: number;
+  blocos: BlocoManualInput[];
+}): Promise<EmitInvManualGatewayResponse> {
+  const token = getAccessToken();
+  const today = new Date().toISOString().slice(0, 10);
+  const body = {
+    ...params,
+    codigo_indicador_economico: "0000003", // sempre EUR pra reembolso intercompany
+    data_emissao: today,
+  };
+  const resp = await fetch(`${GATEWAY_URL}/intercompany/emit-inv-manual`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token ?? ""}`,
+    },
+    body: JSON.stringify(body),
+  });
+  return (await resp.json()) as EmitInvManualGatewayResponse;
+}
+
+/**
+ * Atualiza status do master após emit no Alvo.
+ */
+export async function atualizarStatusEmissaoManual(
+  master_id: string,
+  sucesso: boolean,
+  chave_alvo?: number,
+  motivo?: string,
+) {
+  const { data, error } = await (supabase as any).rpc("atualizar_emissao_reembolso_manual", {
+    p_master_id: master_id,
+    p_chave_docfin_alvo: chave_alvo ?? null,
+    p_status: sucesso ? "emitida_alvo" : "erro_emissao",
+    p_status_motivo: motivo ?? null,
   });
   if (error) throw new Error(error.message);
   return data;
