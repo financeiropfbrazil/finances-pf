@@ -325,9 +325,30 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
-        <Route path="/intercompany/master" element={<IntercompanyMaster />} />
-        <Route path="/intercompany/reembolsos/novo" element={<ReembolsoNovo />} />
-        <Route path="/intercompany/reembolsos-nf/novo" element={<NovoReembolsoNF />} />
+        <Route
+          path="/intercompany/master"
+          element={
+            <PermissionRoute permKey="intercompany">
+              <IntercompanyMaster />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/intercompany/reembolsos/novo"
+          element={
+            <PermissionRoute permKey="intercompany">
+              <ReembolsoNovo />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/intercompany/reembolsos-nf/novo"
+          element={
+            <PermissionRoute permKey="intercompany">
+              <NovoReembolsoNF />
+            </PermissionRoute>
+          }
+        />
         <Route
           path="/contas-a-pagar"
           element={
