@@ -371,6 +371,12 @@ export default function SuprimentosPedidoNovo() {
     if (itemRateio.some((c) => !c.codigo_classe_rec_desp)) {
       return { ok: false, erro: "Todas as classes precisam ser preenchidas" };
     }
+    if (itemRateio.some((c) => c.percentual <= 0)) {
+      return {
+        ok: false,
+        erro: "Toda classe precisa ter percentual maior que zero. Remova classes não usadas.",
+      };
+    }
     const somaClasses = itemRateio.reduce((s, c) => s + c.percentual, 0);
     if (Math.abs(somaClasses - 100) > 0.01) {
       return { ok: false, erro: `Soma das classes = ${somaClasses.toFixed(2)}% (deve ser 100%)` };
@@ -381,6 +387,12 @@ export default function SuprimentosPedidoNovo() {
       }
       if (c.ccs.some((cc) => !cc.codigo_centro_ctrl)) {
         return { ok: false, erro: `Classe ${c.codigo_classe_rec_desp}: todos os CCs precisam ser selecionados` };
+      }
+      if (c.ccs.some((cc) => cc.percentual <= 0)) {
+        return {
+          ok: false,
+          erro: `Classe ${c.codigo_classe_rec_desp}: todo CC precisa ter percentual maior que zero. Remova CCs não usados.`,
+        };
       }
       const somaCcs = c.ccs.reduce((s, cc) => s + cc.percentual, 0);
       if (Math.abs(somaCcs - 100) > 0.01) {
