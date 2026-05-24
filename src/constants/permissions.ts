@@ -52,6 +52,7 @@ export const PERMISSIONS = {
   FERRAMENTAS_ACCESS: "ferramentas.access",
   FERRAMENTAS_BULK_EDIT_EXECUTE: "ferramentas.bulk_edit.execute",
   FERRAMENTAS_BULK_EDIT_RESTORE: "ferramentas.bulk_edit.restore",
+  FERRAMENTAS_CRON_VIEW: "ferramentas.cron.view",
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
