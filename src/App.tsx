@@ -53,6 +53,7 @@ import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
 import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
 import SuprimentosPedidos from "./pages/SuprimentosPedidos";
+import SuprimentosPedidoNovo from "./pages/SuprimentosPedidoNovo";
 import ReembolsoNovo from "./pages/intercompany/ReembolsoNovo";
 import IntercompanyMaster from "./pages/intercompany/IntercompanyMaster";
 import NovoReembolsoNF from "./pages/intercompany/NovoReembolsoNF";
@@ -284,6 +285,14 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="suprimentos_pedidos">
               <SuprimentosPedidos />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/suprimentos/pedidos/novo"
+          element={
+            <PermissionRoute permKey="suprimentos_pedidos">
+              <SuprimentosPedidoNovo />
             </PermissionRoute>
           }
         />
