@@ -57,6 +57,7 @@ import IntercompanyMaster from "./pages/intercompany/IntercompanyMaster";
 import NovoReembolsoNF from "./pages/intercompany/NovoReembolsoNF";
 import BulkEditProdutosCampos from "./pages/ferramentas/BulkEditProdutosCampos";
 import BulkEditHistorico from "./pages/ferramentas/BulkEditHistorico";
+import CronReqDashboard from "./pages/ferramentas/CronReqDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -465,10 +466,10 @@ function AppRoutes() {
           }
         />
         <Route
-          path="/ferramentas/bulk-edit/historico"
+          path="/ferramentas/cron-req"
           element={
-            <PermissionRoute permKey="ferramentas_bulk_edit_produtos_campos">
-              <BulkEditHistorico />
+            <PermissionRoute permKey="ferramentas_cron_req">
+              <CronReqDashboard />
             </PermissionRoute>
           }
         />
