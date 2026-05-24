@@ -230,48 +230,21 @@ export default function SuprimentosPedidoNovo() {
         setCnpjSugeridoDaReq(cloneResult.cnpj_sugerido);
 
         const itensClonados: ItemWizard[] = cloneResult.itens_clonados.map((ic, idx) => {
-          // Cada classe sugerida da Req vira UMA classe no rateio do Pedido,
-          // com 1 CC dentro (do item da Req) com 100% interno.
-          const classesPorCodigo = new Map<string, RateioClasseWizard>();
-          for (const r of ic.rateio_sugerido) {
-            const existing = classesPorCodigo.get(r.codigo_classe_rec_desp);
-            if (existing) {
-              // Já existe a classe — adiciona um novo CC nela.
-              // (caso raro: req com mesma classe em CCs diferentes — virou rateio agregado)
-              existing.ccs.push({
-                tempCcId: `cc-${Date.now()}-${Math.random()}`,
-                codigo_centro_ctrl: r.codigo_centro_ctrl,
-                centro_ctrl_label: r.centro_ctrl_label,
-                percentual: 100, // será recalculado abaixo
-              });
-            } else {
-              classesPorCodigo.set(r.codigo_classe_rec_desp, {
-                tempClasseId: `cls-${Date.now()}-${Math.random()}-${idx}`,
-                codigo_classe_rec_desp: r.codigo_classe_rec_desp,
-                classe_rec_desp_label: r.classe_rec_desp_label,
-                percentual: r.percentual,
-                ccs: [
-                  {
-                    tempCcId: `cc-${Date.now()}-${Math.random()}`,
-                    codigo_centro_ctrl: r.codigo_centro_ctrl,
-                    centro_ctrl_label: r.centro_ctrl_label,
-                    percentual: 100, // único CC = 100%
-                  },
-                ],
-              });
-            }
-          }
-
-          // Se alguma classe ficou com múltiplos CCs, divide igualmente
-          for (const classe of classesPorCodigo.values()) {
-            if (classe.ccs.length > 1) {
-              const base = Math.floor((100 / classe.ccs.length) * 100) / 100;
-              const ult = round2(100 - base * (classe.ccs.length - 1));
-              classe.ccs.forEach((cc, i) => {
-                cc.percentual = i === classe.ccs.length - 1 ? ult : base;
-              });
-            }
-          }
+          // rateio_sugerido já vem hierárquico do service:
+          // [{ codigo_classe_rec_desp, percentual, ccs: [{ codigo_centro_ctrl, percentual }] }]
+          // Só precisamos adicionar os tempIds pra controle do estado React.
+          const rateioComIds: RateioClasseWizard[] = ic.rateio_sugerido.map((cls, clsIdx) => ({
+            tempClasseId: `cls-${Date.now()}-${Math.random()}-${idx}-${clsIdx}`,
+            codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
+            classe_rec_desp_label: cls.classe_rec_desp_label,
+            percentual: cls.percentual,
+            ccs: cls.ccs.map((cc, ccIdx) => ({
+              tempCcId: `cc-${Date.now()}-${Math.random()}-${idx}-${clsIdx}-${ccIdx}`,
+              codigo_centro_ctrl: cc.codigo_centro_ctrl,
+              centro_ctrl_label: cc.centro_ctrl_label,
+              percentual: cc.percentual,
+            })),
+          }));
 
           return {
             tempId: `tmp-${Date.now()}-${Math.random()}-${idx}`,
@@ -284,7 +257,7 @@ export default function SuprimentosPedidoNovo() {
             quantidade: ic.quantidade,
             valor_unitario: 0, // ⚠️ valor unitário precisa ser preenchido pelo analista
             observacao: ic.observacao,
-            rateio: Array.from(classesPorCodigo.values()),
+            rateio: rateioComIds,
           };
         });
 
