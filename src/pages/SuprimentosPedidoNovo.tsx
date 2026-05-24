@@ -14,6 +14,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Calendar } from "@/components/ui/calendar";
+import { format, addDays, startOfMonth } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import {
   ArrowLeft,
   ArrowRight,
@@ -28,6 +31,8 @@ import {
   Loader2,
   X,
   Construction,
+  Calendar as CalendarIcon,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -171,6 +176,26 @@ export default function SuprimentosPedidoNovo() {
   const [condPagSearch, setCondPagSearch] = useState("");
 
   const [tipoEntrega, setTipoEntrega] = useState<"Parcial" | "Total">("Total");
+
+  // ── Etapa 3: Datas ──────────────────────────────────────
+  // Default: DataPedido = hoje
+  // DataEntrega = hoje + 30 dias
+  // DataValidade = hoje + 60 dias
+  // DataCompetencia = primeiro dia do mês de DataPedido (derivado, não editável)
+  const hoje = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const [dataPedido, setDataPedido] = useState<Date>(hoje);
+  const [dataEntrega, setDataEntrega] = useState<Date>(addDays(hoje, 30));
+  const [dataValidade, setDataValidade] = useState<Date>(addDays(hoje, 60));
+
+  // Popovers dos calendários
+  const [dataPedidoPopoverOpen, setDataPedidoPopoverOpen] = useState(false);
+  const [dataEntregaPopoverOpen, setDataEntregaPopoverOpen] = useState(false);
+  const [dataValidadePopoverOpen, setDataValidadePopoverOpen] = useState(false);
 
   // ── Modal de item ────────────────────────────────────────
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
@@ -698,6 +723,41 @@ export default function SuprimentosPedidoNovo() {
   // Pode avançar Etapa 2?
   const canAdvanceFromEtapa2 = !!codigoEntidade && !!codigoCondPag && !!tipoEntrega;
 
+  // ── Etapa 3: derivações + validações ───────────────────
+  // DataCompetência = primeiro dia do mês da DataPedido (regra fixa, não editável)
+  const dataCompetencia = useMemo(() => startOfMonth(dataPedido), [dataPedido]);
+
+  const validarDatas = (): string | null => {
+    if (dataEntrega < dataPedido) {
+      return "Data da Entrega não pode ser anterior à Data do Pedido";
+    }
+    if (dataValidade < dataPedido) {
+      return "Data da Validade não pode ser anterior à Data do Pedido";
+    }
+    if (dataValidade < dataEntrega) {
+      return "Data da Validade não pode ser anterior à Data da Entrega";
+    }
+    return null;
+  };
+
+  const erroDatas = useMemo(() => validarDatas(), [dataPedido, dataEntrega, dataValidade]);
+  const canAdvanceFromEtapa3 = !erroDatas;
+
+  // Detecta se as datas atuais correspondem ao "padrão sugerido" (hoje / +30 / +60)
+  const datasNoPadrao = useMemo(() => {
+    const sameDay = (a: Date, b: Date) =>
+      a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    return (
+      sameDay(dataPedido, hoje) && sameDay(dataEntrega, addDays(hoje, 30)) && sameDay(dataValidade, addDays(hoje, 60))
+    );
+  }, [dataPedido, dataEntrega, dataValidade, hoje]);
+
+  const resetarDatasParaPadrao = () => {
+    setDataPedido(hoje);
+    setDataEntrega(addDays(hoje, 30));
+    setDataValidade(addDays(hoje, 60));
+  };
+
   const valorTotalItemModal = useMemo(() => {
     const q = parseDecimal(itemQtd);
     const v = parseDecimal(itemValorUnit);
@@ -1033,8 +1093,152 @@ export default function SuprimentosPedidoNovo() {
         </Card>
       )}
 
-      {/* Etapas 3-5: placeholder */}
-      {currentStep >= 3 && currentStep <= 5 && (
+      {/* Etapa 3: Datas */}
+      {currentStep === 3 && (
+        <Card>
+          <CardContent className="pt-6 space-y-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Datas do Pedido</h2>
+                <p className="text-sm text-muted-foreground">
+                  Datas sugeridas automaticamente. Você pode editar conforme necessário.
+                </p>
+              </div>
+              {!datasNoPadrao && (
+                <Button variant="outline" size="sm" onClick={resetarDatasParaPadrao} className="gap-1.5 shrink-0">
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Voltar aos valores sugeridos
+                </Button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Data do Pedido */}
+              <div className="space-y-2">
+                <Label>Data do Pedido *</Label>
+                <Popover open={dataPedidoPopoverOpen} onOpenChange={setDataPedidoPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {format(dataPedido, "dd/MM/yyyy", { locale: ptBR })}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={dataPedido}
+                      onSelect={(d) => {
+                        if (d) {
+                          setDataPedido(d);
+                          setDataPedidoPopoverOpen(false);
+                        }
+                      }}
+                      initialFocus
+                      className={cn("p-3 pointer-events-auto")}
+                      locale={ptBR}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <p className="text-[11px] text-muted-foreground">Data oficial de emissão do pedido. Default: hoje.</p>
+              </div>
+
+              {/* Data da Competência (derivada) */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  Data da Competência
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    automática
+                  </Badge>
+                </Label>
+                <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 h-10">
+                  <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">{format(dataCompetencia, "dd/MM/yyyy", { locale: ptBR })}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Primeiro dia do mês da Data do Pedido. Não editável.
+                </p>
+              </div>
+
+              {/* Data da Entrega */}
+              <div className="space-y-2">
+                <Label>Data da Entrega *</Label>
+                <Popover open={dataEntregaPopoverOpen} onOpenChange={setDataEntregaPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {format(dataEntrega, "dd/MM/yyyy", { locale: ptBR })}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={dataEntrega}
+                      onSelect={(d) => {
+                        if (d) {
+                          setDataEntrega(d);
+                          setDataEntregaPopoverOpen(false);
+                        }
+                      }}
+                      disabled={(d) => d < dataPedido}
+                      initialFocus
+                      className={cn("p-3 pointer-events-auto")}
+                      locale={ptBR}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <p className="text-[11px] text-muted-foreground">
+                  Quando o fornecedor deve entregar. Default: pedido + 30 dias.
+                </p>
+              </div>
+
+              {/* Data da Validade */}
+              <div className="space-y-2">
+                <Label>Data da Validade *</Label>
+                <Popover open={dataValidadePopoverOpen} onOpenChange={setDataValidadePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {format(dataValidade, "dd/MM/yyyy", { locale: ptBR })}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={dataValidade}
+                      onSelect={(d) => {
+                        if (d) {
+                          setDataValidade(d);
+                          setDataValidadePopoverOpen(false);
+                        }
+                      }}
+                      disabled={(d) => d < dataPedido || d < dataEntrega}
+                      initialFocus
+                      className={cn("p-3 pointer-events-auto")}
+                      locale={ptBR}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <p className="text-[11px] text-muted-foreground">
+                  Até quando o preço é válido. Default: pedido + 60 dias.
+                </p>
+              </div>
+            </div>
+
+            {/* Mensagem de validação */}
+            {erroDatas && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                <p className="text-sm text-destructive flex items-center gap-2">
+                  <X className="h-4 w-4 shrink-0" />
+                  {erroDatas}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Etapas 4-5: placeholder */}
+      {currentStep >= 4 && currentStep <= 5 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Construction className="h-12 w-12 mb-3 opacity-40" />
@@ -1064,16 +1268,19 @@ export default function SuprimentosPedidoNovo() {
             disabled={
               (currentStep === 1 && !canAdvanceFromEtapa1) ||
               (currentStep === 2 && !canAdvanceFromEtapa2) ||
-              currentStep >= 3
+              (currentStep === 3 && !canAdvanceFromEtapa3) ||
+              currentStep >= 4
             }
             title={
               currentStep === 1 && !canAdvanceFromEtapa1
                 ? "Adicione ao menos um item"
                 : currentStep === 2 && !canAdvanceFromEtapa2
                   ? "Selecione fornecedor e condição de pagamento"
-                  : currentStep >= 3
-                    ? "Próxima etapa em construção"
-                    : undefined
+                  : currentStep === 3 && !canAdvanceFromEtapa3
+                    ? erroDatas || "Corrija as datas"
+                    : currentStep >= 4
+                      ? "Próxima etapa em construção"
+                      : undefined
             }
           >
             Próximo <ArrowRight className="ml-2 h-4 w-4" />
