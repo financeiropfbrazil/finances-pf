@@ -151,9 +151,9 @@ export default function CronReqDashboard() {
   const statusQuery = useQuery({
     queryKey: ["cron_status"],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("sync_cron_get_status");
+      const { data, error } = await supabase.rpc("sync_cron_get_status" as never);
       if (error) throw error;
-      return data as CronStatus;
+      return data as unknown as CronStatus;
     },
     enabled: podeAcessar,
     refetchInterval: 30_000,
@@ -163,12 +163,12 @@ export default function CronReqDashboard() {
   const runsQuery = useQuery({
     queryKey: ["cron_runs", 20],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("sync_cron_list_runs", {
+      const { data, error } = await supabase.rpc("sync_cron_list_runs" as never, {
         p_limit: 20,
         p_offset: 0,
-      });
+      } as never);
       if (error) throw error;
-      return (data || []) as RunRow[];
+      return (data || []) as unknown as RunRow[];
     },
     enabled: podeAcessar,
   });
@@ -178,11 +178,11 @@ export default function CronReqDashboard() {
     queryKey: ["cron_run_detail", selectedRunId],
     queryFn: async () => {
       if (!selectedRunId) return null;
-      const { data, error } = await supabase.rpc("sync_cron_get_run_detail", {
+      const { data, error } = await supabase.rpc("sync_cron_get_run_detail" as never, {
         p_run_id: selectedRunId,
-      });
+      } as never);
       if (error) throw error;
-      return data as RunDetail;
+      return data as unknown as RunDetail;
     },
     enabled: !!selectedRunId,
   });
@@ -190,7 +190,7 @@ export default function CronReqDashboard() {
   // Mutations
   const pauseMutation = useMutation({
     mutationFn: async (reason: string) => {
-      const { data, error } = await supabase.rpc("sync_cron_pause", { p_reason: reason });
+      const { data, error } = await supabase.rpc("sync_cron_pause" as never, { p_reason: reason } as never);
       if (error) throw error;
       return data;
     },
@@ -205,7 +205,7 @@ export default function CronReqDashboard() {
 
   const resumeMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.rpc("sync_cron_resume");
+      const { data, error } = await supabase.rpc("sync_cron_resume" as never);
       if (error) throw error;
       return data;
     },
@@ -218,7 +218,7 @@ export default function CronReqDashboard() {
 
   const triggerMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.rpc("sync_cron_trigger_now");
+      const { data, error } = await supabase.rpc("sync_cron_trigger_now" as never);
       if (error) throw error;
       return data;
     },
