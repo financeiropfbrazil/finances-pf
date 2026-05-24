@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.hub-reset-user-password]
 verify_jwt = false
+
+[functions.sync-compras-status-cron]
+verify_jwt = false
