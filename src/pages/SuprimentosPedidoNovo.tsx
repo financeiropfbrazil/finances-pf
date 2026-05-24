@@ -2,7 +2,14 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { enviarPedido, clonarDeRequisicao, type NovoPedidoInput } from "@/services/pedidosService";
+import {
+  enviarPedido,
+  clonarDeRequisicao,
+  calcularParcelas,
+  type NovoPedidoInput,
+  type ParcelaInput,
+  type ArquivoInput,
+} from "@/services/pedidosService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,6 +40,11 @@ import {
   Construction,
   Calendar as CalendarIcon,
   RotateCcw,
+  Paperclip,
+  FileText,
+  Image as ImageIcon,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -196,6 +208,24 @@ export default function SuprimentosPedidoNovo() {
   const [dataPedidoPopoverOpen, setDataPedidoPopoverOpen] = useState(false);
   const [dataEntregaPopoverOpen, setDataEntregaPopoverOpen] = useState(false);
   const [dataValidadePopoverOpen, setDataValidadePopoverOpen] = useState(false);
+
+  // ── Etapa 4: Parcelas + Anexos ──────────────────────────
+  // Parcelas: calculadas automaticamente ao entrar na etapa
+  // Usuário pode editar valor, data, dias entre parcelas (Abordagem B)
+  const [parcelas, setParcelas] = useState<ParcelaInput[]>([]);
+  const [calculandoParcelas, setCalculandoParcelas] = useState(false);
+  const [erroCalculoParcelas, setErroCalculoParcelas] = useState<string | null>(null);
+  const [parcelasEditadasManualmente, setParcelasEditadasManualmente] = useState(false);
+
+  // Popovers de data dentro da tabela de parcelas
+  const [parcelaDatePopoverOpen, setParcelaDatePopoverOpen] = useState<number | null>(null);
+
+  // Anexos: até 3 PDF/JPG/PNG, max 5MB cada
+  const [arquivos, setArquivos] = useState<ArquivoInput[]>([]);
+  const MAX_ARQUIVOS = 3;
+  const MAX_TAMANHO_MB = 5;
+  const MAX_TAMANHO_BYTES = MAX_TAMANHO_MB * 1024 * 1024;
+  const MIME_TYPES_ACEITOS = ["application/pdf", "image/jpeg", "image/png"];
 
   // ── Modal de item ────────────────────────────────────────
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
@@ -758,6 +788,143 @@ export default function SuprimentosPedidoNovo() {
     setDataValidade(addDays(hoje, 60));
   };
 
+  // ════════════════════════════════════════════════════════
+  // ETAPA 4: Parcelas + Anexos — Handlers
+  // ════════════════════════════════════════════════════════
+
+  // Recalcula parcelas do zero (chama service)
+  const recalcularParcelas = async () => {
+    if (!codigoCondPag) {
+      setErroCalculoParcelas("Condição de pagamento não selecionada (volte à Etapa 2).");
+      return;
+    }
+    if (valorTotalPedido <= 0) {
+      setErroCalculoParcelas("Valor total do pedido é zero. Defina valores unitários dos itens.");
+      return;
+    }
+    setCalculandoParcelas(true);
+    setErroCalculoParcelas(null);
+    try {
+      const dataBaseYMD = format(dataPedido, "yyyy-MM-dd");
+      const parcelasCalculadas = await calcularParcelas(codigoCondPag, valorTotalPedido, dataBaseYMD);
+      setParcelas(parcelasCalculadas);
+      setParcelasEditadasManualmente(false);
+    } catch (err: any) {
+      setErroCalculoParcelas(err?.message || "Erro ao calcular parcelas.");
+      setParcelas([]);
+    } finally {
+      setCalculandoParcelas(false);
+    }
+  };
+
+  // Dispara o cálculo automático ao entrar na Etapa 4 pela primeira vez
+  // (ou se mudou CondPag/valor após já ter calculado)
+  useEffect(() => {
+    if (currentStep !== 4) return;
+    if (parcelasEditadasManualmente) return; // não sobrescreve edições manuais
+    if (!codigoCondPag || valorTotalPedido <= 0) return;
+    // Recalcula se ainda não tem parcelas OU se valor/condpag/data mudou
+    recalcularParcelas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep, codigoCondPag, valorTotalPedido, dataPedido]);
+
+  const atualizarParcela = (idx: number, patch: Partial<ParcelaInput>) => {
+    setParcelas((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+    setParcelasEditadasManualmente(true);
+  };
+
+  const removerParcela = (idx: number) => {
+    setParcelas((prev) => prev.filter((_, i) => i !== idx));
+    setParcelasEditadasManualmente(true);
+  };
+
+  const adicionarParcelaManual = () => {
+    const ultima = parcelas[parcelas.length - 1];
+    const novaSeq = parcelas.length + 1;
+    const novaData = ultima
+      ? format(addDays(new Date(`${ultima.data_vencimento}T03:00:00.000Z`), 30), "yyyy-MM-dd")
+      : format(addDays(dataPedido, 30), "yyyy-MM-dd");
+    setParcelas((prev) => [
+      ...prev,
+      {
+        sequencia: novaSeq,
+        dias_entre_parcelas: 30,
+        percentual_fracao: prev.length + 1,
+        valor_parcela: 0,
+        data_vencimento: novaData,
+      },
+    ]);
+    setParcelasEditadasManualmente(true);
+  };
+
+  const somaParcelas = useMemo(() => round2(parcelas.reduce((s, p) => s + p.valor_parcela, 0)), [parcelas]);
+
+  const parcelasValorOk = parcelas.length > 0 && Math.abs(somaParcelas - valorTotalPedido) <= 0.01;
+
+  // ── Handlers de anexos (espelho da Req) ─────────────────
+
+  const handleSelecionarArquivos = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const disponiveis = MAX_ARQUIVOS - arquivos.length;
+    if (files.length > disponiveis) {
+      toast({
+        title: "Limite excedido",
+        description: `Você pode anexar no máximo ${MAX_ARQUIVOS} arquivos. Restam ${disponiveis}.`,
+        variant: "destructive",
+      });
+      event.target.value = "";
+      return;
+    }
+
+    const novos: ArquivoInput[] = [];
+    for (const file of files) {
+      if (!MIME_TYPES_ACEITOS.includes(file.type)) {
+        toast({
+          title: "Tipo de arquivo não permitido",
+          description: `"${file.name}" não é PDF, JPG ou PNG.`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      if (file.size > MAX_TAMANHO_BYTES) {
+        toast({
+          title: "Arquivo muito grande",
+          description: `"${file.name}" excede ${MAX_TAMANHO_MB}MB.`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      novos.push({ file, upload_identify_guid: crypto.randomUUID() });
+    }
+
+    if (novos.length > 0) {
+      setArquivos((prev) => [...prev, ...novos]);
+    }
+    event.target.value = "";
+  };
+
+  const handleRemoverArquivo = (guid: string) => {
+    setArquivos((prev) => prev.filter((a) => a.upload_identify_guid !== guid));
+  };
+
+  const formatarTamanho = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getIconeArquivo = (mimeType: string) => {
+    if (mimeType.startsWith("image/")) return ImageIcon;
+    return FileText;
+  };
+
+  // Pode avançar Etapa 4?
+  // Precisa: pelo menos 1 parcela, soma OK, todas parcelas com valor > 0 e data válida
+  const canAdvanceFromEtapa4 =
+    parcelas.length > 0 && parcelasValorOk && parcelas.every((p) => p.valor_parcela > 0 && !!p.data_vencimento);
+
   const valorTotalItemModal = useMemo(() => {
     const q = parseDecimal(itemQtd);
     const v = parseDecimal(itemValorUnit);
@@ -1237,14 +1404,281 @@ export default function SuprimentosPedidoNovo() {
         </Card>
       )}
 
-      {/* Etapas 4-5: placeholder */}
-      {currentStep >= 4 && currentStep <= 5 && (
+      {/* Etapa 4: Parcelas + Anexos */}
+      {currentStep === 4 && (
+        <div className="space-y-4">
+          {/* Card de Parcelas */}
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">Parcelas de pagamento</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Calculadas automaticamente a partir de{" "}
+                    <span className="font-medium">{nomeCondPag || "(condição não selecionada)"}</span>. Você pode editar
+                    valor, vencimento ou dias entre parcelas.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={recalcularParcelas}
+                  disabled={calculandoParcelas || !codigoCondPag}
+                  className="gap-1.5 shrink-0"
+                >
+                  {calculandoParcelas ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                  Recalcular do zero
+                </Button>
+              </div>
+
+              {/* Erro de cálculo */}
+              {erroCalculoParcelas && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                  <p className="text-sm text-destructive flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    {erroCalculoParcelas}
+                  </p>
+                </div>
+              )}
+
+              {/* Loading inicial */}
+              {calculandoParcelas && parcelas.length === 0 && (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-sm text-muted-foreground">Calculando parcelas...</span>
+                </div>
+              )}
+
+              {/* Tabela de parcelas */}
+              {parcelas.length > 0 && (
+                <>
+                  <div className="rounded-md border overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-2 font-medium text-xs text-muted-foreground w-12">Nº</th>
+                          <th className="text-left p-2 font-medium text-xs text-muted-foreground">Vencimento</th>
+                          <th className="text-right p-2 font-medium text-xs text-muted-foreground w-32">Valor (R$)</th>
+                          <th className="text-center p-2 font-medium text-xs text-muted-foreground w-24">Dias entre</th>
+                          <th className="w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {parcelas.map((p, idx) => {
+                          const dataVencDate = new Date(`${p.data_vencimento}T03:00:00.000Z`);
+                          return (
+                            <tr key={idx} className="border-t">
+                              <td className="p-2 text-center font-mono text-xs">{p.sequencia}</td>
+                              <td className="p-2">
+                                <Popover
+                                  open={parcelaDatePopoverOpen === idx}
+                                  onOpenChange={(v) => setParcelaDatePopoverOpen(v ? idx : null)}
+                                >
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 justify-start text-left font-normal text-xs"
+                                    >
+                                      <CalendarIcon className="mr-1.5 h-3 w-3" />
+                                      {format(dataVencDate, "dd/MM/yyyy", { locale: ptBR })}
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                      mode="single"
+                                      selected={dataVencDate}
+                                      onSelect={(d) => {
+                                        if (d) {
+                                          atualizarParcela(idx, {
+                                            data_vencimento: format(d, "yyyy-MM-dd"),
+                                          });
+                                          setParcelaDatePopoverOpen(null);
+                                        }
+                                      }}
+                                      disabled={(d) => d < dataPedido}
+                                      initialFocus
+                                      className={cn("p-3 pointer-events-auto")}
+                                      locale={ptBR}
+                                    />
+                                  </PopoverContent>
+                                </Popover>
+                              </td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={p.valor_parcela}
+                                  onChange={(e) =>
+                                    atualizarParcela(idx, {
+                                      valor_parcela: parseFloat(e.target.value) || 0,
+                                    })
+                                  }
+                                  className="h-8 text-right text-xs"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={p.dias_entre_parcelas}
+                                  onChange={(e) =>
+                                    atualizarParcela(idx, {
+                                      dias_entre_parcelas: parseInt(e.target.value) || 0,
+                                    })
+                                  }
+                                  className="h-8 text-center text-xs"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive"
+                                  onClick={() => removerParcela(idx)}
+                                  disabled={parcelas.length === 1}
+                                  title={parcelas.length === 1 ? "Pelo menos 1 parcela" : "Remover"}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="bg-muted/30 border-t-2">
+                        <tr>
+                          <td colSpan={2} className="p-2 text-right text-xs font-semibold text-muted-foreground">
+                            Total parcelas:
+                          </td>
+                          <td className="p-2 text-right font-mono font-bold text-xs">
+                            <span className={parcelasValorOk ? "text-emerald-600" : "text-destructive"}>
+                              {formatBRL(somaParcelas)}
+                            </span>
+                          </td>
+                          <td colSpan={2} className="p-2 text-left text-xs text-muted-foreground">
+                            de {formatBRL(valorTotalPedido)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* Botão adicionar parcela manual */}
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={adicionarParcelaManual} className="gap-1.5">
+                      <Plus className="h-3.5 w-3.5" /> Adicionar parcela
+                    </Button>
+                    {parcelasEditadasManualmente && (
+                      <Badge variant="outline" className="text-[10px]">
+                        Edição manual ativa — "Recalcular" volta ao padrão da CondPag
+                      </Badge>
+                    )}
+                  </div>
+
+                  {/* Aviso se soma não bate */}
+                  {!parcelasValorOk && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                      <p className="text-sm text-destructive flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        Soma das parcelas ({formatBRL(somaParcelas)}) difere do total do pedido (
+                        {formatBRL(valorTotalPedido)}). Diferença:{" "}
+                        {formatBRL(Math.abs(somaParcelas - valorTotalPedido))}
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Card de Anexos */}
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Paperclip className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Anexos (opcional)</h3>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Anexe até {MAX_ARQUIVOS} arquivos (PDF, JPG ou PNG — máx {MAX_TAMANHO_MB}MB cada). Serão enviados ao
+                  ERP junto com o pedido.
+                </p>
+              </div>
+
+              {arquivos.length > 0 && (
+                <div className="space-y-2">
+                  {arquivos.map((arq) => {
+                    const IconeArq = getIconeArquivo(arq.file.type);
+                    return (
+                      <div key={arq.upload_identify_guid} className="flex items-center gap-3 rounded-md border p-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded bg-muted">
+                          <IconeArq className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{arq.file.name}</div>
+                          <div className="text-xs text-muted-foreground">{formatarTamanho(arq.file.size)}</div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => handleRemoverArquivo(arq.upload_identify_guid)}
+                          disabled={enviando}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {arquivos.length < MAX_ARQUIVOS && (
+                <div className="flex items-center gap-3">
+                  <input
+                    id="arquivo-pedido-upload"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    multiple
+                    className="hidden"
+                    onChange={handleSelecionarArquivos}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById("arquivo-pedido-upload")?.click()}
+                    disabled={enviando}
+                    className="gap-1.5"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                    Adicionar arquivo
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {arquivos.length} de {MAX_ARQUIVOS}
+                  </span>
+                </div>
+              )}
+
+              {arquivos.length === MAX_ARQUIVOS && (
+                <p className="text-xs text-muted-foreground">Limite máximo de {MAX_ARQUIVOS} arquivos atingido.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Etapa 5: placeholder */}
+      {currentStep === 5 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Construction className="h-12 w-12 mb-3 opacity-40" />
-            <p className="text-sm font-medium">
-              Etapa {currentStep}: {STEPS[currentStep - 1].label}
-            </p>
+            <p className="text-sm font-medium">Etapa 5: Revisão</p>
             <p className="text-xs mt-1">Em construção — será implementada na próxima sessão.</p>
           </CardContent>
         </Card>
@@ -1269,7 +1703,8 @@ export default function SuprimentosPedidoNovo() {
               (currentStep === 1 && !canAdvanceFromEtapa1) ||
               (currentStep === 2 && !canAdvanceFromEtapa2) ||
               (currentStep === 3 && !canAdvanceFromEtapa3) ||
-              currentStep >= 4
+              (currentStep === 4 && !canAdvanceFromEtapa4) ||
+              currentStep >= 5
             }
             title={
               currentStep === 1 && !canAdvanceFromEtapa1
@@ -1278,9 +1713,11 @@ export default function SuprimentosPedidoNovo() {
                   ? "Selecione fornecedor e condição de pagamento"
                   : currentStep === 3 && !canAdvanceFromEtapa3
                     ? erroDatas || "Corrija as datas"
-                    : currentStep >= 4
-                      ? "Próxima etapa em construção"
-                      : undefined
+                    : currentStep === 4 && !canAdvanceFromEtapa4
+                      ? "Verifique as parcelas (soma deve bater com o total e cada uma deve ter valor e data)"
+                      : currentStep >= 5
+                        ? "Próxima etapa em construção"
+                        : undefined
             }
           >
             Próximo <ArrowRight className="ml-2 h-4 w-4" />
