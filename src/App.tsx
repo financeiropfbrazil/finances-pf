@@ -52,6 +52,7 @@ import EmailNfe from "./pages/EmailNfe";
 import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
 import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
+import SuprimentosPedidos from "./pages/SuprimentosPedidos";
 import ReembolsoNovo from "./pages/intercompany/ReembolsoNovo";
 import IntercompanyMaster from "./pages/intercompany/IntercompanyMaster";
 import NovoReembolsoNF from "./pages/intercompany/NovoReembolsoNF";
@@ -275,6 +276,14 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="suprimentos_requisicoes">
               <SuprimentosRequisicaoDetalhe />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/suprimentos/pedidos"
+          element={
+            <PermissionRoute permKey="suprimentos_pedidos">
+              <SuprimentosPedidos />
             </PermissionRoute>
           }
         />
