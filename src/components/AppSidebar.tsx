@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   CheckSquare,
   ClipboardList,
+  ShoppingCart,
   ClipboardCheck,
   Upload,
   FolderKanban,
@@ -108,6 +109,8 @@ const comprasSubItems = [
 
 const suprimentosSubItems = [
   { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
+  { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
+];
   { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
 ];
 
