@@ -166,7 +166,7 @@ export default function CronReqDashboard() {
       const { data, error } = await supabase.rpc("sync_cron_list_runs" as never, {
         p_limit: 20,
         p_offset: 0,
-      });
+      } as never);
       if (error) throw error;
       return (data || []) as unknown as RunRow[];
     },
@@ -180,7 +180,7 @@ export default function CronReqDashboard() {
       if (!selectedRunId) return null;
       const { data, error } = await supabase.rpc("sync_cron_get_run_detail" as never, {
         p_run_id: selectedRunId,
-      });
+      } as never);
       if (error) throw error;
       return data as unknown as RunDetail;
     },
@@ -190,7 +190,7 @@ export default function CronReqDashboard() {
   // Mutations
   const pauseMutation = useMutation({
     mutationFn: async (reason: string) => {
-      const { data, error } = await supabase.rpc("sync_cron_pause" as never, { p_reason: reason });
+      const { data, error } = await supabase.rpc("sync_cron_pause" as never, { p_reason: reason } as never);
       if (error) throw error;
       return data;
     },
