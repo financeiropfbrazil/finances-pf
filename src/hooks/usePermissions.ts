@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
  */
 const MENU_TO_PERMISSION: Record<string, string> = {
   suprimentos_requisicoes: "compras.requisicoes.access",
+  suprimentos_pedidos: "compras.pedidos.access",
   intercompany: "intercompany.access",
   projetos: "projetos.access",
   ferramentas_bulk_edit_produtos_campos: "ferramentas.bulk_edit.execute",
