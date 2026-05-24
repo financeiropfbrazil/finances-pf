@@ -106,7 +106,10 @@ const comprasSubItems = [
   { label: "Certificado Digital", url: "/compras/certificado", icon: ShieldCheck },
 ];
 
-const suprimentosSubItems = [{ label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList }];
+const suprimentosSubItems = [
+  { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
+  { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
+];
 
 const intercompanySubItems = [
   { label: "Master", url: "/intercompany/master", icon: ClipboardList },
