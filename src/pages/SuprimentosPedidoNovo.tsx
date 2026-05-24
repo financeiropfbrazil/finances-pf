@@ -2,14 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  enviarPedido,
-  clonarDeRequisicao,
-  type NovoPedidoInput,
-  type ItemPedidoInput,
-  type RateioClasseInput,
-  type RateioCcInput,
-} from "@/services/pedidosService";
+import { enviarPedido, clonarDeRequisicao, type NovoPedidoInput } from "@/services/pedidosService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -60,6 +53,22 @@ interface CostCenter {
   erp_code: string;
   name: string;
   department_type: string | null;
+}
+
+interface Fornecedor {
+  codigo_entidade: string;
+  cnpj: string | null;
+  nome: string;
+  nome_fantasia: string | null;
+  municipio: string | null;
+  uf: string | null;
+}
+
+interface CondPag {
+  codigo: string;
+  nome: string;
+  quantidade_parcelas: number;
+  dias_entre_parcelas: number;
 }
 
 interface RateioCcWizard {
@@ -148,6 +157,21 @@ export default function SuprimentosPedidoNovo() {
   // Submit
   const [enviando, setEnviando] = useState(false);
 
+  // ── Etapa 2: Fornecedor + CondPag + TipoEntrega ────────
+  const [codigoEntidade, setCodigoEntidade] = useState("");
+  const [nomeEntidade, setNomeEntidade] = useState("");
+  const [cnpjEntidade, setCnpjEntidade] = useState("");
+  const [fornecedorPopoverOpen, setFornecedorPopoverOpen] = useState(false);
+  const [fornecedorSearch, setFornecedorSearch] = useState("");
+  const [fornecedorAutoSelected, setFornecedorAutoSelected] = useState(false);
+
+  const [codigoCondPag, setCodigoCondPag] = useState("");
+  const [nomeCondPag, setNomeCondPag] = useState("");
+  const [condPagPopoverOpen, setCondPagPopoverOpen] = useState(false);
+  const [condPagSearch, setCondPagSearch] = useState("");
+
+  const [tipoEntrega, setTipoEntrega] = useState<"Parcial" | "Total">("Total");
+
   // ── Modal de item ────────────────────────────────────────
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -210,6 +234,31 @@ export default function SuprimentosPedidoNovo() {
         .order("name", { ascending: true });
       if (error) throw error;
       return (data || []) as CostCenter[];
+    },
+  });
+
+  const { data: fornecedores = [] } = useQuery({
+    queryKey: ["compras_entidades_cache_pedido_wizard"],
+    queryFn: async (): Promise<Fornecedor[]> => {
+      const { data, error } = await (supabase as any)
+        .from("compras_entidades_cache")
+        .select("codigo_entidade, cnpj, nome, nome_fantasia, municipio, uf")
+        .eq("e_fornecedor", true)
+        .order("nome", { ascending: true });
+      if (error) throw error;
+      return (data || []) as Fornecedor[];
+    },
+  });
+
+  const { data: condPags = [] } = useQuery({
+    queryKey: ["condicoes_pagamento_pedido_wizard"],
+    queryFn: async (): Promise<CondPag[]> => {
+      const { data, error } = await (supabase as any)
+        .from("condicoes_pagamento")
+        .select("codigo, nome, quantidade_parcelas, dias_entre_parcelas")
+        .order("codigo", { ascending: true });
+      if (error) throw error;
+      return (data || []) as CondPag[];
     },
   });
 
@@ -280,6 +329,31 @@ export default function SuprimentosPedidoNovo() {
     carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqIdFromQuery]);
+
+  // Auto-select de fornecedor pelo CNPJ sugerido da Req (caminho 1a).
+  // Tenta achar match exato no cache. Se houver 1 único match → seleciona automaticamente.
+  // Se houver múltiplos → abre o combobox já filtrado (sem seleção automática).
+  // Se houver 0 → não faz nada (analista escolhe normalmente).
+  useEffect(() => {
+    if (!cnpjSugeridoDaReq || fornecedores.length === 0) return;
+    if (codigoEntidade) return; // já tem fornecedor escolhido — não sobrescreve
+
+    const cnpjLimpo = cnpjSugeridoDaReq.replace(/\D/g, "");
+    if (!cnpjLimpo) return;
+
+    const matches = fornecedores.filter((f) => (f.cnpj || "").replace(/\D/g, "") === cnpjLimpo);
+
+    if (matches.length === 1) {
+      const f = matches[0];
+      setCodigoEntidade(f.codigo_entidade);
+      setNomeEntidade(f.nome);
+      setCnpjEntidade(f.cnpj || "");
+      setFornecedorAutoSelected(true);
+    } else if (matches.length > 1) {
+      // Múltiplos matches — apenas pre-filtra a busca
+      setFornecedorSearch(cnpjLimpo);
+    }
+  }, [cnpjSugeridoDaReq, fornecedores, codigoEntidade]);
 
   // ════════════════════════════════════════════════════════
   // CÁLCULOS DERIVADOS
@@ -569,12 +643,60 @@ export default function SuprimentosPedidoNovo() {
       .slice(0, 100);
   }, [produtos, itemTipo, produtoSearch]);
 
+  const fornecedoresFiltrados = useMemo(() => {
+    const q = fornecedorSearch.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, "");
+    if (!q) return fornecedores.slice(0, 100);
+    return fornecedores
+      .filter((f) => {
+        const nome = f.nome.toLowerCase();
+        const fantasia = (f.nome_fantasia || "").toLowerCase();
+        const codigo = f.codigo_entidade.toLowerCase();
+        const cnpjDigits = (f.cnpj || "").replace(/\D/g, "");
+        return (
+          nome.includes(q) ||
+          fantasia.includes(q) ||
+          codigo.includes(q) ||
+          (qDigits.length >= 3 && cnpjDigits.includes(qDigits))
+        );
+      })
+      .slice(0, 100);
+  }, [fornecedores, fornecedorSearch]);
+
+  const condPagsFiltrados = useMemo(() => {
+    const q = condPagSearch.trim().toLowerCase();
+    if (!q) return condPags;
+    return condPags.filter((cp) => cp.codigo.toLowerCase().includes(q) || cp.nome.toLowerCase().includes(q));
+  }, [condPags, condPagSearch]);
+
+  const handleSelectFornecedor = (f: Fornecedor) => {
+    setCodigoEntidade(f.codigo_entidade);
+    setNomeEntidade(f.nome);
+    setCnpjEntidade(f.cnpj || "");
+    setFornecedorAutoSelected(false); // selecionado manualmente
+    setFornecedorPopoverOpen(false);
+    setFornecedorSearch("");
+  };
+
+  const handleSelectCondPag = (cp: CondPag) => {
+    setCodigoCondPag(cp.codigo);
+    setNomeCondPag(cp.nome);
+    setCondPagPopoverOpen(false);
+    setCondPagSearch("");
+  };
+
+  const fornecedorSelecionado = fornecedores.find((f) => f.codigo_entidade === codigoEntidade);
+  const condPagSelecionada = condPags.find((cp) => cp.codigo === codigoCondPag);
+
   // ════════════════════════════════════════════════════════
   // RENDER — Stepper + Etapas
   // ════════════════════════════════════════════════════════
 
   // Pode avançar Etapa 1?
   const canAdvanceFromEtapa1 = itens.length > 0;
+
+  // Pode avançar Etapa 2?
+  const canAdvanceFromEtapa2 = !!codigoEntidade && !!codigoCondPag && !!tipoEntrega;
 
   const valorTotalItemModal = useMemo(() => {
     const q = parseDecimal(itemQtd);
@@ -735,8 +857,184 @@ export default function SuprimentosPedidoNovo() {
         </div>
       )}
 
-      {/* Etapas 2-5: placeholder */}
-      {currentStep >= 2 && currentStep <= 5 && (
+      {/* Etapa 2: Fornecedor + CondPag + TipoEntrega */}
+      {currentStep === 2 && (
+        <Card>
+          <CardContent className="pt-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Fornecedor e Pagamento</h2>
+              <p className="text-sm text-muted-foreground">
+                Defina o fornecedor, a condição de pagamento e o tipo de entrega.
+              </p>
+            </div>
+
+            {/* Fornecedor */}
+            <div className="space-y-2">
+              <Label>Fornecedor *</Label>
+              <Popover open={fornecedorPopoverOpen} onOpenChange={setFornecedorPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-auto py-2">
+                    {fornecedorSelecionado ? (
+                      <div className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium truncate">{fornecedorSelecionado.nome}</span>
+                            {fornecedorAutoSelected && (
+                              <Badge variant="secondary" className="text-[10px] shrink-0">
+                                auto-selecionado pelo CNPJ
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="text-xs font-mono text-muted-foreground">
+                            {fornecedorSelecionado.cnpj || "(sem CNPJ)"}
+                            {fornecedorSelecionado.municipio &&
+                              ` · ${fornecedorSelecionado.municipio}/${fornecedorSelecionado.uf}`}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">Buscar fornecedor por nome, código ou CNPJ...</span>
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50 shrink-0" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Digite nome, código ou CNPJ..."
+                      value={fornecedorSearch}
+                      onValueChange={setFornecedorSearch}
+                    />
+                    <CommandList>
+                      <CommandEmpty>Nenhum fornecedor encontrado.</CommandEmpty>
+                      <CommandGroup>
+                        {fornecedoresFiltrados.map((f) => (
+                          <CommandItem
+                            key={f.codigo_entidade}
+                            value={f.codigo_entidade}
+                            onSelect={() => handleSelectFornecedor(f)}
+                          >
+                            <div className="flex flex-col w-full">
+                              <span className="font-medium">{f.nome}</span>
+                              {f.nome_fantasia && (
+                                <span className="text-xs text-muted-foreground">{f.nome_fantasia}</span>
+                              )}
+                              <span className="text-xs font-mono text-muted-foreground">
+                                {f.cnpj || "(sem CNPJ)"}
+                                {f.municipio && ` · ${f.municipio}/${f.uf}`}
+                              </span>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {cnpjSugeridoDaReq && !fornecedorSelecionado && (
+                <p className="text-xs text-amber-600">
+                  ⚠ A Requisição sugeriu o CNPJ {cnpjSugeridoDaReq}, mas nenhum fornecedor encontrado no cadastro.
+                  Escolha um fornecedor manualmente.
+                </p>
+              )}
+              {cnpjSugeridoDaReq && fornecedorSelecionado && fornecedorAutoSelected && (
+                <p className="text-xs text-muted-foreground">
+                  Selecionado automaticamente pelo CNPJ sugerido na Req. Você pode trocar se necessário.
+                </p>
+              )}
+            </div>
+
+            {/* Condição de Pagamento */}
+            <div className="space-y-2">
+              <Label>Condição de Pagamento *</Label>
+              <Popover open={condPagPopoverOpen} onOpenChange={setCondPagPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-auto py-2">
+                    {condPagSelecionada ? (
+                      <div className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                        <span className="font-mono text-xs text-muted-foreground">{condPagSelecionada.codigo}</span>
+                        <span className="font-medium truncate">{condPagSelecionada.nome}</span>
+                        <Badge variant="outline" className="text-[10px] shrink-0">
+                          {condPagSelecionada.quantidade_parcelas}x
+                        </Badge>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">Selecionar condição de pagamento...</span>
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50 shrink-0" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Buscar por código ou nome..."
+                      value={condPagSearch}
+                      onValueChange={setCondPagSearch}
+                    />
+                    <CommandList>
+                      <CommandEmpty>Nenhuma condição encontrada.</CommandEmpty>
+                      <CommandGroup>
+                        {condPagsFiltrados.map((cp) => (
+                          <CommandItem key={cp.codigo} value={cp.codigo} onSelect={() => handleSelectCondPag(cp)}>
+                            <div className="flex items-center gap-2 w-full">
+                              <span className="font-mono text-xs text-muted-foreground shrink-0">{cp.codigo}</span>
+                              <span className="font-medium flex-1 truncate">{cp.nome}</span>
+                              <Badge variant="outline" className="text-[10px] shrink-0">
+                                {cp.quantidade_parcelas}x
+                              </Badge>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {condPagSelecionada && (
+                <p className="text-xs text-muted-foreground">
+                  Esta condição gerará {condPagSelecionada.quantidade_parcelas} parcela
+                  {condPagSelecionada.quantidade_parcelas !== 1 ? "s" : ""}
+                  {condPagSelecionada.dias_entre_parcelas > 0
+                    ? ` com ${condPagSelecionada.dias_entre_parcelas} dias entre cada uma`
+                    : ""}
+                  . O cálculo final será exibido na Etapa 4.
+                </p>
+              )}
+            </div>
+
+            {/* Tipo de Entrega */}
+            <div className="space-y-2">
+              <Label>Tipo de Entrega *</Label>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant={tipoEntrega === "Total" ? "default" : "outline"}
+                  onClick={() => setTipoEntrega("Total")}
+                  className="flex-1"
+                >
+                  Total
+                </Button>
+                <Button
+                  type="button"
+                  variant={tipoEntrega === "Parcial" ? "default" : "outline"}
+                  onClick={() => setTipoEntrega("Parcial")}
+                  className="flex-1"
+                >
+                  Parcial
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {tipoEntrega === "Total"
+                  ? "Entrega única: tudo será entregue de uma vez."
+                  : "Entrega parcelada: pedido pode ser entregue em múltiplas remessas."}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Etapas 3-5: placeholder */}
+      {currentStep >= 3 && currentStep <= 5 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Construction className="h-12 w-12 mb-3 opacity-40" />
@@ -763,13 +1061,19 @@ export default function SuprimentosPedidoNovo() {
         {currentStep < 5 ? (
           <Button
             onClick={() => setCurrentStep((s) => s + 1)}
-            disabled={currentStep === 1 ? !canAdvanceFromEtapa1 : true}
+            disabled={
+              (currentStep === 1 && !canAdvanceFromEtapa1) ||
+              (currentStep === 2 && !canAdvanceFromEtapa2) ||
+              currentStep >= 3
+            }
             title={
               currentStep === 1 && !canAdvanceFromEtapa1
                 ? "Adicione ao menos um item"
-                : currentStep >= 2
-                  ? "Próxima etapa em construção"
-                  : undefined
+                : currentStep === 2 && !canAdvanceFromEtapa2
+                  ? "Selecione fornecedor e condição de pagamento"
+                  : currentStep >= 3
+                    ? "Próxima etapa em construção"
+                    : undefined
             }
           >
             Próximo <ArrowRight className="ml-2 h-4 w-4" />
