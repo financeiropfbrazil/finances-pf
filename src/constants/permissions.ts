@@ -14,7 +14,11 @@ export const PERMISSIONS = {
   COMPRAS_REQUISICOES_CREATE: "compras.requisicoes.create",
   COMPRAS_REQUISICOES_DELETE_OWN: "compras.requisicoes.delete_own",
   COMPRAS_REQUISICOES_REENVIAR_OWN: "compras.requisicoes.reenviar_own",
-
+  // ─── Módulo Compras / Pedidos ───────────────────────────────────
+  COMPRAS_PEDIDOS_ACCESS: "compras.pedidos.access",
+  COMPRAS_PEDIDOS_VIEW_ALL: "compras.pedidos.view_all",
+  COMPRAS_PEDIDOS_CREATE: "compras.pedidos.create",
+  COMPRAS_PEDIDOS_DELETE_DRAFT: "compras.pedidos.delete_draft",
   // ─── Administração global ───────────────────────────────────────
   ADMIN_USERS_MANAGE: "admin.users.manage",
 
