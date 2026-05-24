@@ -86,6 +86,39 @@ interface JobResult {
   detalhes: DetalheMudanca[];
 }
 
+// Cabeçalho leve do PedComp retornado por /ped-comp/list
+interface PedidoLeve {
+  CodigoEmpresaFilial: string;
+  Numero: string;
+  Status: string | null;
+  Aprovado: string | null;
+  StatusAprovacao: string | null;
+  Comprado: string | null;
+  Tipo: string | null;
+  DataPedido: string | null;
+  DataCadastro: string | null;
+  DataEntrega: string | null;
+  DataValidade: string | null;
+  CodigoEntidade: string | null;
+  NomeEntidade: string | null;
+  CodigoCondPagAdiantamento: string | null;
+  ValorMercadoria: number | null;
+  ValorServico: number | null;
+  ValorTotal: number | null;
+  ValorFrete: number | null;
+  CodigoUsuario: string | null;
+  Texto: string | null;
+  CodigoCentroCtrl: string | null;
+  CodigoEmpresaFilialReqComp: string | null;
+  NumeroReqComp: string | null;
+  CondPagPedCompObject: { CodigoCondPag?: string | null } | null;
+  PedCompUserFieldsObject: {
+    UserProximoAprovador?: string | null;
+    UserEnviouAprovacao?: string | null;
+    UserDataNotificao?: string | null;
+  } | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────
@@ -102,7 +135,7 @@ async function processInChunks<T, R>(
   items: T[],
   chunkSize: number,
   sleepMs: number,
-  fn: (item: T) => Promise<R>
+  fn: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results: R[] = [];
   for (let i = 0; i < items.length; i += chunkSize) {
@@ -120,7 +153,7 @@ async function processInChunks<T, R>(
 async function callErpProxy(
   url: string,
   systemSecret: string,
-  path: string
+  path: string,
 ): Promise<{ ok: boolean; status: number; data: any }> {
   try {
     const resp = await fetch(`${url}${path}`, {
@@ -150,7 +183,10 @@ async function callErpProxy(
 // Mapper: ReqComp do Alvo → status Hub
 // ─────────────────────────────────────────────────────────────────────
 
-function mapReqAlvoToHub(respData: any, notFound: boolean): {
+function mapReqAlvoToHub(
+  respData: any,
+  notFound: boolean,
+): {
   novoStatus: string;
   numeroPedidoCompraAlvo: string | null;
 } {
@@ -163,11 +199,7 @@ function mapReqAlvoToHub(respData: any, notFound: boolean): {
   const gerouPedComp = String(respData?.GerouPedComp || "").toLowerCase();
 
   // Caso 2: virou pedido (Status="Pedido" OR GerouPedComp in ['Total','Parcial'])
-  if (
-    statusAlvo === "pedido" ||
-    gerouPedComp === "total" ||
-    gerouPedComp === "parcial"
-  ) {
+  if (statusAlvo === "pedido" || gerouPedComp === "total" || gerouPedComp === "parcial") {
     return { novoStatus: "convertida_pedido", numeroPedidoCompraAlvo: null };
   }
 
@@ -184,11 +216,7 @@ function mapReqAlvoToHub(respData: any, notFound: boolean): {
 // JOB 1: Sincronizar Requisições
 // ─────────────────────────────────────────────────────────────────────
 
-async function syncRequisicoes(
-  supabase: SupabaseClient,
-  erpUrl: string,
-  systemSecret: string
-): Promise<JobResult> {
+async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemSecret: string): Promise<JobResult> {
   const result: JobResult = {
     total_candidatos: 0,
     total_consultados: 0,
@@ -204,7 +232,7 @@ async function syncRequisicoes(
   const { data: candidatas, error: errSelect } = await supabase
     .from("compras_requisicoes")
     .select(
-      "id, requisitante_user_id, status, codigo_empresa_filial, numero_alvo, numero_pedido_compra_alvo, codigo_funcionario, codigo_centro_ctrl, codigo_finalidade_compra, data_necessidade, total_itens"
+      "id, requisitante_user_id, status, codigo_empresa_filial, numero_alvo, numero_pedido_compra_alvo, codigo_funcionario, codigo_centro_ctrl, codigo_finalidade_compra, data_necessidade, total_itens",
     )
     .eq("status", "sincronizada")
     .not("numero_alvo", "is", null)
@@ -258,23 +286,21 @@ async function syncRequisicoes(
       }
 
       // 3. Aplica UPSERT (CORS-safe pattern)
-      const { error: errUpsert } = await supabase
-        .from("compras_requisicoes")
-        .upsert(
-          {
-            id: req.id,
-            requisitante_user_id: req.requisitante_user_id,
-            status: novoStatus,
-            codigo_empresa_filial: req.codigo_empresa_filial,
-            codigo_funcionario: req.codigo_funcionario,
-            codigo_centro_ctrl: req.codigo_centro_ctrl,
-            codigo_finalidade_compra: req.codigo_finalidade_compra,
-            data_necessidade: req.data_necessidade,
-            total_itens: req.total_itens,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" }
-        );
+      const { error: errUpsert } = await supabase.from("compras_requisicoes").upsert(
+        {
+          id: req.id,
+          requisitante_user_id: req.requisitante_user_id,
+          status: novoStatus,
+          codigo_empresa_filial: req.codigo_empresa_filial,
+          codigo_funcionario: req.codigo_funcionario,
+          codigo_centro_ctrl: req.codigo_centro_ctrl,
+          codigo_finalidade_compra: req.codigo_finalidade_compra,
+          data_necessidade: req.data_necessidade,
+          total_itens: req.total_itens,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" },
+      );
 
       if (errUpsert) {
         result.total_erros++;
@@ -292,8 +318,8 @@ async function syncRequisicoes(
         novoStatus === "convertida_pedido"
           ? "convertida_pedido"
           : novoStatus === "cancelada"
-          ? "cancelada_alvo"
-          : "sync_status";
+            ? "cancelada_alvo"
+            : "sync_status";
 
       await supabase.from("compras_requisicoes_auditoria").insert({
         requisicao_id: req.id,
@@ -328,16 +354,277 @@ async function syncRequisicoes(
 
   return result;
 }
+// ─────────────────────────────────────────────────────────────────────
+// JOB 3: Descobrir Pedidos NOVOS no Alvo
+// ─────────────────────────────────────────────────────────────────────
+//
+// Roda ANTES do Job 2. Busca pedidos novos do Alvo via /ped-comp/list
+// (janela 7 dias) e insere em compras_pedidos com cabeçalho leve.
+// Cursor: sync_cursors.cursor_name='ped-comp-last-numero-1.01'.
+//
+// Lógica:
+//   1. Lê cursor atual (último Numero conhecido pelo Hub)
+//   2. Chama /ped-comp/list?dataInicio=hoje-7d&dataFim=hoje
+//   3. Filtra: Numero > cursor
+//   4. Pra cada um: INSERT em compras_pedidos com criado_no_hub=false,
+//      status_local='sincronizado', synced_at=now()
+//   5. Merge automático: se NumeroReqComp existe, atualiza
+//      compras_requisicoes.numero_pedido_compra_alvo
+//   6. Atualiza cursor com MAX(Numero) descoberto
+//
+// Pedidos descobertos aqui serão refinados pelo Job 2 da próxima
+// execução (StatusAprovacao detalhado, vinculação NF, etc).
+// ─────────────────────────────────────────────────────────────────────
 
+async function syncDescobrirPedidos(
+  supabase: SupabaseClient,
+  erpUrl: string,
+  systemSecret: string,
+  runId: string,
+): Promise<JobResult> {
+  const result: JobResult = {
+    total_candidatos: 0,
+    total_consultados: 0,
+    total_mudaram: 0,
+    total_erros: 0,
+    detalhes: [],
+  };
+
+  const CURSOR_NAME = "ped-comp-last-numero-1.01";
+  const FILIAL = "1.01";
+  const WINDOW_DAYS = 7;
+
+  // ── 1. Lê cursor atual ─────────────────────────────────────────────
+  const { data: cursorRow, error: errCursor } = await supabase
+    .from("sync_cursors")
+    .select("cursor_value")
+    .eq("cursor_name", CURSOR_NAME)
+    .maybeSingle();
+
+  if (errCursor) {
+    console.error("[descobrir-ped] erro ao ler cursor:", errCursor);
+    result.total_erros = 1;
+    return result;
+  }
+
+  const lastKnownNumero = cursorRow?.cursor_value || "0000000";
+  console.log(`[descobrir-ped] cursor atual: ${lastKnownNumero}`);
+
+  // ── 2. Monta janela de datas ───────────────────────────────────────
+  const hoje = new Date();
+  const inicio = new Date();
+  inicio.setDate(hoje.getDate() - WINDOW_DAYS);
+
+  const dataFim = hoje.toISOString().slice(0, 10); // YYYY-MM-DD
+  const dataInicio = inicio.toISOString().slice(0, 10);
+
+  console.log(`[descobrir-ped] janela: ${dataInicio} → ${dataFim}`);
+
+  // ── 3. Chama /ped-comp/list ────────────────────────────────────────
+  const path = `/ped-comp/list?dataInicio=${dataInicio}&dataFim=${dataFim}`;
+  const resp = await callErpProxy(erpUrl, systemSecret, path);
+
+  if (!resp.ok) {
+    console.error(`[descobrir-ped] /list falhou: status=${resp.status}`);
+    result.total_erros = 1;
+    result.detalhes.push({
+      tipo: "ped",
+      id: "",
+      numero_alvo: "",
+      erro: `GET /ped-comp/list falhou: HTTP ${resp.status} - ${resp.data?.error || "desconhecido"}`,
+    });
+    return result;
+  }
+
+  const todosPedidos = (resp.data || []) as PedidoLeve[];
+  result.total_consultados = todosPedidos.length;
+  result.total_candidatos = todosPedidos.length;
+
+  console.log(`[descobrir-ped] Alvo retornou ${todosPedidos.length} pedidos na janela`);
+
+  // ── 4. Filtra: Numero > lastKnownNumero ────────────────────────────
+  const novos = todosPedidos.filter((p) => p.Numero > lastKnownNumero);
+  console.log(`[descobrir-ped] ${novos.length} pedidos novos (> ${lastKnownNumero})`);
+
+  if (novos.length === 0) {
+    return result;
+  }
+
+  // ── 5. Insere cada pedido novo ─────────────────────────────────────
+  let maiorNumeroVisto = lastKnownNumero;
+
+  for (const ped of novos) {
+    try {
+      // Guard: ignora pedidos sem Numero (caso raro)
+      if (!ped.Numero) {
+        console.warn(`[descobrir-ped] pedido sem Numero, ignorado:`, ped);
+        continue;
+      }
+
+      // Datas: o Alvo manda "2026-05-22T00:00:00-03:00" → extrai YYYY-MM-DD
+      const dateOnly = (s: string | null) => (s ? s.slice(0, 10) : null);
+
+      // Idempotente: ON CONFLICT pela unique (codigo_empresa_filial, numero)
+      const { error: errIns } = await supabase.from("compras_pedidos").upsert(
+        {
+          codigo_empresa_filial: ped.CodigoEmpresaFilial,
+          numero: ped.Numero,
+          status: ped.Status,
+          aprovado: ped.Aprovado,
+          status_aprovacao: ped.StatusAprovacao,
+          comprado: ped.Comprado,
+          tipo: ped.Tipo,
+          data_pedido: dateOnly(ped.DataPedido),
+          data_cadastro: dateOnly(ped.DataCadastro),
+          data_entrega: dateOnly(ped.DataEntrega),
+          data_validade: dateOnly(ped.DataValidade),
+          codigo_entidade: ped.CodigoEntidade,
+          nome_entidade: ped.NomeEntidade,
+          valor_mercadoria: ped.ValorMercadoria ?? 0,
+          valor_servico: ped.ValorServico ?? 0,
+          valor_total: ped.ValorTotal ?? 0,
+          valor_frete: ped.ValorFrete ?? 0,
+          codigo_cond_pag: ped.CondPagPedCompObject?.CodigoCondPag ?? null,
+          centro_custo: ped.CodigoCentroCtrl,
+          codigo_usuario: ped.CodigoUsuario,
+          texto: ped.Texto,
+          proximo_aprovador: ped.PedCompUserFieldsObject?.UserProximoAprovador ?? null,
+          enviou_aprovacao: ped.PedCompUserFieldsObject?.UserEnviouAprovacao ?? null,
+          data_notificacao_aprovador: ped.PedCompUserFieldsObject?.UserDataNotificao ?? null,
+          criado_no_hub: false,
+          status_local: "sincronizado",
+          numero_req_comp: ped.NumeroReqComp,
+          codigo_empresa_filial_req_comp: ped.CodigoEmpresaFilialReqComp,
+          detalhes_carregados: false,
+          synced_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "codigo_empresa_filial,numero" },
+      );
+
+      if (errIns) {
+        result.total_erros++;
+        result.detalhes.push({
+          tipo: "ped",
+          id: "",
+          numero_alvo: ped.Numero,
+          erro: `INSERT falhou: ${errIns.message}`,
+        });
+        console.error(`[descobrir-ped] ${ped.Numero} INSERT falhou:`, errIns);
+        continue;
+      }
+
+      // Busca o id do pedido inserido pra audit (necessário porque NOT NULL FK)
+      const { data: pedRow } = await supabase
+        .from("compras_pedidos")
+        .select("id")
+        .eq("codigo_empresa_filial", ped.CodigoEmpresaFilial)
+        .eq("numero", ped.Numero)
+        .single();
+
+      if (pedRow?.id) {
+        await supabase.from("compras_pedidos_auditoria").insert({
+          pedido_id: pedRow.id,
+          evento: "descoberto_alvo",
+          user_id: null,
+          user_nome: "Job 3 — Descoberta automática",
+          sucesso: true,
+          resposta_alvo: ped,
+        });
+      }
+
+      // ── 6. Merge req↔ped (se aplicável) ─────────────────────────────
+      if (ped.NumeroReqComp && ped.CodigoEmpresaFilialReqComp) {
+        const { data: reqRow } = await supabase
+          .from("compras_requisicoes")
+          .select(
+            "id, requisitante_user_id, status, codigo_funcionario, codigo_centro_ctrl, codigo_finalidade_compra, data_necessidade, total_itens, numero_pedido_compra_alvo",
+          )
+          .eq("codigo_empresa_filial", ped.CodigoEmpresaFilialReqComp)
+          .eq("numero_alvo", ped.NumeroReqComp)
+          .maybeSingle();
+
+        if (reqRow) {
+          if (reqRow.numero_pedido_compra_alvo === null || reqRow.numero_pedido_compra_alvo === ped.Numero) {
+            // Preserva se já tem outro pedido vinculado (caso de borda)
+            await supabase.from("compras_requisicoes").upsert(
+              {
+                id: reqRow.id,
+                requisitante_user_id: reqRow.requisitante_user_id,
+                status: reqRow.status,
+                codigo_empresa_filial: ped.CodigoEmpresaFilialReqComp,
+                codigo_funcionario: reqRow.codigo_funcionario,
+                codigo_centro_ctrl: reqRow.codigo_centro_ctrl,
+                codigo_finalidade_compra: reqRow.codigo_finalidade_compra,
+                data_necessidade: reqRow.data_necessidade,
+                total_itens: reqRow.total_itens,
+                numero_pedido_compra_alvo: ped.Numero,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "id" },
+            );
+
+            console.log(`[descobrir-ped] vinculou req ${ped.NumeroReqComp} → ped ${ped.Numero}`);
+          } else {
+            console.warn(
+              `[descobrir-ped] req ${ped.NumeroReqComp} já vinculada a ped ${reqRow.numero_pedido_compra_alvo}, NÃO sobrescreve com ${ped.Numero}`,
+            );
+          }
+        }
+      }
+
+      // Atualiza maior visto
+      if (ped.Numero > maiorNumeroVisto) {
+        maiorNumeroVisto = ped.Numero;
+      }
+
+      result.total_mudaram++;
+      result.detalhes.push({
+        tipo: "ped",
+        id: pedRow?.id || "",
+        numero_alvo: ped.Numero,
+        status_anterior: "novo",
+        status_novo: ped.Status || "novo",
+      });
+
+      console.log(`[descobrir-ped] inserido ${ped.Numero} (req: ${ped.NumeroReqComp || "—"})`);
+    } catch (err: any) {
+      result.total_erros++;
+      result.detalhes.push({
+        tipo: "ped",
+        id: "",
+        numero_alvo: ped.Numero,
+        erro: `Exception: ${err?.message || String(err)}`,
+      });
+      console.error(`[descobrir-ped] erro ${ped.Numero}:`, err);
+    }
+  }
+
+  // ── 7. Atualiza cursor ─────────────────────────────────────────────
+  if (maiorNumeroVisto > lastKnownNumero) {
+    const { error: errCursorUpdate } = await supabase
+      .from("sync_cursors")
+      .update({
+        cursor_value: maiorNumeroVisto,
+        updated_at: new Date().toISOString(),
+        updated_by_run_id: runId,
+      })
+      .eq("cursor_name", CURSOR_NAME);
+
+    if (errCursorUpdate) {
+      console.error("[descobrir-ped] falhou atualizando cursor:", errCursorUpdate);
+    } else {
+      console.log(`[descobrir-ped] cursor atualizado: ${lastKnownNumero} → ${maiorNumeroVisto}`);
+    }
+  }
+
+  return result;
+}
 // ─────────────────────────────────────────────────────────────────────
 // JOB 2: Sincronizar Pedidos
 // ─────────────────────────────────────────────────────────────────────
 
-async function syncPedidos(
-  supabase: SupabaseClient,
-  erpUrl: string,
-  systemSecret: string
-): Promise<JobResult> {
+async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecret: string): Promise<JobResult> {
   const result: JobResult = {
     total_candidatos: 0,
     total_consultados: 0,
@@ -357,12 +644,10 @@ async function syncPedidos(
   const { data: candidatos, error: errSelect } = await supabase
     .from("compras_pedidos")
     .select(
-      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador"
+      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador",
     )
     .not("status", "in", '("Encerrado","Cancelado","Cancelado Parcial")')
-    .or(
-      `data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.(Em Andamento,Reavaliar)`
-    )
+    .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.(Em Andamento,Reavaliar)`)
     .order("synced_at", { ascending: true, nullsFirst: true })
     .limit(PED_BATCH_SIZE);
 
@@ -433,33 +718,28 @@ async function syncPedidos(
       // Sempre atualiza synced_at, mas só UPSERT completo se mudou
       if (!mudou) {
         // Touch synced_at pra entrar no fim da fila
-        await supabase
-          .from("compras_pedidos")
-          .update({ synced_at: new Date().toISOString() })
-          .eq("id", ped.id);
+        await supabase.from("compras_pedidos").update({ synced_at: new Date().toISOString() }).eq("id", ped.id);
         return;
       }
 
       // 4. UPSERT (CORS-safe)
-      const { error: errUpsert } = await supabase
-        .from("compras_pedidos")
-        .upsert(
-          {
-            id: ped.id,
-            numero: ped.numero,
-            codigo_empresa_filial: ped.codigo_empresa_filial,
-            status: novoStatus,
-            aprovado: novoAprovado,
-            status_aprovacao: novoStatusAprovacao,
-            comprado: novoComprado,
-            proximo_aprovador: novoProximoAprovador,
-            enviou_aprovacao: novoEnviouAprovacao,
-            data_notificacao_aprovador: novoDataNotif,
-            synced_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" }
-        );
+      const { error: errUpsert } = await supabase.from("compras_pedidos").upsert(
+        {
+          id: ped.id,
+          numero: ped.numero,
+          codigo_empresa_filial: ped.codigo_empresa_filial,
+          status: novoStatus,
+          aprovado: novoAprovado,
+          status_aprovacao: novoStatusAprovacao,
+          comprado: novoComprado,
+          proximo_aprovador: novoProximoAprovador,
+          enviou_aprovacao: novoEnviouAprovacao,
+          data_notificacao_aprovador: novoDataNotif,
+          synced_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" },
+      );
 
       if (errUpsert) {
         result.total_erros++;
@@ -500,33 +780,31 @@ async function syncPedidos(
       if (numeroReqComp && codigoFilialReqComp) {
         const { data: reqRow } = await supabase
           .from("compras_requisicoes")
-          .select("id, numero_pedido_compra_alvo, requisitante_user_id, status, codigo_funcionario, codigo_centro_ctrl, codigo_finalidade_compra, data_necessidade, total_itens")
+          .select(
+            "id, numero_pedido_compra_alvo, requisitante_user_id, status, codigo_funcionario, codigo_centro_ctrl, codigo_finalidade_compra, data_necessidade, total_itens",
+          )
           .eq("codigo_empresa_filial", codigoFilialReqComp)
           .eq("numero_alvo", numeroReqComp)
           .maybeSingle();
 
         if (reqRow && reqRow.numero_pedido_compra_alvo !== ped.numero) {
-          await supabase
-            .from("compras_requisicoes")
-            .upsert(
-              {
-                id: reqRow.id,
-                requisitante_user_id: reqRow.requisitante_user_id,
-                status: reqRow.status,
-                codigo_empresa_filial: codigoFilialReqComp,
-                codigo_funcionario: reqRow.codigo_funcionario,
-                codigo_centro_ctrl: reqRow.codigo_centro_ctrl,
-                codigo_finalidade_compra: reqRow.codigo_finalidade_compra,
-                data_necessidade: reqRow.data_necessidade,
-                total_itens: reqRow.total_itens,
-                numero_pedido_compra_alvo: ped.numero,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "id" }
-            );
-          console.log(
-            `[sync-ped] vinculou req ${numeroReqComp} → ped ${ped.numero}`
+          await supabase.from("compras_requisicoes").upsert(
+            {
+              id: reqRow.id,
+              requisitante_user_id: reqRow.requisitante_user_id,
+              status: reqRow.status,
+              codigo_empresa_filial: codigoFilialReqComp,
+              codigo_funcionario: reqRow.codigo_funcionario,
+              codigo_centro_ctrl: reqRow.codigo_centro_ctrl,
+              codigo_finalidade_compra: reqRow.codigo_finalidade_compra,
+              data_necessidade: reqRow.data_necessidade,
+              total_itens: reqRow.total_itens,
+              numero_pedido_compra_alvo: ped.numero,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "id" },
           );
+          console.log(`[sync-ped] vinculou req ${numeroReqComp} → ped ${ped.numero}`);
         }
       }
 
@@ -585,10 +863,10 @@ Deno.serve(async (req: Request) => {
   const expectedSecret = Deno.env.get("CRON_SECRET");
   if (!expectedSecret) {
     console.error("[cron] CRON_SECRET não configurado nos secrets");
-    return new Response(
-      JSON.stringify({ error: "Edge function mal configurada" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: "Edge function mal configurada" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   const headerSecret = req.headers.get("x-cron-secret");
@@ -598,10 +876,10 @@ Deno.serve(async (req: Request) => {
 
   if (headerSecret !== expectedSecret && bodySecret !== expectedSecret) {
     console.warn("[cron] CRON_SECRET inválido");
-    return new Response(
-      JSON.stringify({ error: "Não autorizado" }),
-      { status: 401, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: "Não autorizado" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   // Valida triggered_by
@@ -636,10 +914,10 @@ Deno.serve(async (req: Request) => {
       finished_at: new Date().toISOString(),
     });
 
-    return new Response(
-      JSON.stringify({ skipped: true, reason: "sync_settings.enabled = false" }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ skipped: true, reason: "sync_settings.enabled = false" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   // ── 4. Cria linha em sync_runs (status iniciado) ────────────────────
@@ -654,10 +932,10 @@ Deno.serve(async (req: Request) => {
 
   if (errRun || !runRow) {
     console.error("[cron] falha ao criar sync_run:", errRun);
-    return new Response(
-      JSON.stringify({ error: "Falha ao iniciar sync_run", details: errRun }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: "Falha ao iniciar sync_run", details: errRun }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   const runId = runRow.id;
@@ -678,17 +956,22 @@ Deno.serve(async (req: Request) => {
       })
       .eq("id", runId);
 
-    return new Response(
-      JSON.stringify({ error: "Edge function mal configurada" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: "Edge function mal configurada" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   let job1: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
   let job2: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
   let observacao: string | null = null;
 
+  let job3: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
+
   try {
+    // Job 3 (descoberta) roda PRIMEIRO pra inserir pedidos novos antes
+    // do Job 2 olhar a tabela. Resultado: ciclo completo numa só execução.
+    job3 = await syncDescobrirPedidos(supabase, erpUrl, systemSecret, runId);
     job1 = await syncRequisicoes(supabase, erpUrl, systemSecret);
     job2 = await syncPedidos(supabase, erpUrl, systemSecret);
   } catch (err: any) {
@@ -698,13 +981,13 @@ Deno.serve(async (req: Request) => {
 
   // ── 6. Fecha linha em sync_runs ─────────────────────────────────────
   const totals = {
-    total_candidatos: job1.total_candidatos + job2.total_candidatos,
-    total_consultados: job1.total_consultados + job2.total_consultados,
-    total_mudaram: job1.total_mudaram + job2.total_mudaram,
-    total_erros: job1.total_erros + job2.total_erros,
+    total_candidatos: job1.total_candidatos + job2.total_candidatos + job3.total_candidatos,
+    total_consultados: job1.total_consultados + job2.total_consultados + job3.total_consultados,
+    total_mudaram: job1.total_mudaram + job2.total_mudaram + job3.total_mudaram,
+    total_erros: job1.total_erros + job2.total_erros + job3.total_erros,
   };
 
-  const todosDetalhes = [...job1.detalhes, ...job2.detalhes];
+  const todosDetalhes = [...job3.detalhes, ...job1.detalhes, ...job2.detalhes];
 
   await supabase
     .from("sync_runs")
@@ -722,6 +1005,12 @@ Deno.serve(async (req: Request) => {
     JSON.stringify({
       run_id: runId,
       duracao_ms: Date.now() - startTime,
+      descoberta_pedidos: {
+        candidatos: job3.total_candidatos,
+        consultados: job3.total_consultados,
+        mudaram: job3.total_mudaram,
+        erros: job3.total_erros,
+      },
       requisicoes: {
         candidatos: job1.total_candidatos,
         consultados: job1.total_consultados,
@@ -741,7 +1030,6 @@ Deno.serve(async (req: Request) => {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*",
       },
-    }
+    },
   );
 });
-
