@@ -45,6 +45,7 @@ import {
   Image as ImageIcon,
   Download,
   X,
+  ShoppingCart,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -231,6 +232,34 @@ export default function SuprimentosRequisicaoDetalhe() {
   const statusInfo = STATUS_MAP[req.status] || { label: req.status, className: "bg-muted text-muted-foreground" };
   const podeReenviar = req.status === "rascunho" || req.status === "pendente_envio";
 
+  // ── E.9: Gerar Pedido a partir desta requisição ──────────
+  // Aparece se: requisição foi enviada com sucesso ao Alvo (sincronizada),
+  // e ainda NÃO tem pedido vinculado (numero_pedido_compra_alvo é null).
+  const podeGerarPedido = req.status === "sincronizada" && !req.numero_pedido_compra_alvo;
+
+  const handleGerarPedido = () => {
+    navigate(`/suprimentos/pedidos/novo?reqId=${req.id}`);
+  };
+
+  const handleVerPedidoVinculado = async () => {
+    if (!req.numero_pedido_compra_alvo) return;
+    // Busca o id do pedido vinculado pelo numero_alvo
+    const { data: ped } = await (supabase as any)
+      .from("compras_pedidos")
+      .select("id")
+      .eq("numero", req.numero_pedido_compra_alvo)
+      .maybeSingle();
+    if (ped?.id) {
+      navigate(`/suprimentos/pedidos/${ped.id}`);
+    } else {
+      // Pedido pode ainda não ter sido sincronizado pelo cron
+      toast({
+        title: "Pedido ainda não disponível",
+        description: `Pedido ${req.numero_pedido_compra_alvo} ainda não foi sincronizado para o Hub. Aguarde o próximo ciclo do cron.`,
+      });
+    }
+  };
+
   const handleReenviar = async () => {
     if (!user) return;
     setIsReenviando(true);
@@ -319,6 +348,18 @@ export default function SuprimentosRequisicaoDetalhe() {
               <Badge variant="outline" className={statusInfo.className}>
                 {statusInfo.label}
               </Badge>
+              {/* Badge informativo: já gerou pedido */}
+              {req.numero_pedido_compra_alvo && (
+                <Badge
+                  variant="outline"
+                  className="bg-purple-500/15 text-purple-600 border-purple-500/30 cursor-pointer hover:bg-purple-500/25"
+                  onClick={handleVerPedidoVinculado}
+                  title="Clique para ver o pedido"
+                >
+                  <ShoppingCart className="mr-1 h-3 w-3" />
+                  Pedido {req.numero_pedido_compra_alvo}
+                </Badge>
+              )}
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               Criada em {formatDate(req.created_at)} · Atualizada em {formatDate(req.updated_at)}
@@ -326,7 +367,15 @@ export default function SuprimentosRequisicaoDetalhe() {
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
+          {/* E.9: Botão Gerar Pedido (destaque) */}
+          {podeGerarPedido && (
+            <Button size="sm" onClick={handleGerarPedido} className="bg-blue-600 hover:bg-blue-700 text-white shrink-0">
+              <ShoppingCart className="mr-1 h-3 w-3" />
+              Gerar Pedido
+            </Button>
+          )}
+
           {(req.status === "sincronizada" || req.status === "cancelada") && (
             <Button
               variant="outline"
