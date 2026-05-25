@@ -38,6 +38,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { useHasPermission } from "@/hooks/useHasPermission";
+import { PERMISSIONS } from "@/constants/permissions";
 import { supabase } from "@/integrations/supabase/client";
 import { carregarPedidoParaDetalhe, excluirPedido, getUrlAssinadaArquivoPedido } from "@/services/pedidosService";
 
@@ -119,6 +122,10 @@ export default function SuprimentosPedidoDetalhe() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
+
+  // RBAC: quem pode ver todos os pedidos × quem só vê os próprios (derivados das suas reqs)
+  const podeVerTodos = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_VIEW_ALL);
 
   const [showExcluirDialog, setShowExcluirDialog] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
@@ -130,12 +137,44 @@ export default function SuprimentosPedidoDetalhe() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["pedido-detalhe", id],
+    queryKey: ["pedido-detalhe", id, podeVerTodos, user?.id],
     queryFn: async () => {
       if (!id) throw new Error("ID do pedido não informado.");
-      return await carregarPedidoParaDetalhe(id);
+
+      const result = await carregarPedidoParaDetalhe(id);
+
+      // Defesa em profundidade: se NÃO pode ver todos, valida que este pedido
+      // é derivado de uma req criada pelo usuário atual.
+      if (!podeVerTodos && user) {
+        // Busca metadados do pedido pra ver de qual req ele veio
+        const { data: pedMeta } = await (supabase as any)
+          .from("compras_pedidos")
+          .select("numero_req_comp, codigo_empresa_filial_req_comp")
+          .eq("id", id)
+          .single();
+
+        if (!pedMeta?.numero_req_comp) {
+          // Pedido sem origem em req → usuário sem view_all não pode ver
+          throw new Error("Você não tem permissão para ver este pedido.");
+        }
+
+        // Verifica se a req origem pertence ao usuário
+        const { data: req } = await (supabase as any)
+          .from("compras_requisicoes")
+          .select("requisitante_user_id")
+          .eq("numero_alvo", pedMeta.numero_req_comp)
+          .eq("codigo_empresa_filial", pedMeta.codigo_empresa_filial_req_comp)
+          .maybeSingle();
+
+        if (!req || req.requisitante_user_id !== user.id) {
+          throw new Error("Você não tem permissão para ver este pedido.");
+        }
+      }
+
+      return result;
     },
     enabled: !!id,
+    retry: false, // erros de permissão não devem retentar
   });
 
   // ── Query secundária: auditoria ────────────────────────────
