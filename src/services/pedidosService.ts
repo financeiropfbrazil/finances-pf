@@ -186,6 +186,301 @@ async function callGatewayMultipart(path: string, formData: FormData): Promise<a
   return data;
 }
 
+/**
+ * Chamada JSON ao gateway (sem multipart).
+ * Usado para endpoints que esperam payload JSON puro, como /ped-comp/atualiza-item-pedido.
+ */
+async function callGatewayJson(path: string, payload: any): Promise<any> {
+  const jwt = await getSupabaseJWT();
+  const url = `${ERP_PROXY_URL}${path}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  let data: any = null;
+  try {
+    data = await resp.json();
+  } catch {}
+  if (!resp.ok) {
+    const msg = data?.error || `HTTP ${resp.status}`;
+    const err = new Error(msg) as Error & { status?: number; details?: any };
+    err.status = resp.status;
+    err.details = data?.details;
+    throw err;
+  }
+  return data;
+}
+
+// ════════════════════════════════════════════════════════════
+// ENRIQUECIMENTO DE ITEM VIA ALVO
+// ════════════════════════════════════════════════════════════
+//
+// Sem essa chamada, o Alvo rejeita o pedido com:
+//   "Produto X Situação Tributária não cadastrada"
+//   "Produto X Classificação Fiscal não cadastrada"
+//
+// O Alvo PRECISA receber os campos fiscais já preenchidos no item.
+// Esses campos NÃO ficam no produto isolado — dependem do CFOP, do
+// fornecedor (UF), da operação (compra/venda), etc.
+//
+// Solução: chamar /PedComp/AtualizaItemPedido ANTES de montar o
+// payload final. Esse endpoint retorna o item enriquecido com:
+//   - CodigoClasFiscal
+//   - CodigoSitTributaria
+//   - CodigoTributA, CodigoTributB
+//   - PercentualICMS, BaseICMS, ValorICMS, etc.
+
+interface EnriquecimentoItemInput {
+  codigo_produto: string;
+  codigo_prod_unid_med: string;
+  quantidade: number;
+  valor_unitario: number;
+  // Cabeçalho mínimo do pedido (PedCompDTO)
+  codigo_empresa_filial: string;
+  codigo_entidade: string;
+  nome_entidade: string;
+  data_pedido: string; // YYYY-MM-DD
+  data_cadastro: string;
+  data_validade: string;
+  data_competencia: string;
+  data_base_vencimento: string;
+  codigo_tipo_pag_rec: string;
+  codigo_usuario: string;
+}
+
+interface ItemEnriquecido {
+  CodigoClasFiscal: string | null;
+  CodigoSitTributaria: string | null;
+  CodigoTributA: string | null;
+  CodigoTributB: string | null;
+  CodigoSitTributariaIBSCBS: string | null;
+  PercentualICMS: number;
+  BaseICMS: number;
+  ValorICMS: number;
+  PercentualIPI: number;
+  BaseIPI: number;
+  ValorIPI: number;
+  // Pode ter outros que viram zero mesmo, mas pegamos só o essencial
+}
+
+/**
+ * Chama o endpoint /PedComp/AtualizaItemPedido do Alvo via erp-proxy
+ * e retorna apenas os campos fiscais relevantes do item enriquecido.
+ */
+async function enriquecerItemViaAlvo(params: EnriquecimentoItemInput): Promise<ItemEnriquecido> {
+  const dataPedidoIso = `${params.data_pedido}T00:00:00`;
+  const dataCadastroIso = `${params.data_cadastro}T00:00:00`;
+  const dataValidadeIso = `${params.data_validade}T00:00:00`;
+  const dataCompetenciaIso = `${params.data_competencia}T00:00:00`;
+  const dataBaseVencIso = `${params.data_base_vencimento}T00:00:00`;
+
+  // Item base mínimo — o Alvo enriquece a partir dele
+  const itemBase = {
+    QuantidadeSaldo: 0,
+    QuantidadeDesmembrar: 0,
+    CodigoEmpresaFilial: "",
+    NumeroPedComp: "",
+    CodigoProduto: params.codigo_produto,
+    Sequencia: 0,
+    ItemServico: "Não",
+    CodigoProdUnidMed: params.codigo_prod_unid_med,
+    PosicaoProdUnidMed: 1,
+    QuantidadeProdUnidMedPrincipal: params.quantidade,
+    QuantidadeDesmembrada: 0,
+    ValorTabelaPreco: 0,
+    ValorUnitario: params.valor_unitario,
+    ValorUnitarioBase: 0,
+    ValorTotal: params.quantidade * params.valor_unitario,
+    PercentualAcrescimoFinanceiro: 0,
+    ValorAcrescimoFinanceiro: 0,
+    PercentualDescontoEspecial: 0,
+    ValorDescontoEspecial: 0,
+    ValorFinal: params.quantidade * params.valor_unitario,
+    BaseISS: 0,
+    PercentualISS: 0,
+    ValorISS: 0,
+    BaseIRRF: 0,
+    PercentualIRRF: 0,
+    ValorIRRF: 0,
+    PercentualReducaoICMS: 0,
+    BaseICMS: 0,
+    PercentualICMS: 0,
+    ValorICMS: 0,
+    BaseIPI: 0,
+    PercentualIPI: 0,
+    ValorIPI: 0,
+    IndicadorNomeProduto: "Principal",
+    SaldoQuantidade: params.quantidade,
+    Cancelado: "Não",
+    Bloqueado: "Não",
+    LiberacaoBloqueioAtualizaTabelaPreco: "Não",
+    CodigoProdUnidMedValor: params.codigo_prod_unid_med,
+    PosicaoProdUnidMedValor: 1,
+    Quantidade2: params.quantidade,
+    CalculaSTPrecoLista: "Não",
+    MargemLucroST: 0,
+    PrecoListaST: 0,
+    PercentualReducaoICMSST: 0,
+    BaseICMSST: 0,
+    PercentualICMSST: 0,
+    ValorICMSST: 0,
+    ValorICMSSTRetido: 0,
+    ValorEmbalagemST: 0,
+    ValorICMSSTEmbalagem: 0,
+    ValorFreteST: 0,
+    ValorICMSSTFrete: 0,
+    ValorSeguroST: 0,
+    ValorICMSSTSeguro: 0,
+    ValorOutrasDespesasST: 0,
+    ValorICMSSTOutrasDespesas: 0,
+    ValorCalculoFreteST: 0,
+    ValorICMSSTCalculoFrete: 0,
+    BaseII: 0,
+    PercentualII: 0,
+    ValorII: 0,
+    UtilizaPromocao: "Sim",
+    ValorMultiplicador: 0,
+    ValorCambio: 0,
+    EntradaCliente: "Não",
+    IPIInclusoBaseICMS: "Não",
+    PercentualReducaoINSS: 0,
+    StatusDevolucao: "Não Devolvido",
+    QuantidadeDevolvida: 0,
+    Urgente: "Não",
+    Multiplicidade: 0,
+    BaseIPIPauta: 0,
+    ValorUnitarioIPIPauta: 0,
+    BasePisPauta: 0,
+    ValorUnitarioPisPauta: 0,
+    BaseCofinsPauta: 0,
+    ValorUnitarioCofinsPauta: 0,
+    Multiplicador: "Nenhum",
+    QuantidadeCancelada: 0,
+    PercentualReducaoIPI: 0,
+    QuantidadePlanejada: 0,
+    ImpostoZerado: "Não",
+    PercentualDescontoGeral: 0,
+    ValorDescontoGeral: 0,
+    PercentualAcrescimoGeral: 0,
+    ValorAcrescimoGeral: 0,
+    BaseIOF: 0,
+    PercentualIOF: 0,
+    ValorIOF: 0,
+    BaseCIDE: 0,
+    PercentualCIDE: 0,
+    ValorCIDE: 0,
+    BaseCBS: 0,
+    PercentualCBS: 0,
+    ValorCBS: 0,
+    PercentualReducaoCBS: 0,
+    ReducaoSobreCBS: "Nenhum",
+    BaseIBSUF: 0,
+    PercentualIBSUF: 0,
+    ValorIBSUF: 0,
+    PercentualReducaoIBSUF: 0,
+    ReducaoSobreIBSUF: "Nenhum",
+    BaseIBSCidade: 0,
+    PercentualIBSCidade: 0,
+    ValorIBSCidade: 0,
+    PercentualReducaoIBSCidade: 0,
+    ReducaoSobreIBSCidade: "Nenhum",
+    PercentualCBSOriginal: 0,
+    PercentualIBSUFOriginal: 0,
+    PercentualIBSCidadeOriginal: 0,
+    AcrescimoCustoCompra: 0,
+    DescontoCustoCompra: 0,
+    PercentualDescontoRepasseIcmsDiferencial: 0,
+    ValorDescontoRepasseIcmsDiferencial: 0,
+    ValorDescontoRepasseIcmsReducao: 0,
+    ValorEmbalagem: 0,
+    QuantidadeEmbalagem: 0,
+    ValorIssDeduzirTotal: 0,
+    CalculaDifalICMS: "Não",
+    PercentualDifalICMS: 0,
+    ValorDifalICMS: 0,
+    BaseCOFINS: 0,
+    PercentualCOFINSRF: 0,
+    ValorCOFINSRF: 0,
+    BasePIS: 0,
+    PercentualPISRF: 0,
+    ValorPISRF: 0,
+    BaseCSLL: 0,
+    PercentualCSLLRF: 0,
+    ValorCSLLRF: 0,
+    QuantidadeEntregaParcial: 0,
+    PesoLiquido: 0,
+    PesoBruto: 0,
+    NomeProduto: null,
+    UploadIdentify: "",
+    ItemPedCompUserFieldsObject: {},
+    ItemPedCompAgrupChildList: [],
+    ItemPedCompCancChildList: [],
+    ItemPedCompClasseRecdespChildList: [],
+    ItemPedCompCtrlImpChildList: [],
+    ItemPedCompFabPartnumberChildList: [],
+    ItemReqCompPedCompChildList: [],
+  };
+
+  // Cabeçalho do pedido pra contextualizar a tributação (UF, CFOP, etc)
+  const pedCompDTO = {
+    CodigoEmpresaFilial: params.codigo_empresa_filial,
+    Numero: "",
+    CodigoEntidade: params.codigo_entidade,
+    NomeEntidade: params.nome_entidade,
+    CodigoEntidadeTransportadora: params.codigo_entidade,
+    DataPedido: dataPedidoIso,
+    DataCadastro: dataCadastroIso,
+    DataValidade: dataValidadeIso,
+    DataCompetencia: dataCompetenciaIso,
+    DataBaseVencimento: dataBaseVencIso,
+    DataBaseVencimentoParcela: "Data do Pedido",
+    CodigoTipoPagRec: params.codigo_tipo_pag_rec,
+    CodigoUsuario: params.codigo_usuario,
+    Tipo: "Total",
+    Status: "Aberto",
+    ValorCambio: 1,
+    Comprado: "Não",
+    FreteTerceiro: "Não",
+    ImpostoZerado: "Não",
+    Origem: "Pedido",
+    PossuiCertificado: "Não",
+  };
+
+  const payload = {
+    ItemPedComp: itemBase,
+    PedCompDTO: pedCompDTO,
+    Chamou: "CodigoProduto",
+  };
+
+  const resp = await callGatewayJson("/ped-comp/atualiza-item-pedido", payload);
+
+  // O Alvo retorna { itemPedComp: { ... enriquecido ... } } (lowercase)
+  // Aceitamos também ItemPedComp ou retorno direto (defesa contra variações)
+  const enriquecido = resp?.itemPedComp || resp?.ItemPedComp || resp;
+
+  if (!enriquecido || typeof enriquecido !== "object") {
+    throw new Error(`Alvo retornou resposta inesperada para enriquecimento do item ${params.codigo_produto}`);
+  }
+
+  return {
+    CodigoClasFiscal: enriquecido.CodigoClasFiscal ?? null,
+    CodigoSitTributaria: enriquecido.CodigoSitTributaria ?? null,
+    CodigoTributA: enriquecido.CodigoTributA ?? null,
+    CodigoTributB: enriquecido.CodigoTributB ?? null,
+    CodigoSitTributariaIBSCBS: enriquecido.CodigoSitTributariaIBSCBS ?? null,
+    PercentualICMS: Number(enriquecido.PercentualICMS ?? 0),
+    BaseICMS: Number(enriquecido.BaseICMS ?? 0),
+    ValorICMS: Number(enriquecido.ValorICMS ?? 0),
+    PercentualIPI: Number(enriquecido.PercentualIPI ?? 0),
+    BaseIPI: Number(enriquecido.BaseIPI ?? 0),
+    ValorIPI: Number(enriquecido.ValorIPI ?? 0),
+  };
+}
+
 // ════════════════════════════════════════════════════════════
 // MONTAGEM DO PAYLOAD PEDCOMP
 // ════════════════════════════════════════════════════════════
@@ -195,10 +490,15 @@ interface MontarPayloadParams {
   texto_completo: string;
   texto_historico_completo: string;
   arquivos_guids?: string[];
+  itens_enriquecidos: ItemEnriquecido[]; // 1 por item, na mesma ordem que input.itens
 }
 
 function montarPayloadPedComp(p: MontarPayloadParams): any {
-  const { input, texto_completo, texto_historico_completo, arquivos_guids } = p;
+  const { input, texto_completo, texto_historico_completo, arquivos_guids, itens_enriquecidos } = p;
+
+  if (itens_enriquecidos.length !== input.itens.length) {
+    throw new Error(`Inconsistência: ${input.itens.length} itens vs ${itens_enriquecidos.length} enriquecimentos`);
+  }
 
   const valorMercadoria = round2(input.itens.reduce((acc, it) => acc + it.quantidade * it.valor_unitario, 0));
   const valorTotal = valorMercadoria;
@@ -211,8 +511,14 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
   const dataBaseVencimento = dataPedido;
   const dataHoraDigitacao = dataHoraAgoraUtc();
 
-  const itensPayload = input.itens.map((item) => {
+  const itensPayload = input.itens.map((item, idx) => {
     const valorTotalItem = round2(item.quantidade * item.valor_unitario);
+    const enriq = itens_enriquecidos[idx];
+
+    // BaseICMS e ValorICMS recalculados com o valor real do item
+    // (o Alvo retornou PercentualICMS válido para a operação)
+    const baseICMS = enriq.PercentualICMS > 0 ? valorTotalItem : 0;
+    const valorICMS = round2((baseICMS * enriq.PercentualICMS) / 100);
 
     const classesPayload = item.rateio.map((cls) => {
       const valorClasse = round2((valorTotalItem * cls.percentual) / 100);
@@ -248,13 +554,26 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
       NumeroPedComp: "",
       CodigoProduto: item.codigo_produto,
       Sequencia: 0,
+      ItemServico: item.item_servico ? "Sim" : "Não",
       CodigoProdUnidMed: item.codigo_prod_unid_med,
+      QuantidadeProdUnidMedPrincipal: item.quantidade,
       ValorUnitario: item.valor_unitario,
       ValorTotal: valorTotalItem,
       ValorFinal: valorTotalItem,
-      BaseICMS: 0,
-      PercentualICMS: 0,
-      ValorICMS: 0,
+      // Campos enriquecidos pelo Alvo via /PedComp/AtualizaItemPedido:
+      BaseICMS: baseICMS,
+      PercentualICMS: enriq.PercentualICMS,
+      ValorICMS: valorICMS,
+      BaseIPI: 0,
+      PercentualIPI: enriq.PercentualIPI,
+      ValorIPI: 0,
+      CodigoClasFiscal: enriq.CodigoClasFiscal,
+      CodigoSitTributaria: enriq.CodigoSitTributaria,
+      CodigoTributA: enriq.CodigoTributA,
+      CodigoTributB: enriq.CodigoTributB,
+      CodigoSitTributariaIBSCBS: enriq.CodigoSitTributariaIBSCBS,
+      ImpostoZerado: "Não",
+      // Resto dos campos do item:
       SaldoQuantidade: item.quantidade,
       CodigoProdUnidMedValor: item.codigo_prod_unid_med,
       Quantidade2: item.quantidade,
@@ -267,6 +586,10 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
       ItemPedCompClasseRecdespChildList: classesPayload,
     };
   });
+
+  // Cabeçalho: somar BaseICMS e ValorICMS dos itens enriquecidos
+  const geralBaseICMS = round2(itensPayload.reduce((s, it) => s + (it.BaseICMS || 0), 0));
+  const geralValorICMS = round2(itensPayload.reduce((s, it) => s + (it.ValorICMS || 0), 0));
 
   const parcelasPayload = input.parcelas.map((p) => ({
     CodigoEmpresaFilial: EMPRESA_FILIAL,
@@ -359,12 +682,12 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     DataBaseVencimento: dataBaseVencimento,
     DataCompetencia: dataCompetencia,
     CodigoEntidade: input.codigo_entidade,
-    CodigoTabPv: "000000000000001",
+    CodigoTabPv: null,
     ValorMercadoria: valorMercadoria,
-    BaseICMS: 0,
-    ValorICMS: 0,
-    GeralBaseICMS: 0,
-    GeralValorICMS: 0,
+    BaseICMS: geralBaseICMS,
+    ValorICMS: geralValorICMS,
+    GeralBaseICMS: geralBaseICMS,
+    GeralValorICMS: geralValorICMS,
     ValorTotal: valorTotal,
     CodigoEntidadeTransportadora: input.codigo_entidade,
     PercentualAcrescimoFinanceiroProduto: null,
@@ -387,7 +710,7 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     PedCompClasseRecDespChildList: pedCompClassesPayload,
     ExecutaOnAfterSave: false,
     ValidaSalvarPedido: true,
-    Chamou: "beforeSaveChild",
+    Chamou: "CodigoCondPag",
     TextoHistoricoNovo: texto_historico_completo,
     InformacaoCotacaoCompra: "",
     CodigoFuncionarioReqComp: null,
@@ -712,11 +1035,38 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
     }
 
     const guids = input.arquivos?.map((a) => a.upload_identify_guid) || [];
+
+    // ── ENRIQUECIMENTO FISCAL ──────────────────────────────
+    // Para cada item, chamar o Alvo (via erp-proxy) e obter os campos
+    // fiscais corretos (CodigoClasFiscal, CodigoSitTributaria, etc).
+    // Sem isso, o Alvo rejeita o pedido por "Situação Tributária / Classificação Fiscal não cadastrada".
+    const itensEnriquecidos: ItemEnriquecido[] = [];
+    for (const item of input.itens) {
+      const enriq = await enriquecerItemViaAlvo({
+        codigo_produto: item.codigo_produto,
+        codigo_prod_unid_med: item.codigo_prod_unid_med,
+        quantidade: item.quantidade,
+        valor_unitario: item.valor_unitario,
+        codigo_empresa_filial: EMPRESA_FILIAL,
+        codigo_entidade: input.codigo_entidade,
+        nome_entidade: input.nome_entidade,
+        data_pedido: input.data_pedido,
+        data_cadastro: input.data_pedido,
+        data_validade: input.data_validade,
+        data_competencia: input.data_competencia,
+        data_base_vencimento: input.data_pedido,
+        codigo_tipo_pag_rec: "0000016",
+        codigo_usuario: USUARIO_LOGADO,
+      });
+      itensEnriquecidos.push(enriq);
+    }
+
     const payload = montarPayloadPedComp({
       input,
       texto_completo: textoCompleto,
       texto_historico_completo: textoHistoricoCompleto,
       arquivos_guids: guids.length > 0 ? guids : undefined,
+      itens_enriquecidos: itensEnriquecidos,
     });
 
     await (supabase as any).from("compras_pedidos_auditoria").insert({
