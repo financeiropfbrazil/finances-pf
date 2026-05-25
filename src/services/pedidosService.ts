@@ -447,6 +447,47 @@ async function salvarArquivoNoStorage(pedidoId: string, arquivo: ArquivoInput, u
   return data as ArquivoPedido;
 }
 
+/**
+ * Limpa todos os filhos de um pedido (itens, rateios, parcelas, arquivos).
+ * Usado em modo "edição": antes de reinserir os dados novos vindos da UI,
+ * apagamos os antigos pra evitar conflitos de UNIQUE e órfãos.
+ *
+ * NÃO apaga o pedido pai nem a auditoria (que mantém histórico de tentativas).
+ */
+async function limparFilhosDoPedido(pedidoId: string): Promise<void> {
+  // 1. Pega arquivos pra remover do storage também
+  const { data: arquivos } = await (supabase as any)
+    .from("compras_pedidos_arquivos")
+    .select("storage_path")
+    .eq("pedido_id", pedidoId);
+
+  if (arquivos && arquivos.length > 0) {
+    const paths = arquivos.map((a: any) => a.storage_path);
+    // Best-effort: ignora erro de storage (arquivo pode já ter sido removido)
+    try {
+      await supabase.storage.from(STORAGE_BUCKET).remove(paths);
+    } catch (e) {
+      console.warn("Aviso: falha ao remover arquivos do storage:", e);
+    }
+  }
+
+  // 2. Apaga rateios (filhos dos itens) via subquery
+  const { data: itensIds } = await (supabase as any)
+    .from("compras_pedidos_itens")
+    .select("id")
+    .eq("pedido_id", pedidoId);
+
+  if (itensIds && itensIds.length > 0) {
+    const ids = itensIds.map((i: any) => i.id);
+    await (supabase as any).from("compras_pedidos_itens_rateio").delete().in("item_id", ids);
+  }
+
+  // 3. Apaga itens, parcelas, arquivos (em qualquer ordem — todos filhos do pedido)
+  await (supabase as any).from("compras_pedidos_itens").delete().eq("pedido_id", pedidoId);
+  await (supabase as any).from("compras_pedidos_parcelas").delete().eq("pedido_id", pedidoId);
+  await (supabase as any).from("compras_pedidos_arquivos").delete().eq("pedido_id", pedidoId);
+}
+
 function montarFormDataMultipart(payload: any, arquivos: Array<{ guid: string; blob: Blob; nome: string }>): FormData {
   const formData = new FormData();
   formData.append("obj", JSON.stringify(payload));
@@ -460,7 +501,7 @@ function montarFormDataMultipart(payload: any, arquivos: Array<{ guid: string; b
 // FUNÇÃO PRINCIPAL: enviarPedido
 // ════════════════════════════════════════════════════════════
 
-export async function enviarPedido(input: NovoPedidoInput): Promise<EnvioPedidoResult> {
+export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: string): Promise<EnvioPedidoResult> {
   if (input.arquivos && input.arquivos.length > 3) {
     throw new Error("Máximo de 3 arquivos por pedido.");
   }
@@ -468,45 +509,89 @@ export async function enviarPedido(input: NovoPedidoInput): Promise<EnvioPedidoR
   const textoCompleto = montarTextoCompleto(input);
   const textoHistoricoCompleto = montarTextoHistoricoCompleto(input);
 
-  let pedidoId: string | null = null;
+  // Em modo edição (reenvio), reusa o id existente. Em modo criação, será gerado.
+  let pedidoId: string | null = pedidoIdExistente || null;
+  const modoEdicao = !!pedidoIdExistente;
 
   try {
     const valorTotal = input.itens.reduce((acc, it) => acc + it.quantidade * it.valor_unitario, 0);
 
-    const { data: pedidoCriado, error: errPed } = await (supabase as any)
-      .from("compras_pedidos")
-      .insert({
-        codigo_empresa_filial: EMPRESA_FILIAL,
-        numero: `RASCUNHO-${Date.now()}`,
-        status_local: "rascunho",
-        criado_no_hub: true,
-        criado_por_user_id: input.user_id,
-        criado_por_nome: input.analista_nome,
-        data_pedido: input.data_pedido,
-        data_cadastro: input.data_pedido,
-        data_entrega: input.data_entrega,
-        data_validade: input.data_validade,
-        codigo_entidade: input.codigo_entidade,
-        nome_entidade: input.nome_entidade,
-        cnpj_entidade: input.cnpj_entidade || null,
-        codigo_cond_pag: input.codigo_cond_pag,
-        nome_cond_pag: input.nome_cond_pag,
-        codigo_usuario: USUARIO_LOGADO,
-        texto: textoCompleto,
-        valor_mercadoria: round2(valorTotal),
-        valor_total: round2(valorTotal),
-        tipo: "Total",
-        numero_req_comp: input.origem_numero_req_alvo || null,
-        codigo_empresa_filial_req_comp: input.origem_codigo_empresa_filial || null,
-      })
-      .select("id")
-      .single();
+    if (modoEdicao) {
+      // ── MODO EDIÇÃO ──
+      // Limpa filhos antigos (itens, rateios, parcelas, arquivos), atualiza o pedido pai.
+      await limparFilhosDoPedido(pedidoId!);
 
-    if (errPed || !pedidoCriado) {
-      throw new Error(`Erro ao criar pedido: ${errPed?.message}`);
+      const { error: errUpd } = await (supabase as any)
+        .from("compras_pedidos")
+        .update({
+          status_local: "rascunho",
+          criado_por_user_id: input.user_id,
+          criado_por_nome: input.analista_nome,
+          data_pedido: input.data_pedido,
+          data_cadastro: input.data_pedido,
+          data_entrega: input.data_entrega,
+          data_validade: input.data_validade,
+          codigo_entidade: input.codigo_entidade,
+          nome_entidade: input.nome_entidade,
+          cnpj_entidade: input.cnpj_entidade || null,
+          codigo_cond_pag: input.codigo_cond_pag,
+          nome_cond_pag: input.nome_cond_pag,
+          codigo_usuario: USUARIO_LOGADO,
+          texto: textoCompleto,
+          texto_historico: textoHistoricoCompleto,
+          valor_mercadoria: round2(valorTotal),
+          valor_total: round2(valorTotal),
+          tipo: "Total",
+          numero_req_comp: input.origem_numero_req_alvo || null,
+          codigo_empresa_filial_req_comp: input.origem_codigo_empresa_filial || null,
+          erro_envio: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", pedidoId);
+
+      if (errUpd) {
+        throw new Error(`Erro ao atualizar pedido: ${errUpd.message}`);
+      }
+    } else {
+      // ── MODO CRIAÇÃO ──
+      const { data: pedidoCriado, error: errPed } = await (supabase as any)
+        .from("compras_pedidos")
+        .insert({
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          numero: `RASCUNHO-${Date.now()}`,
+          status_local: "rascunho",
+          criado_no_hub: true,
+          criado_por_user_id: input.user_id,
+          criado_por_nome: input.analista_nome,
+          data_pedido: input.data_pedido,
+          data_cadastro: input.data_pedido,
+          data_entrega: input.data_entrega,
+          data_validade: input.data_validade,
+          codigo_entidade: input.codigo_entidade,
+          nome_entidade: input.nome_entidade,
+          cnpj_entidade: input.cnpj_entidade || null,
+          codigo_cond_pag: input.codigo_cond_pag,
+          nome_cond_pag: input.nome_cond_pag,
+          codigo_usuario: USUARIO_LOGADO,
+          texto: textoCompleto,
+          texto_historico: textoHistoricoCompleto,
+          valor_mercadoria: round2(valorTotal),
+          valor_total: round2(valorTotal),
+          tipo: "Total",
+          numero_req_comp: input.origem_numero_req_alvo || null,
+          codigo_empresa_filial_req_comp: input.origem_codigo_empresa_filial || null,
+        })
+        .select("id")
+        .single();
+
+      if (errPed || !pedidoCriado) {
+        throw new Error(`Erro ao criar pedido: ${errPed?.message}`);
+      }
+
+      pedidoId = pedidoCriado.id;
     }
 
-    pedidoId = pedidoCriado.id;
+    // ── REINSERÇÃO DOS FILHOS (vale pra ambos modos) ──
 
     // Itens + rateio (achatado: 1 linha por par classe-cc)
     for (let idx = 0; idx < input.itens.length; idx++) {
@@ -573,21 +658,27 @@ export async function enviarPedido(input: NovoPedidoInput): Promise<EnvioPedidoR
 
     await (supabase as any).from("compras_pedidos_auditoria").insert({
       pedido_id: pedidoId,
-      evento: "criado_hub",
+      evento: modoEdicao ? "editado_hub" : "criado_hub",
       user_id: input.user_id,
       user_nome: input.analista_nome,
       sucesso: true,
     });
 
-    await (supabase as any).from("compras_pedidos").upsert(
-      {
-        id: pedidoId,
-        codigo_empresa_filial: EMPRESA_FILIAL,
-        numero: `RASCUNHO-${Date.now()}`,
-        status_local: "enviando",
-      },
-      { onConflict: "id" },
-    );
+    // Atualiza status pra "enviando" antes da chamada ao Alvo.
+    // Em modo edição, preserva o numero existente (não gera novo RASCUNHO-).
+    if (modoEdicao) {
+      await (supabase as any).from("compras_pedidos").update({ status_local: "enviando" }).eq("id", pedidoId);
+    } else {
+      await (supabase as any).from("compras_pedidos").upsert(
+        {
+          id: pedidoId,
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          numero: `RASCUNHO-${Date.now()}`,
+          status_local: "enviando",
+        },
+        { onConflict: "id" },
+      );
+    }
 
     const guids = input.arquivos?.map((a) => a.upload_identify_guid) || [];
     const payload = montarPayloadPedComp({
@@ -690,20 +781,32 @@ export async function enviarPedido(input: NovoPedidoInput): Promise<EnvioPedidoR
     } catch (errEnvio: any) {
       const msgErro = errEnvio?.message || String(errEnvio);
 
-      await (supabase as any).from("compras_pedidos").upsert(
-        {
-          id: pedidoId,
-          codigo_empresa_filial: EMPRESA_FILIAL,
-          numero: `RASCUNHO-${pedidoId!.substring(0, 8)}`,
-          status_local: "erro_envio",
-          erro_envio: {
-            message: msgErro,
-            details: errEnvio?.details || null,
-            timestamp: new Date().toISOString(),
+      const erroEnvioPayload = {
+        message: msgErro,
+        details: errEnvio?.details || null,
+        timestamp: new Date().toISOString(),
+      };
+
+      if (modoEdicao) {
+        await (supabase as any)
+          .from("compras_pedidos")
+          .update({
+            status_local: "erro_envio",
+            erro_envio: erroEnvioPayload,
+          })
+          .eq("id", pedidoId);
+      } else {
+        await (supabase as any).from("compras_pedidos").upsert(
+          {
+            id: pedidoId,
+            codigo_empresa_filial: EMPRESA_FILIAL,
+            numero: `RASCUNHO-${pedidoId!.substring(0, 8)}`,
+            status_local: "erro_envio",
+            erro_envio: erroEnvioPayload,
           },
-        },
-        { onConflict: "id" },
-      );
+          { onConflict: "id" },
+        );
+      }
 
       await (supabase as any).from("compras_pedidos_auditoria").insert({
         pedido_id: pedidoId,
@@ -720,19 +823,31 @@ export async function enviarPedido(input: NovoPedidoInput): Promise<EnvioPedidoR
     const msgErro = errCriacao?.message || String(errCriacao);
 
     if (pedidoId) {
-      await (supabase as any).from("compras_pedidos").upsert(
-        {
-          id: pedidoId,
-          codigo_empresa_filial: EMPRESA_FILIAL,
-          numero: `RASCUNHO-${pedidoId.substring(0, 8)}`,
-          status_local: "erro_envio",
-          erro_envio: {
-            message: `Erro durante criação: ${msgErro}`,
-            timestamp: new Date().toISOString(),
+      const erroEnvioPayload = {
+        message: `Erro durante criação: ${msgErro}`,
+        timestamp: new Date().toISOString(),
+      };
+
+      if (modoEdicao) {
+        await (supabase as any)
+          .from("compras_pedidos")
+          .update({
+            status_local: "erro_envio",
+            erro_envio: erroEnvioPayload,
+          })
+          .eq("id", pedidoId);
+      } else {
+        await (supabase as any).from("compras_pedidos").upsert(
+          {
+            id: pedidoId,
+            codigo_empresa_filial: EMPRESA_FILIAL,
+            numero: `RASCUNHO-${pedidoId.substring(0, 8)}`,
+            status_local: "erro_envio",
+            erro_envio: erroEnvioPayload,
           },
-        },
-        { onConflict: "id" },
-      );
+          { onConflict: "id" },
+        );
+      }
 
       await (supabase as any).from("compras_pedidos_auditoria").insert({
         pedido_id: pedidoId,
@@ -748,6 +863,246 @@ export async function enviarPedido(input: NovoPedidoInput): Promise<EnvioPedidoR
 
     throw errCriacao;
   }
+}
+
+// ════════════════════════════════════════════════════════════
+// CARREGAR PEDIDO PARA EDIÇÃO (modo retomada de rascunho/erro)
+// ════════════════════════════════════════════════════════════
+
+export interface CarregarPedidoResult {
+  pedido_id: string;
+  numero: string;
+  status_local: string;
+  erro_envio: { message?: string; details?: any; timestamp?: string } | null;
+
+  // Origem (se veio de uma req)
+  origem_numero_req_alvo: string | null;
+  origem_codigo_empresa_filial_req_comp: string | null;
+
+  // Cabeçalho
+  codigo_entidade: string;
+  nome_entidade: string;
+  cnpj_entidade: string | null;
+  codigo_cond_pag: string;
+  nome_cond_pag: string;
+  tipo_entrega: "Total" | "Parcial";
+  data_pedido: string; // YYYY-MM-DD
+  data_entrega: string;
+  data_validade: string;
+
+  // Itens (com rateio reconstruído em hierarquia classe→cc)
+  itens: Array<{
+    item_servico: boolean;
+    codigo_produto: string;
+    codigo_alternativo_produto: string | null;
+    codigo_prod_unid_med: string;
+    produto_nome: string;
+    produto_unidade: string | null;
+    quantidade: number;
+    valor_unitario: number;
+    observacao: string | null;
+    rateio: Array<{
+      codigo_classe_rec_desp: string;
+      classe_rec_desp_label: string | null;
+      percentual: number;
+      ccs: Array<{
+        codigo_centro_ctrl: string;
+        centro_ctrl_label: string | null;
+        percentual: number;
+      }>;
+    }>;
+  }>;
+
+  // Parcelas
+  parcelas: ParcelaInput[];
+
+  // Arquivos já salvos (metadata — não tem o File em si)
+  arquivos_existentes: Array<{
+    id: string;
+    upload_identify_guid: string;
+    nome_original: string;
+    storage_path: string;
+    mime_type: string;
+    tamanho_bytes: number;
+  }>;
+
+  // Textos
+  texto_livre_existente: string;
+  texto_historico_existente: string;
+}
+
+/**
+ * Carrega um pedido salvo no Hub (rascunho ou erro_envio) com todos os filhos,
+ * reconstruindo a estrutura hierárquica de rateio (Classe→CCs) a partir do
+ * formato achatado guardado no banco.
+ *
+ * Usado pra editar um rascunho/erro_envio antes de reenviar.
+ */
+export async function carregarPedidoParaEdicao(pedidoId: string): Promise<CarregarPedidoResult> {
+  // 1. Cabeçalho
+  const { data: ped, error: errPed } = await (supabase as any)
+    .from("compras_pedidos")
+    .select("*")
+    .eq("id", pedidoId)
+    .single();
+
+  if (errPed || !ped) {
+    throw new Error(`Pedido não encontrado: ${errPed?.message}`);
+  }
+
+  if (ped.status_local !== "rascunho" && ped.status_local !== "erro_envio") {
+    throw new Error(
+      `Só é possível editar pedidos com status 'rascunho' ou 'erro_envio'. Status atual: ${ped.status_local}`,
+    );
+  }
+
+  // 2. Itens
+  const { data: itensRows, error: errItens } = await (supabase as any)
+    .from("compras_pedidos_itens")
+    .select("*")
+    .eq("pedido_id", pedidoId)
+    .order("sequencia", { ascending: true });
+
+  if (errItens) {
+    throw new Error(`Erro ao carregar itens: ${errItens.message}`);
+  }
+
+  const itens = [];
+  for (const itemRow of itensRows || []) {
+    // 2a. Rateios desse item (achatado: 1 linha por par classe-cc)
+    const { data: rateiosRows } = await (supabase as any)
+      .from("compras_pedidos_itens_rateio")
+      .select("*")
+      .eq("item_id", itemRow.id);
+
+    // 2b. Reconstrói hierarquia classe→cc.
+    // O percentual gravado é o produto (perc_classe × perc_cc / 100).
+    // Pra reverter: agrupa por classe, soma percentuais → vira % da classe.
+    // Dentro da classe, cada CC tem peso = (perc_gravado / soma_da_classe) × 100.
+    const porClasse = new Map<
+      string,
+      {
+        codigo_classe_rec_desp: string;
+        classe_rec_desp_label: string | null;
+        percentual: number;
+        ccs: Array<{
+          codigo_centro_ctrl: string;
+          centro_ctrl_label: string | null;
+          percentual: number; // antes da normalização
+        }>;
+      }
+    >();
+
+    for (const r of rateiosRows || []) {
+      const key = r.codigo_classe_rec_desp;
+      if (!porClasse.has(key)) {
+        porClasse.set(key, {
+          codigo_classe_rec_desp: r.codigo_classe_rec_desp,
+          classe_rec_desp_label: r.classe_rec_desp_label,
+          percentual: 0,
+          ccs: [],
+        });
+      }
+      const cls = porClasse.get(key)!;
+      cls.percentual = round2(cls.percentual + Number(r.percentual));
+      cls.ccs.push({
+        codigo_centro_ctrl: r.codigo_centro_ctrl,
+        centro_ctrl_label: r.centro_ctrl_label,
+        percentual: Number(r.percentual),
+      });
+    }
+
+    // 2c. Normaliza percentual dos CCs dentro de cada classe (somam 100%)
+    const rateioFinal = Array.from(porClasse.values()).map((cls) => {
+      const ccs = cls.ccs.map((cc) => ({
+        ...cc,
+        percentual: cls.percentual > 0 ? round2((cc.percentual / cls.percentual) * 100) : 0,
+      }));
+      // Ajuste de arredondamento: força soma=100 mexendo no último CC
+      if (ccs.length > 0) {
+        const somaCcs = ccs.reduce((s, c) => s + c.percentual, 0);
+        const diff = round2(100 - somaCcs);
+        if (Math.abs(diff) > 0.001 && Math.abs(diff) <= 0.02) {
+          ccs[ccs.length - 1].percentual = round2(ccs[ccs.length - 1].percentual + diff);
+        }
+      }
+      return {
+        codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
+        classe_rec_desp_label: cls.classe_rec_desp_label,
+        percentual: cls.percentual,
+        ccs,
+      };
+    });
+
+    itens.push({
+      item_servico: itemRow.item_servico,
+      codigo_produto: itemRow.codigo_produto,
+      codigo_alternativo_produto: itemRow.codigo_alternativo_produto,
+      codigo_prod_unid_med: itemRow.codigo_prod_unid_med,
+      produto_nome: itemRow.produto_nome,
+      produto_unidade: itemRow.produto_unidade,
+      quantidade: Number(itemRow.quantidade),
+      valor_unitario: Number(itemRow.valor_unitario),
+      observacao: itemRow.observacao,
+      rateio: rateioFinal,
+    });
+  }
+
+  // 3. Parcelas
+  const { data: parcelasRows } = await (supabase as any)
+    .from("compras_pedidos_parcelas")
+    .select("*")
+    .eq("pedido_id", pedidoId)
+    .order("sequencia", { ascending: true });
+
+  const parcelas: ParcelaInput[] = (parcelasRows || []).map((p: any) => ({
+    sequencia: p.sequencia,
+    dias_entre_parcelas: p.dias_entre_parcelas,
+    percentual_fracao: Number(p.percentual_fracao),
+    valor_parcela: Number(p.valor_parcela),
+    data_vencimento: p.data_vencimento,
+  }));
+
+  // 4. Arquivos existentes (metadata)
+  const { data: arquivosRows } = await (supabase as any)
+    .from("compras_pedidos_arquivos")
+    .select("id, upload_identify_guid, nome_original, storage_path, mime_type, tamanho_bytes")
+    .eq("pedido_id", pedidoId);
+
+  // 5. Extração de texto livre / histórico (remove o stamp, que será reaplicado no envio)
+  const removerStamp = (texto: string | null): string => {
+    if (!texto) return "";
+    // Stamp tem o padrão: "[Hub] Analista: NOME | DD/MM/YYYY HH:MM | ID: XXXXXXXX"
+    // Estratégia: descarta a primeira linha SE começar com "[Hub] Analista:"
+    const linhas = texto.split("\n");
+    if (linhas.length > 0 && linhas[0].startsWith("[Hub] Analista:")) {
+      return linhas.slice(1).join("\n").trim();
+    }
+    return texto;
+  };
+
+  return {
+    pedido_id: ped.id,
+    numero: ped.numero,
+    status_local: ped.status_local,
+    erro_envio: ped.erro_envio,
+    origem_numero_req_alvo: ped.numero_req_comp,
+    origem_codigo_empresa_filial_req_comp: ped.codigo_empresa_filial_req_comp,
+    codigo_entidade: ped.codigo_entidade,
+    nome_entidade: ped.nome_entidade,
+    cnpj_entidade: ped.cnpj_entidade,
+    codigo_cond_pag: ped.codigo_cond_pag,
+    nome_cond_pag: ped.nome_cond_pag,
+    tipo_entrega: (ped.tipo === "Parcial" ? "Parcial" : "Total") as "Total" | "Parcial",
+    data_pedido: ped.data_pedido,
+    data_entrega: ped.data_entrega,
+    data_validade: ped.data_validade,
+    itens,
+    parcelas,
+    arquivos_existentes: arquivosRows || [],
+    texto_livre_existente: removerStamp(ped.texto),
+    texto_historico_existente: removerStamp(ped.texto_historico),
+  };
 }
 
 // ════════════════════════════════════════════════════════════
