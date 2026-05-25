@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { PeriodProvider } from "@/contexts/PeriodContext";
 import { AppLayout } from "@/components/AppLayout";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useHomeRoute } from "@/hooks/useHomeRoute";
 import { ShieldX } from "lucide-react";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
@@ -54,6 +55,7 @@ import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
 import SuprimentosPedidos from "./pages/SuprimentosPedidos";
 import SuprimentosPedidoNovo from "./pages/SuprimentosPedidoNovo";
+import SuprimentosPedidoDetalhe from "./pages/SuprimentosPedidoDetalhe";
 import ReembolsoNovo from "./pages/intercompany/ReembolsoNovo";
 import IntercompanyMaster from "./pages/intercompany/IntercompanyMaster";
 import NovoReembolsoNF from "./pages/intercompany/NovoReembolsoNF";
@@ -61,12 +63,12 @@ import BulkEditProdutosCampos from "./pages/ferramentas/BulkEditProdutosCampos";
 import BulkEditHistorico from "./pages/ferramentas/BulkEditHistorico";
 import CronReqDashboard from "./pages/ferramentas/CronReqDashboard";
 import NotFound from "./pages/NotFound";
-import SuprimentosPedidoDetalhe from "./pages/SuprimentosPedidoDetalhe";
 
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading } = useAuth();
+  const { session, profile, loading } = useAuth();
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -75,20 +77,36 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     );
   }
   if (!session) return <Navigate to="/login" replace />;
+
+  // ✅ NOVO: rede de segurança para must_change_password.
+  // Cobre os casos não-cobertos pelo Login.tsx:
+  //   - sessão persistente (user já logado quando admin marcou must_change_password=true)
+  //   - acesso direto via URL ou bookmark
+  //   - refresh da página antes de trocar senha
+  // Como /reset-password está FORA do ProtectedRoute, não há loop.
+  if (profile?.must_change_password === true) {
+    return <Navigate to="/reset-password" replace />;
+  }
+
   return <>{children}</>;
 }
 
-function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-      </div>
-    );
+/**
+ * Rota "/" inteligente: em vez de exigir permissão "dashboard" (que não existe
+ * no catálogo), redireciona o user pra home apropriada do seu role.
+ * - admin → renderiza o Dashboard
+ * - outros roles → redirect pra home definida em useHomeRoute
+ */
+function HomeOrDashboard() {
+  const { profile } = useAuth();
+  const homeRoute = useHomeRoute();
+
+  // Só admin vê o Dashboard. Demais são redirecionados.
+  if (profile?.is_admin) {
+    return <Dashboard />;
   }
-  if (session) return <Navigate to="/" replace />;
-  return <>{children}</>;
+
+  return <Navigate to={homeRoute} replace />;
 }
 
 function PermissionRoute({ permKey, children }: { permKey: string; children: React.ReactNode }) {
@@ -118,14 +136,10 @@ function PermissionRoute({ permKey, children }: { permKey: string; children: Rea
 function AppRoutes() {
   return (
     <Routes>
-      <Route
-        path="/login"
-        element={
-          <PublicRoute>
-            <Login />
-          </PublicRoute>
-        }
-      />
+      {/* Login NÃO usa mais PublicRoute envolvendo — o próprio Login.tsx
+          detecta sessão ativa e redireciona via <Navigate> declarativo.
+          Isso elimina a race condition do navigate() vs PublicRoute. */}
+      <Route path="/login" element={<Login />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         element={
@@ -136,14 +150,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route
-          path="/"
-          element={
-            <PermissionRoute permKey="dashboard">
-              <Dashboard />
-            </PermissionRoute>
-          }
-        />
+        {/* ✅ Rota "/" usa HomeOrDashboard: admin vê Dashboard, demais são redirecionados */}
+        <Route path="/" element={<HomeOrDashboard />} />
         <Route
           path="/cash"
           element={
@@ -297,14 +305,14 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
-        <Route 
-          path="/suprimentos/pedidos/:id" 
+        <Route
+          path="/suprimentos/pedidos/:id"
           element={
             <PermissionRoute permKey="compras.pedidos.access">
               <SuprimentosPedidoDetalhe />
             </PermissionRoute>
-          } 
-        />      
+          }
+        />
 
         <Route
           path="/compras/notas-fiscais"
