@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -21,6 +21,10 @@ import {
   FileText,
   Pencil,
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { format, subDays, startOfWeek, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -81,6 +85,10 @@ export default function SuprimentosPedidos() {
   const [filtroComprador, setFiltroComprador] = useState("todos");
   const [filtroPreset, setFiltroPreset] = useState("todos");
 
+  // Paginação no frontend (filtros buscam tudo do banco)
+  const PAGE_SIZE = 30;
+  const [paginaAtual, setPaginaAtual] = useState(1);
+
   // ── Lista de funcionários (compradores) pra filtro ──────
   const { data: funcionarios = [] } = useQuery({
     queryKey: ["funcionarios_filtro_pedidos"],
@@ -110,7 +118,11 @@ export default function SuprimentosPedidos() {
       filtroComprador,
     ],
     queryFn: async () => {
-      let query = (supabase as any).from("compras_pedidos").select("*").order("updated_at", { ascending: false });
+      let query = (supabase as any)
+        .from("compras_pedidos")
+        .select("*")
+        .order("updated_at", { ascending: false })
+        .range(0, 9999); // bypass do limite default de 1000 do PostgREST
 
       // Filtragem por papel: requisitante só vê pedidos derivados de SUAS reqs
       if (!podeVerTodos && user) {
@@ -162,6 +174,20 @@ export default function SuprimentosPedidos() {
     },
     enabled: !!user,
   });
+
+  // ── Paginação no frontend ───────────────────────────────
+  const totalPaginas = Math.max(1, Math.ceil((pedidos?.length || 0) / PAGE_SIZE));
+  const paginaCorrigida = Math.min(paginaAtual, totalPaginas);
+  const pedidosPaginados = useMemo(() => {
+    if (!pedidos || pedidos.length === 0) return [];
+    const inicio = (paginaCorrigida - 1) * PAGE_SIZE;
+    return pedidos.slice(inicio, inicio + PAGE_SIZE);
+  }, [pedidos, paginaCorrigida, PAGE_SIZE]);
+
+  // Resetar pra página 1 quando os filtros mudarem
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [filtroStatusLocal, filtroOrigem, filtroDataInicio, filtroDataFim, filtroComprador, filtroPreset]);
 
   const handlePresetData = (preset: string) => {
     setFiltroPreset(preset);
@@ -312,8 +338,14 @@ export default function SuprimentosPedidos() {
       {/* Contagem */}
       {!isLoading && pedidos.length > 0 && (
         <p className="text-sm text-muted-foreground">
-          {pedidos.length} pedido{pedidos.length !== 1 ? "s" : ""} encontrado
-          {pedidos.length !== 1 ? "s" : ""}
+          {pedidos.length === 1
+            ? "1 pedido encontrado"
+            : totalPaginas > 1
+              ? `Mostrando ${(paginaCorrigida - 1) * PAGE_SIZE + 1}–${Math.min(
+                  paginaCorrigida * PAGE_SIZE,
+                  pedidos.length,
+                )} de ${pedidos.length} pedidos`
+              : `${pedidos.length} pedidos encontrados`}
         </p>
       )}
 
@@ -350,7 +382,7 @@ export default function SuprimentosPedidos() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {pedidos.map((ped: any) => {
+          {pedidosPaginados.map((ped: any) => {
             const statusLocalCfg = STATUS_LOCAL_CONFIG[ped.status_local] || STATUS_LOCAL_CONFIG.rascunho;
             const statusAlvoClass = ped.status ? STATUS_ALVO_CONFIG[ped.status] : null;
             const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
@@ -451,6 +483,53 @@ export default function SuprimentosPedidos() {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Paginação */}
+      {!isLoading && pedidos.length > 0 && totalPaginas > 1 && (
+        <div className="mt-6 flex items-center justify-between gap-4 border-t pt-4">
+          <p className="text-xs text-muted-foreground">
+            Página {paginaCorrigida} de {totalPaginas}
+          </p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaginaAtual(1)}
+              disabled={paginaCorrigida === 1}
+              title="Primeira página"
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
+              disabled={paginaCorrigida === 1}
+            >
+              <ChevronLeft className="mr-1 h-4 w-4" />
+              Anterior
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
+              disabled={paginaCorrigida === totalPaginas}
+            >
+              Próxima
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaginaAtual(totalPaginas)}
+              disabled={paginaCorrigida === totalPaginas}
+              title="Última página"
+            >
+              <ChevronsRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       )}
     </div>
