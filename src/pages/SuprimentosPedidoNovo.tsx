@@ -37,7 +37,6 @@ import {
   ClipboardList,
   Loader2,
   X,
-  Construction,
   Calendar as CalendarIcon,
   RotateCcw,
   Paperclip,
@@ -226,6 +225,11 @@ export default function SuprimentosPedidoNovo() {
   const MAX_TAMANHO_MB = 5;
   const MAX_TAMANHO_BYTES = MAX_TAMANHO_MB * 1024 * 1024;
   const MIME_TYPES_ACEITOS = ["application/pdf", "image/jpeg", "image/png"];
+
+  // ── Etapa 5: Revisão + Envio ────────────────────────────
+  const [textoLivre, setTextoLivre] = useState("");
+  const [textoHistoricoNovo, setTextoHistoricoNovo] = useState("");
+  const [erroEnvio, setErroEnvio] = useState<string | null>(null);
 
   // ── Modal de item ────────────────────────────────────────
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
@@ -924,6 +928,123 @@ export default function SuprimentosPedidoNovo() {
   // Precisa: pelo menos 1 parcela, soma OK, todas parcelas com valor > 0 e data válida
   const canAdvanceFromEtapa4 =
     parcelas.length > 0 && parcelasValorOk && parcelas.every((p) => p.valor_parcela > 0 && !!p.data_vencimento);
+
+  // ════════════════════════════════════════════════════════
+  // ETAPA 5: Stamp preview + Envio
+  // ════════════════════════════════════════════════════════
+
+  // Preview do stamp (idêntico ao service, mas calculado em tempo real pra UI)
+  const stampPreview = useMemo(() => {
+    const userId = user?.id || "";
+    const nome = profile?.full_name || user?.email || "Analista";
+    const idCurto = userId.substring(0, 8);
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, "0");
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const yyyy = now.getFullYear();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mi = String(now.getMinutes()).padStart(2, "0");
+    return `[Hub] Analista: ${nome} | ${dd}/${mm}/${yyyy} ${hh}:${mi} | ID: ${idCurto}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, profile?.full_name, user?.email, currentStep]);
+
+  const handleEnviarPedido = async () => {
+    if (!user?.id) {
+      toast({
+        title: "Sessão expirada",
+        description: "Faça login novamente para enviar o pedido.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setEnviando(true);
+    setErroEnvio(null);
+
+    try {
+      // Monta payload com os ItensPedidoInput (convertendo do estado local)
+      const itensInput = itens.map((it) => ({
+        item_servico: it.item_servico,
+        codigo_produto: it.codigo_produto,
+        codigo_alternativo_produto: it.codigo_alternativo_produto,
+        codigo_prod_unid_med: it.codigo_prod_unid_med,
+        produto_nome: it.produto_nome,
+        produto_unidade: it.produto_unidade,
+        quantidade: it.quantidade,
+        valor_unitario: it.valor_unitario,
+        observacao: it.observacao,
+        rateio: it.rateio.map((c) => ({
+          codigo_classe_rec_desp: c.codigo_classe_rec_desp,
+          classe_rec_desp_label: c.classe_rec_desp_label,
+          percentual: c.percentual,
+          ccs: c.ccs.map((cc) => ({
+            codigo_centro_ctrl: cc.codigo_centro_ctrl,
+            centro_ctrl_label: cc.centro_ctrl_label,
+            percentual: cc.percentual,
+          })),
+        })),
+      }));
+
+      const input: NovoPedidoInput = {
+        user_id: user.id,
+        analista_nome: profile?.full_name || user.email || "Analista",
+        analista_email: user.email || "",
+
+        origem_requisicao_id: origemReqId,
+        origem_numero_req_alvo: origemNumeroReqAlvo,
+        origem_codigo_empresa_filial: origemCodigoEmpresaFilial,
+
+        itens: itensInput,
+
+        codigo_entidade: codigoEntidade,
+        nome_entidade: nomeEntidade,
+        cnpj_entidade: cnpjEntidade,
+        codigo_cond_pag: codigoCondPag,
+        nome_cond_pag: nomeCondPag,
+        tipo_entrega: tipoEntrega,
+
+        data_pedido: format(dataPedido, "yyyy-MM-dd"),
+        data_entrega: format(dataEntrega, "yyyy-MM-dd"),
+        data_validade: format(dataValidade, "yyyy-MM-dd"),
+        data_competencia: format(dataCompetencia, "yyyy-MM-dd"),
+
+        parcelas,
+        arquivos,
+
+        texto_livre: textoLivre,
+        texto_historico_novo: textoHistoricoNovo,
+      };
+
+      const result = await enviarPedido(input);
+
+      if (result.sucesso) {
+        toast({
+          title: "Pedido criado com sucesso",
+          description: result.numero_alvo
+            ? `Pedido nº ${result.numero_alvo} enviado ao ERP.`
+            : "Pedido registrado no Hub.",
+        });
+        navigate("/suprimentos/pedidos");
+      } else {
+        setErroEnvio(result.erro || "Falha desconhecida ao enviar pedido.");
+        toast({
+          title: "Erro ao enviar pedido",
+          description: result.erro || "Verifique os detalhes e tente novamente.",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      const msg = err?.message || "Erro inesperado ao enviar pedido.";
+      setErroEnvio(msg);
+      toast({
+        title: "Erro ao enviar pedido",
+        description: msg,
+        variant: "destructive",
+      });
+    } finally {
+      setEnviando(false);
+    }
+  };
 
   const valorTotalItemModal = useMemo(() => {
     const q = parseDecimal(itemQtd);
@@ -1673,15 +1794,275 @@ export default function SuprimentosPedidoNovo() {
         </div>
       )}
 
-      {/* Etapa 5: placeholder */}
+      {/* Etapa 5: Revisão + Envio */}
       {currentStep === 5 && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <Construction className="h-12 w-12 mb-3 opacity-40" />
-            <p className="text-sm font-medium">Etapa 5: Revisão</p>
-            <p className="text-xs mt-1">Em construção — será implementada na próxima sessão.</p>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          {/* Aviso de envio */}
+          <Card className="border-blue-500/30 bg-blue-500/5">
+            <CardContent className="pt-6">
+              <p className="text-sm text-foreground">
+                Revise todas as informações antes de enviar. Após o envio, o pedido será criado no Alvo ERP e aparecerá
+                na lista de pedidos. Use os botões <span className="font-medium">Editar</span> de cada seção para voltar
+                à etapa correspondente.
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Erro de envio (se houver) */}
+          {erroEnvio && (
+            <Card className="border-destructive/40 bg-destructive/5">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-semibold text-destructive text-sm">Erro ao enviar o pedido</p>
+                    <p className="text-sm text-foreground mt-1">{erroEnvio}</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      O pedido foi salvo como rascunho. Você pode revisar e tentar novamente.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Seção 1: Itens */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="font-semibold text-sm">
+                    Itens ({itens.length}) — Total: {formatBRL(valorTotalPedido)}
+                  </h3>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setCurrentStep(1)}>
+                  <Pencil className="h-3 w-3 mr-1.5" /> Editar
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {itens.map((it) => (
+                  <div key={it.tempId} className="rounded-md border p-3 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {it.item_servico === "S" ? (
+                          <Wrench className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        ) : (
+                          <Package className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        )}
+                        <span className="font-medium truncate">{it.produto_nome}</span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {it.item_servico === "S" ? "Serviço" : "Produto"}
+                        </Badge>
+                      </div>
+                      <span className="font-mono text-xs text-emerald-600 shrink-0">
+                        {formatBRL(it.quantidade * it.valor_unitario)}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {it.quantidade} {it.produto_unidade || "UNID"} × {formatBRL(it.valor_unitario)}
+                    </div>
+                    {it.observacao && (
+                      <div className="text-xs italic text-muted-foreground mt-1">"{it.observacao}"</div>
+                    )}
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {it.rateio.map((c) => (
+                        <Badge key={c.tempClasseId} variant="secondary" className="text-[10px]">
+                          {c.codigo_classe_rec_desp} ({c.percentual.toFixed(2)}%) — {c.ccs.length} CC
+                          {c.ccs.length !== 1 ? "s" : ""}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Seção 2: Fornecedor + CondPag + Entrega */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-sm">Fornecedor e Pagamento</h3>
+                <Button variant="outline" size="sm" onClick={() => setCurrentStep(2)}>
+                  <Pencil className="h-3 w-3 mr-1.5" /> Editar
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Fornecedor</p>
+                  <p className="font-medium">{nomeEntidade}</p>
+                  <p className="text-xs font-mono text-muted-foreground">{cnpjEntidade || "(sem CNPJ)"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Condição de Pagamento</p>
+                  <p className="font-medium">{nomeCondPag}</p>
+                  <p className="text-xs font-mono text-muted-foreground">{codigoCondPag}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Tipo de Entrega</p>
+                  <p className="font-medium">{tipoEntrega}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Seção 3: Datas */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-sm">Datas</h3>
+                <Button variant="outline" size="sm" onClick={() => setCurrentStep(3)}>
+                  <Pencil className="h-3 w-3 mr-1.5" /> Editar
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Pedido</p>
+                  <p className="font-medium">{format(dataPedido, "dd/MM/yyyy", { locale: ptBR })}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Competência</p>
+                  <p className="font-medium">{format(dataCompetencia, "dd/MM/yyyy", { locale: ptBR })}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Entrega</p>
+                  <p className="font-medium">{format(dataEntrega, "dd/MM/yyyy", { locale: ptBR })}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Validade</p>
+                  <p className="font-medium">{format(dataValidade, "dd/MM/yyyy", { locale: ptBR })}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Seção 4: Parcelas */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-sm">
+                  Parcelas ({parcelas.length}) — Total: {formatBRL(somaParcelas)}
+                </h3>
+                <Button variant="outline" size="sm" onClick={() => setCurrentStep(4)}>
+                  <Pencil className="h-3 w-3 mr-1.5" /> Editar
+                </Button>
+              </div>
+              <div className="rounded-md border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left p-2 font-medium text-xs text-muted-foreground w-12">Nº</th>
+                      <th className="text-left p-2 font-medium text-xs text-muted-foreground">Vencimento</th>
+                      <th className="text-right p-2 font-medium text-xs text-muted-foreground">Valor</th>
+                      <th className="text-center p-2 font-medium text-xs text-muted-foreground">Dias entre</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parcelas.map((p, idx) => {
+                      const dataVencDate = new Date(`${p.data_vencimento}T03:00:00.000Z`);
+                      return (
+                        <tr key={idx} className="border-t">
+                          <td className="p-2 text-center font-mono text-xs">{p.sequencia}</td>
+                          <td className="p-2 text-xs">{format(dataVencDate, "dd/MM/yyyy", { locale: ptBR })}</td>
+                          <td className="p-2 text-right font-mono text-xs">{formatBRL(p.valor_parcela)}</td>
+                          <td className="p-2 text-center font-mono text-xs">{p.dias_entre_parcelas}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Seção 5: Anexos */}
+          {arquivos.length > 0 && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="h-4 w-4 text-muted-foreground" />
+                    <h3 className="font-semibold text-sm">Anexos ({arquivos.length})</h3>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentStep(4)}>
+                    <Pencil className="h-3 w-3 mr-1.5" /> Editar
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {arquivos.map((arq) => {
+                    const IconeArq = getIconeArquivo(arq.file.type);
+                    return (
+                      <div
+                        key={arq.upload_identify_guid}
+                        className="flex items-center gap-3 rounded-md border p-2 text-sm"
+                      >
+                        <IconeArq className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="flex-1 truncate">{arq.file.name}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">{formatarTamanho(arq.file.size)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Seção 6: Textos + Stamp */}
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div>
+                <h3 className="font-semibold text-sm mb-1">Observações</h3>
+                <p className="text-xs text-muted-foreground">
+                  Opcional. Será anexado aos campos{" "}
+                  <code className="text-[10px] bg-muted px-1 py-0.5 rounded">Texto</code> e{" "}
+                  <code className="text-[10px] bg-muted px-1 py-0.5 rounded">TextoHistoricoNovo</code> do Alvo, junto
+                  com o carimbo de auditoria abaixo.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="texto-livre">
+                  Texto / observação livre
+                  <span className="text-xs text-muted-foreground ml-2">(visível no campo Texto do pedido no Alvo)</span>
+                </Label>
+                <Textarea
+                  id="texto-livre"
+                  value={textoLivre}
+                  onChange={(e) => setTextoLivre(e.target.value)}
+                  placeholder="Ex: pedido referente à manutenção do mês de maio..."
+                  rows={3}
+                  disabled={enviando}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="texto-historico">
+                  Texto histórico / observação interna
+                  <span className="text-xs text-muted-foreground ml-2">
+                    (visível no campo Histórico do pedido no Alvo)
+                  </span>
+                </Label>
+                <Textarea
+                  id="texto-historico"
+                  value={textoHistoricoNovo}
+                  onChange={(e) => setTextoHistoricoNovo(e.target.value)}
+                  placeholder="Ex: aprovado pela diretoria em reunião de 15/05..."
+                  rows={2}
+                  disabled={enviando}
+                />
+              </div>
+
+              {/* Stamp automático */}
+              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-1">
+                  Carimbo automático (adicionado ao final dos textos acima)
+                </p>
+                <p className="font-mono text-xs text-foreground break-all">{stampPreview}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Footer nav */}
@@ -1723,7 +2104,22 @@ export default function SuprimentosPedidoNovo() {
             Próximo <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         ) : (
-          <Button disabled>Enviar Pedido</Button>
+          <Button
+            onClick={handleEnviarPedido}
+            disabled={enviando || !canAdvanceFromEtapa4}
+            title={!canAdvanceFromEtapa4 ? "Volte às etapas anteriores e corrija os erros" : undefined}
+          >
+            {enviando ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Enviando...
+              </>
+            ) : (
+              <>
+                Enviar Pedido <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
         )}
       </div>
 
