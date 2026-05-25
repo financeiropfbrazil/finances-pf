@@ -9,7 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, ShoppingCart, Loader2, User as UserIcon, Building2, Calendar, Package, X, FileText } from "lucide-react";
+import {
+  Plus,
+  ShoppingCart,
+  Loader2,
+  User as UserIcon,
+  Building2,
+  Calendar,
+  Package,
+  X,
+  FileText,
+  Pencil,
+  AlertCircle,
+} from "lucide-react";
 import { format, subDays, startOfWeek, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -23,11 +35,17 @@ import { ptBR } from "date-fns/locale";
 // ════════════════════════════════════════════════════════════
 
 const STATUS_LOCAL_CONFIG: Record<string, { label: string; className: string }> = {
-  rascunho: { label: "Rascunho", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
-  enviando: { label: "Enviando…", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
-  enviado_alvo: { label: "Enviado ao ERP", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
-  erro_envio: { label: "Erro no envio", className: "bg-red-500/15 text-red-600 border-red-500/30" },
-  sincronizado: { label: "Sincronizado", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
+  rascunho: { label: "Rascunho", className: "bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30" },
+  enviando: { label: "Enviando…", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30" },
+  enviado_alvo: {
+    label: "Enviado ao ERP",
+    className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+  },
+  erro_envio: { label: "Erro no envio", className: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30" },
+  sincronizado: {
+    label: "Sincronizado",
+    className: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
+  },
 };
 
 // Para pedidos sincronizados, mostramos também o status do Alvo
@@ -335,13 +353,23 @@ export default function SuprimentosPedidos() {
           {pedidos.map((ped: any) => {
             const statusLocalCfg = STATUS_LOCAL_CONFIG[ped.status_local] || STATUS_LOCAL_CONFIG.rascunho;
             const statusAlvoClass = ped.status ? STATUS_ALVO_CONFIG[ped.status] : null;
+            const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
             const numeroVisivel = ped.numero?.startsWith("RASCUNHO-") ? "(rascunho)" : ped.numero || "(sem nº)";
 
             return (
               <Card
                 key={ped.id}
-                className="cursor-pointer transition-colors hover:border-primary/50"
-                onClick={() => navigate(`/suprimentos/pedidos/${ped.id}`)}
+                className={
+                  "cursor-pointer transition-colors hover:border-primary/50" +
+                  (isEditavel ? " bg-muted/40 border-dashed opacity-70 hover:opacity-100 hover:bg-muted/60" : "")
+                }
+                onClick={() => {
+                  if (isEditavel) {
+                    navigate(`/suprimentos/pedidos/novo?pedidoId=${ped.id}`);
+                  } else {
+                    navigate(`/suprimentos/pedidos/${ped.id}`);
+                  }
+                }}
               >
                 <CardContent className="space-y-3 p-5">
                   {/* Linha 1: status + numero */}
@@ -399,9 +427,26 @@ export default function SuprimentosPedidos() {
                     )}
                   </div>
 
-                  <p className="text-[11px] text-muted-foreground/60">
-                    Atualizado em {format(new Date(ped.updated_at || ped.created_at), "dd/MM/yyyy", { locale: ptBR })}
-                  </p>
+                  {/* Banner de erro / aviso de rascunho */}
+                  {ped.status_local === "erro_envio" && ped.erro_envio?.message && (
+                    <div className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+                      <AlertCircle className="h-3 w-3 text-destructive shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-destructive line-clamp-2">{ped.erro_envio.message}</p>
+                    </div>
+                  )}
+
+                  {/* Footer: data + botão editar (se editável) */}
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <p className="text-[11px] text-muted-foreground/60">
+                      Atualizado em {format(new Date(ped.updated_at || ped.created_at), "dd/MM/yyyy", { locale: ptBR })}
+                    </p>
+                    {isEditavel && (
+                      <Badge variant="outline" className="text-[10px] gap-1">
+                        <Pencil className="h-2.5 w-2.5" />
+                        Clique para editar
+                      </Badge>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             );
