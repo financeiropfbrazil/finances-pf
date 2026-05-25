@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -104,8 +104,8 @@ export default function SuprimentosPedidos() {
     enabled: podeVerTodos,
   });
 
-  // ── Lista de pedidos ────────────────────────────────────
-  const { data: pedidos = [], isLoading } = useQuery({
+  // ── Lista de pedidos (paginação no servidor) ────────────
+  const { data: pedidosResult, isLoading } = useQuery({
     queryKey: [
       "pedidos_lista",
       user?.id,
@@ -116,13 +116,19 @@ export default function SuprimentosPedidos() {
       filtroDataInicio?.toISOString(),
       filtroDataFim?.toISOString(),
       filtroComprador,
+      paginaAtual, // refaz query quando troca de página
     ],
     queryFn: async () => {
+      // Range do PostgREST é INCLUSIVO em ambos os lados.
+      // Pra pedir registros 0..29 (primeiros 30): .range(0, 29)
+      const inicio = (paginaAtual - 1) * PAGE_SIZE;
+      const fim = inicio + PAGE_SIZE - 1;
+
       let query = (supabase as any)
         .from("compras_pedidos")
-        .select("*")
+        .select("*", { count: "exact" }) // count exato pro total
         .order("updated_at", { ascending: false })
-        .range(0, 9999); // bypass do limite default de 1000 do PostgREST
+        .range(inicio, fim);
 
       // Filtragem por papel: requisitante só vê pedidos derivados de SUAS reqs
       if (!podeVerTodos && user) {
@@ -136,7 +142,7 @@ export default function SuprimentosPedidos() {
 
         if (numerosReqs.length === 0) {
           // Usuário sem reqs → sem pedidos derivados → retorna vazio
-          return [];
+          return { pedidos: [], total: 0 };
         }
 
         query = query.in("numero_req_comp", numerosReqs);
@@ -158,31 +164,31 @@ export default function SuprimentosPedidos() {
       }
 
       if (filtroDataInicio) {
-        const inicio = new Date(filtroDataInicio);
-        inicio.setHours(0, 0, 0, 0);
-        query = query.gte("data_pedido", inicio.toISOString().slice(0, 10));
+        const inicioData = new Date(filtroDataInicio);
+        inicioData.setHours(0, 0, 0, 0);
+        query = query.gte("data_pedido", inicioData.toISOString().slice(0, 10));
       }
       if (filtroDataFim) {
-        const fim = new Date(filtroDataFim);
-        fim.setHours(23, 59, 59, 999);
-        query = query.lte("data_pedido", fim.toISOString().slice(0, 10));
+        const fimData = new Date(filtroDataFim);
+        fimData.setHours(23, 59, 59, 999);
+        query = query.lte("data_pedido", fimData.toISOString().slice(0, 10));
       }
 
-      const { data, error } = await query;
+      const { data, count, error } = await query;
       if (error) throw error;
-      return data || [];
+      return { pedidos: data || [], total: count || 0 };
     },
     enabled: !!user,
   });
 
-  // ── Paginação no frontend ───────────────────────────────
-  const totalPaginas = Math.max(1, Math.ceil((pedidos?.length || 0) / PAGE_SIZE));
+  const pedidos = pedidosResult?.pedidos || [];
+  const totalPedidos = pedidosResult?.total || 0;
+
+  // ── Paginação no servidor ───────────────────────────────
+  // `pedidos` já vem só com a página atual (PAGE_SIZE registros máx).
+  // `totalPedidos` é o count exato no banco.
+  const totalPaginas = Math.max(1, Math.ceil(totalPedidos / PAGE_SIZE));
   const paginaCorrigida = Math.min(paginaAtual, totalPaginas);
-  const pedidosPaginados = useMemo(() => {
-    if (!pedidos || pedidos.length === 0) return [];
-    const inicio = (paginaCorrigida - 1) * PAGE_SIZE;
-    return pedidos.slice(inicio, inicio + PAGE_SIZE);
-  }, [pedidos, paginaCorrigida, PAGE_SIZE]);
 
   // Resetar pra página 1 quando os filtros mudarem
   useEffect(() => {
@@ -336,16 +342,16 @@ export default function SuprimentosPedidos() {
       </Card>
 
       {/* Contagem */}
-      {!isLoading && pedidos.length > 0 && (
+      {!isLoading && totalPedidos > 0 && (
         <p className="text-sm text-muted-foreground">
-          {pedidos.length === 1
+          {totalPedidos === 1
             ? "1 pedido encontrado"
             : totalPaginas > 1
               ? `Mostrando ${(paginaCorrigida - 1) * PAGE_SIZE + 1}–${Math.min(
                   paginaCorrigida * PAGE_SIZE,
-                  pedidos.length,
-                )} de ${pedidos.length} pedidos`
-              : `${pedidos.length} pedidos encontrados`}
+                  totalPedidos,
+                )} de ${totalPedidos} pedidos`
+              : `${totalPedidos} pedidos encontrados`}
         </p>
       )}
 
@@ -354,7 +360,7 @@ export default function SuprimentosPedidos() {
         <div className="flex min-h-[40vh] items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : pedidos.length === 0 ? (
+      ) : totalPedidos === 0 ? (
         <div className="flex min-h-[40vh] items-center justify-center rounded-lg border border-dashed border-border">
           <Card className="border-0 bg-transparent shadow-none text-center max-w-md">
             <CardContent className="flex flex-col items-center gap-4 pt-6">
@@ -382,7 +388,7 @@ export default function SuprimentosPedidos() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {pedidosPaginados.map((ped: any) => {
+          {pedidos.map((ped: any) => {
             const statusLocalCfg = STATUS_LOCAL_CONFIG[ped.status_local] || STATUS_LOCAL_CONFIG.rascunho;
             const statusAlvoClass = ped.status ? STATUS_ALVO_CONFIG[ped.status] : null;
             const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
@@ -487,7 +493,7 @@ export default function SuprimentosPedidos() {
       )}
 
       {/* Paginação */}
-      {!isLoading && pedidos.length > 0 && totalPaginas > 1 && (
+      {!isLoading && totalPedidos > 0 && totalPaginas > 1 && (
         <div className="mt-6 flex items-center justify-between gap-4 border-t pt-4">
           <p className="text-xs text-muted-foreground">
             Página {paginaCorrigida} de {totalPaginas}
