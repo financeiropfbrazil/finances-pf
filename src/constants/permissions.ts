@@ -19,6 +19,7 @@ export const PERMISSIONS = {
   COMPRAS_PEDIDOS_VIEW_ALL: "compras.pedidos.view_all",
   COMPRAS_PEDIDOS_CREATE: "compras.pedidos.create",
   COMPRAS_PEDIDOS_DELETE_DRAFT: "compras.pedidos.delete_draft",
+  COMPRAS_PEDIDOS_VIEW_OWN: "compras.pedidos.view_own" as const,
   // ─── Administração global ───────────────────────────────────────
   ADMIN_USERS_MANAGE: "admin.users.manage",
 
