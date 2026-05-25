@@ -304,7 +304,7 @@ function AppRoutes() {
     </PermissionRoute>
   } 
 />
-        />
+        
         <Route
           path="/compras/notas-fiscais"
           element={
