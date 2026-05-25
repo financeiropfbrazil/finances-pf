@@ -296,14 +296,16 @@ function AppRoutes() {
               <SuprimentosPedidoNovo />
             </PermissionRoute>
           }
-          <Route 
-  path="/suprimentos/pedidos/:id" 
-  element={
-    <PermissionRoute permKey="compras.pedidos.access">
-      <SuprimentosPedidoDetalhe />
-    </PermissionRoute>
-  } 
-/>      
+        />
+        <Route 
+          path="/suprimentos/pedidos/:id" 
+          element={
+            <PermissionRoute permKey="compras.pedidos.access">
+              <SuprimentosPedidoDetalhe />
+            </PermissionRoute>
+          } 
+        />      
+
         <Route
           path="/compras/notas-fiscais"
           element={
