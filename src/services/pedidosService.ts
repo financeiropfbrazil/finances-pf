@@ -239,6 +239,10 @@ interface EnriquecimentoItemInput {
   codigo_prod_unid_med: string;
   quantidade: number;
   valor_unitario: number;
+  // Dados completos do produto pra CodigoProdutoObject (crítico pro Alvo resolver tributação)
+  produto_nome: string;
+  produto_codigo_alternativo: string;
+  produto_codigo_reduzido?: string;
   // Cabeçalho mínimo do pedido (PedCompDTO)
   codigo_empresa_filial: string;
   codigo_entidade: string;
@@ -414,7 +418,20 @@ async function enriquecerItemViaAlvo(params: EnriquecimentoItemInput): Promise<I
     QuantidadeEntregaParcial: 0,
     PesoLiquido: 0,
     PesoBruto: 0,
-    NomeProduto: null,
+    NomeProduto: params.produto_nome,
+    DescricaoAlternativaProduto: params.produto_nome,
+    CodigoAlternativoProduto: params.produto_codigo_alternativo,
+    DescricaoItem: params.produto_nome,
+    // CodigoProdutoObject — CRÍTICO pro Alvo resolver tributação corretamente
+    CodigoProdutoObject: {
+      Codigo: params.codigo_produto,
+      Nome: params.produto_nome,
+      Alternativo: params.produto_codigo_alternativo,
+      Reduzido: params.produto_codigo_reduzido || "",
+      NomeAlternativo1: null,
+      UserFilterProperties: {},
+      checked: true,
+    },
     UploadIdentify: "",
     ItemPedCompUserFieldsObject: {},
     ItemPedCompAgrupChildList: [],
@@ -434,7 +451,7 @@ async function enriquecerItemViaAlvo(params: EnriquecimentoItemInput): Promise<I
     CodigoEntidadeTransportadora: params.codigo_entidade,
     DataPedido: dataPedidoIso,
     DataCadastro: dataCadastroIso,
-    DataValidade: dataValidadeIso,
+    DataValidade: dataPedidoIso,
     DataCompetencia: dataCompetenciaIso,
     DataBaseVencimento: dataBaseVencIso,
     DataBaseVencimentoParcela: "Data do Pedido",
@@ -1047,6 +1064,8 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         codigo_prod_unid_med: item.codigo_prod_unid_med,
         quantidade: item.quantidade,
         valor_unitario: item.valor_unitario,
+        produto_nome: item.produto_nome,
+        produto_codigo_alternativo: item.codigo_alternativo_produto || "",
         codigo_empresa_filial: EMPRESA_FILIAL,
         codigo_entidade: input.codigo_entidade,
         nome_entidade: input.nome_entidade,
