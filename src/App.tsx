@@ -61,6 +61,7 @@ import BulkEditProdutosCampos from "./pages/ferramentas/BulkEditProdutosCampos";
 import BulkEditHistorico from "./pages/ferramentas/BulkEditHistorico";
 import CronReqDashboard from "./pages/ferramentas/CronReqDashboard";
 import NotFound from "./pages/NotFound";
+import SuprimentosPedidoDetalhe from "./pages/SuprimentosPedidoDetalhe";
 
 const queryClient = new QueryClient();
 
@@ -295,6 +296,14 @@ function AppRoutes() {
               <SuprimentosPedidoNovo />
             </PermissionRoute>
           }
+          <Route 
+  path="/suprimentos/pedidos/:id" 
+  element={
+    <PermissionRoute permKey="compras.pedidos.access">
+      <SuprimentosPedidoDetalhe />
+    </PermissionRoute>
+  } 
+/>
         />
         <Route
           path="/compras/notas-fiscais"
