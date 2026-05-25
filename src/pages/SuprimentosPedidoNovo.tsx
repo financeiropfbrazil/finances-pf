@@ -6,9 +6,11 @@ import {
   enviarPedido,
   clonarDeRequisicao,
   calcularParcelas,
+  carregarPedidoParaEdicao,
   type NovoPedidoInput,
   type ParcelaInput,
   type ArquivoInput,
+  type CarregarPedidoResult,
 } from "@/services/pedidosService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -157,6 +159,7 @@ export default function SuprimentosPedidoNovo() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const reqIdFromQuery = searchParams.get("reqId");
+  const pedidoIdFromQuery = searchParams.get("pedidoId");
   const { profile, user } = useAuth();
 
   // ── Estado do wizard ─────────────────────────────────────
@@ -169,6 +172,24 @@ export default function SuprimentosPedidoNovo() {
   const [origemCodigoEmpresaFilial, setOrigemCodigoEmpresaFilial] = useState<string | undefined>(undefined);
   const [cnpjSugeridoDaReq, setCnpjSugeridoDaReq] = useState<string | null>(null);
   const [carregandoClone, setCarregandoClone] = useState(!!reqIdFromQuery);
+
+  // ── Modo edição de rascunho/erro_envio ──────────────────
+  const [pedidoIdEmEdicao, setPedidoIdEmEdicao] = useState<string | null>(null);
+  const [numeroDoRascunho, setNumeroDoRascunho] = useState<string | null>(null);
+  const [statusLocalAnterior, setStatusLocalAnterior] = useState<string | null>(null);
+  const [erroEnvioAnterior, setErroEnvioAnterior] = useState<{ message?: string } | null>(null);
+  const [carregandoEdicao, setCarregandoEdicao] = useState(!!pedidoIdFromQuery);
+  // Arquivos já salvos no banco (para edição). Conta no limite de 3, mas o usuário pode remover.
+  const [arquivosExistentes, setArquivosExistentes] = useState<
+    Array<{
+      id: string;
+      upload_identify_guid: string;
+      nome_original: string;
+      mime_type: string;
+      tamanho_bytes: number;
+      storage_path: string;
+    }>
+  >([]);
 
   // Submit
   const [enviando, setEnviando] = useState(false);
@@ -388,6 +409,110 @@ export default function SuprimentosPedidoNovo() {
     carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqIdFromQuery]);
+
+  // ── useEffect: Carregar pedido para edição ──────────────
+  // Disparado se ?pedidoId=<uuid> estiver na URL.
+  // Popula TODOS os estados do wizard com os dados salvos no banco.
+  useEffect(() => {
+    if (!pedidoIdFromQuery) return;
+    if (reqIdFromQuery) return; // se vier ambos, prioriza reqId (não deveria acontecer)
+
+    const carregar = async () => {
+      try {
+        const dados: CarregarPedidoResult = await carregarPedidoParaEdicao(pedidoIdFromQuery);
+
+        // Marca modo edição
+        setPedidoIdEmEdicao(dados.pedido_id);
+        setNumeroDoRascunho(dados.numero);
+        setStatusLocalAnterior(dados.status_local);
+        setErroEnvioAnterior(dados.erro_envio);
+
+        // Cabeçalho — fornecedor + cond pag
+        setCodigoEntidade(dados.codigo_entidade);
+        setNomeEntidade(dados.nome_entidade);
+        setCnpjEntidade(dados.cnpj_entidade || "");
+        setCodigoCondPag(dados.codigo_cond_pag);
+        setNomeCondPag(dados.nome_cond_pag);
+        setTipoEntrega(dados.tipo_entrega);
+
+        // Datas (convertendo YYYY-MM-DD para Date local)
+        const parseLocalDate = (ymd: string): Date => {
+          const [y, m, d] = ymd.split("-").map(Number);
+          const dt = new Date(y, m - 1, d);
+          dt.setHours(0, 0, 0, 0);
+          return dt;
+        };
+        setDataPedido(parseLocalDate(dados.data_pedido));
+        setDataEntrega(parseLocalDate(dados.data_entrega));
+        setDataValidade(parseLocalDate(dados.data_validade));
+
+        // Origem (se veio de Req)
+        if (dados.origem_numero_req_alvo) {
+          setOrigemNumeroReqAlvo(dados.origem_numero_req_alvo);
+          setOrigemCodigoEmpresaFilial(dados.origem_codigo_empresa_filial_req_comp || undefined);
+        }
+
+        // Itens (recria os tempIds locais; rateio já vem hierárquico)
+        const itensComIds: ItemWizard[] = dados.itens.map((it, idx) => ({
+          tempId: `tmp-${Date.now()}-${Math.random()}-${idx}`,
+          item_servico: it.item_servico,
+          codigo_produto: it.codigo_produto,
+          codigo_alternativo_produto: it.codigo_alternativo_produto,
+          codigo_prod_unid_med: it.codigo_prod_unid_med,
+          produto_nome: it.produto_nome,
+          produto_unidade: it.produto_unidade,
+          quantidade: it.quantidade,
+          valor_unitario: it.valor_unitario,
+          observacao: it.observacao,
+          rateio: it.rateio.map((cls, clsIdx) => ({
+            tempClasseId: `cls-${Date.now()}-${Math.random()}-${idx}-${clsIdx}`,
+            codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
+            classe_rec_desp_label: cls.classe_rec_desp_label,
+            percentual: cls.percentual,
+            ccs: cls.ccs.map((cc, ccIdx) => ({
+              tempCcId: `cc-${Date.now()}-${Math.random()}-${idx}-${clsIdx}-${ccIdx}`,
+              codigo_centro_ctrl: cc.codigo_centro_ctrl,
+              centro_ctrl_label: cc.centro_ctrl_label,
+              percentual: cc.percentual,
+            })),
+          })),
+        }));
+        setItens(itensComIds);
+
+        // Parcelas: preserva exatamente como estavam (já editadas)
+        setParcelas(dados.parcelas);
+        setParcelasEditadasManualmente(true); // não recalcula automático
+
+        // Arquivos existentes: guardamos a metadata pra mostrar na UI
+        // Note: o `File` não pode ser reconstruído (browser bloqueia), então
+        // tratamos como "anexos previamente salvos" — usuário pode remover.
+        setArquivosExistentes(dados.arquivos_existentes);
+
+        // Textos (sem o stamp — foi removido pelo service)
+        setTextoLivre(dados.texto_livre_existente);
+        setTextoHistoricoNovo(dados.texto_historico_existente);
+
+        toast({
+          title: `Editando ${dados.numero}`,
+          description:
+            dados.status_local === "erro_envio"
+              ? "Pedido retomado após erro de envio. Revise e tente novamente."
+              : "Rascunho carregado para edição.",
+        });
+      } catch (err: any) {
+        toast({
+          title: "Erro ao carregar pedido",
+          description: err?.message || "Não foi possível carregar o pedido.",
+          variant: "destructive",
+        });
+        navigate("/suprimentos/pedidos");
+      } finally {
+        setCarregandoEdicao(false);
+      }
+    };
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoIdFromQuery]);
 
   // Auto-select de fornecedor pelo CNPJ sugerido da Req (caminho 1a).
   // Tenta achar match exato no cache. Se houver 1 único match → seleciona automaticamente.
@@ -871,7 +996,7 @@ export default function SuprimentosPedidoNovo() {
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
 
-    const disponiveis = MAX_ARQUIVOS - arquivos.length;
+    const disponiveis = MAX_ARQUIVOS - arquivos.length - arquivosExistentes.length;
     if (files.length > disponiveis) {
       toast({
         title: "Limite excedido",
@@ -1015,7 +1140,7 @@ export default function SuprimentosPedidoNovo() {
         texto_historico_novo: textoHistoricoNovo,
       };
 
-      const result = await enviarPedido(input);
+      const result = await enviarPedido(input, pedidoIdEmEdicao || undefined);
 
       if (result.sucesso) {
         toast({
@@ -1026,6 +1151,11 @@ export default function SuprimentosPedidoNovo() {
         });
         navigate("/suprimentos/pedidos");
       } else {
+        // Falha no envio: guarda o pedido_id retornado para o próximo clique reutilizar
+        // o mesmo rascunho (evita duplicação).
+        if (result.pedido_id && !pedidoIdEmEdicao) {
+          setPedidoIdEmEdicao(result.pedido_id);
+        }
         setErroEnvio(result.erro || "Falha desconhecida ao enviar pedido.");
         toast({
           title: "Erro ao enviar pedido",
@@ -1054,10 +1184,13 @@ export default function SuprimentosPedidoNovo() {
 
   const somaPercClasses = useMemo(() => itemRateio.reduce((s, c) => s + c.percentual, 0), [itemRateio]);
 
-  if (carregandoClone) {
+  if (carregandoClone || carregandoEdicao) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
+          {carregandoEdicao ? "Carregando pedido para edição..." : "Carregando dados da requisição..."}
+        </p>
       </div>
     );
   }
@@ -1070,11 +1203,17 @@ export default function SuprimentosPedidoNovo() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-foreground">Novo Pedido de Compra</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            {pedidoIdEmEdicao ? "Editar Pedido" : "Novo Pedido de Compra"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            {origemNumeroReqAlvo
-              ? `Pedido derivado da Requisição ${origemNumeroReqAlvo}`
-              : "Siga as etapas para criar seu pedido."}
+            {pedidoIdEmEdicao
+              ? `Editando rascunho ${numeroDoRascunho}${
+                  statusLocalAnterior === "erro_envio" ? " (com erro de envio anterior)" : ""
+                }`
+              : origemNumeroReqAlvo
+                ? `Pedido derivado da Requisição ${origemNumeroReqAlvo}`
+                : "Siga as etapas para criar seu pedido."}
           </p>
         </div>
         {valorTotalPedido > 0 && (
@@ -1084,6 +1223,27 @@ export default function SuprimentosPedidoNovo() {
           </div>
         )}
       </div>
+
+      {/* Banner de erro de envio anterior (modo edição) */}
+      {pedidoIdEmEdicao && erroEnvioAnterior && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-semibold text-amber-700 dark:text-amber-400 text-sm">Tentativa anterior falhou</p>
+                <p className="text-sm text-foreground mt-1 break-words">
+                  {erroEnvioAnterior.message || "Erro desconhecido"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Faça os ajustes necessários e clique em "Enviar Pedido" novamente. Este mesmo rascunho será
+                  reutilizado.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stepper */}
       <div className="flex items-center gap-2 overflow-x-auto">
@@ -1732,6 +1892,45 @@ export default function SuprimentosPedidoNovo() {
                 </p>
               </div>
 
+              {/* Arquivos já salvos (modo edição) */}
+              {arquivosExistentes.length > 0 && (
+                <div className="space-y-2">
+                  {arquivosExistentes.map((arq) => {
+                    const IconeArq = getIconeArquivo(arq.mime_type);
+                    return (
+                      <div
+                        key={arq.id}
+                        className="flex items-center gap-3 rounded-md border border-dashed border-blue-500/30 bg-blue-500/5 p-3"
+                      >
+                        <div className="flex h-8 w-8 items-center justify-center rounded bg-muted">
+                          <IconeArq className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{arq.nome_original}</div>
+                          <div className="text-xs text-muted-foreground flex items-center gap-2">
+                            <span>{formatarTamanho(arq.tamanho_bytes)}</span>
+                            <Badge variant="outline" className="text-[10px]">
+                              Salvo anteriormente
+                            </Badge>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => setArquivosExistentes((prev) => prev.filter((a) => a.id !== arq.id))}
+                          disabled={enviando}
+                          title="Remover anexo"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Arquivos novos (in-memory) */}
               {arquivos.length > 0 && (
                 <div className="space-y-2">
                   {arquivos.map((arq) => {
@@ -1760,7 +1959,7 @@ export default function SuprimentosPedidoNovo() {
                 </div>
               )}
 
-              {arquivos.length < MAX_ARQUIVOS && (
+              {arquivos.length + arquivosExistentes.length < MAX_ARQUIVOS && (
                 <div className="flex items-center gap-3">
                   <input
                     id="arquivo-pedido-upload"
@@ -1781,12 +1980,12 @@ export default function SuprimentosPedidoNovo() {
                     Adicionar arquivo
                   </Button>
                   <span className="text-xs text-muted-foreground">
-                    {arquivos.length} de {MAX_ARQUIVOS}
+                    {arquivos.length + arquivosExistentes.length} de {MAX_ARQUIVOS}
                   </span>
                 </div>
               )}
 
-              {arquivos.length === MAX_ARQUIVOS && (
+              {arquivos.length + arquivosExistentes.length >= MAX_ARQUIVOS && (
                 <p className="text-xs text-muted-foreground">Limite máximo de {MAX_ARQUIVOS} arquivos atingido.</p>
               )}
             </CardContent>
