@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,25 +16,20 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
-  const [redirectTo, setRedirectTo] = useState<string | null>(null);
 
   const navigate = useNavigate();
   const { t, language, setLanguage } = useLanguage();
   const { session, loading: authLoading } = useAuth();
   const homeRoute = useHomeRoute();
 
-  // ✅ Navigate declarativo — resolvido em ordem previsível pelo React Router.
-  // Não usar navigate() imperativo no handleLogin: ele é assíncrono e pode ser
-  // sobrescrito por re-renders do AuthContext.onAuthStateChange.
-  if (redirectTo) {
-    return <Navigate to={redirectTo} replace />;
-  }
-
-  // Se usuário já está logado (sessão persistente), manda pra home apropriada.
-  // Isso substitui o antigo <PublicRoute> que mandava todo mundo pra "/".
-  if (!authLoading && session) {
-    return <Navigate to={homeRoute} replace />;
-  }
+  // ✅ Se chegou aqui com sessão ativa (refresh, bookmark direto), manda pra home
+  // do role. Usa useEffect pra rodar APENAS após o render — não interfere com
+  // navigate() do handleLogin.
+  useEffect(() => {
+    if (!authLoading && session) {
+      navigate(homeRoute, { replace: true });
+    }
+  }, [authLoading, session, homeRoute, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,26 +51,25 @@ const Login = () => {
         .eq("user_id", data.user.id)
         .maybeSingle();
 
-      setLoading(false);
-
       if (profileData?.must_change_password === true) {
         toast.info("Senha temporária detectada", {
           description: "Por segurança, defina uma nova senha agora.",
         });
-        // ✅ State → re-render → <Navigate> declarativo. Não imperativo.
-        setRedirectTo("/reset-password");
+        setLoading(false);
+        // ✅ Navegação DIRETA via window.location.
+        // Por que não navigate(): em ambientes com onAuthStateChange e múltiplos
+        // re-renders disparando ao mesmo tempo, o navigate do React Router pode
+        // ser sobrescrito por outros redirects subsequentes. window.location.assign
+        // força a navegação no nível do browser, com new history entry, e é
+        // imune a race conditions de re-render.
+        window.location.assign("/reset-password");
         return;
       }
     }
 
     setLoading(false);
-    // Após login OK, deixa o <Navigate> de "session && !authLoading" acima
-    // assumir e mandar pra homeRoute (que depende de roles carregados).
-    // Como roles ainda podem estar carregando, o componente vai re-renderizar
-    // quando authLoading virar false e aí o redirect acontece naturalmente.
-    // Para forçar um redirect imediato seguro, usamos homeRoute (que vale
-    // FALLBACK_ROUTE até roles chegarem):
-    setRedirectTo(homeRoute);
+    // Login normal: vai pra rota da role
+    window.location.assign(homeRoute);
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
