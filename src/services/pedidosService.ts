@@ -521,9 +521,24 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       // Limpa filhos antigos (itens, rateios, parcelas, arquivos), atualiza o pedido pai.
       await limparFilhosDoPedido(pedidoId!);
 
-      const { error: errUpd } = await (supabase as any)
+      // Busca o numero atual pra preservar no upsert
+      // (NÃO usar .update() — bloqueado por CORS PATCH no Supabase hospedado).
+      const { data: pedAtual, error: errFetch } = await (supabase as any)
         .from("compras_pedidos")
-        .update({
+        .select("numero")
+        .eq("id", pedidoId)
+        .single();
+
+      if (errFetch || !pedAtual) {
+        throw new Error(`Pedido não encontrado para edição: ${errFetch?.message}`);
+      }
+
+      const { error: errUpd } = await (supabase as any).from("compras_pedidos").upsert(
+        {
+          id: pedidoId,
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          numero: pedAtual.numero,
+          criado_no_hub: true,
           status_local: "rascunho",
           criado_por_user_id: input.user_id,
           criado_por_nome: input.analista_nome,
@@ -546,8 +561,9 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
           codigo_empresa_filial_req_comp: input.origem_codigo_empresa_filial || null,
           erro_envio: null,
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", pedidoId);
+        },
+        { onConflict: "id" },
+      );
 
       if (errUpd) {
         throw new Error(`Erro ao atualizar pedido: ${errUpd.message}`);
@@ -667,7 +683,22 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
     // Atualiza status pra "enviando" antes da chamada ao Alvo.
     // Em modo edição, preserva o numero existente (não gera novo RASCUNHO-).
     if (modoEdicao) {
-      await (supabase as any).from("compras_pedidos").update({ status_local: "enviando" }).eq("id", pedidoId);
+      // Busca o numero atual pra preservar
+      const { data: pedAtualEnviando } = await (supabase as any)
+        .from("compras_pedidos")
+        .select("numero")
+        .eq("id", pedidoId)
+        .single();
+
+      await (supabase as any).from("compras_pedidos").upsert(
+        {
+          id: pedidoId,
+          codigo_empresa_filial: EMPRESA_FILIAL,
+          numero: pedAtualEnviando?.numero || `RASCUNHO-${pedidoId!.substring(0, 8)}`,
+          status_local: "enviando",
+        },
+        { onConflict: "id" },
+      );
     } else {
       await (supabase as any).from("compras_pedidos").upsert(
         {
@@ -788,13 +819,23 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       };
 
       if (modoEdicao) {
-        await (supabase as any)
+        // Busca numero atual pra preservar
+        const { data: pedAtualErro } = await (supabase as any)
           .from("compras_pedidos")
-          .update({
+          .select("numero")
+          .eq("id", pedidoId)
+          .single();
+
+        await (supabase as any).from("compras_pedidos").upsert(
+          {
+            id: pedidoId,
+            codigo_empresa_filial: EMPRESA_FILIAL,
+            numero: pedAtualErro?.numero || `RASCUNHO-${pedidoId!.substring(0, 8)}`,
             status_local: "erro_envio",
             erro_envio: erroEnvioPayload,
-          })
-          .eq("id", pedidoId);
+          },
+          { onConflict: "id" },
+        );
       } else {
         await (supabase as any).from("compras_pedidos").upsert(
           {
@@ -829,13 +870,22 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       };
 
       if (modoEdicao) {
-        await (supabase as any)
+        const { data: pedAtualCatch } = await (supabase as any)
           .from("compras_pedidos")
-          .update({
+          .select("numero")
+          .eq("id", pedidoId)
+          .single();
+
+        await (supabase as any).from("compras_pedidos").upsert(
+          {
+            id: pedidoId,
+            codigo_empresa_filial: EMPRESA_FILIAL,
+            numero: pedAtualCatch?.numero || `RASCUNHO-${pedidoId.substring(0, 8)}`,
             status_local: "erro_envio",
             erro_envio: erroEnvioPayload,
-          })
-          .eq("id", pedidoId);
+          },
+          { onConflict: "id" },
+        );
       } else {
         await (supabase as any).from("compras_pedidos").upsert(
           {
