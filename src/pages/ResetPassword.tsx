@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useHomeRoute } from "@/hooks/useHomeRoute";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,16 +19,23 @@ const ResetPassword = () => {
 
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const { profile, session, refreshProfile } = useAuth();
+  const { profile, session, loading: authLoading, refreshProfile } = useAuth();
+  const homeRoute = useHomeRoute();
 
   // Detecta de qual fluxo veio
   useEffect(() => {
     // Fluxo 1: hash recovery (link do email "Esqueci a senha")
+    // Esse fluxo NÃO precisa do profile carregado — token está no hash.
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     if (hashParams.get("type") === "recovery") {
       setMode("recovery");
       return;
     }
+
+    // ✅ HARDENING: espera AuthContext terminar de carregar antes de decidir.
+    // Sem isso, se chega em /reset-password antes do profile carregar,
+    // cai no else final e é jogado pra /login sem motivo.
+    if (authLoading) return;
 
     // Fluxo 2: user logado com senha temporária (must_change_password=true)
     if (session && profile?.must_change_password === true) {
@@ -37,7 +45,7 @@ const ResetPassword = () => {
 
     // Nenhum dos 2 — redireciona pra login
     navigate("/login");
-  }, [profile, session, navigate]);
+  }, [profile, session, authLoading, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,17 +94,23 @@ const ResetPassword = () => {
         }
       }
 
-      // Recarrega profile pra refletir mudança
+      // Recarrega profile pra refletir mudança (impede loop no ProtectedRoute guard)
       await refreshProfile();
     }
 
     setLoading(false);
     toast.success("Senha atualizada com sucesso!");
-    navigate("/");
+    // ✅ Vai pra rota inicial apropriada ao role do user (não fixo em "/")
+    navigate(homeRoute);
   };
 
+  // Aguardando detecção de modo (ou AuthContext ainda carregando)
   if (mode === null) {
-    return null; // aguardando detecção
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
   }
 
   return (
