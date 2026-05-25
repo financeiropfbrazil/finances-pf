@@ -1456,6 +1456,25 @@ export interface CarregarPedidoResult {
  * Usado pra editar um rascunho/erro_envio antes de reenviar.
  */
 export async function carregarPedidoParaEdicao(pedidoId: string): Promise<CarregarPedidoResult> {
+  return _carregarPedidoCompleto(pedidoId, /* modoEdicao */ true);
+}
+
+/**
+ * Carrega um pedido salvo no Hub para VISUALIZAÇÃO (tela de Detalhe).
+ *
+ * Idêntico a `carregarPedidoParaEdicao`, mas SEM a trava de status.
+ * Aceita qualquer pedido independente do status_local.
+ */
+export async function carregarPedidoParaDetalhe(pedidoId: string): Promise<CarregarPedidoResult> {
+  return _carregarPedidoCompleto(pedidoId, /* modoEdicao */ false);
+}
+
+/**
+ * Helper interno — carrega o pedido completo com filhos e reconstrói rateio.
+ * Chamado por `carregarPedidoParaEdicao` (com trava) e
+ * `carregarPedidoParaDetalhe` (sem trava).
+ */
+async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): Promise<CarregarPedidoResult> {
   // 1. Cabeçalho
   const { data: ped, error: errPed } = await (supabase as any)
     .from("compras_pedidos")
@@ -1467,7 +1486,7 @@ export async function carregarPedidoParaEdicao(pedidoId: string): Promise<Carreg
     throw new Error(`Pedido não encontrado: ${errPed?.message}`);
   }
 
-  if (ped.status_local !== "rascunho" && ped.status_local !== "erro_envio") {
+  if (modoEdicao && ped.status_local !== "rascunho" && ped.status_local !== "erro_envio") {
     throw new Error(
       `Só é possível editar pedidos com status 'rascunho' ou 'erro_envio'. Status atual: ${ped.status_local}`,
     );
