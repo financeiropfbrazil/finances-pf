@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { carregarPedidoParaEdicao, excluirPedido, getUrlAssinadaArquivoPedido } from "@/services/pedidosService";
+import { carregarPedidoParaDetalhe, excluirPedido, getUrlAssinadaArquivoPedido } from "@/services/pedidosService";
 
 // ════════════════════════════════════════════════════════════
 // CONFIGS DE STATUS (consistente com SuprimentosPedidos.tsx)
@@ -133,7 +133,7 @@ export default function SuprimentosPedidoDetalhe() {
     queryKey: ["pedido-detalhe", id],
     queryFn: async () => {
       if (!id) throw new Error("ID do pedido não informado.");
-      return await carregarPedidoParaEdicao(id);
+      return await carregarPedidoParaDetalhe(id);
     },
     enabled: !!id,
   });
