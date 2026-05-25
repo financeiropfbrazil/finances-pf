@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useHomeRoute } from "@/hooks/useHomeRoute";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,8 +16,25 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
+  const [redirectTo, setRedirectTo] = useState<string | null>(null);
+
   const navigate = useNavigate();
   const { t, language, setLanguage } = useLanguage();
+  const { session, loading: authLoading } = useAuth();
+  const homeRoute = useHomeRoute();
+
+  // ✅ Navigate declarativo — resolvido em ordem previsível pelo React Router.
+  // Não usar navigate() imperativo no handleLogin: ele é assíncrono e pode ser
+  // sobrescrito por re-renders do AuthContext.onAuthStateChange.
+  if (redirectTo) {
+    return <Navigate to={redirectTo} replace />;
+  }
+
+  // Se usuário já está logado (sessão persistente), manda pra home apropriada.
+  // Isso substitui o antigo <PublicRoute> que mandava todo mundo pra "/".
+  if (!authLoading && session) {
+    return <Navigate to={homeRoute} replace />;
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +48,7 @@ const Login = () => {
       return;
     }
 
-    // ✅ NOVO: detecta must_change_password antes de redirecionar pra "/"
+    // Detecta must_change_password ANTES de redirecionar
     if (data?.user) {
       const { data: profileData } = await (supabase as any)
         .from("profiles")
@@ -43,13 +62,20 @@ const Login = () => {
         toast.info("Senha temporária detectada", {
           description: "Por segurança, defina uma nova senha agora.",
         });
-        navigate("/reset-password");
+        // ✅ State → re-render → <Navigate> declarativo. Não imperativo.
+        setRedirectTo("/reset-password");
         return;
       }
     }
 
     setLoading(false);
-    navigate("/");
+    // Após login OK, deixa o <Navigate> de "session && !authLoading" acima
+    // assumir e mandar pra homeRoute (que depende de roles carregados).
+    // Como roles ainda podem estar carregando, o componente vai re-renderizar
+    // quando authLoading virar false e aí o redirect acontece naturalmente.
+    // Para forçar um redirect imediato seguro, usamos homeRoute (que vale
+    // FALLBACK_ROUTE até roles chegarem):
+    setRedirectTo(homeRoute);
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
