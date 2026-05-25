@@ -1845,14 +1845,14 @@ export default function SuprimentosPedidoNovo() {
                   <div key={it.tempId} className="rounded-md border p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
-                        {it.item_servico === "S" ? (
+                        {it.item_servico ? (
                           <Wrench className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         ) : (
                           <Package className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         )}
                         <span className="font-medium truncate">{it.produto_nome}</span>
                         <Badge variant="outline" className="text-[10px]">
-                          {it.item_servico === "S" ? "Serviço" : "Produto"}
+                          {it.item_servico ? "Serviço" : "Produto"}
                         </Badge>
                       </div>
                       <span className="font-mono text-xs text-emerald-600 shrink-0">
