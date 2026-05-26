@@ -22,6 +22,7 @@ import {
   Truck,
   User as UserIcon,
   ShoppingCart,
+  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,37 +38,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
 import { PERMISSIONS } from "@/constants/permissions";
 import { supabase } from "@/integrations/supabase/client";
 import { carregarPedidoParaDetalhe, excluirPedido, getUrlAssinadaArquivoPedido } from "@/services/pedidosService";
+import { getStatusPedido } from "@/lib/statusPedido";
 
 // ════════════════════════════════════════════════════════════
-// CONFIGS DE STATUS (consistente com SuprimentosPedidos.tsx)
+// CONFIG DE EVENTOS DA AUDITORIA (mantido — usado no histórico)
 // ════════════════════════════════════════════════════════════
-
-const STATUS_LOCAL_CONFIG: Record<string, { label: string; className: string }> = {
-  rascunho: { label: "Rascunho", className: "bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30" },
-  enviando: { label: "Enviando…", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30" },
-  enviado_alvo: {
-    label: "Enviado ao ERP",
-    className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
-  },
-  erro_envio: { label: "Erro no envio", className: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30" },
-  sincronizado: {
-    label: "Sincronizado",
-    className: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
-  },
-};
-
-const STATUS_ALVO_CONFIG: Record<string, string> = {
-  Aberto: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
-  Pendente: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
-  Cancelado: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
-  Encerrado: "bg-slate-500/10 text-slate-700 dark:text-slate-400 border-slate-500/20",
-};
 
 const EVENTO_CONFIG: Record<string, { label: string; icon: any; className: string }> = {
   criado_hub: { label: "Criado no Hub", icon: ShoppingCart, className: "text-slate-600 dark:text-slate-400" },
@@ -196,7 +178,7 @@ export default function SuprimentosPedidoDetalhe() {
     enabled: !!id,
   });
 
-  // ── Query terciária: dados extras do cabeçalho (status Alvo, criado_no_hub, etc) ──
+  // ── Query terciária: dados extras do cabeçalho (status Alvo, criado_no_hub, status_aprovacao, etc) ──
   const { data: pedidoMeta } = useQuery({
     queryKey: ["pedido-meta", id],
     queryFn: async () => {
@@ -204,7 +186,7 @@ export default function SuprimentosPedidoDetalhe() {
       const { data, error } = await (supabase as any)
         .from("compras_pedidos")
         .select(
-          "numero, status, status_local, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, data_competencia, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at",
+          "numero, status, status_local, status_aprovacao, aprovado, comprado, proximo_aprovador, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, data_competencia, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at",
         )
         .eq("id", id)
         .single();
@@ -295,8 +277,10 @@ export default function SuprimentosPedidoDetalhe() {
   const isEditavel = pedido.status_local === "rascunho" || pedido.status_local === "erro_envio";
   const isExcluivel = pedido.status_local === "rascunho" || pedido.status_local === "erro_envio";
 
-  const statusLocalCfg = STATUS_LOCAL_CONFIG[pedido.status_local] || STATUS_LOCAL_CONFIG.rascunho;
-  const statusAlvoClass = pedidoMeta?.status ? STATUS_ALVO_CONFIG[pedidoMeta.status] : null;
+  // Status unificado: combina pedido + pedidoMeta pra captar todos os campos relevantes
+  // (status_local, status, status_aprovacao, aprovado, comprado, proximo_aprovador)
+  const pedidoComMeta = { ...pedido, ...(pedidoMeta || {}) };
+  const statusVisual = getStatusPedido(pedidoComMeta);
 
   const numeroVisivel = pedido.numero?.startsWith("RASCUNHO-") ? `(rascunho)` : pedido.numero || "(rascunho)";
 
@@ -334,23 +318,32 @@ export default function SuprimentosPedidoDetalhe() {
 
       {/* Título e status */}
       <div className="mb-6 space-y-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-bold text-foreground">Pedido {numeroVisivel}</h1>
-          <Badge variant="outline" className={statusLocalCfg.className}>
-            {statusLocalCfg.label}
-          </Badge>
-          {statusAlvoClass && pedidoMeta?.status && (
-            <Badge variant="outline" className={statusAlvoClass}>
-              {pedidoMeta.status}
-            </Badge>
-          )}
-          {pedidoMeta?.criado_no_hub && (
-            <Badge
-              variant="outline"
-              className="bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20"
-            >
-              Criado no Hub
-            </Badge>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className={`${statusVisual.className} flex items-center gap-1.5 cursor-help`}>
+                  <statusVisual.Icon className={`h-3.5 w-3.5 ${statusVisual.iconAnimate ? "animate-spin" : ""}`} />
+                  {statusVisual.label}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {statusVisual.tooltip}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          {pedidoComMeta.criado_no_hub && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Home className="h-4 w-4 text-purple-600 dark:text-purple-400 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  Criado no Hub
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
 
