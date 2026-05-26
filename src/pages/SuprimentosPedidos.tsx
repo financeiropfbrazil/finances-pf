@@ -25,7 +25,11 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-} from "lucide-react";
+} 
+import { getStatusPedido } from "@/lib/statusPedido";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Home } from "lucide-react";  
+from "lucide-react";
 import { format, subDays, startOfWeek, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -389,8 +393,7 @@ export default function SuprimentosPedidos() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {pedidos.map((ped: any) => {
-            const statusLocalCfg = STATUS_LOCAL_CONFIG[ped.status_local] || STATUS_LOCAL_CONFIG.rascunho;
-            const statusAlvoClass = ped.status ? STATUS_ALVO_CONFIG[ped.status] : null;
+            const statusVisual = getStatusPedido(ped);
             const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
             const numeroVisivel = ped.numero?.startsWith("RASCUNHO-") ? "(rascunho)" : ped.numero || "(sem nº)";
 
@@ -410,27 +413,43 @@ export default function SuprimentosPedidos() {
                 }}
               >
                 <CardContent className="space-y-3 p-5">
-                  {/* Linha 1: status + numero */}
-                  <div className="flex items-center justify-between gap-2">
-                    <Badge variant="outline" className={statusLocalCfg.className}>
-                      {statusLocalCfg.label}
-                    </Badge>
+                  <CardContent className="space-y-3 p-5">
+                {/* Status unificado + Nº pedido + indicador Hub */}
+                <div className="flex items-center justify-between gap-2">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge
+                          variant="outline"
+                          className={`${statusVisual.className} flex items-center gap-1.5 cursor-help`}
+                        >
+                          <statusVisual.Icon
+                            className={`h-3 w-3 ${statusVisual.iconAnimate ? "animate-spin" : ""}`}
+                          />
+                          {statusVisual.label}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs text-xs">
+                        {statusVisual.tooltip}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <div className="flex items-center gap-1.5">
+                    {ped.criado_no_hub === true && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Home className="h-3 w-3 text-purple-600 dark:text-purple-400 cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs">
+                            Criado no Hub
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                     <span className="text-xs font-mono text-muted-foreground">Nº {numeroVisivel}</span>
                   </div>
-
-                  {/* Linha 2: status do Alvo (se tiver) + origem */}
-                  <div className="flex items-center gap-2 text-xs">
-                    {statusAlvoClass && (
-                      <Badge variant="outline" className={statusAlvoClass}>
-                        {ped.status}
-                      </Badge>
-                    )}
-                    {ped.criado_no_hub === true && (
-                      <Badge variant="outline" className="bg-purple-500/10 text-purple-700 border-purple-500/20">
-                        Hub
-                      </Badge>
-                    )}
-                  </div>
+                </div>
 
                   {/* Fornecedor + valor */}
                   <div>
