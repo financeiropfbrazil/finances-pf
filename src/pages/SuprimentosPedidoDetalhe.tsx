@@ -346,7 +346,11 @@ export default function SuprimentosPedidoDetalhe() {
             </TooltipProvider>
           )}
         </div>
-
+        {pedidoComMeta.proximo_aprovador && pedidoComMeta.status_aprovacao === "Em Andamento" && (
+          <p className="text-sm text-muted-foreground">
+            Próximo aprovador: <span className="font-medium text-foreground">{pedidoComMeta.proximo_aprovador}</span>
+          </p>
+        )}
         {/* Banner de erro */}
         {pedido.status_local === "erro_envio" && pedido.erro_envio?.message && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
