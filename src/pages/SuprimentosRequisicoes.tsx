@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, ClipboardList, Loader2, User as UserIcon, Building2, Calendar, Package, Filter, X } from "lucide-react";
 import { format, subDays, startOfWeek, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { getStatusRequisicao } from "@/lib/statusRequisicao";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   rascunho: { label: "Rascunho", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
@@ -261,7 +263,7 @@ export default function SuprimentosRequisicoes() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {requisicoes.map((req: any) => {
-            const statusCfg = STATUS_CONFIG[req.status] || STATUS_CONFIG.rascunho;
+            const statusVisual = getStatusRequisicao(req);
             return (
               <Card
                 key={req.id}
@@ -270,9 +272,22 @@ export default function SuprimentosRequisicoes() {
               >
                 <CardContent className="space-y-3 p-5">
                   <div className="flex items-center justify-between gap-2">
-                    <Badge variant="outline" className={statusCfg.className}>
-                      {statusCfg.label}
-                    </Badge>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className={`${statusVisual.className} flex items-center gap-1.5 cursor-help`}
+                          >
+                            <statusVisual.Icon className="h-3 w-3" />
+                            {statusVisual.label}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-xs">
+                          {statusVisual.tooltip}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     {req.numero_alvo && (
                       <span className="text-xs font-mono text-muted-foreground">Nº {req.numero_alvo}</span>
                     )}
