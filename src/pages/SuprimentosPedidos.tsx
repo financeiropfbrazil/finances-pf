@@ -25,10 +25,10 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-} from "lucide-react"; 
+} from "lucide-react";
 import { getStatusPedido } from "@/lib/statusPedido";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Home } from "lucide-react";  
+import { Home } from "lucide-react";
 import { format, subDays, startOfWeek, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -412,43 +412,42 @@ export default function SuprimentosPedidos() {
                 }}
               >
                 <CardContent className="space-y-3 p-5">
-                  <CardContent className="space-y-3 p-5">
-                {/* Status unificado + Nº pedido + indicador Hub */}
-                <div className="flex items-center justify-between gap-2">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Badge
-                          variant="outline"
-                          className={`${statusVisual.className} flex items-center gap-1.5 cursor-help`}
-                        >
-                          <statusVisual.Icon
-                            className={`h-3 w-3 ${statusVisual.iconAnimate ? "animate-spin" : ""}`}
-                          />
-                          {statusVisual.label}
-                        </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-xs text-xs">
-                        {statusVisual.tooltip}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <div className="flex items-center gap-1.5">
-                    {ped.criado_no_hub === true && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Home className="h-3 w-3 text-purple-600 dark:text-purple-400 cursor-help" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="text-xs">
-                            Criado no Hub
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                    <span className="text-xs font-mono text-muted-foreground">Nº {numeroVisivel}</span>
+                  {/* Status unificado + Nº pedido + indicador Hub */}
+                  <div className="flex items-center justify-between gap-2">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className={`${statusVisual.className} flex items-center gap-1.5 cursor-help`}
+                          >
+                            <statusVisual.Icon
+                              className={`h-3 w-3 ${statusVisual.iconAnimate ? "animate-spin" : ""}`}
+                            />
+                            {statusVisual.label}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-xs">
+                          {statusVisual.tooltip}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <div className="flex items-center gap-1.5">
+                      {ped.criado_no_hub === true && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Home className="h-3 w-3 text-purple-600 dark:text-purple-400 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              Criado no Hub
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                      <span className="text-xs font-mono text-muted-foreground">Nº {numeroVisivel}</span>
+                    </div>
                   </div>
-                </div>
 
                   {/* Fornecedor + valor */}
                   <div>
