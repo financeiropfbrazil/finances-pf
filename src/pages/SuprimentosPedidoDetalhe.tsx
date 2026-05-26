@@ -186,7 +186,7 @@ export default function SuprimentosPedidoDetalhe() {
       const { data, error } = await (supabase as any)
         .from("compras_pedidos")
         .select(
-          "numero, status, status_local, status_aprovacao, aprovado, comprado, proximo_aprovador, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, data_competencia, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at",
+          "numero, status, status_local, status_aprovacao, aprovado, comprado, proximo_aprovador, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at",
         )
         .eq("id", id)
         .single();
@@ -438,12 +438,7 @@ export default function SuprimentosPedidoDetalhe() {
             <p className="text-xs text-muted-foreground">Pedido</p>
             <p className="mt-1 text-sm font-medium">{formatData(pedido.data_pedido)}</p>
           </div>
-          {pedidoMeta?.data_competencia && (
-            <div>
-              <p className="text-xs text-muted-foreground">Competência</p>
-              <p className="mt-1 text-sm font-medium">{formatData(pedidoMeta.data_competencia)}</p>
-            </div>
-          )}
+
           <div>
             <p className="text-xs text-muted-foreground">Entrega</p>
             <p className="mt-1 text-sm font-medium">{formatData(pedido.data_entrega)}</p>
