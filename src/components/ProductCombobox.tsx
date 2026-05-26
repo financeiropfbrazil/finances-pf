@@ -18,6 +18,14 @@ interface ProductComboboxProps {
   className?: string;
 }
 
+// Shape interno da tabela stock_products (fonte de verdade)
+interface StockProductRow {
+  codigo_produto: string;
+  nome_produto: string;
+  classificacao_fiscal: string | null;
+  tipo_produto_fiscal: string | null;
+}
+
 export function ProductCombobox({ value, displayValue, onSelect, className }: ProductComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -36,13 +44,22 @@ export function ProductCombobox({ value, displayValue, onSelect, className }: Pr
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       const { data } = await supabase
-        .from("produtos_cache")
-        .select("codigo, nome, codigo_clas_fiscal, codigo_tipo_prod_fisc")
-        .or(`nome.ilike.%${search}%,codigo.ilike.%${search}%`)
-        .eq("status", "Ativado")
+        .from("stock_products")
+        .select("codigo_produto, nome_produto, classificacao_fiscal, tipo_produto_fiscal")
+        .or(`nome_produto.ilike.%${search}%,codigo_produto.ilike.%${search}%`)
+        .eq("ativo", true)
         .limit(20)
-        .order("nome");
-      setResults(data || []);
+        .order("nome_produto");
+
+      // Mapeia o shape do stock_products pro shape Product (mantém compatibilidade com consumers)
+      const mapped: Product[] = ((data as StockProductRow[] | null) || []).map((row) => ({
+        codigo: row.codigo_produto,
+        nome: row.nome_produto,
+        codigo_clas_fiscal: row.classificacao_fiscal,
+        codigo_tipo_prod_fisc: row.tipo_produto_fiscal,
+      }));
+
+      setResults(mapped);
       setLoading(false);
     }, 300);
 
@@ -63,10 +80,10 @@ export function ProductCombobox({ value, displayValue, onSelect, className }: Pr
   }, []);
 
   return (
-    <div ref={containerRef} className="relative z-20">
+    <div ref={containerRef} className="relative z-20" data-product-combobox-dropdown="true">
       <Input
         value={open ? search : displayValue}
-        onChange={e => {
+        onChange={(e) => {
           setSearch(e.target.value);
           if (!open) setOpen(true);
         }}
@@ -79,7 +96,10 @@ export function ProductCombobox({ value, displayValue, onSelect, className }: Pr
       />
 
       {open && (
-        <div className="absolute left-0 top-full z-[80] mt-1 max-h-60 w-full min-w-[280px] overflow-y-auto rounded-md border bg-popover text-sm shadow-lg">
+        <div
+          className="absolute left-0 top-full z-[80] mt-1 max-h-60 w-full min-w-[280px] overflow-y-auto rounded-md border bg-popover text-sm shadow-lg"
+          data-product-combobox-dropdown="true"
+        >
           {loading && (
             <div className="flex items-center justify-center py-3">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -92,26 +112,27 @@ export function ProductCombobox({ value, displayValue, onSelect, className }: Pr
 
           {!loading && search.length >= 2 && results.length === 0 && (
             <p className="px-3 py-2 text-xs text-muted-foreground">
-              Nenhum produto encontrado. Sincronize o catálogo em Configurações.
+              Nenhum produto encontrado. Sincronize o catálogo em Importação de Produtos.
             </p>
           )}
 
-          {!loading && results.map((product) => (
-            <button
-              key={product.codigo}
-              type="button"
-              className="flex w-full items-start gap-1 px-3 py-2 text-left hover:bg-accent"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onSelect(product);
-                setOpen(false);
-                setSearch("");
-              }}
-            >
-              <span className="font-medium">{product.codigo}</span>
-              <span className="text-muted-foreground">— {product.nome}</span>
-            </button>
-          ))}
+          {!loading &&
+            results.map((product) => (
+              <button
+                key={product.codigo}
+                type="button"
+                className="flex w-full items-start gap-1 px-3 py-2 text-left hover:bg-accent"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSelect(product);
+                  setOpen(false);
+                  setSearch("");
+                }}
+              >
+                <span className="font-medium">{product.codigo}</span>
+                <span className="text-muted-foreground">— {product.nome}</span>
+              </button>
+            ))}
         </div>
       )}
     </div>
