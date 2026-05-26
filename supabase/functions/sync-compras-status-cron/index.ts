@@ -1,30 +1,38 @@
 // =====================================================================
 // Edge Function: sync-compras-status-cron
 // =====================================================================
-// Sincroniza status de Requisições de Compra e Pedidos de Compra com o
-// ERP Alvo. Chamado por pg_cron a cada hora em horário comercial.
+// Sincroniza requisições e pedidos com o ERP Alvo. Cron Tricéfalo + 1
+// extra: Job 4 (descoberta de reqs novas) → Job 3 (descoberta de peds
+// novos) → Job 1 (mudanças em reqs) → Job 2 (mudanças em peds).
 //
 // FLUXO:
 //   1. Valida CRON_SECRET (auth de invocação)
 //   2. Lê sync_settings → para se enabled=false
-//   3. Job 1: sincroniza requisições candidatas
-//   4. Job 2: sincroniza pedidos candidatos + vincula req↔pedido
-//   5. Persiste resultado em sync_runs
+//   3. Job 4: descobre requisições novas no Alvo
+//   4. Job 3: descobre pedidos novos no Alvo (+ merge req↔ped)
+//   5. Job 1: sincroniza mudanças de requisições candidatas
+//   6. Job 2: sincroniza mudanças de pedidos candidatos
+//   7. Persiste resultado em sync_runs
 //
 // CRITÉRIOS DE CANDIDATURA:
-//   - Requisições: status='sincronizada' + numero_alvo NOT NULL
+//   - Requisições (Job 1): status='sincronizada' + numero_alvo NOT NULL
 //                  + created_at > NOW() - 180 days, LIMIT 50
-//   - Pedidos: status NOT IN ('Encerrado', 'Cancelado')
+//   - Pedidos (Job 2): status NOT IN ('Encerrado', 'Cancelado')
 //              AND (data_pedido > NOW() - 180 days OR
 //                   status_aprovacao IN ('Em Andamento', 'Reavaliar')),
 //              ordenados por synced_at ASC NULLS FIRST, LIMIT 100
+//   - Descoberta reqs (Job 4): Numero > cursor 'req-comp-last-numero-1.01'
+//   - Descoberta peds (Job 3): Numero > cursor 'ped-comp-last-numero-1.01'
 //
-// PARALELISMO: chunks de 5 em paralelo, sleep 200ms entre chunks
+// BACKFILL AUTOMÁTICO (Job 4):
+//   Quando cursor='0000000' (nunca rodou), janela vai pra 1095 dias
+//   (3 anos) pra trazer histórico completo numa execução.
+//   Próximas execuções: janela de 30 dias.
 //
-// SECRETS NECESSÁRIOS (já configurados):
-//   - CRON_SECRET          (auth da invocação)
-//   - ERP_PROXY_URL        (https://erp-proxy.onrender.com)
-//   - ERP_PROXY_SYSTEM_SECRET  (header X-System-Secret pra erp-proxy)
+// PARALELISMO (Jobs 1 e 2): chunks de 5 em paralelo, sleep 200ms
+//
+// SECRETS NECESSÁRIOS:
+//   - CRON_SECRET, ERP_PROXY_URL, ERP_PROXY_SYSTEM_SECRET
 //   - SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (automáticos)
 // =====================================================================
 
@@ -119,6 +127,36 @@ interface PedidoLeve {
   } | null;
 }
 
+// Cabeçalho leve do ReqComp retornado por /req-comp/list
+interface RequisicaoLeve {
+  CodigoEmpresaFilial: string;
+  Numero: string;
+  Status: string | null;
+  Data: string | null;
+  Descricao: string | null;
+  CodigoFuncionario: string | null;
+  CodigoCentroCtrl: string | null;
+  Aprovada: string | null;
+  Reprovada: string | null;
+  CodigoFinalidadeCompra: string | null;
+  CodigoLocArmaz: string | null;
+  CodigoEmpresaFilialEntrega: string | null;
+  EspecieDocumento: string | null;
+  NumeroDocumento: string | null;
+  NumeroOrigem: string | null;
+  ModuloOrigem: string | null;
+  DataHoraDigitacao: string | null;
+  CodigoEquipamento: string | null;
+  CodigoEntidade: string | null;
+  NumeroPedidoEntidade: string | null;
+  IdGerencProj: string | null;
+  IdVerbaGerencProj: string | null;
+  GerouCotacComp: string | null;
+  GerouPedComp: string | null;
+  RequisicaoTerceiro: string | null;
+  CodigoUsuario: string | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────
@@ -130,7 +168,6 @@ const PED_BATCH_SIZE = 100;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Processa array em chunks paralelos com sleep entre eles
 async function processInChunks<T, R>(
   items: T[],
   chunkSize: number,
@@ -149,7 +186,6 @@ async function processInChunks<T, R>(
   return results;
 }
 
-// Chama erp-proxy com header X-System-Secret. Retorna {ok, status, data}.
 async function callErpProxy(
   url: string,
   systemSecret: string,
@@ -190,7 +226,6 @@ function mapReqAlvoToHub(
   novoStatus: string;
   numeroPedidoCompraAlvo: string | null;
 } {
-  // Caso 1: req deletada fisicamente no Alvo → cancelada
   if (notFound) {
     return { novoStatus: "cancelada", numeroPedidoCompraAlvo: null };
   }
@@ -198,22 +233,252 @@ function mapReqAlvoToHub(
   const statusAlvo = String(respData?.Status || "").toLowerCase();
   const gerouPedComp = String(respData?.GerouPedComp || "").toLowerCase();
 
-  // Caso 2: virou pedido (Status="Pedido" OR GerouPedComp in ['Total','Parcial'])
   if (statusAlvo === "pedido" || gerouPedComp === "total" || gerouPedComp === "parcial") {
     return { novoStatus: "convertida_pedido", numeroPedidoCompraAlvo: null };
   }
 
-  // Caso 3: cancelada no Alvo (sem deletar)
   if (statusAlvo === "cancelado" || statusAlvo === "cancelada") {
     return { novoStatus: "cancelada", numeroPedidoCompraAlvo: null };
   }
 
-  // Caso 4: nenhuma mudança → mantém sincronizada
   return { novoStatus: "sincronizada", numeroPedidoCompraAlvo: null };
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// JOB 1: Sincronizar Requisições
+// JOB 4: Descobrir Requisições NOVAS no Alvo (NOVO)
+// ─────────────────────────────────────────────────────────────────────
+
+async function syncDescobrirRequisicoes(
+  supabase: SupabaseClient,
+  erpUrl: string,
+  systemSecret: string,
+  runId: string,
+): Promise<JobResult> {
+  const result: JobResult = {
+    total_candidatos: 0,
+    total_consultados: 0,
+    total_mudaram: 0,
+    total_erros: 0,
+    detalhes: [],
+  };
+
+  const CURSOR_NAME = "req-comp-last-numero-1.01";
+  const WINDOW_DAYS_NORMAL = 30;
+  const WINDOW_DAYS_BACKFILL = 1095; // 3 anos no primeiro disparo
+
+  // ── 1. Lê cursor ────────────────────────────────────────────────────
+  const { data: cursorRow, error: errCursor } = await supabase
+    .from("sync_cursors")
+    .select("cursor_value")
+    .eq("cursor_name", CURSOR_NAME)
+    .maybeSingle();
+
+  if (errCursor) {
+    console.error("[descobrir-req] erro ao ler cursor:", errCursor);
+    result.total_erros = 1;
+    return result;
+  }
+
+  // Auto-cria cursor se não existir
+  if (!cursorRow) {
+    console.log("[descobrir-req] cursor não existe, criando...");
+    await supabase.from("sync_cursors").insert({
+      cursor_name: CURSOR_NAME,
+      cursor_value: "0000000",
+      updated_by_run_id: runId,
+    });
+  }
+
+  const lastKnownNumero = cursorRow?.cursor_value || "0000000";
+  const isBackfill = lastKnownNumero === "0000000";
+  const windowDays = isBackfill ? WINDOW_DAYS_BACKFILL : WINDOW_DAYS_NORMAL;
+
+  console.log(
+    `[descobrir-req] cursor: ${lastKnownNumero} (${isBackfill ? "BACKFILL 3 anos" : "normal 30d"})`
+  );
+
+  // ── 2. Janela de datas ──────────────────────────────────────────────
+  const hoje = new Date();
+  const inicio = new Date();
+  inicio.setDate(hoje.getDate() - windowDays);
+
+  const dataFim = hoje.toISOString().slice(0, 10);
+  const dataInicio = inicio.toISOString().slice(0, 10);
+
+  // ── 3. /req-comp/list ───────────────────────────────────────────────
+  const path = `/req-comp/list?dataInicio=${dataInicio}&dataFim=${dataFim}&apenasAbertas=true`;
+  const resp = await callErpProxy(erpUrl, systemSecret, path);
+
+  if (!resp.ok) {
+    console.error(`[descobrir-req] /list falhou: status=${resp.status}`);
+    result.total_erros = 1;
+    result.detalhes.push({
+      tipo: "req",
+      id: "",
+      numero_alvo: "",
+      erro: `GET /req-comp/list falhou: HTTP ${resp.status} - ${resp.data?.error || "desconhecido"}`,
+    });
+    return result;
+  }
+
+  const todasReqs = (resp.data || []) as RequisicaoLeve[];
+  result.total_consultados = todasReqs.length;
+  result.total_candidatos = todasReqs.length;
+
+  console.log(`[descobrir-req] Alvo retornou ${todasReqs.length} reqs na janela`);
+
+  // ── 4. Filtra: Numero > cursor ──────────────────────────────────────
+  const novas = todasReqs.filter((r) => r.Numero > lastKnownNumero);
+  console.log(`[descobrir-req] ${novas.length} reqs novas (> ${lastKnownNumero})`);
+
+  if (novas.length === 0) {
+    return result;
+  }
+
+  // ── 5. Insere cada req nova ─────────────────────────────────────────
+  let maiorNumeroVisto = lastKnownNumero;
+
+  for (const req of novas) {
+    try {
+      if (!req.Numero) {
+        console.warn(`[descobrir-req] req sem Numero, ignorada`);
+        continue;
+      }
+
+      const dateOnly = (s: string | null) => (s ? s.slice(0, 10) : null);
+
+      // Mapeia status local
+      let statusLocal = "sincronizada";
+      if (req.GerouPedComp === "Total" || req.GerouPedComp === "Parcial") {
+        statusLocal = "convertida_pedido";
+      }
+      if (req.Status === "Cancelado" || req.Status === "Cancelada") {
+        statusLocal = "cancelada";
+      }
+
+      // Verifica se já existe pra decidir entre INSERT (novo) ou UPDATE seletivo (existente).
+      // UPDATE NÃO TOCA em requisitante_user_id, codigo_funcionario, codigo_centro_ctrl,
+      // codigo_finalidade_compra, data_necessidade — esses são preenchidos pelo wizard do Hub
+      // e NÃO devem ser sobrescritos por descoberta do Alvo.
+      const { data: existing } = await supabase
+        .from("compras_requisicoes")
+        .select("id")
+        .eq("codigo_empresa_filial", req.CodigoEmpresaFilial)
+        .eq("numero_alvo", req.Numero)
+        .maybeSingle();
+
+      let errUpsert: any = null;
+      if (existing) {
+        // Já existe → UPDATE só do status (campo do Alvo que pode mudar)
+        const { error } = await supabase
+          .from("compras_requisicoes")
+          .update({
+            status: statusLocal,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
+        errUpsert = error;
+      } else {
+        // Nova descoberta via Alvo → INSERT completo com requisitante_user_id null
+        const { error } = await supabase.from("compras_requisicoes").insert({
+          codigo_empresa_filial: req.CodigoEmpresaFilial,
+          numero_alvo: req.Numero,
+          status: statusLocal,
+          codigo_funcionario: req.CodigoFuncionario,
+          codigo_centro_ctrl: req.CodigoCentroCtrl,
+          codigo_finalidade_compra: req.CodigoFinalidadeCompra,
+          descricao: req.Descricao,
+          data_necessidade: dateOnly(req.Data),
+          requisitante_user_id: null,
+          total_itens: null,
+          updated_at: new Date().toISOString(),
+        });
+        errUpsert = error;
+      }
+
+      if (errUpsert) {
+        result.total_erros++;
+        result.detalhes.push({
+          tipo: "req",
+          id: "",
+          numero_alvo: req.Numero,
+          erro: `UPSERT falhou: ${errUpsert.message}`,
+        });
+        console.error(`[descobrir-req] ${req.Numero} UPSERT falhou:`, errUpsert);
+        continue;
+      }
+
+      // Busca id pra audit
+      const { data: reqRow } = await supabase
+        .from("compras_requisicoes")
+        .select("id")
+        .eq("codigo_empresa_filial", req.CodigoEmpresaFilial)
+        .eq("numero_alvo", req.Numero)
+        .single();
+
+      if (reqRow?.id) {
+        await supabase.from("compras_requisicoes_auditoria").insert({
+          requisicao_id: reqRow.id,
+          evento: "descoberta_alvo",
+          user_id: null,
+          user_nome: "Job 4 — Descoberta automática",
+          sucesso: true,
+          resposta_alvo: req,
+        });
+      }
+
+      if (req.Numero > maiorNumeroVisto) {
+        maiorNumeroVisto = req.Numero;
+      }
+
+      result.total_mudaram++;
+      result.detalhes.push({
+        tipo: "req",
+        id: reqRow?.id || "",
+        numero_alvo: req.Numero,
+        status_anterior: "novo",
+        status_novo: statusLocal,
+      });
+
+      console.log(`[descobrir-req] inserida ${req.Numero} (status=${statusLocal})`);
+    } catch (err: any) {
+      result.total_erros++;
+      result.detalhes.push({
+        tipo: "req",
+        id: "",
+        numero_alvo: req.Numero,
+        erro: `Exception: ${err?.message || String(err)}`,
+      });
+      console.error(`[descobrir-req] erro ${req.Numero}:`, err);
+    }
+  }
+
+  // ── 6. Atualiza cursor ──────────────────────────────────────────────
+  if (maiorNumeroVisto > lastKnownNumero) {
+    const { error: errCursorUpdate } = await supabase
+      .from("sync_cursors")
+      .upsert(
+        {
+          cursor_name: CURSOR_NAME,
+          cursor_value: maiorNumeroVisto,
+          updated_at: new Date().toISOString(),
+          updated_by_run_id: runId,
+        },
+        { onConflict: "cursor_name" },
+      );
+
+    if (errCursorUpdate) {
+      console.error("[descobrir-req] falhou atualizando cursor:", errCursorUpdate);
+    } else {
+      console.log(`[descobrir-req] cursor: ${lastKnownNumero} → ${maiorNumeroVisto}`);
+    }
+  }
+
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// JOB 1: Sincronizar Requisições (mudanças)
 // ─────────────────────────────────────────────────────────────────────
 
 async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemSecret: string): Promise<JobResult> {
@@ -225,7 +490,6 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
     detalhes: [],
   };
 
-  // 1. Busca candidatas
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - 180);
 
@@ -256,7 +520,6 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
 
   console.log(`[sync-req] ${reqs.length} candidatas`);
 
-  // 2. Processa em chunks paralelos
   await processInChunks(reqs, CHUNK_SIZE, SLEEP_BETWEEN_CHUNKS_MS, async (req) => {
     try {
       const path = `/req-comp/${encodeURIComponent(req.codigo_empresa_filial)}/${encodeURIComponent(req.numero_alvo)}`;
@@ -267,7 +530,6 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
       const notFound = resp.status === 404;
 
       if (!resp.ok && !notFound) {
-        // Erro de comunicação (não é 404 "not found")
         result.total_erros++;
         result.detalhes.push({
           tipo: "req",
@@ -281,11 +543,9 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
       const { novoStatus } = mapReqAlvoToHub(resp.data, notFound);
 
       if (novoStatus === req.status) {
-        // Sem mudança — apenas atualiza updated_at via toque vazio (opcional)
         return;
       }
 
-      // 3. Aplica UPSERT (CORS-safe pattern)
       const { error: errUpsert } = await supabase.from("compras_requisicoes").upsert(
         {
           id: req.id,
@@ -313,7 +573,6 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
         return;
       }
 
-      // 4. Audit
       const eventoAudit =
         novoStatus === "convertida_pedido"
           ? "convertida_pedido"
@@ -354,26 +613,9 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
 
   return result;
 }
+
 // ─────────────────────────────────────────────────────────────────────
 // JOB 3: Descobrir Pedidos NOVOS no Alvo
-// ─────────────────────────────────────────────────────────────────────
-//
-// Roda ANTES do Job 2. Busca pedidos novos do Alvo via /ped-comp/list
-// (janela 7 dias) e insere em compras_pedidos com cabeçalho leve.
-// Cursor: sync_cursors.cursor_name='ped-comp-last-numero-1.01'.
-//
-// Lógica:
-//   1. Lê cursor atual (último Numero conhecido pelo Hub)
-//   2. Chama /ped-comp/list?dataInicio=hoje-7d&dataFim=hoje
-//   3. Filtra: Numero > cursor
-//   4. Pra cada um: INSERT em compras_pedidos com criado_no_hub=false,
-//      status_local='sincronizado', synced_at=now()
-//   5. Merge automático: se NumeroReqComp existe, atualiza
-//      compras_requisicoes.numero_pedido_compra_alvo
-//   6. Atualiza cursor com MAX(Numero) descoberto
-//
-// Pedidos descobertos aqui serão refinados pelo Job 2 da próxima
-// execução (StatusAprovacao detalhado, vinculação NF, etc).
 // ─────────────────────────────────────────────────────────────────────
 
 async function syncDescobrirPedidos(
@@ -394,7 +636,6 @@ async function syncDescobrirPedidos(
   const FILIAL = "1.01";
   const WINDOW_DAYS = 7;
 
-  // ── 1. Lê cursor atual ─────────────────────────────────────────────
   const { data: cursorRow, error: errCursor } = await supabase
     .from("sync_cursors")
     .select("cursor_value")
@@ -410,17 +651,15 @@ async function syncDescobrirPedidos(
   const lastKnownNumero = cursorRow?.cursor_value || "0000000";
   console.log(`[descobrir-ped] cursor atual: ${lastKnownNumero}`);
 
-  // ── 2. Monta janela de datas ───────────────────────────────────────
   const hoje = new Date();
   const inicio = new Date();
   inicio.setDate(hoje.getDate() - WINDOW_DAYS);
 
-  const dataFim = hoje.toISOString().slice(0, 10); // YYYY-MM-DD
+  const dataFim = hoje.toISOString().slice(0, 10);
   const dataInicio = inicio.toISOString().slice(0, 10);
 
   console.log(`[descobrir-ped] janela: ${dataInicio} → ${dataFim}`);
 
-  // ── 3. Chama /ped-comp/list ────────────────────────────────────────
   const path = `/ped-comp/list?dataInicio=${dataInicio}&dataFim=${dataFim}`;
   const resp = await callErpProxy(erpUrl, systemSecret, path);
 
@@ -442,7 +681,6 @@ async function syncDescobrirPedidos(
 
   console.log(`[descobrir-ped] Alvo retornou ${todosPedidos.length} pedidos na janela`);
 
-  // ── 4. Filtra: Numero > lastKnownNumero ────────────────────────────
   const novos = todosPedidos.filter((p) => p.Numero > lastKnownNumero);
   console.log(`[descobrir-ped] ${novos.length} pedidos novos (> ${lastKnownNumero})`);
 
@@ -450,21 +688,17 @@ async function syncDescobrirPedidos(
     return result;
   }
 
-  // ── 5. Insere cada pedido novo ─────────────────────────────────────
   let maiorNumeroVisto = lastKnownNumero;
 
   for (const ped of novos) {
     try {
-      // Guard: ignora pedidos sem Numero (caso raro)
       if (!ped.Numero) {
         console.warn(`[descobrir-ped] pedido sem Numero, ignorado:`, ped);
         continue;
       }
 
-      // Datas: o Alvo manda "2026-05-22T00:00:00-03:00" → extrai YYYY-MM-DD
       const dateOnly = (s: string | null) => (s ? s.slice(0, 10) : null);
 
-      // Idempotente: ON CONFLICT pela unique (codigo_empresa_filial, numero)
       const { error: errIns } = await supabase.from("compras_pedidos").upsert(
         {
           codigo_empresa_filial: ped.CodigoEmpresaFilial,
@@ -514,7 +748,6 @@ async function syncDescobrirPedidos(
         continue;
       }
 
-      // Busca o id do pedido inserido pra audit (necessário porque NOT NULL FK)
       const { data: pedRow } = await supabase
         .from("compras_pedidos")
         .select("id")
@@ -533,7 +766,6 @@ async function syncDescobrirPedidos(
         });
       }
 
-      // ── 6. Merge req↔ped (se aplicável) ─────────────────────────────
       if (ped.NumeroReqComp && ped.CodigoEmpresaFilialReqComp) {
         const { data: reqRow } = await supabase
           .from("compras_requisicoes")
@@ -546,7 +778,6 @@ async function syncDescobrirPedidos(
 
         if (reqRow) {
           if (reqRow.numero_pedido_compra_alvo === null || reqRow.numero_pedido_compra_alvo === ped.Numero) {
-            // Preserva se já tem outro pedido vinculado (caso de borda)
             await supabase.from("compras_requisicoes").upsert(
               {
                 id: reqRow.id,
@@ -573,7 +804,6 @@ async function syncDescobrirPedidos(
         }
       }
 
-      // Atualiza maior visto
       if (ped.Numero > maiorNumeroVisto) {
         maiorNumeroVisto = ped.Numero;
       }
@@ -600,7 +830,6 @@ async function syncDescobrirPedidos(
     }
   }
 
-  // ── 7. Atualiza cursor ─────────────────────────────────────────────
   if (maiorNumeroVisto > lastKnownNumero) {
     const { error: errCursorUpdate } = await supabase
       .from("sync_cursors")
@@ -620,8 +849,9 @@ async function syncDescobrirPedidos(
 
   return result;
 }
+
 // ─────────────────────────────────────────────────────────────────────
-// JOB 2: Sincronizar Pedidos
+// JOB 2: Sincronizar Pedidos (mudanças)
 // ─────────────────────────────────────────────────────────────────────
 
 async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecret: string): Promise<JobResult> {
@@ -633,14 +863,9 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
     detalhes: [],
   };
 
-  // 1. Busca candidatos
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - 180);
 
-  // Critério: NÃO terminais + (recentes OU aprovação ativa)
-  // SQL equivalente:
-  //   status NOT IN ('Encerrado','Cancelado','Cancelado Parcial')
-  //   AND (data_pedido > cutoff OR status_aprovacao IN ('Em Andamento','Reavaliar'))
   const { data: candidatos, error: errSelect } = await supabase
     .from("compras_pedidos")
     .select(
@@ -667,7 +892,6 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
 
   console.log(`[sync-ped] ${peds.length} candidatos`);
 
-  // 2. Processa em chunks paralelos
   await processInChunks(peds, CHUNK_SIZE, SLEEP_BETWEEN_CHUNKS_MS, async (ped) => {
     try {
       const path = `/ped-comp/${encodeURIComponent(ped.codigo_empresa_filial)}/${encodeURIComponent(ped.numero)}`;
@@ -678,9 +902,7 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
       const notFound = resp.status === 404;
 
       if (!resp.ok) {
-        // Pedido pode ter sido deletado no Alvo, ou erro de comunicação
         if (notFound) {
-          // Não muda nada (pedidos deletados são raros, não tratamos automaticamente)
           console.warn(`[sync-ped] ${ped.numero} retornou 404 no Alvo`);
           return;
         }
@@ -697,7 +919,18 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
       const alvo = resp.data;
       const userFields = alvo?.PedCompUserFieldsObject || {};
 
-      // 3. Compara campos
+      const tsToMs = (v: string | null | undefined): number | null => {
+        if (!v) return null;
+        const t = new Date(v).getTime();
+        return isNaN(t) ? null : t;
+      };
+
+      const sameStr = (a: any, b: any): boolean => {
+        const na = a === "" || a === undefined ? null : a;
+        const nb = b === "" || b === undefined ? null : b;
+        return na === nb;
+      };
+
       const novoStatus = alvo?.Status ?? null;
       const novoAprovado = alvo?.Aprovado ?? null;
       const novoStatusAprovacao = alvo?.StatusAprovacao ?? null;
@@ -707,22 +940,19 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
       const novoDataNotif = userFields?.UserDataNotificao ?? null;
 
       const mudou =
-        novoStatus !== ped.status ||
-        novoAprovado !== ped.aprovado ||
-        novoStatusAprovacao !== ped.status_aprovacao ||
-        novoComprado !== ped.comprado ||
-        novoProximoAprovador !== ped.proximo_aprovador ||
-        novoEnviouAprovacao !== ped.enviou_aprovacao ||
-        novoDataNotif !== ped.data_notificacao_aprovador;
+        !sameStr(novoStatus, ped.status) ||
+        !sameStr(novoAprovado, ped.aprovado) ||
+        !sameStr(novoStatusAprovacao, ped.status_aprovacao) ||
+        !sameStr(novoComprado, ped.comprado) ||
+        !sameStr(novoProximoAprovador, ped.proximo_aprovador) ||
+        !sameStr(novoEnviouAprovacao, ped.enviou_aprovacao) ||
+        tsToMs(novoDataNotif) !== tsToMs(ped.data_notificacao_aprovador);
 
-      // Sempre atualiza synced_at, mas só UPSERT completo se mudou
       if (!mudou) {
-        // Touch synced_at pra entrar no fim da fila
         await supabase.from("compras_pedidos").update({ synced_at: new Date().toISOString() }).eq("id", ped.id);
         return;
       }
 
-      // 4. UPSERT (CORS-safe)
       const { error: errUpsert } = await supabase.from("compras_pedidos").upsert(
         {
           id: ped.id,
@@ -752,7 +982,6 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
         return;
       }
 
-      // 5. Audit
       await supabase.from("compras_pedidos_auditoria").insert({
         pedido_id: ped.id,
         evento: "sync_status",
@@ -772,9 +1001,6 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
         proximo_aprovador_novo: novoProximoAprovador,
       });
 
-      // 6. Vinculação req↔pedido (Plano B)
-      // Se este pedido tem NumeroReqComp, atualiza compras_requisicoes
-      // com numero_pedido_compra_alvo = numero do pedido
       const numeroReqComp = alvo?.NumeroReqComp;
       const codigoFilialReqComp = alvo?.CodigoEmpresaFilialReqComp;
       if (numeroReqComp && codigoFilialReqComp) {
@@ -848,7 +1074,6 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
 Deno.serve(async (req: Request) => {
   const startTime = Date.now();
 
-  // CORS pra eventual chamada via fetch admin (opcional)
   if (req.method === "OPTIONS") {
     return new Response(null, {
       headers: {
@@ -859,7 +1084,6 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── 1. Autenticação via CRON_SECRET ─────────────────────────────────
   const expectedSecret = Deno.env.get("CRON_SECRET");
   if (!expectedSecret) {
     console.error("[cron] CRON_SECRET não configurado nos secrets");
@@ -882,16 +1106,13 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // Valida triggered_by
   const validTriggers = ["pg_cron", "manual_admin", "test"];
   const safeTrigger = validTriggers.includes(triggeredBy) ? triggeredBy : "pg_cron";
 
-  // ── 2. Inicializa Supabase client ───────────────────────────────────
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseServiceRole);
 
-  // ── 3. Verifica kill switch ─────────────────────────────────────────
   const { data: settings } = await supabase
     .from("sync_settings")
     .select("enabled, paused_reason")
@@ -901,7 +1122,6 @@ Deno.serve(async (req: Request) => {
   if (settings && settings.enabled === false) {
     console.log("[cron] sync pausado:", settings.paused_reason);
 
-    // Loga em sync_runs como execução pulada
     await supabase.from("sync_runs").insert({
       triggered_by: safeTrigger,
       job_type: "bicephalous",
@@ -920,7 +1140,6 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── 4. Cria linha em sync_runs (status iniciado) ────────────────────
   const { data: runRow, error: errRun } = await supabase
     .from("sync_runs")
     .insert({
@@ -940,7 +1159,6 @@ Deno.serve(async (req: Request) => {
 
   const runId = runRow.id;
 
-  // ── 5. Roda os jobs ─────────────────────────────────────────────────
   const erpUrl = Deno.env.get("ERP_PROXY_URL")!;
   const systemSecret = Deno.env.get("ERP_PROXY_SYSTEM_SECRET")!;
 
@@ -962,15 +1180,20 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // ── Roda os 4 jobs em sequência ──────────────────────────────────────
   let job1: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
   let job2: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
+  let job3: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
+  let job4: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
   let observacao: string | null = null;
 
-  let job3: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
-
   try {
-    // Job 3 (descoberta) roda PRIMEIRO pra inserir pedidos novos antes
-    // do Job 2 olhar a tabela. Resultado: ciclo completo numa só execução.
+    // Ordem:
+    // 1. Job 4 — descobre reqs novas (insere cabeçalhos leves)
+    // 2. Job 3 — descobre pedidos novos (e tenta vincular nas reqs do Job 4)
+    // 3. Job 1 — sync mudanças em reqs já no Hub
+    // 4. Job 2 — sync mudanças em pedidos já no Hub
+    job4 = await syncDescobrirRequisicoes(supabase, erpUrl, systemSecret, runId);
     job3 = await syncDescobrirPedidos(supabase, erpUrl, systemSecret, runId);
     job1 = await syncRequisicoes(supabase, erpUrl, systemSecret);
     job2 = await syncPedidos(supabase, erpUrl, systemSecret);
@@ -979,15 +1202,23 @@ Deno.serve(async (req: Request) => {
     observacao = `Exception inesperada: ${err?.message || String(err)}`;
   }
 
-  // ── 6. Fecha linha em sync_runs ─────────────────────────────────────
   const totals = {
-    total_candidatos: job1.total_candidatos + job2.total_candidatos + job3.total_candidatos,
-    total_consultados: job1.total_consultados + job2.total_consultados + job3.total_consultados,
-    total_mudaram: job1.total_mudaram + job2.total_mudaram + job3.total_mudaram,
-    total_erros: job1.total_erros + job2.total_erros + job3.total_erros,
+    total_candidatos:
+      job1.total_candidatos + job2.total_candidatos + job3.total_candidatos + job4.total_candidatos,
+    total_consultados:
+      job1.total_consultados + job2.total_consultados + job3.total_consultados + job4.total_consultados,
+    total_mudaram:
+      job1.total_mudaram + job2.total_mudaram + job3.total_mudaram + job4.total_mudaram,
+    total_erros:
+      job1.total_erros + job2.total_erros + job3.total_erros + job4.total_erros,
   };
 
-  const todosDetalhes = [...job3.detalhes, ...job1.detalhes, ...job2.detalhes];
+  const todosDetalhes = [
+    ...job4.detalhes,
+    ...job3.detalhes,
+    ...job1.detalhes,
+    ...job2.detalhes,
+  ];
 
   await supabase
     .from("sync_runs")
@@ -1000,11 +1231,16 @@ Deno.serve(async (req: Request) => {
     })
     .eq("id", runId);
 
-  // ── 7. Resposta ─────────────────────────────────────────────────────
   return new Response(
     JSON.stringify({
       run_id: runId,
       duracao_ms: Date.now() - startTime,
+      descoberta_requisicoes: {
+        candidatos: job4.total_candidatos,
+        consultados: job4.total_consultados,
+        mudaram: job4.total_mudaram,
+        erros: job4.total_erros,
+      },
       descoberta_pedidos: {
         candidatos: job3.total_candidatos,
         consultados: job3.total_consultados,
