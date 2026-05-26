@@ -43,7 +43,8 @@ export function ProductCombobox({ value, displayValue, onSelect, className }: Pr
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
-      const { data } = await supabase
+      // (supabase as any) pra contornar tipos desatualizados — padrão usado em todo o projeto
+      const { data } = await (supabase as any)
         .from("stock_products")
         .select("codigo_produto, nome_produto, classificacao_fiscal, tipo_produto_fiscal")
         .or(`nome_produto.ilike.%${search}%,codigo_produto.ilike.%${search}%`)
