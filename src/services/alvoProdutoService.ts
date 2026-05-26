@@ -91,7 +91,6 @@ export async function syncProdutos(
     }
   }
 
-  // Save sync metadata
   await supabase.from("compras_config").upsert({
     chave: "sync_produtos_ts",
     valor: new Date().toISOString(),
