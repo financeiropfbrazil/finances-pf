@@ -25,7 +25,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-} 
+} from "lucide-react"; 
 import { getStatusPedido } from "@/lib/statusPedido";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Home } from "lucide-react";  
