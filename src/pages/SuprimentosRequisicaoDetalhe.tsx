@@ -235,7 +235,8 @@ export default function SuprimentosRequisicaoDetalhe() {
   // ── E.9: Gerar Pedido a partir desta requisição ──────────
   // Aparece se: requisição foi enviada com sucesso ao Alvo (sincronizada),
   // e ainda NÃO tem pedido vinculado (numero_pedido_compra_alvo é null).
-  const podeGerarPedido = req.status === "sincronizada" && !req.numero_pedido_compra_alvo;
+  const podeCriarPedido = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_CREATE);
+  const podeGerarPedido = podeCriarPedido && req.status === "sincronizada" && !req.numero_pedido_compra_alvo;
 
   const handleGerarPedido = () => {
     navigate(`/suprimentos/pedidos/novo?reqId=${req.id}`);
