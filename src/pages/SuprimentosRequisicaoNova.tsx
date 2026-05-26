@@ -209,13 +209,26 @@ export default function SuprimentosRequisicaoNova() {
   const { data: produtos = [] } = useQuery({
     queryKey: ["stock_products_wizard"],
     queryFn: async (): Promise<StockProduct[]> => {
-      const { data, error } = await (supabase as any)
-        .from("stock_products")
-        .select("codigo_produto, nome_produto, codigo_alternativo, unidade_medida, tipo_produto_fiscal")
-        .eq("ativo", true)
-        .order("nome_produto", { ascending: true });
-      if (error) throw error;
-      return (data || []) as StockProduct[];
+      // Paginação manual: PostgREST do Supabase hospedado tem max-rows=1000.
+      // Catálogo tem ~2600 produtos, então puxamos em batches até esgotar.
+      const PAGE_SIZE = 1000;
+      const allProducts: StockProduct[] = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await (supabase as any)
+          .from("stock_products")
+          .select("codigo_produto, nome_produto, codigo_alternativo, unidade_medida, tipo_produto_fiscal")
+          .eq("ativo", true)
+          .order("nome_produto", { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        const batch = (data || []) as StockProduct[];
+        if (batch.length === 0) break;
+        allProducts.push(...batch);
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      return allProducts;
     },
   });
 
