@@ -1563,85 +1563,85 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
     itens = reconstruirItensDoJsonb(ped.itens);
   } else {
     for (const itemRow of itensRows || []) {
-    // 2a. Rateios desse item (achatado: 1 linha por par classe-cc)
-    const { data: rateiosRows } = await (supabase as any)
-      .from("compras_pedidos_itens_rateio")
-      .select("*")
-      .eq("item_id", itemRow.id);
+      // 2a. Rateios desse item (achatado: 1 linha por par classe-cc)
+      const { data: rateiosRows } = await (supabase as any)
+        .from("compras_pedidos_itens_rateio")
+        .select("*")
+        .eq("item_id", itemRow.id);
 
-    // 2b. Reconstrói hierarquia classe→cc.
-    // O percentual gravado é o produto (perc_classe × perc_cc / 100).
-    // Pra reverter: agrupa por classe, soma percentuais → vira % da classe.
-    // Dentro da classe, cada CC tem peso = (perc_gravado / soma_da_classe) × 100.
-    const porClasse = new Map<
-      string,
-      {
-        codigo_classe_rec_desp: string;
-        classe_rec_desp_label: string | null;
-        percentual: number;
-        ccs: Array<{
-          codigo_centro_ctrl: string;
-          centro_ctrl_label: string | null;
-          percentual: number; // antes da normalização
-        }>;
-      }
-    >();
+      // 2b. Reconstrói hierarquia classe→cc.
+      // O percentual gravado é o produto (perc_classe × perc_cc / 100).
+      // Pra reverter: agrupa por classe, soma percentuais → vira % da classe.
+      // Dentro da classe, cada CC tem peso = (perc_gravado / soma_da_classe) × 100.
+      const porClasse = new Map<
+        string,
+        {
+          codigo_classe_rec_desp: string;
+          classe_rec_desp_label: string | null;
+          percentual: number;
+          ccs: Array<{
+            codigo_centro_ctrl: string;
+            centro_ctrl_label: string | null;
+            percentual: number; // antes da normalização
+          }>;
+        }
+      >();
 
-    for (const r of rateiosRows || []) {
-      const key = r.codigo_classe_rec_desp;
-      if (!porClasse.has(key)) {
-        porClasse.set(key, {
-          codigo_classe_rec_desp: r.codigo_classe_rec_desp,
-          classe_rec_desp_label: r.classe_rec_desp_label,
-          percentual: 0,
-          ccs: [],
+      for (const r of rateiosRows || []) {
+        const key = r.codigo_classe_rec_desp;
+        if (!porClasse.has(key)) {
+          porClasse.set(key, {
+            codigo_classe_rec_desp: r.codigo_classe_rec_desp,
+            classe_rec_desp_label: r.classe_rec_desp_label,
+            percentual: 0,
+            ccs: [],
+          });
+        }
+        const cls = porClasse.get(key)!;
+        cls.percentual = round2(cls.percentual + Number(r.percentual));
+        cls.ccs.push({
+          codigo_centro_ctrl: r.codigo_centro_ctrl,
+          centro_ctrl_label: r.centro_ctrl_label,
+          percentual: Number(r.percentual),
         });
       }
-      const cls = porClasse.get(key)!;
-      cls.percentual = round2(cls.percentual + Number(r.percentual));
-      cls.ccs.push({
-        codigo_centro_ctrl: r.codigo_centro_ctrl,
-        centro_ctrl_label: r.centro_ctrl_label,
-        percentual: Number(r.percentual),
+
+      // 2c. Normaliza percentual dos CCs dentro de cada classe (somam 100%)
+      const rateioFinal = Array.from(porClasse.values()).map((cls) => {
+        const ccs = cls.ccs.map((cc) => ({
+          ...cc,
+          percentual: cls.percentual > 0 ? round2((cc.percentual / cls.percentual) * 100) : 0,
+        }));
+        // Ajuste de arredondamento: força soma=100 mexendo no último CC
+        if (ccs.length > 0) {
+          const somaCcs = ccs.reduce((s, c) => s + c.percentual, 0);
+          const diff = round2(100 - somaCcs);
+          if (Math.abs(diff) > 0.001 && Math.abs(diff) <= 0.02) {
+            ccs[ccs.length - 1].percentual = round2(ccs[ccs.length - 1].percentual + diff);
+          }
+        }
+        return {
+          codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
+          classe_rec_desp_label: cls.classe_rec_desp_label,
+          percentual: cls.percentual,
+          ccs,
+        };
+      });
+
+      itens.push({
+        item_servico: itemRow.item_servico,
+        codigo_produto: itemRow.codigo_produto,
+        codigo_alternativo_produto: itemRow.codigo_alternativo_produto,
+        codigo_prod_unid_med: itemRow.codigo_prod_unid_med,
+        produto_nome: itemRow.produto_nome,
+        produto_unidade: itemRow.produto_unidade,
+        quantidade: Number(itemRow.quantidade),
+        valor_unitario: Number(itemRow.valor_unitario),
+        observacao: itemRow.observacao,
+        rateio: rateioFinal,
       });
     }
-
-    // 2c. Normaliza percentual dos CCs dentro de cada classe (somam 100%)
-    const rateioFinal = Array.from(porClasse.values()).map((cls) => {
-      const ccs = cls.ccs.map((cc) => ({
-        ...cc,
-        percentual: cls.percentual > 0 ? round2((cc.percentual / cls.percentual) * 100) : 0,
-      }));
-      // Ajuste de arredondamento: força soma=100 mexendo no último CC
-      if (ccs.length > 0) {
-        const somaCcs = ccs.reduce((s, c) => s + c.percentual, 0);
-        const diff = round2(100 - somaCcs);
-        if (Math.abs(diff) > 0.001 && Math.abs(diff) <= 0.02) {
-          ccs[ccs.length - 1].percentual = round2(ccs[ccs.length - 1].percentual + diff);
-        }
-      }
-      return {
-        codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
-        classe_rec_desp_label: cls.classe_rec_desp_label,
-        percentual: cls.percentual,
-        ccs,
-      };
-    });
-
-    itens.push({
-      item_servico: itemRow.item_servico,
-      codigo_produto: itemRow.codigo_produto,
-      codigo_alternativo_produto: itemRow.codigo_alternativo_produto,
-      codigo_prod_unid_med: itemRow.codigo_prod_unid_med,
-      produto_nome: itemRow.produto_nome,
-      produto_unidade: itemRow.produto_unidade,
-      quantidade: Number(itemRow.quantidade),
-      valor_unitario: Number(itemRow.valor_unitario),
-      observacao: itemRow.observacao,
-      rateio: rateioFinal,
-    });
   }
-
   // 3. Parcelas
   const { data: parcelasRows } = await (supabase as any)
     .from("compras_pedidos_parcelas")
