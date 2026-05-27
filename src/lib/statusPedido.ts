@@ -1,8 +1,19 @@
 import { LucideIcon } from "lucide-react";
-import { FileText, Loader2, AlertTriangle, Clock, CheckCircle2, Flag, Pause, XCircle, HelpCircle } from "lucide-react";
+import {
+  FileText,
+  Loader2,
+  AlertTriangle,
+  Clock,
+  CheckCircle2,
+  Flag,
+  Pause,
+  XCircle,
+  HelpCircle,
+  Send,
+} from "lucide-react";
 
 /**
- * Unifica as 3 dimensões de status do pedido (status_local + status do Alvo + status_aprovacao)
+ * Unifica as dimensões de status do pedido (status_local + status do Alvo + status_aprovacao + enviou_aprovacao)
  * em UM único estado conceitual que o usuário entende.
  *
  * Retorna label curta + ícone + classes Tailwind + tooltip explicativo.
@@ -19,6 +30,7 @@ export function getStatusPedido(ped: any): StatusPedidoVisual {
   const statusLocal = ped?.status_local as string | undefined;
   const statusAlvo = ped?.status as string | undefined;
   const statusAprovacao = ped?.status_aprovacao as string | undefined;
+  const enviouAprovacao = ped?.enviou_aprovacao as string | undefined;
   const aprovado = ped?.aprovado as string | undefined;
   const comprado = ped?.comprado as string | undefined;
   const proximoAprovador = ped?.proximo_aprovador as string | undefined;
@@ -84,8 +96,9 @@ export function getStatusPedido(ped: any): StatusPedidoVisual {
     };
   }
 
-  // Aberto: precisa olhar o status_aprovacao pra refinar
+  // Aberto: precisa olhar o status_aprovacao + enviou_aprovacao pra refinar
   if (statusAlvo === "Aberto") {
+    // 2.1 — Aprovado (workflow finalizado)
     if (statusAprovacao === "Finalizada" && aprovado === "Total") {
       return {
         label: "Aprovado",
@@ -95,6 +108,7 @@ export function getStatusPedido(ped: any): StatusPedidoVisual {
       };
     }
 
+    // 2.2 — Workflow de aprovação rodando
     if (statusAprovacao === "Em Andamento" || statusAprovacao === "Reavaliar") {
       return {
         label: "Aguardando aprovação",
@@ -104,12 +118,26 @@ export function getStatusPedido(ped: any): StatusPedidoVisual {
       };
     }
 
-    // Aberto sem fluxo de aprovação definido (status_aprovacao = "Nenhum" ou null)
+    // 2.3 — NOVO: Enviado para aprovação mas workflow ainda não iniciou
+    // (analista marcou "Enviar pra Aprovação=Sim" no Alvo, mas StatusAprovacao ainda é "Nenhum")
+    if (statusAprovacao === "Nenhum" && enviouAprovacao === "Sim") {
+      return {
+        label: "Enviado para aprovação",
+        Icon: Send,
+        className: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
+        tooltip: proximoAprovador
+          ? `Enviado para aprovação de ${proximoAprovador} — aguardando início do workflow`
+          : "Enviado para aprovação — aguardando início do workflow",
+      };
+    }
+
+    // 2.4 — NOVO: Analista ainda não enviou pra aprovação no Alvo
+    // (status_aprovacao=Nenhum e enviou_aprovacao=null/Não)
     return {
-      label: "Em análise",
-      Icon: Clock,
-      className: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
-      tooltip: "Pedido aberto no ERP — em processamento",
+      label: "Pendente de envio para aprovação",
+      Icon: FileText,
+      className: "bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30",
+      tooltip: "Pedido criado no ERP, mas o analista ainda não marcou 'Enviar para Aprovação=Sim'",
     };
   }
 
