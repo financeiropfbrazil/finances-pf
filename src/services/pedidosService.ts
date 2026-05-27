@@ -1468,7 +1468,58 @@ export async function carregarPedidoParaEdicao(pedidoId: string): Promise<Carreg
 export async function carregarPedidoParaDetalhe(pedidoId: string): Promise<CarregarPedidoResult> {
   return _carregarPedidoCompleto(pedidoId, /* modoEdicao */ false);
 }
+// ────────────────────────────────────────────────────────────
+// HELPERS — Fallback para reconstruir itens/parcelas do jsonb
+// (usado quando pedido veio do Alvo via cron e tabelas relacionais
+// estão vazias, mas compras_pedidos.itens/parcelas têm dados)
+// ────────────────────────────────────────────────────────────
 
+function reconstruirItensDoJsonb(itensJsonb: any[]): any[] {
+  if (!Array.isArray(itensJsonb) || itensJsonb.length === 0) return [];
+
+  return itensJsonb.map((it: any) => {
+    // Reconstrói rateio a partir do classeRateio do jsonb
+    const rateio = Array.isArray(it.classeRateio)
+      ? it.classeRateio.map((cls: any) => ({
+          codigo_classe_rec_desp: cls.classe || "",
+          classe_rec_desp_label: null,
+          percentual: Number(cls.percentual) || 0,
+          ccs: Array.isArray(cls.centrosCusto)
+            ? cls.centrosCusto.map((cc: any) => ({
+                codigo_centro_ctrl: cc.codigo || "",
+                centro_ctrl_label: null,
+                percentual: Number(cc.percentual) || 0,
+              }))
+            : [],
+        }))
+      : [];
+
+    return {
+      item_servico: it.itemServico === "Sim",
+      codigo_produto: it.codigoProduto || "",
+      codigo_alternativo_produto: null,
+      codigo_prod_unid_med: it.unidade || "",
+      produto_nome: it.nomeProduto || "",
+      produto_unidade: it.unidade || "",
+      quantidade: Number(it.quantidade) || 0,
+      valor_unitario: Number(it.valorUnitario) || 0,
+      observacao: null,
+      rateio,
+    };
+  });
+}
+
+function reconstruirParcelasDoJsonb(parcelasJsonb: any[]): any[] {
+  if (!Array.isArray(parcelasJsonb) || parcelasJsonb.length === 0) return [];
+
+  return parcelasJsonb.map((p: any) => ({
+    sequencia: Number(p.sequencia) || 0,
+    dias_entre_parcelas: Number(p.diasEntreParcelas) || 0,
+    percentual_fracao: Number(p.percentual) || 0,
+    valor_parcela: Number(p.valor) || 0,
+    data_vencimento: p.vencimento || null,
+  }));
+}
 /**
  * Helper interno — carrega o pedido completo com filhos e reconstrói rateio.
  * Chamado por `carregarPedidoParaEdicao` (com trava) e
@@ -1503,8 +1554,15 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
     throw new Error(`Erro ao carregar itens: ${errItens.message}`);
   }
 
-  const itens = [];
-  for (const itemRow of itensRows || []) {
+  // FALLBACK: se tabela relacional vazia mas o jsonb ped.itens tem dados,
+  // reconstrói a partir do jsonb (caso de pedidos vindos do Alvo via cron)
+  const usarJsonbItens = (!itensRows || itensRows.length === 0) && Array.isArray(ped.itens) && ped.itens.length > 0;
+  let itens: any[] = [];
+
+  if (usarJsonbItens) {
+    itens = reconstruirItensDoJsonb(ped.itens);
+  } else {
+    for (const itemRow of itensRows || []) {
     // 2a. Rateios desse item (achatado: 1 linha por par classe-cc)
     const { data: rateiosRows } = await (supabase as any)
       .from("compras_pedidos_itens_rateio")
@@ -1591,13 +1649,20 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
     .eq("pedido_id", pedidoId)
     .order("sequencia", { ascending: true });
 
-  const parcelas: ParcelaInput[] = (parcelasRows || []).map((p: any) => ({
-    sequencia: p.sequencia,
-    dias_entre_parcelas: p.dias_entre_parcelas,
-    percentual_fracao: Number(p.percentual_fracao),
-    valor_parcela: Number(p.valor_parcela),
-    data_vencimento: p.data_vencimento,
-  }));
+  // FALLBACK: se tabela relacional vazia mas o jsonb ped.parcelas tem dados,
+  // reconstrói a partir do jsonb (caso de pedidos vindos do Alvo via cron)
+  const usarJsonbParcelas =
+    (!parcelasRows || parcelasRows.length === 0) && Array.isArray(ped.parcelas) && ped.parcelas.length > 0;
+
+  const parcelas: ParcelaInput[] = usarJsonbParcelas
+    ? reconstruirParcelasDoJsonb(ped.parcelas)
+    : (parcelasRows || []).map((p: any) => ({
+        sequencia: p.sequencia,
+        dias_entre_parcelas: p.dias_entre_parcelas,
+        percentual_fracao: Number(p.percentual_fracao),
+        valor_parcela: Number(p.valor_parcela),
+        data_vencimento: p.data_vencimento,
+      }));
 
   // 4. Arquivos existentes (metadata)
   const { data: arquivosRows } = await (supabase as any)
