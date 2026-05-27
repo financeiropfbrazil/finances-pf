@@ -128,7 +128,6 @@ export default function SuprimentosPedidoDetalhe() {
       // Defesa em profundidade: se NÃO pode ver todos, valida que este pedido
       // é derivado de uma req criada pelo usuário atual.
       if (!podeVerTodos && user) {
-        // Busca metadados do pedido pra ver de qual req ele veio
         const { data: pedMeta } = await (supabase as any)
           .from("compras_pedidos")
           .select("numero_req_comp, codigo_empresa_filial_req_comp")
@@ -136,11 +135,9 @@ export default function SuprimentosPedidoDetalhe() {
           .single();
 
         if (!pedMeta?.numero_req_comp) {
-          // Pedido sem origem em req → usuário sem view_all não pode ver
           throw new Error("Você não tem permissão para ver este pedido.");
         }
 
-        // Verifica se a req origem pertence ao usuário
         const { data: req } = await (supabase as any)
           .from("compras_requisicoes")
           .select("requisitante_user_id")
@@ -156,7 +153,7 @@ export default function SuprimentosPedidoDetalhe() {
       return result;
     },
     enabled: !!id,
-    retry: false, // erros de permissão não devem retentar
+    retry: false,
   });
 
   // ── Query secundária: auditoria ────────────────────────────
@@ -186,7 +183,7 @@ export default function SuprimentosPedidoDetalhe() {
       const { data, error } = await (supabase as any)
         .from("compras_pedidos")
         .select(
-          "numero, status, status_local, status_aprovacao, aprovado, comprado, proximo_aprovador, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at",
+          "numero, status, status_local, status_aprovacao, enviou_aprovacao, aprovado, comprado, proximo_aprovador, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at",
         )
         .eq("id", id)
         .single();
@@ -278,13 +275,24 @@ export default function SuprimentosPedidoDetalhe() {
   const isExcluivel = pedido.status_local === "rascunho" || pedido.status_local === "erro_envio";
 
   // Status unificado: combina pedido + pedidoMeta pra captar todos os campos relevantes
-  // (status_local, status, status_aprovacao, aprovado, comprado, proximo_aprovador)
   const pedidoComMeta = { ...pedido, ...(pedidoMeta || {}) };
   const statusVisual = getStatusPedido(pedidoComMeta);
 
   const numeroVisivel = pedido.numero?.startsWith("RASCUNHO-") ? `(rascunho)` : pedido.numero || "(rascunho)";
 
-  const valorTotal = pedido.itens?.reduce((s, it) => s + it.quantidade * it.valor_unitario, 0) || 0;
+  // Valor total: usa valor_total do banco (que vem do Alvo via cron) como prioridade.
+  // Pedidos de serviço criados no Alvo podem ter valor_total preenchido mas itens vazios — o reduce daria 0 incorretamente.
+  // Fallback: cálculo a partir dos itens (pra pedidos criados no Hub que ainda não sincronizaram).
+  const valorTotalCalculadoDosItens = pedido.itens?.reduce((s, it) => s + it.quantidade * it.valor_unitario, 0) || 0;
+  const valorTotal = Number(pedidoMeta?.valor_total) || valorTotalCalculadoDosItens;
+
+  // Mostrar linha "Próximo aprovador" no detalhe quando o pedido tem aprovador definido
+  // E está em estado relevante (em workflow OU já enviado pra aprovação OU pendente de envio).
+  const mostrarProximoAprovador =
+    !!pedidoComMeta.proximo_aprovador &&
+    (pedidoComMeta.status_aprovacao === "Em Andamento" ||
+      pedidoComMeta.status_aprovacao === "Reavaliar" ||
+      (pedidoComMeta.status_aprovacao === "Nenhum" && pedidoComMeta.status === "Aberto"));
 
   // ── Render ─────────────────────────────────────────────────
   return (
@@ -346,11 +354,14 @@ export default function SuprimentosPedidoDetalhe() {
             </TooltipProvider>
           )}
         </div>
-        {pedidoComMeta.proximo_aprovador && pedidoComMeta.status_aprovacao === "Em Andamento" && (
+
+        {/* Próximo aprovador — visível em estados relevantes (sem precisar de hover) */}
+        {mostrarProximoAprovador && (
           <p className="text-sm text-muted-foreground">
             Próximo aprovador: <span className="font-medium text-foreground">{pedidoComMeta.proximo_aprovador}</span>
           </p>
         )}
+
         {/* Banner de erro */}
         {pedido.status_local === "erro_envio" && pedido.erro_envio?.message && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
@@ -442,7 +453,6 @@ export default function SuprimentosPedidoDetalhe() {
             <p className="text-xs text-muted-foreground">Pedido</p>
             <p className="mt-1 text-sm font-medium">{formatData(pedido.data_pedido)}</p>
           </div>
-
           <div>
             <p className="text-xs text-muted-foreground">Entrega</p>
             <p className="mt-1 text-sm font-medium">{formatData(pedido.data_entrega)}</p>
