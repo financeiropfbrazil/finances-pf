@@ -46,6 +46,7 @@ import { PERMISSIONS } from "@/constants/permissions";
 import { supabase } from "@/integrations/supabase/client";
 import { carregarPedidoParaDetalhe, excluirPedido, getUrlAssinadaArquivoPedido } from "@/services/pedidosService";
 import { getStatusPedido } from "@/lib/statusPedido";
+import { carregarDetalhesPedido } from "@/services/alvoPedCompLoadService";
 
 // ════════════════════════════════════════════════════════════
 // CONFIG DE EVENTOS DA AUDITORIA (mantido — usado no histórico)
@@ -123,7 +124,8 @@ export default function SuprimentosPedidoDetalhe() {
     queryFn: async () => {
       if (!id) throw new Error("ID do pedido não informado.");
 
-      const result = await carregarPedidoParaDetalhe(id);
+      // Carga inicial — pega o pedido como está no banco
+      let result = await carregarPedidoParaDetalhe(id);
 
       // Defesa em profundidade: se NÃO pode ver todos, valida que este pedido
       // é derivado de uma req criada pelo usuário atual.
@@ -150,7 +152,27 @@ export default function SuprimentosPedidoDetalhe() {
         }
       }
 
+      // ⭐ NOVO: se pedido veio do Alvo sem detalhes carregados,
+      // faz Load no Alvo agora e recarrega
+      const { data: pedRaw } = await (supabase as any)
+        .from("compras_pedidos")
+        .select("detalhes_carregados, numero")
+        .eq("id", id)
+        .single();
+
+      if (pedRaw && pedRaw.detalhes_carregados === false && pedRaw.numero) {
+        try {
+          await carregarDetalhesPedido(pedRaw.numero);
+          // Recarrega pedido com os detalhes agora populados
+          result = await carregarPedidoParaDetalhe(id);
+        } catch (err: any) {
+          // Não fatal — mostra o que tem (cabeçalho + valor_total) e segue
+          console.error("[pedido-detalhe] Falha ao carregar detalhes do Alvo:", err);
+        }
+      }
+
       return result;
+    },
     },
     enabled: !!id,
     retry: false,
