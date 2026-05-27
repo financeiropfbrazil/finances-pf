@@ -169,10 +169,10 @@ export default function SuprimentosPedidoDetalhe() {
           // Não fatal — mostra o que tem (cabeçalho + valor_total) e segue
           console.error("[pedido-detalhe] Falha ao carregar detalhes do Alvo:", err);
         }
-      
+      }
       return result;
     },
-    },
+
     enabled: !!id,
     retry: false,
   });
