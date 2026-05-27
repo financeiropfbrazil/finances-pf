@@ -1001,7 +1001,41 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
         proximo_aprovador_novo: novoProximoAprovador,
       });
 
-      const numeroReqComp = alvo?.NumeroReqComp;
+// ⭐ NOVO: dispara email se aprovação acabou de finalizar
+      // Transição: (antigo != Finalizada/Total) → (novo == Finalizada/Total)
+      const aprovouAgora =
+        novoStatusAprovacao === "Finalizada" &&
+        novoAprovado === "Total" &&
+        !(ped.status_aprovacao === "Finalizada" && ped.aprovado === "Total");
+
+      if (aprovouAgora) {
+        try {
+          const emailResp = await fetch(
+            `${Deno.env.get("SUPABASE_URL")!}/functions/v1/notify-pedido-aprovado`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+              },
+              body: JSON.stringify({ pedido_id: ped.id }),
+            },
+          );
+          const emailData = await emailResp.json();
+          if (!emailResp.ok) {
+            console.error(`[cron] notify-pedido-aprovado falhou pra ${ped.numero}:`, emailData);
+          } else {
+            console.log(
+              `[cron] Email de aprovação ${ped.numero}:`,
+              emailData?.skipped ? `skipped (${emailData.reason})` : `sent → ${emailData.sent_to}`,
+            );
+          }
+        } catch (emailErr: any) {
+          // Falha de email não deve quebrar o cron — apenas log
+          console.error(`[cron] Erro ao chamar notify-pedido-aprovado pra ${ped.numero}:`, emailErr?.message || emailErr);
+        }
+      }      
+const numeroReqComp = alvo?.NumeroReqComp;
       const codigoFilialReqComp = alvo?.CodigoEmpresaFilialReqComp;
       if (numeroReqComp && codigoFilialReqComp) {
         const { data: reqRow } = await supabase
