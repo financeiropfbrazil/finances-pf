@@ -25,6 +25,11 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  LayoutGrid,
+  List,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { getStatusPedido } from "@/lib/statusPedido";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -75,6 +80,40 @@ function formatBRL(valor: number | null | undefined): string {
   }).format(Number(valor));
 }
 
+function formatData(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    return format(new Date(iso), "dd/MM/yyyy", { locale: ptBR });
+  } catch {
+    return "—";
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// CONFIG DE VISUALIZAÇÃO (Cards/Lista) + ORDENAÇÃO
+// ════════════════════════════════════════════════════════════
+
+const VIEW_STORAGE_KEY = "suprimentos_pedidos_view";
+
+type ViewMode = "cards" | "lista";
+type SortDir = "asc" | "desc";
+
+// Colunas ordenáveis da lista. `accessor` extrai o valor comparável de cada pedido.
+const COLUNAS_PEDIDOS: Array<{
+  key: string;
+  label: string;
+  className?: string;
+  accessor: (p: any) => any;
+}> = [
+  { key: "numero", label: "Nº", accessor: (p) => p.numero || "" },
+  { key: "data_pedido", label: "Data", accessor: (p) => p.data_pedido || "" },
+  { key: "status", label: "Status", accessor: (p) => getStatusPedido(p).label },
+  { key: "nome_entidade", label: "Fornecedor", accessor: (p) => (p.nome_entidade || "").toLowerCase() },
+  { key: "valor_total", label: "Valor total", className: "text-right", accessor: (p) => Number(p.valor_total) || 0 },
+  { key: "codigo_usuario", label: "Comprador", accessor: (p) => (p.codigo_usuario || "").toLowerCase() },
+  { key: "proximo_aprovador", label: "Próximo aprovador", accessor: (p) => (p.proximo_aprovador || "").toLowerCase() },
+];
+
 export default function SuprimentosPedidos() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
@@ -87,6 +126,41 @@ export default function SuprimentosPedidos() {
   const [filtroDataFim, setFiltroDataFim] = useState<Date | undefined>(undefined);
   const [filtroComprador, setFiltroComprador] = useState("todos");
   const [filtroPreset, setFiltroPreset] = useState("todos");
+
+  // ── Modo de visualização (persistido em localStorage) ───
+  const [view, setView] = useState<ViewMode>(() => {
+    if (typeof window === "undefined") return "cards";
+    const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    return saved === "lista" ? "lista" : "cards";
+  });
+
+  const trocarView = (novo: ViewMode) => {
+    setView(novo);
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, novo);
+    } catch {
+      /* ignora se localStorage indisponível */
+    }
+  };
+
+  // ── Ordenação da lista (só na sessão, não persiste) ─────
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const handleSort = (colKey: string) => {
+    if (sortCol === colKey) {
+      // Mesmo campo: alterna asc → desc → sem ordenação
+      if (sortDir === "asc") {
+        setSortDir("desc");
+      } else {
+        setSortCol(null);
+        setSortDir("asc");
+      }
+    } else {
+      setSortCol(colKey);
+      setSortDir("asc");
+    }
+  };
 
   // Paginação no frontend (filtros buscam tudo do banco)
   const PAGE_SIZE = 30;
@@ -187,6 +261,29 @@ export default function SuprimentosPedidos() {
   const pedidos = pedidosResult?.pedidos || [];
   const totalPedidos = pedidosResult?.total || 0;
 
+  // ── Ordenação no frontend (aplicada à página atual) ─────
+  // A query já ordena por updated_at desc no servidor. Quando o usuário
+  // clica num cabeçalho de coluna na visão Lista, reordenamos os registros
+  // já carregados da página atual.
+  const pedidosOrdenados = (() => {
+    if (!sortCol) return pedidos;
+    const coluna = COLUNAS_PEDIDOS.find((c) => c.key === sortCol);
+    if (!coluna) return pedidos;
+    const copia = [...pedidos];
+    copia.sort((a, b) => {
+      const va = coluna.accessor(a);
+      const vb = coluna.accessor(b);
+      let cmp = 0;
+      if (typeof va === "number" && typeof vb === "number") {
+        cmp = va - vb;
+      } else {
+        cmp = String(va).localeCompare(String(vb), "pt-BR");
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return copia;
+  })();
+
   // ── Paginação no servidor ───────────────────────────────
   // `pedidos` já vem só com a página atual (PAGE_SIZE registros máx).
   // `totalPedidos` é o count exato no banco.
@@ -240,6 +337,28 @@ export default function SuprimentosPedidos() {
 
   const firstName = profile?.full_name?.split(" ")[0] || "";
 
+  // ── Navegação ao clicar num pedido (card ou linha) ──────
+  const irParaPedido = (ped: any) => {
+    const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
+    if (isEditavel) {
+      navigate(`/suprimentos/pedidos/novo?pedidoId=${ped.id}`);
+    } else {
+      navigate(`/suprimentos/pedidos/${ped.id}`);
+    }
+  };
+
+  // ── Ícone de ordenação por coluna ───────────────────────
+  const renderSortIcon = (colKey: string) => {
+    if (sortCol !== colKey) {
+      return <ArrowUpDown className="ml-1 inline h-3 w-3 opacity-40" />;
+    }
+    return sortDir === "asc" ? (
+      <ArrowUp className="ml-1 inline h-3 w-3" />
+    ) : (
+      <ArrowDown className="ml-1 inline h-3 w-3" />
+    );
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -254,12 +373,35 @@ export default function SuprimentosPedidos() {
               : "Acompanhe os pedidos derivados das suas requisições."}
           </p>
         </div>
-        {podeCriar && (
-          <Button onClick={() => navigate("/suprimentos/pedidos/novo")}>
-            <Plus className="h-4 w-4" />
-            Novo Pedido
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Toggle Cards/Lista */}
+          <div className="flex items-center rounded-md border border-border p-0.5">
+            <Button
+              variant={view === "cards" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-8 px-2"
+              onClick={() => trocarView("cards")}
+              title="Visualização em cards"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={view === "lista" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-8 px-2"
+              onClick={() => trocarView("lista")}
+              title="Visualização em lista"
+            >
+              <List className="h-4 w-4" />
+            </Button>
+          </div>
+          {podeCriar && (
+            <Button onClick={() => navigate("/suprimentos/pedidos/novo")}>
+              <Plus className="h-4 w-4" />
+              Novo Pedido
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filtros */}
@@ -389,7 +531,82 @@ export default function SuprimentosPedidos() {
             </CardContent>
           </Card>
         </div>
+      ) : view === "lista" ? (
+        /* ─────────── VISUALIZAÇÃO EM LISTA ─────────── */
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                    {COLUNAS_PEDIDOS.map((col) => (
+                      <th
+                        key={col.key}
+                        className={`cursor-pointer select-none px-4 py-3 font-medium hover:text-foreground ${col.className || ""}`}
+                        onClick={() => handleSort(col.key)}
+                      >
+                        {col.label}
+                        {renderSortIcon(col.key)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pedidosOrdenados.map((ped: any) => {
+                    const statusVisual = getStatusPedido(ped);
+                    const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
+                    const numeroVisivel = ped.numero?.startsWith("RASCUNHO-") ? "(rascunho)" : ped.numero || "(sem nº)";
+                    return (
+                      <tr
+                        key={ped.id}
+                        className="cursor-pointer border-b last:border-b-0 transition-colors hover:bg-muted/40"
+                        onClick={() => irParaPedido(ped)}
+                      >
+                        {/* Nº */}
+                        <td className="px-4 py-3 font-mono text-xs">
+                          <div className="flex items-center gap-1.5">
+                            {ped.criado_no_hub === true && (
+                              <Home className="h-3 w-3 text-purple-600 dark:text-purple-400 shrink-0" />
+                            )}
+                            {numeroVisivel}
+                          </div>
+                        </td>
+                        {/* Data */}
+                        <td className="px-4 py-3 whitespace-nowrap">{formatData(ped.data_pedido)}</td>
+                        {/* Status */}
+                        <td className="px-4 py-3">
+                          <Badge
+                            variant="outline"
+                            className={`${statusVisual.className} flex w-fit items-center gap-1.5`}
+                          >
+                            <statusVisual.Icon
+                              className={`h-3 w-3 ${statusVisual.iconAnimate ? "animate-spin" : ""}`}
+                            />
+                            {statusVisual.label}
+                          </Badge>
+                        </td>
+                        {/* Fornecedor */}
+                        <td className="px-4 py-3 max-w-[220px]">
+                          <span className="line-clamp-1">{ped.nome_entidade || "—"}</span>
+                        </td>
+                        {/* Valor total */}
+                        <td className="px-4 py-3 text-right font-mono text-emerald-600 whitespace-nowrap">
+                          {formatBRL(ped.valor_total)}
+                        </td>
+                        {/* Comprador */}
+                        <td className="px-4 py-3 whitespace-nowrap">{ped.codigo_usuario || "—"}</td>
+                        {/* Próximo aprovador */}
+                        <td className="px-4 py-3 whitespace-nowrap">{ped.proximo_aprovador || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
+        /* ─────────── VISUALIZAÇÃO EM CARDS ─────────── */
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {pedidos.map((ped: any) => {
             const statusVisual = getStatusPedido(ped);
