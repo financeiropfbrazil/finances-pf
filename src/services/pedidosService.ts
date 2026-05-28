@@ -1854,6 +1854,85 @@ export async function removerArquivoPedido(arquivoId: string): Promise<void> {
 }
 
 // ════════════════════════════════════════════════════════════
+// CLONAR ANEXOS DA REQUISIÇÃO → PEDIDO
+// ════════════════════════════════════════════════════════════
+// Copia anexos da req origem (bucket compras-requisicoes) pro
+// pedido (bucket compras-pedidos). Só faz algo se a req tiver
+// anexos — reqs vindas do Alvo não têm, então é no-op pra elas.
+// Falha em 1 anexo não derruba os outros nem o pedido.
+
+const STORAGE_BUCKET_REQ = "compras-requisicoes";
+
+async function clonarAnexosDaRequisicao(requisicaoId: string, pedidoId: string): Promise<void> {
+  // 1. Lista anexos da requisição
+  const { data: anexosReq, error: errList } = await (supabase as any)
+    .from("compras_requisicoes_arquivos")
+    .select("nome_original, storage_path, mime_type, tamanho_bytes, uploaded_by_user_id")
+    .eq("requisicao_id", requisicaoId);
+
+  if (errList) {
+    console.warn(`[clonarAnexos] Erro ao listar anexos da req ${requisicaoId}:`, errList.message);
+    return;
+  }
+
+  if (!anexosReq || anexosReq.length === 0) {
+    // Req sem anexos (caso típico de req vinda do Alvo) — nada a fazer
+    return;
+  }
+
+  console.log(`[clonarAnexos] Clonando ${anexosReq.length} anexo(s) da req ${requisicaoId} pro pedido ${pedidoId}`);
+
+  for (const anexo of anexosReq) {
+    try {
+      // 2. Baixa o arquivo do bucket da requisição
+      const { data: fileData, error: errDl } = await supabase.storage
+        .from(STORAGE_BUCKET_REQ)
+        .download(anexo.storage_path);
+
+      if (errDl || !fileData) {
+        console.warn(`[clonarAnexos] Falha ao baixar ${anexo.storage_path}:`, errDl?.message);
+        continue;
+      }
+
+      // 3. Gera novo path no bucket do pedido: {pedido_id}/{novo_guid}.ext
+      const novoGuid = crypto.randomUUID();
+      const ext = anexo.nome_original?.split(".").pop() || "bin";
+      const novoStoragePath = `${pedidoId}/${novoGuid}.${ext}`;
+
+      // 4. Sobe no bucket do pedido
+      const { error: errUp } = await supabase.storage.from(STORAGE_BUCKET).upload(novoStoragePath, fileData, {
+        contentType: anexo.mime_type || "application/octet-stream",
+        upsert: false,
+      });
+
+      if (errUp) {
+        console.warn(`[clonarAnexos] Falha ao subir ${novoStoragePath}:`, errUp.message);
+        continue;
+      }
+
+      // 5. Insere metadados na tabela de anexos do pedido
+      const { error: errIns } = await (supabase as any).from("compras_pedidos_arquivos").insert({
+        pedido_id: pedidoId,
+        upload_identify_guid: novoGuid,
+        nome_original: anexo.nome_original,
+        storage_path: novoStoragePath,
+        mime_type: anexo.mime_type,
+        tamanho_bytes: anexo.tamanho_bytes,
+        uploaded_by_user_id: anexo.uploaded_by_user_id,
+      });
+
+      if (errIns) {
+        console.warn(`[clonarAnexos] Falha ao inserir metadados de ${anexo.nome_original}:`, errIns.message);
+        // Rollback do arquivo subido (best effort)
+        await supabase.storage.from(STORAGE_BUCKET).remove([novoStoragePath]);
+      }
+    } catch (err: any) {
+      console.warn(`[clonarAnexos] Exceção ao clonar ${anexo.nome_original}:`, err?.message || err);
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════
 // CALCULAR PARCELAS
 // ════════════════════════════════════════════════════════════
 
