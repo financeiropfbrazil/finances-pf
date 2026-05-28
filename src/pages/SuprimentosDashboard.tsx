@@ -8,9 +8,6 @@ import {
   CartesianGrid,
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
-  Cell,
-  ComposedChart,
-  Line,
   Legend,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -100,6 +97,7 @@ export default function SuprimentosDashboard() {
           <div className="mb-3 flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-semibold">Período</span>
+            <span className="text-xs text-muted-foreground">(afeta os cards e o funil)</span>
             {temFiltro && (
               <Button variant="ghost" size="sm" onClick={limparFiltro} className="ml-auto h-7 text-xs">
                 <X className="mr-1 h-3 w-3" /> Limpar
@@ -256,21 +254,22 @@ export default function SuprimentosDashboard() {
             </CardContent>
           </Card>
 
-          {/* Volume mensal */}
+          {/* Volume mensal — sempre últimos 6 meses (independe do filtro) */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <TrendingUp className="h-4 w-4" />
                 Volume mensal de pedidos
+                <span className="text-xs font-normal text-muted-foreground">(últimos 6 meses)</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
               {data.volumeMensal.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Sem dados no período.</p>
+                <p className="text-sm text-muted-foreground">Sem dados nos últimos 6 meses.</p>
               ) : (
                 <div className="h-80 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={data.volumeMensal} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <BarChart data={data.volumeMensal} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
                       <XAxis dataKey="mesLabel" tick={{ fontSize: 12 }} className="text-muted-foreground" />
                       <YAxis
@@ -288,8 +287,8 @@ export default function SuprimentosDashboard() {
                       />
                       <RechartsTooltip
                         formatter={(value: any, name: string) => {
-                          if (name === "Valor total") return [formatBRL(value), name];
-                          return [value, "Qtd pedidos"];
+                          if (name === "Total (R$)") return [formatBRL(value), name];
+                          return [value, "Volume (qtd)"];
                         }}
                         contentStyle={{
                           backgroundColor: "hsl(var(--card))",
@@ -299,17 +298,15 @@ export default function SuprimentosDashboard() {
                         }}
                       />
                       <Legend wrapperStyle={{ fontSize: "12px" }} />
-                      <Bar yAxisId="left" dataKey="qtd" name="Qtd pedidos" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                      <Line
+                      <Bar yAxisId="left" dataKey="qtd" name="Volume (qtd)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                      <Bar
                         yAxisId="right"
-                        type="monotone"
                         dataKey="valorTotal"
-                        name="Valor total"
-                        stroke="#059669"
-                        strokeWidth={2}
-                        dot={{ r: 3 }}
+                        name="Total (R$)"
+                        fill="#059669"
+                        radius={[4, 4, 0, 0]}
                       />
-                    </ComposedChart>
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
               )}
