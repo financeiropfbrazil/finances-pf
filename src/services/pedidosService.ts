@@ -1264,6 +1264,11 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
             { onConflict: "id" },
           );
         }
+
+        // ⭐ NOVO: clona anexos da requisição pro pedido (só em modo criação)
+        if (!modoEdicao) {
+          await clonarAnexosDaRequisicao(input.origem_requisicao_id, pedidoId!);
+        }
       }
 
       await (supabase as any).from("compras_pedidos_auditoria").insert({
