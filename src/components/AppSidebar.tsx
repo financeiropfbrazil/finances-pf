@@ -108,6 +108,7 @@ const comprasSubItems = [
 ];
 
 const suprimentosSubItems = [
+  { label: "Dashboard", url: "/suprimentos/dashboard", icon: BarChart3 },
   { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
   { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
 ];
