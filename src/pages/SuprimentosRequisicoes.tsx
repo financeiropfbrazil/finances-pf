@@ -159,7 +159,16 @@ export default function SuprimentosRequisicoes() {
       }
 
       if (filtroStatus && filtroStatus !== "todos") {
-        query = query.eq("status", filtroStatus);
+        if (filtroStatus === "convertida_pedido") {
+          // Convertida = tem pedido associado (fonte da verdade, independe do status)
+          query = query.not("numero_pedido_compra_alvo", "is", null);
+        } else if (filtroStatus === "sincronizada") {
+          // Aguardando Pedido = no ERP mas ainda NÃO virou pedido
+          query = query.eq("status", "sincronizada").is("numero_pedido_compra_alvo", null);
+        } else {
+          // rascunho, pendente_envio, cancelada → filtro normal por status
+          query = query.eq("status", filtroStatus);
+        }
       }
 
       if (filtroFuncionario && filtroFuncionario !== "todos") {
@@ -310,7 +319,7 @@ export default function SuprimentosRequisicoes() {
                 <SelectItem value="todos">Todos</SelectItem>
                 <SelectItem value="rascunho">Rascunho (erro)</SelectItem>
                 <SelectItem value="pendente_envio">Pendente de envio</SelectItem>
-                <SelectItem value="sincronizada">Enviada ao ERP</SelectItem>
+                <SelectItem value="sincronizada">Aguardando Pedido</SelectItem>
                 <SelectItem value="cancelada">Cancelada</SelectItem>
                 <SelectItem value="convertida_pedido">Convertida em pedido</SelectItem>
               </SelectContent>
