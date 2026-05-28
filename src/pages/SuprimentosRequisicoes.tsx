@@ -20,6 +20,7 @@ import {
   Filter,
   X,
   LayoutGrid,
+  Search,
   List,
   ArrowUpDown,
   ArrowUp,
@@ -80,7 +81,13 @@ export default function SuprimentosRequisicoes() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const podeVerTodas = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_VIEW_ALL);
-
+  // Busca textual com debounce de 300ms (server-side via ilike)
+  const [buscaInput, setBuscaInput] = useState("");
+  const [buscaDebounced, setBuscaDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setBuscaDebounced(buscaInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [buscaInput]);
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [filtroDataInicio, setFiltroDataInicio] = useState<Date | undefined>(undefined);
   const [filtroDataFim, setFiltroDataFim] = useState<Date | undefined>(undefined);
