@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import {
   Plus,
   ShoppingCart,
@@ -119,7 +120,13 @@ export default function SuprimentosPedidos() {
   const { user, profile } = useAuth();
   const podeVerTodos = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_VIEW_ALL);
   const podeCriar = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_CREATE);
-
+  // Busca textual com debounce de 300ms (server-side via ilike)
+  const [buscaInput, setBuscaInput] = useState("");
+  const [buscaDebounced, setBuscaDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setBuscaDebounced(buscaInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [buscaInput]);
   const [filtroStatusLocal, setFiltroStatusLocal] = useState("todos");
   const [filtroOrigem, setFiltroOrigem] = useState("todos");
   const [filtroDataInicio, setFiltroDataInicio] = useState<Date | undefined>(undefined);
