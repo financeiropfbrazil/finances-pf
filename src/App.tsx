@@ -290,6 +290,14 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/suprimentos/dashboard"
+          element={
+            <PermissionRoute permKey="compras.pedidos.view_all">
+              <SuprimentosDashboard />
+            </PermissionRoute>
+          }
+        />
+        <Route
           path="/suprimentos/pedidos"
           element={
             <PermissionRoute permKey="suprimentos_pedidos">
