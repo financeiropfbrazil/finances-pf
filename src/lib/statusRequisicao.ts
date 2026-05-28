@@ -15,7 +15,17 @@ export interface StatusRequisicaoVisual {
 export function getStatusRequisicao(req: any): StatusRequisicaoVisual {
   const status = req?.status as string | undefined;
   const erroUltimoEnvio = req?.erro_ultimo_envio as string | undefined;
-
+  // ⭐ Convertida em pedido tem prioridade sobre "sincronizada":
+  // se a req tem numero_pedido_compra_alvo, ela já virou pedido.
+  // (cancelada continua tendo prioridade — tratada abaixo)
+  if (req?.numero_pedido_compra_alvo && status !== "cancelada") {
+    return {
+      label: "Convertida em Pedido",
+      Icon: Package,
+      className: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30",
+      tooltip: `Convertida no Pedido nº ${req.numero_pedido_compra_alvo}`,
+    };
+  }
   if (status === "rascunho") {
     return {
       label: "Rascunho",
