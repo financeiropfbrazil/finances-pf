@@ -1267,7 +1267,9 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
 
         // ⭐ NOVO: clona anexos da requisição pro pedido (só em modo criação)
         if (!modoEdicao) {
-          await clonarAnexosDaRequisicao(input.origem_requisicao_id, pedidoId!);
+          // DESATIVADO: a clonagem de anexos agora acontece no wizard (SuprimentosPedidoNovo),
+          // pré-carregando os anexos da req como editáveis pra a analista decidir manter/remover.
+          // await clonarAnexosDaRequisicao(input.origem_requisicao_id, pedidoId!);
         }
       }
 
