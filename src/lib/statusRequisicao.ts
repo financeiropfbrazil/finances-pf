@@ -48,10 +48,10 @@ export function getStatusRequisicao(req: any): StatusRequisicaoVisual {
 
   if (status === "sincronizada") {
     return {
-      label: "Enviada ao ERP",
+      label: "Aguardando Pedido",
       Icon: CheckCircle2,
       className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
-      tooltip: "Requisição enviada com sucesso ao ERP — aguardando virar pedido",
+      tooltip: "Requisição no ERP, aguardando ser convertida em pedido de compra",
     };
   }
 
