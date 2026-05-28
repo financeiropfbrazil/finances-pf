@@ -56,6 +56,7 @@ import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
 import SuprimentosPedidos from "./pages/SuprimentosPedidos";
 import SuprimentosPedidoNovo from "./pages/SuprimentosPedidoNovo";
 import SuprimentosPedidoDetalhe from "./pages/SuprimentosPedidoDetalhe";
+import SuprimentosDashboard from "./pages/SuprimentosDashboard";
 import ReembolsoNovo from "./pages/intercompany/ReembolsoNovo";
 import IntercompanyMaster from "./pages/intercompany/IntercompanyMaster";
 import NovoReembolsoNF from "./pages/intercompany/NovoReembolsoNF";
