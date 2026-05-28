@@ -355,9 +355,9 @@ export default function SuprimentosPedidoNovo() {
     },
   });
 
-  // ════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   // CLONE DE REQUISIÇÃO (caminho 1a)
-  // ════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
 
   useEffect(() => {
     if (!reqIdFromQuery) return;
@@ -365,6 +365,109 @@ export default function SuprimentosPedidoNovo() {
       setCarregandoClone(true);
       try {
         const cloneResult = await clonarDeRequisicao(reqIdFromQuery);
+
+        setOrigemReqId(cloneResult.origem_requisicao_id);
+        setOrigemNumeroReqAlvo(cloneResult.origem_numero_req_alvo);
+        setOrigemCodigoEmpresaFilial(cloneResult.origem_codigo_empresa_filial);
+        setCnpjSugeridoDaReq(cloneResult.cnpj_sugerido);
+
+        const itensClonados: ItemWizard[] = cloneResult.itens_clonados.map((ic, idx) => {
+          // rateio_sugerido já vem hierárquico do service:
+          // [{ codigo_classe_rec_desp, percentual, ccs: [{ codigo_centro_ctrl, percentual }] }]
+          // Só precisamos adicionar os tempIds pra controle do estado React.
+          const rateioComIds: RateioClasseWizard[] = ic.rateio_sugerido.map((cls, clsIdx) => ({
+            tempClasseId: `cls-${Date.now()}-${Math.random()}-${idx}-${clsIdx}`,
+            codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
+            classe_rec_desp_label: cls.classe_rec_desp_label,
+            percentual: cls.percentual,
+            ccs: cls.ccs.map((cc, ccIdx) => ({
+              tempCcId: `cc-${Date.now()}-${Math.random()}-${idx}-${clsIdx}-${ccIdx}`,
+              codigo_centro_ctrl: cc.codigo_centro_ctrl,
+              centro_ctrl_label: cc.centro_ctrl_label,
+              percentual: cc.percentual,
+            })),
+          }));
+
+          return {
+            tempId: `tmp-${Date.now()}-${Math.random()}-${idx}`,
+            item_servico: ic.item_servico,
+            codigo_produto: ic.codigo_produto,
+            codigo_alternativo_produto: ic.codigo_alternativo_produto,
+            codigo_prod_unid_med: ic.codigo_prod_unid_med,
+            produto_nome: ic.produto_nome,
+            produto_unidade: ic.produto_unidade,
+            quantidade: ic.quantidade,
+            valor_unitario: 0, // ⚠️ valor unitário precisa ser preenchido pelo analista
+            observacao: ic.observacao,
+            rateio: rateioComIds,
+          };
+        });
+
+        setItens(itensClonados);
+
+        // ⭐ NOVO: pré-carrega anexos da requisição como arquivos editáveis.
+        // Baixa cada anexo do bucket compras-requisicoes e injeta no estado
+        // `arquivos` como File real — a analista vê no card "Anexos" e decide
+        // caso a caso se mantém ou remove antes de enviar.
+        // Reqs vindas do Alvo não têm anexos nessa tabela → no-op.
+        try {
+          const { data: anexosReq, error: errAnexos } = await (supabase as any)
+            .from("compras_requisicoes_arquivos")
+            .select("nome_original, storage_path, mime_type, tamanho_bytes")
+            .eq("requisicao_id", cloneResult.origem_requisicao_id);
+
+          if (!errAnexos && anexosReq && anexosReq.length > 0) {
+            const anexosCarregados: ArquivoInput[] = [];
+
+            for (const anexo of anexosReq.slice(0, MAX_ARQUIVOS)) {
+              try {
+                const { data: blob, error: errDl } = await supabase.storage
+                  .from("compras-requisicoes")
+                  .download(anexo.storage_path);
+
+                if (errDl || !blob) {
+                  console.warn(`[clone-anexos] Falha ao baixar ${anexo.storage_path}:`, errDl?.message);
+                  continue;
+                }
+
+                // Converte o Blob baixado em File (pro fluxo de envio multipart)
+                const file = new File([blob], anexo.nome_original || "anexo", {
+                  type: anexo.mime_type || "application/octet-stream",
+                });
+
+                anexosCarregados.push({ file, upload_identify_guid: crypto.randomUUID() });
+              } catch (errAnexo: any) {
+                console.warn(`[clone-anexos] Exceção ao processar ${anexo.nome_original}:`, errAnexo?.message);
+              }
+            }
+
+            if (anexosCarregados.length > 0) {
+              setArquivos(anexosCarregados);
+            }
+          }
+        } catch (errAnexosGeral: any) {
+          // Falha ao carregar anexos não deve impedir o clone dos itens
+          console.warn("[clone-anexos] Erro geral ao carregar anexos da req:", errAnexosGeral?.message);
+        }
+
+        toast({
+          title: `Pedido clonado da Req ${cloneResult.origem_numero_req_alvo}`,
+          description: "Revise os itens, preencha os valores unitários e confira os anexos antes de continuar.",
+        });
+      } catch (err: any) {
+        toast({
+          title: "Erro ao clonar requisição",
+          description: err?.message || "Não foi possível carregar a requisição de origem.",
+          variant: "destructive",
+        });
+        navigate("/suprimentos/pedidos");
+      } finally {
+        setCarregandoClone(false);
+      }
+    };
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reqIdFromQuery]);
 
         setOrigemReqId(cloneResult.origem_requisicao_id);
         setOrigemNumeroReqAlvo(cloneResult.origem_numero_req_alvo);
