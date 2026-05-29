@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
 const MAX_RETRIES = 3;
-const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchLoadWithRetry(numero: string): Promise<any> {
   let token = (await authenticateAlvo()).token;
@@ -108,16 +108,46 @@ function extrairAnexos(data: any): any[] {
   });
 }
 
+/**
+ * Soma o valorTotal dos itens NÃO cancelados.
+ * Usado como fallback quando o cabeçalho do Alvo (ValorTotal) vier null/undefined.
+ */
+function somarItensNaoCancelados(itens: any[]): number {
+  return (itens || [])
+    .filter((it: any) => it?.cancelado !== "Sim")
+    .reduce((acc: number, it: any) => acc + (Number(it?.valorTotal) || 0), 0);
+}
+
+/**
+ * Resolve o valor_total do pedido a partir do retorno do Load.
+ * Fonte da verdade: o ValorTotal do cabeçalho do Alvo (inclui frete/desconto).
+ * Fallback: soma dos itens não cancelados — só quando o Alvo NÃO fornecer total
+ * (null/undefined). Um 0 explícito do Alvo é respeitado APENAS se não houver itens
+ * com valor; havendo itens com valor mas cabeçalho 0, usa a soma dos itens
+ * (cobre o caso de pedido "Em Andamento" cujo cabeçalho ainda não consolidou).
+ */
+function resolverValorTotal(data: any, itens: any[]): number {
+  const cab = data?.ValorTotal;
+  const somaItens = somarItensNaoCancelados(itens);
+
+  if (cab === null || cab === undefined) {
+    return somaItens;
+  }
+  const cabNum = Number(cab) || 0;
+  if (cabNum === 0 && somaItens > 0) {
+    return somaItens;
+  }
+  return cabNum;
+}
+
 export async function baixarAnexoPedido(
   nomeArquivo: string,
   caminhoOriginal: string,
-  storagePath?: string | null
+  storagePath?: string | null,
 ): Promise<void> {
   // 1. Tentar Supabase Storage primeiro
   if (storagePath) {
-    const { data, error } = await supabase.storage
-      .from("attachments")
-      .download(storagePath);
+    const { data, error } = await supabase.storage.from("attachments").download(storagePath);
 
     if (data && !error) {
       const url = URL.createObjectURL(data);
@@ -176,12 +206,24 @@ export async function carregarDetalhesPedido(numero: string): Promise<void> {
   const condPagObj = data?.CondPagPedCompObject;
   const nomeCondPag = condPagObj?.Nome || null;
 
+  const itens = extrairItens(data);
+
   const update: Record<string, any> = {
-    itens: extrairItens(data),
+    itens,
     parcelas: extrairParcelas(data),
     classe_rateio: extrairClasseRateio(data),
     anexos: extrairAnexos(data),
     nome_cond_pag: nomeCondPag,
+    // ── Valores do cabeçalho (corrige listagem zerada) ──────────────────
+    // O /ped-comp/list (descoberta) traz ValorTotal=0 para pedidos em
+    // andamento; o Load completo traz o valor consolidado. Aqui gravamos
+    // esses valores para que a LISTAGEM (que lê compras_pedidos.valor_total)
+    // fique consistente com a tela de DETALHE.
+    valor_total: resolverValorTotal(data, itens),
+    valor_mercadoria: data?.ValorMercadoria ?? null,
+    valor_servico: data?.ValorServico ?? null,
+    valor_frete: data?.ValorFrete ?? null,
+    valor_desconto: data?.ValorDescontoGeral ?? null,
     detalhes_carregados: true,
     detalhes_carregados_em: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -198,10 +240,7 @@ export async function carregarDetalhesPedido(numero: string): Promise<void> {
 
   const { error } = await supabase
     .from("compras_pedidos")
-    .upsert(
-      { ...update, numero, codigo_empresa_filial: "1.01" },
-      { onConflict: "codigo_empresa_filial,numero" }
-    );
+    .upsert({ ...update, numero, codigo_empresa_filial: "1.01" }, { onConflict: "codigo_empresa_filial,numero" });
 
   if (error) throw new Error(`Erro ao salvar detalhes: ${error.message}`);
 }
