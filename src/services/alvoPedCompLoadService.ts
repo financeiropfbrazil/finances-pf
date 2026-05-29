@@ -224,6 +224,8 @@ export async function carregarDetalhesPedido(numero: string): Promise<void> {
     valor_servico: data?.ValorServico ?? null,
     valor_frete: data?.ValorFrete ?? null,
     valor_desconto: data?.ValorDescontoGeral ?? null,
+    valor_outras_despesas: data?.ValorOutrasDespesas ?? null,
+    valor_ipi: data?.GeralValorIPI ?? null,
     detalhes_carregados: true,
     detalhes_carregados_em: new Date().toISOString(),
     updated_at: new Date().toISOString(),
