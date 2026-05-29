@@ -63,6 +63,7 @@ import NovoReembolsoNF from "./pages/intercompany/NovoReembolsoNF";
 import BulkEditProdutosCampos from "./pages/ferramentas/BulkEditProdutosCampos";
 import BulkEditHistorico from "./pages/ferramentas/BulkEditHistorico";
 import CronReqDashboard from "./pages/ferramentas/CronReqDashboard";
+import CronDespesasDashboard from "./pages/ferramentas/CronDespesasDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -515,6 +516,14 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="ferramentas_cron_req">
               <CronReqDashboard />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/ferramentas/cron-despesas"
+          element={
+            <PermissionRoute permKey="ferramentas_cron_req">
+              <CronDespesasDashboard />
             </PermissionRoute>
           }
         />
