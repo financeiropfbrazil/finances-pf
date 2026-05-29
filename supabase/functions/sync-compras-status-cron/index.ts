@@ -979,6 +979,8 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
       const novoValorServico = alvo?.ValorServico ?? null;
       const novoValorFrete = alvo?.ValorFrete ?? null;
       const novoValorDesconto = alvo?.ValorDescontoGeral ?? null;
+      const novoValorOutrasDespesas = alvo?.ValorOutrasDespesas ?? null;
+      const novoValorIpi = alvo?.GeralValorIPI ?? null;
 
       // Comparação numérica do total (tolerância de 0,005 p/ float)
       const valorMudou = Math.abs((Number(novoValorTotal) || 0) - (Number(ped.valor_total) || 0)) > 0.005;
@@ -1016,6 +1018,8 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
           valor_servico: novoValorServico,
           valor_frete: novoValorFrete,
           valor_desconto: novoValorDesconto,
+          valor_outras_despesas: novoValorOutrasDespesas,
+          valor_ipi: novoValorIpi,
           synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
