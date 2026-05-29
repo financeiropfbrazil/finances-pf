@@ -31,6 +31,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Search,
 } from "lucide-react";
 import { getStatusPedido } from "@/lib/statusPedido";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -40,11 +41,6 @@ import { ptBR } from "date-fns/locale";
 
 // ════════════════════════════════════════════════════════════
 // STATUS CONFIG
-// ════════════════════════════════════════════════════════════
-// Pedido tem 2 dimensões de status:
-//  - status_local (ciclo do Hub): rascunho, enviando, enviado_alvo, erro_envio, sincronizado
-//  - status (Alvo): Aberto, Pendente, Cancelado, Encerrado, etc
-// Para a tela de lista, exibimos um BADGE COMBINADO inteligente
 // ════════════════════════════════════════════════════════════
 
 const STATUS_LOCAL_CONFIG: Record<string, { label: string; className: string }> = {
@@ -61,7 +57,6 @@ const STATUS_LOCAL_CONFIG: Record<string, { label: string; className: string }> 
   },
 };
 
-// Para pedidos sincronizados, mostramos também o status do Alvo
 const STATUS_ALVO_CONFIG: Record<string, string> = {
   Aberto: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
   Pendente: "bg-amber-500/10 text-amber-700 border-amber-500/20",
@@ -75,10 +70,7 @@ const STATUS_ALVO_CONFIG: Record<string, string> = {
 
 function formatBRL(valor: number | null | undefined): string {
   if (valor === null || valor === undefined) return "—";
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(Number(valor));
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(valor));
 }
 
 function formatData(iso: string | null | undefined): string {
@@ -99,7 +91,6 @@ const VIEW_STORAGE_KEY = "suprimentos_pedidos_view";
 type ViewMode = "cards" | "lista";
 type SortDir = "asc" | "desc";
 
-// Colunas ordenáveis da lista. `accessor` extrai o valor comparável de cada pedido.
 const COLUNAS_PEDIDOS: Array<{
   key: string;
   label: string;
@@ -120,6 +111,7 @@ export default function SuprimentosPedidos() {
   const { user, profile } = useAuth();
   const podeVerTodos = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_VIEW_ALL);
   const podeCriar = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_CREATE);
+
   // Busca textual com debounce de 300ms (server-side via ilike)
   const [buscaInput, setBuscaInput] = useState("");
   const [buscaDebounced, setBuscaDebounced] = useState("");
@@ -127,6 +119,7 @@ export default function SuprimentosPedidos() {
     const t = setTimeout(() => setBuscaDebounced(buscaInput.trim()), 300);
     return () => clearTimeout(t);
   }, [buscaInput]);
+
   const [filtroStatusLocal, setFiltroStatusLocal] = useState("todos");
   const [filtroOrigem, setFiltroOrigem] = useState("todos");
   const [filtroDataInicio, setFiltroDataInicio] = useState<Date | undefined>(undefined);
@@ -134,7 +127,6 @@ export default function SuprimentosPedidos() {
   const [filtroComprador, setFiltroComprador] = useState("todos");
   const [filtroPreset, setFiltroPreset] = useState("todos");
 
-  // ── Modo de visualização (persistido em localStorage) ───
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "cards";
     const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
@@ -150,13 +142,11 @@ export default function SuprimentosPedidos() {
     }
   };
 
-  // ── Ordenação da lista (só na sessão, não persiste) ─────
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const handleSort = (colKey: string) => {
     if (sortCol === colKey) {
-      // Mesmo campo: alterna asc → desc → sem ordenação
       if (sortDir === "asc") {
         setSortDir("desc");
       } else {
@@ -169,11 +159,9 @@ export default function SuprimentosPedidos() {
     }
   };
 
-  // Paginação no frontend (filtros buscam tudo do banco)
   const PAGE_SIZE = 30;
   const [paginaAtual, setPaginaAtual] = useState(1);
 
-  // ── Lista de funcionários (compradores) pra filtro ──────
   const { data: funcionarios = [] } = useQuery({
     queryKey: ["funcionarios_filtro_pedidos"],
     queryFn: async () => {
@@ -188,7 +176,6 @@ export default function SuprimentosPedidos() {
     enabled: podeVerTodos,
   });
 
-  // ── Lista de pedidos (paginação no servidor) ────────────
   const { data: pedidosResult, isLoading } = useQuery({
     queryKey: [
       "pedidos_lista",
@@ -200,23 +187,20 @@ export default function SuprimentosPedidos() {
       filtroDataInicio?.toISOString(),
       filtroDataFim?.toISOString(),
       filtroComprador,
-      paginaAtual, // refaz query quando troca de página
+      buscaDebounced,
+      paginaAtual,
     ],
     queryFn: async () => {
-      // Range do PostgREST é INCLUSIVO em ambos os lados.
-      // Pra pedir registros 0..29 (primeiros 30): .range(0, 29)
       const inicio = (paginaAtual - 1) * PAGE_SIZE;
       const fim = inicio + PAGE_SIZE - 1;
 
       let query = (supabase as any)
         .from("compras_pedidos")
-        .select("*", { count: "exact" }) // count exato pro total
+        .select("*", { count: "exact" })
         .order("updated_at", { ascending: false })
         .range(inicio, fim);
 
-      // Filtragem por papel: requisitante só vê pedidos derivados de SUAS reqs
       if (!podeVerTodos && user) {
-        // Busca os numero_alvo das requisições deste usuário
         const { data: minhasReqs } = await (supabase as any)
           .from("compras_requisicoes")
           .select("numero_alvo")
@@ -225,14 +209,12 @@ export default function SuprimentosPedidos() {
         const numerosReqs = (minhasReqs || []).map((r: any) => r.numero_alvo).filter((n: string | null) => n !== null);
 
         if (numerosReqs.length === 0) {
-          // Usuário sem reqs → sem pedidos derivados → retorna vazio
           return { pedidos: [], total: 0 };
         }
 
         query = query.in("numero_req_comp", numerosReqs);
       }
 
-      // Filtros UI
       if (filtroStatusLocal && filtroStatusLocal !== "todos") {
         query = query.eq("status_local", filtroStatusLocal);
       }
@@ -245,6 +227,25 @@ export default function SuprimentosPedidos() {
 
       if (filtroComprador && filtroComprador !== "todos") {
         query = query.eq("codigo_usuario", filtroComprador);
+      }
+
+      // Busca textual: ilike case-insensitive em vários campos via OR
+      if (buscaDebounced) {
+        // Escapa caracteres especiais do PostgREST (vírgula e parênteses quebram o or())
+        const termo = buscaDebounced.replace(/[,()]/g, " ");
+        const padrao = `%${termo}%`;
+        query = query.or(
+          [
+            `numero.ilike.${padrao}`,
+            `nome_entidade.ilike.${padrao}`,
+            `codigo_usuario.ilike.${padrao}`,
+            `proximo_aprovador.ilike.${padrao}`,
+            `numero_req_comp.ilike.${padrao}`,
+            `texto.ilike.${padrao}`,
+            `texto_historico.ilike.${padrao}`,
+            `criado_por_nome.ilike.${padrao}`,
+          ].join(","),
+        );
       }
 
       if (filtroDataInicio) {
@@ -268,10 +269,6 @@ export default function SuprimentosPedidos() {
   const pedidos = pedidosResult?.pedidos || [];
   const totalPedidos = pedidosResult?.total || 0;
 
-  // ── Ordenação no frontend (aplicada à página atual) ─────
-  // A query já ordena por updated_at desc no servidor. Quando o usuário
-  // clica num cabeçalho de coluna na visão Lista, reordenamos os registros
-  // já carregados da página atual.
   const pedidosOrdenados = (() => {
     if (!sortCol) return pedidos;
     const coluna = COLUNAS_PEDIDOS.find((c) => c.key === sortCol);
@@ -291,16 +288,13 @@ export default function SuprimentosPedidos() {
     return copia;
   })();
 
-  // ── Paginação no servidor ───────────────────────────────
-  // `pedidos` já vem só com a página atual (PAGE_SIZE registros máx).
-  // `totalPedidos` é o count exato no banco.
   const totalPaginas = Math.max(1, Math.ceil(totalPedidos / PAGE_SIZE));
   const paginaCorrigida = Math.min(paginaAtual, totalPaginas);
 
-  // Resetar pra página 1 quando os filtros mudarem
+  // Reset pra página 1 quando filtros ou busca mudam
   useEffect(() => {
     setPaginaAtual(1);
-  }, [filtroStatusLocal, filtroOrigem, filtroDataInicio, filtroDataFim, filtroComprador, filtroPreset]);
+  }, [filtroStatusLocal, filtroOrigem, filtroDataInicio, filtroDataFim, filtroComprador, filtroPreset, buscaDebounced]);
 
   const handlePresetData = (preset: string) => {
     setFiltroPreset(preset);
@@ -333,6 +327,7 @@ export default function SuprimentosPedidos() {
     setFiltroDataFim(undefined);
     setFiltroComprador("todos");
     setFiltroPreset("todos");
+    setBuscaInput("");
   };
 
   const temFiltroAtivo =
@@ -340,11 +335,11 @@ export default function SuprimentosPedidos() {
     filtroOrigem !== "todos" ||
     filtroComprador !== "todos" ||
     !!filtroDataInicio ||
-    !!filtroDataFim;
+    !!filtroDataFim ||
+    !!buscaDebounced;
 
   const firstName = profile?.full_name?.split(" ")[0] || "";
 
-  // ── Navegação ao clicar num pedido (card ou linha) ──────
   const irParaPedido = (ped: any) => {
     const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
     if (isEditavel) {
@@ -354,7 +349,6 @@ export default function SuprimentosPedidos() {
     }
   };
 
-  // ── Ícone de ordenação por coluna ───────────────────────
   const renderSortIcon = (colKey: string) => {
     if (sortCol !== colKey) {
       return <ArrowUpDown className="ml-1 inline h-3 w-3 opacity-40" />;
@@ -381,7 +375,6 @@ export default function SuprimentosPedidos() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Toggle Cards/Lista */}
           <div className="flex items-center rounded-md border border-border p-0.5">
             <Button
               variant={view === "cards" ? "secondary" : "ghost"}
@@ -414,7 +407,28 @@ export default function SuprimentosPedidos() {
       {/* Filtros */}
       <Card>
         <CardContent className="flex flex-wrap items-end gap-4 p-4">
-          {/* Status local */}
+          {/* Busca textual */}
+          <div className="relative min-w-[260px] flex-1 max-w-md">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Buscar</label>
+            <Search className="pointer-events-none absolute left-2.5 top-[34px] h-4 w-4 text-muted-foreground" />
+            <Input
+              value={buscaInput}
+              onChange={(e) => setBuscaInput(e.target.value)}
+              placeholder="Nº, fornecedor, comprador, aprovador…"
+              className="pl-8 pr-8"
+            />
+            {buscaInput && (
+              <button
+                type="button"
+                onClick={() => setBuscaInput("")}
+                className="absolute right-2.5 top-[34px] text-muted-foreground hover:text-foreground"
+                title="Limpar busca"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
           <div className="min-w-[160px]">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
             <Select value={filtroStatusLocal} onValueChange={setFiltroStatusLocal}>
@@ -432,7 +446,6 @@ export default function SuprimentosPedidos() {
             </Select>
           </div>
 
-          {/* Origem (Hub ou Alvo) */}
           <div className="min-w-[160px]">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Origem</label>
             <Select value={filtroOrigem} onValueChange={setFiltroOrigem}>
@@ -447,7 +460,6 @@ export default function SuprimentosPedidos() {
             </Select>
           </div>
 
-          {/* Período */}
           <div className="min-w-[160px]">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Período</label>
             <Select value={filtroPreset} onValueChange={handlePresetData}>
@@ -464,7 +476,6 @@ export default function SuprimentosPedidos() {
             </Select>
           </div>
 
-          {/* Comprador (quem pode ver todos) */}
           {podeVerTodos && (
             <div className="min-w-[200px]">
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Comprador</label>
@@ -484,7 +495,6 @@ export default function SuprimentosPedidos() {
             </div>
           )}
 
-          {/* Limpar */}
           {temFiltroAtivo && (
             <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-muted-foreground">
               <X className="mr-1 h-3 w-3" /> Limpar filtros
@@ -539,7 +549,6 @@ export default function SuprimentosPedidos() {
           </Card>
         </div>
       ) : view === "lista" ? (
-        /* ─────────── VISUALIZAÇÃO EM LISTA ─────────── */
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -569,7 +578,6 @@ export default function SuprimentosPedidos() {
                         className="cursor-pointer border-b last:border-b-0 transition-colors hover:bg-muted/40"
                         onClick={() => irParaPedido(ped)}
                       >
-                        {/* Nº */}
                         <td className="px-4 py-3 font-mono text-xs">
                           <div className="flex items-center gap-1.5">
                             {ped.criado_no_hub === true && (
@@ -578,9 +586,7 @@ export default function SuprimentosPedidos() {
                             {numeroVisivel}
                           </div>
                         </td>
-                        {/* Data */}
                         <td className="px-4 py-3 whitespace-nowrap">{formatData(ped.data_pedido)}</td>
-                        {/* Status */}
                         <td className="px-4 py-3">
                           <Badge
                             variant="outline"
@@ -592,17 +598,13 @@ export default function SuprimentosPedidos() {
                             {statusVisual.label}
                           </Badge>
                         </td>
-                        {/* Fornecedor */}
                         <td className="px-4 py-3 max-w-[220px]">
                           <span className="line-clamp-1">{ped.nome_entidade || "—"}</span>
                         </td>
-                        {/* Valor total */}
                         <td className="px-4 py-3 text-right font-mono text-emerald-600 whitespace-nowrap">
                           {formatBRL(ped.valor_total)}
                         </td>
-                        {/* Comprador */}
                         <td className="px-4 py-3 whitespace-nowrap">{ped.codigo_usuario || "—"}</td>
-                        {/* Próximo aprovador */}
                         <td className="px-4 py-3 whitespace-nowrap">{ped.proximo_aprovador || "—"}</td>
                       </tr>
                     );
@@ -613,7 +615,6 @@ export default function SuprimentosPedidos() {
           </CardContent>
         </Card>
       ) : (
-        /* ─────────── VISUALIZAÇÃO EM CARDS ─────────── */
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {pedidos.map((ped: any) => {
             const statusVisual = getStatusPedido(ped);
@@ -636,7 +637,6 @@ export default function SuprimentosPedidos() {
                 }}
               >
                 <CardContent className="space-y-3 p-5">
-                  {/* Status unificado + Nº pedido + indicador Hub */}
                   <div className="flex items-center justify-between gap-2">
                     <TooltipProvider>
                       <Tooltip>
@@ -673,7 +673,6 @@ export default function SuprimentosPedidos() {
                     </div>
                   </div>
 
-                  {/* Fornecedor + valor */}
                   <div>
                     <p className="text-sm font-medium text-foreground line-clamp-2">
                       {ped.nome_entidade || "(sem fornecedor)"}
@@ -681,7 +680,6 @@ export default function SuprimentosPedidos() {
                     <p className="mt-1 text-sm font-mono text-emerald-600">{formatBRL(ped.valor_total)}</p>
                   </div>
 
-                  {/* Metadados */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     {ped.data_pedido && (
                       <span className="flex items-center gap-1">
@@ -706,7 +704,6 @@ export default function SuprimentosPedidos() {
                     )}
                   </div>
 
-                  {/* Banner de erro / aviso de rascunho */}
                   {ped.status_local === "erro_envio" && ped.erro_envio?.message && (
                     <div className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 p-2">
                       <AlertCircle className="h-3 w-3 text-destructive shrink-0 mt-0.5" />
@@ -714,7 +711,6 @@ export default function SuprimentosPedidos() {
                     </div>
                   )}
 
-                  {/* Footer: data + botão editar (se editável) */}
                   <div className="flex items-center justify-between gap-2 pt-1">
                     <p className="text-[11px] text-muted-foreground/60">
                       Atualizado em {format(new Date(ped.updated_at || ped.created_at), "dd/MM/yyyy", { locale: ptBR })}
