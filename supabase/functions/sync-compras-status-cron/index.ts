@@ -34,6 +34,17 @@
 // SECRETS NECESSÁRIOS:
 //   - CRON_SECRET, ERP_PROXY_URL, ERP_PROXY_SYSTEM_SECRET
 //   - SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (automáticos)
+//
+// ── CORREÇÃO valor_total (Job 2) ─────────────────────────────────────
+//   O Job 2 passou a comparar e propagar o ValorTotal do Alvo para a
+//   coluna compras_pedidos.valor_total. Antes, o upsert do Job 2 só
+//   gravava campos de status, deixando o valor_total defasado em relação
+//   ao que o Alvo informava (visível na auditoria sync_status). Agora:
+//     - valor_total entra no SELECT de candidatos;
+//     - uma divergência de valor também marca "mudou=true";
+//     - valor_total/mercadoria/servico/frete/desconto vão no upsert.
+//   O ERP não permite editar pedido aprovado, logo o ValorTotal do Alvo
+//   é a fonte da verdade — sem necessidade de guarda no Hub.
 // =====================================================================
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
@@ -67,6 +78,7 @@ interface PedidoHub {
   proximo_aprovador: string | null;
   enviou_aprovacao: string | null;
   data_notificacao_aprovador: string | null;
+  valor_total: number | null;
 }
 
 interface DetalheMudanca {
@@ -167,6 +179,30 @@ const REQ_BATCH_SIZE = 50;
 const PED_BATCH_SIZE = 100;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Resolve o valor_total do pedido a partir do retorno do Alvo (detalhe completo).
+ * Fonte da verdade: o ValorTotal do cabeçalho do Alvo (inclui frete/despesas/desconto).
+ * Fallback: soma dos itens não cancelados — apenas quando o Alvo NÃO fornecer total
+ * (null/undefined), ou quando o cabeçalho vier 0 mas houver itens com valor.
+ * (Mesma regra usada em alvoPedCompService.ts / alvoPedCompLoadService.ts.)
+ */
+function resolverValorTotalAlvo(alvo: any): number {
+  const itens = (alvo?.ItemPedCompChildList || []) as any[];
+  const somaItens = itens
+    .filter((it: any) => it?.Cancelado !== "Sim")
+    .reduce((acc: number, it: any) => acc + (Number(it?.ValorTotal) || 0), 0);
+
+  const cab = alvo?.ValorTotal;
+  if (cab === null || cab === undefined) {
+    return somaItens;
+  }
+  const cabNum = Number(cab) || 0;
+  if (cabNum === 0 && somaItens > 0) {
+    return somaItens;
+  }
+  return cabNum;
+}
 
 async function processInChunks<T, R>(
   items: T[],
@@ -293,9 +329,7 @@ async function syncDescobrirRequisicoes(
   const isBackfill = lastKnownNumero === "0000000";
   const windowDays = isBackfill ? WINDOW_DAYS_BACKFILL : WINDOW_DAYS_NORMAL;
 
-  console.log(
-    `[descobrir-req] cursor: ${lastKnownNumero} (${isBackfill ? "BACKFILL 3 anos" : "normal 30d"})`
-  );
+  console.log(`[descobrir-req] cursor: ${lastKnownNumero} (${isBackfill ? "BACKFILL 3 anos" : "normal 30d"})`);
 
   // ── 2. Janela de datas ──────────────────────────────────────────────
   const hoje = new Date();
@@ -455,17 +489,15 @@ async function syncDescobrirRequisicoes(
 
   // ── 6. Atualiza cursor ──────────────────────────────────────────────
   if (maiorNumeroVisto > lastKnownNumero) {
-    const { error: errCursorUpdate } = await supabase
-      .from("sync_cursors")
-      .upsert(
-        {
-          cursor_name: CURSOR_NAME,
-          cursor_value: maiorNumeroVisto,
-          updated_at: new Date().toISOString(),
-          updated_by_run_id: runId,
-        },
-        { onConflict: "cursor_name" },
-      );
+    const { error: errCursorUpdate } = await supabase.from("sync_cursors").upsert(
+      {
+        cursor_name: CURSOR_NAME,
+        cursor_value: maiorNumeroVisto,
+        updated_at: new Date().toISOString(),
+        updated_by_run_id: runId,
+      },
+      { onConflict: "cursor_name" },
+    );
 
     if (errCursorUpdate) {
       console.error("[descobrir-req] falhou atualizando cursor:", errCursorUpdate);
@@ -869,7 +901,7 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
   const { data: candidatos, error: errSelect } = await supabase
     .from("compras_pedidos")
     .select(
-      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador",
+      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total",
     )
     .not("status", "in", '("Encerrado","Cancelado","Cancelado Parcial")')
     .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.(Em Andamento,Reavaliar)`)
@@ -939,6 +971,18 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
       const novoEnviouAprovacao = userFields?.UserEnviouAprovacao ?? null;
       const novoDataNotif = userFields?.UserDataNotificao ?? null;
 
+      // ── Valores do Alvo (detalhe completo) ──────────────────────────
+      // O ValorTotal do Alvo é a fonte da verdade (inclui frete/despesas/desconto).
+      // resolverValorTotalAlvo aplica fallback para soma de itens quando necessário.
+      const novoValorTotal = resolverValorTotalAlvo(alvo);
+      const novoValorMercadoria = alvo?.ValorMercadoria ?? null;
+      const novoValorServico = alvo?.ValorServico ?? null;
+      const novoValorFrete = alvo?.ValorFrete ?? null;
+      const novoValorDesconto = alvo?.ValorDescontoGeral ?? null;
+
+      // Comparação numérica do total (tolerância de 0,005 p/ float)
+      const valorMudou = Math.abs((Number(novoValorTotal) || 0) - (Number(ped.valor_total) || 0)) > 0.005;
+
       const mudou =
         !sameStr(novoStatus, ped.status) ||
         !sameStr(novoAprovado, ped.aprovado) ||
@@ -946,7 +990,8 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
         !sameStr(novoComprado, ped.comprado) ||
         !sameStr(novoProximoAprovador, ped.proximo_aprovador) ||
         !sameStr(novoEnviouAprovacao, ped.enviou_aprovacao) ||
-        tsToMs(novoDataNotif) !== tsToMs(ped.data_notificacao_aprovador);
+        tsToMs(novoDataNotif) !== tsToMs(ped.data_notificacao_aprovador) ||
+        valorMudou;
 
       if (!mudou) {
         await supabase.from("compras_pedidos").update({ synced_at: new Date().toISOString() }).eq("id", ped.id);
@@ -965,6 +1010,12 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
           proximo_aprovador: novoProximoAprovador,
           enviou_aprovacao: novoEnviouAprovacao,
           data_notificacao_aprovador: novoDataNotif,
+          // ── Propaga valores do Alvo (corrige listagem defasada) ─────
+          valor_total: novoValorTotal,
+          valor_mercadoria: novoValorMercadoria,
+          valor_servico: novoValorServico,
+          valor_frete: novoValorFrete,
+          valor_desconto: novoValorDesconto,
           synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
@@ -1001,7 +1052,7 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
         proximo_aprovador_novo: novoProximoAprovador,
       });
 
-// ⭐ NOVO: dispara email se aprovação acabou de finalizar
+      // ⭐ NOVO: dispara email se aprovação acabou de finalizar
       // Transição: (antigo != Finalizada/Total) → (novo == Finalizada/Total)
       const aprovouAgora =
         novoStatusAprovacao === "Finalizada" &&
@@ -1010,17 +1061,14 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
 
       if (aprovouAgora) {
         try {
-          const emailResp = await fetch(
-            `${Deno.env.get("SUPABASE_URL")!}/functions/v1/notify-pedido-aprovado`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
-              },
-              body: JSON.stringify({ pedido_id: ped.id }),
+          const emailResp = await fetch(`${Deno.env.get("SUPABASE_URL")!}/functions/v1/notify-pedido-aprovado`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
             },
-          );
+            body: JSON.stringify({ pedido_id: ped.id }),
+          });
           const emailData = await emailResp.json();
           if (!emailResp.ok) {
             console.error(`[cron] notify-pedido-aprovado falhou pra ${ped.numero}:`, emailData);
@@ -1032,10 +1080,13 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
           }
         } catch (emailErr: any) {
           // Falha de email não deve quebrar o cron — apenas log
-          console.error(`[cron] Erro ao chamar notify-pedido-aprovado pra ${ped.numero}:`, emailErr?.message || emailErr);
+          console.error(
+            `[cron] Erro ao chamar notify-pedido-aprovado pra ${ped.numero}:`,
+            emailErr?.message || emailErr,
+          );
         }
-      }      
-const numeroReqComp = alvo?.NumeroReqComp;
+      }
+      const numeroReqComp = alvo?.NumeroReqComp;
       const codigoFilialReqComp = alvo?.CodigoEmpresaFilialReqComp;
       if (numeroReqComp && codigoFilialReqComp) {
         const { data: reqRow } = await supabase
@@ -1237,22 +1288,14 @@ Deno.serve(async (req: Request) => {
   }
 
   const totals = {
-    total_candidatos:
-      job1.total_candidatos + job2.total_candidatos + job3.total_candidatos + job4.total_candidatos,
+    total_candidatos: job1.total_candidatos + job2.total_candidatos + job3.total_candidatos + job4.total_candidatos,
     total_consultados:
       job1.total_consultados + job2.total_consultados + job3.total_consultados + job4.total_consultados,
-    total_mudaram:
-      job1.total_mudaram + job2.total_mudaram + job3.total_mudaram + job4.total_mudaram,
-    total_erros:
-      job1.total_erros + job2.total_erros + job3.total_erros + job4.total_erros,
+    total_mudaram: job1.total_mudaram + job2.total_mudaram + job3.total_mudaram + job4.total_mudaram,
+    total_erros: job1.total_erros + job2.total_erros + job3.total_erros + job4.total_erros,
   };
 
-  const todosDetalhes = [
-    ...job4.detalhes,
-    ...job3.detalhes,
-    ...job1.detalhes,
-    ...job2.detalhes,
-  ];
+  const todosDetalhes = [...job4.detalhes, ...job3.detalhes, ...job1.detalhes, ...job2.detalhes];
 
   await supabase
     .from("sync_runs")
