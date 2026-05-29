@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import {
   Plus,
   ClipboardList,
@@ -34,7 +35,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   rascunho: { label: "Rascunho", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
   pendente_envio: { label: "Pendente de envio", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
-  sincronizada: { label: "Enviada ao ERP", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
+  sincronizada: { label: "Aguardando Pedido", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
   cancelada: { label: "Cancelada", className: "bg-red-500/15 text-red-600 border-red-500/30" },
   convertida_pedido: { label: "Convertida em Pedido", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
 };
@@ -61,7 +62,6 @@ const VIEW_STORAGE_KEY = "suprimentos_requisicoes_view";
 type ViewMode = "cards" | "lista";
 type SortDir = "asc" | "desc";
 
-// Colunas ordenáveis da lista. `accessor` extrai o valor comparável de cada requisição.
 const COLUNAS_REQUISICOES: Array<{
   key: string;
   label: string;
@@ -81,6 +81,7 @@ export default function SuprimentosRequisicoes() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const podeVerTodas = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_VIEW_ALL);
+
   // Busca textual com debounce de 300ms (server-side via ilike)
   const [buscaInput, setBuscaInput] = useState("");
   const [buscaDebounced, setBuscaDebounced] = useState("");
@@ -88,13 +89,13 @@ export default function SuprimentosRequisicoes() {
     const t = setTimeout(() => setBuscaDebounced(buscaInput.trim()), 300);
     return () => clearTimeout(t);
   }, [buscaInput]);
+
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [filtroDataInicio, setFiltroDataInicio] = useState<Date | undefined>(undefined);
   const [filtroDataFim, setFiltroDataFim] = useState<Date | undefined>(undefined);
   const [filtroFuncionario, setFiltroFuncionario] = useState("todos");
   const [filtroPreset, setFiltroPreset] = useState("todos");
 
-  // ── Modo de visualização (persistido em localStorage) ───
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "cards";
     const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
@@ -110,7 +111,6 @@ export default function SuprimentosRequisicoes() {
     }
   };
 
-  // ── Ordenação da lista (só na sessão, não persiste) ─────
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -152,6 +152,7 @@ export default function SuprimentosRequisicoes() {
       filtroDataInicio?.toISOString(),
       filtroDataFim?.toISOString(),
       filtroFuncionario,
+      buscaDebounced,
     ],
     queryFn: async () => {
       let query = (supabase as any).from("compras_requisicoes").select("*").order("updated_at", { ascending: false });
@@ -167,19 +168,25 @@ export default function SuprimentosRequisicoes() {
 
       if (filtroStatus && filtroStatus !== "todos") {
         if (filtroStatus === "convertida_pedido") {
-          // Convertida = tem pedido associado (fonte da verdade, independe do status)
           query = query.not("numero_pedido_compra_alvo", "is", null);
         } else if (filtroStatus === "sincronizada") {
-          // Aguardando Pedido = no ERP mas ainda NÃO virou pedido
           query = query.eq("status", "sincronizada").is("numero_pedido_compra_alvo", null);
         } else {
-          // rascunho, pendente_envio, cancelada → filtro normal por status
           query = query.eq("status", filtroStatus);
         }
       }
 
       if (filtroFuncionario && filtroFuncionario !== "todos") {
         query = query.eq("codigo_funcionario", filtroFuncionario);
+      }
+
+      // Busca textual: ilike case-insensitive em vários campos via OR
+      if (buscaDebounced) {
+        const termo = buscaDebounced.replace(/[,()]/g, " ");
+        const padrao = `%${termo}%`;
+        query = query.or(
+          [`numero_alvo.ilike.${padrao}`, `descricao.ilike.${padrao}`, `funcionario_nome.ilike.${padrao}`].join(","),
+        );
       }
 
       if (filtroDataInicio) {
@@ -200,7 +207,6 @@ export default function SuprimentosRequisicoes() {
     enabled: !!user,
   });
 
-  // ── Ordenação no frontend ───────────────────────────────
   const requisicoesOrdenadas = (() => {
     if (!sortCol) return requisicoes;
     const coluna = COLUNAS_REQUISICOES.find((c) => c.key === sortCol);
@@ -250,14 +256,18 @@ export default function SuprimentosRequisicoes() {
     setFiltroDataFim(undefined);
     setFiltroFuncionario("todos");
     setFiltroPreset("todos");
+    setBuscaInput("");
   };
 
   const temFiltroAtivo =
-    filtroStatus !== "todos" || filtroFuncionario !== "todos" || !!filtroDataInicio || !!filtroDataFim;
+    filtroStatus !== "todos" ||
+    filtroFuncionario !== "todos" ||
+    !!filtroDataInicio ||
+    !!filtroDataFim ||
+    !!buscaDebounced;
 
   const firstName = profile?.full_name?.split(" ")[0] || "";
 
-  // ── Ícone de ordenação por coluna ───────────────────────
   const renderSortIcon = (colKey: string) => {
     if (sortCol !== colKey) {
       return <ArrowUpDown className="ml-1 inline h-3 w-3 opacity-40" />;
@@ -284,7 +294,6 @@ export default function SuprimentosRequisicoes() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Toggle Cards/Lista */}
           <div className="flex items-center rounded-md border border-border p-0.5">
             <Button
               variant={view === "cards" ? "secondary" : "ghost"}
@@ -315,7 +324,28 @@ export default function SuprimentosRequisicoes() {
       {/* Filtros */}
       <Card>
         <CardContent className="flex flex-wrap items-end gap-4 p-4">
-          {/* Status */}
+          {/* Busca textual */}
+          <div className="relative min-w-[260px] flex-1 max-w-md">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Buscar</label>
+            <Search className="pointer-events-none absolute left-2.5 top-[34px] h-4 w-4 text-muted-foreground" />
+            <Input
+              value={buscaInput}
+              onChange={(e) => setBuscaInput(e.target.value)}
+              placeholder="Nº, descrição, funcionário…"
+              className="pl-8 pr-8"
+            />
+            {buscaInput && (
+              <button
+                type="button"
+                onClick={() => setBuscaInput("")}
+                className="absolute right-2.5 top-[34px] text-muted-foreground hover:text-foreground"
+                title="Limpar busca"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
           <div className="min-w-[160px]">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
             <Select value={filtroStatus} onValueChange={setFiltroStatus}>
@@ -333,7 +363,6 @@ export default function SuprimentosRequisicoes() {
             </Select>
           </div>
 
-          {/* Período */}
           <div className="min-w-[160px]">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Período</label>
             <Select value={filtroPreset} onValueChange={handlePresetData}>
@@ -350,7 +379,6 @@ export default function SuprimentosRequisicoes() {
             </Select>
           </div>
 
-          {/* Funcionário (quem pode ver todas) */}
           {podeVerTodas && (
             <div className="min-w-[200px]">
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Funcionário</label>
@@ -370,7 +398,6 @@ export default function SuprimentosRequisicoes() {
             </div>
           )}
 
-          {/* Limpar */}
           {temFiltroAtivo && (
             <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-muted-foreground">
               <X className="mr-1 h-3 w-3" /> Limpar filtros
@@ -419,7 +446,6 @@ export default function SuprimentosRequisicoes() {
           </Card>
         </div>
       ) : view === "lista" ? (
-        /* ─────────── VISUALIZAÇÃO EM LISTA ─────────── */
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -447,11 +473,8 @@ export default function SuprimentosRequisicoes() {
                         className="cursor-pointer border-b last:border-b-0 transition-colors hover:bg-muted/40"
                         onClick={() => navigate(`/suprimentos/requisicoes/${req.id}`)}
                       >
-                        {/* Nº */}
                         <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">{req.numero_alvo || "—"}</td>
-                        {/* Data Requisição */}
                         <td className="px-4 py-3 whitespace-nowrap">{formatData(req.created_at)}</td>
-                        {/* Status */}
                         <td className="px-4 py-3">
                           <Badge
                             variant="outline"
@@ -461,15 +484,11 @@ export default function SuprimentosRequisicoes() {
                             {statusVisual.label}
                           </Badge>
                         </td>
-                        {/* Descrição */}
                         <td className="px-4 py-3 max-w-[260px]">
                           <span className="line-clamp-1">{req.descricao || "—"}</span>
                         </td>
-                        {/* Itens */}
                         <td className="px-4 py-3 text-right whitespace-nowrap">{req.total_itens ?? 0}</td>
-                        {/* Funcionário */}
                         <td className="px-4 py-3 whitespace-nowrap">{req.funcionario_nome || "—"}</td>
-                        {/* Data Necessidade */}
                         <td className="px-4 py-3 whitespace-nowrap">{formatData(req.data_necessidade)}</td>
                       </tr>
                     );
@@ -480,7 +499,6 @@ export default function SuprimentosRequisicoes() {
           </CardContent>
         </Card>
       ) : (
-        /* ─────────── VISUALIZAÇÃO EM CARDS ─────────── */
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {requisicoes.map((req: any) => {
             const statusVisual = getStatusRequisicao(req);
