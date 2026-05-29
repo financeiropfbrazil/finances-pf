@@ -123,6 +123,7 @@ const ferramentasSubItems = [
   { label: "Bulk Edit Produtos — Campos", url: "/ferramentas/bulk-edit/produtos-campos", icon: Wrench },
   { label: "Histórico", url: "/ferramentas/bulk-edit/historico", icon: History },
   { label: "Cron Requisições", url: "/ferramentas/cron-req", icon: RefreshCw },
+  { label: "Cron Despesas", url: "/ferramentas/cron-despesas", icon: Coins },
 ];
 
 const entidadesSubItems = [
