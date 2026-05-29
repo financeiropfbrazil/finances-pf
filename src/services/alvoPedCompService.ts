@@ -428,6 +428,8 @@ export async function syncPedidosCompra(
           valor_servico: loadData?.ValorServico ?? null,
           valor_frete: loadData?.ValorFrete ?? null,
           valor_desconto: loadData?.ValorDescontoGeral ?? null,
+          valor_outras_despesas: loadData?.ValorOutrasDespesas ?? null,
+          valor_ipi: loadData?.GeralValorIPI ?? null,
           detalhes_carregados: true,
           detalhes_carregados_em: new Date().toISOString(),
           updated_at: new Date().toISOString(),
