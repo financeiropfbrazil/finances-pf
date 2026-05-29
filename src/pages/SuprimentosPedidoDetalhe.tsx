@@ -23,6 +23,7 @@ import {
   User as UserIcon,
   ShoppingCart,
   Home,
+  Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -204,7 +205,7 @@ export default function SuprimentosPedidoDetalhe() {
       const { data, error } = await (supabase as any)
         .from("compras_pedidos")
         .select(
-          "numero, status, status_local, status_aprovacao, enviou_aprovacao, aprovado, comprado, proximo_aprovador, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at",
+          "numero, status, status_local, status_aprovacao, enviou_aprovacao, aprovado, comprado, proximo_aprovador, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, valor_mercadoria, valor_servico, valor_frete, valor_desconto, valor_outras_despesas, valor_ipi, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at",
         )
         .eq("id", id)
         .single();
@@ -306,6 +307,47 @@ export default function SuprimentosPedidoDetalhe() {
   // Fallback: cálculo a partir dos itens (pra pedidos criados no Hub que ainda não sincronizaram).
   const valorTotalCalculadoDosItens = pedido.itens?.reduce((s, it) => s + it.quantidade * it.valor_unitario, 0) || 0;
   const valorTotal = Number(pedidoMeta?.valor_total) || valorTotalCalculadoDosItens;
+
+  // ── Composição do valor (mercadoria + serviço + frete + outras + IPI − desconto = total) ──
+  // Mostra só componentes != 0. Linha "Outros ajustes" cobre qualquer diferença residual
+  // (ex.: descontos de item não refletidos em ValorDescontoGeral), garantindo que a soma
+  // exibida SEMPRE fecha no valor total.
+  const num = (v: any): number => Number(v) || 0;
+  const compMercadoria = num(pedidoMeta?.valor_mercadoria);
+  const compServico = num(pedidoMeta?.valor_servico);
+  const compFrete = num(pedidoMeta?.valor_frete);
+  const compOutras = num(pedidoMeta?.valor_outras_despesas);
+  const compIpi = num(pedidoMeta?.valor_ipi);
+  const compDesconto = num(pedidoMeta?.valor_desconto);
+
+  const somaComponentes = compMercadoria + compServico + compFrete + compOutras + compIpi - compDesconto;
+  const ajusteResidual = valorTotal - somaComponentes;
+
+  // Componentes "extras" além da mercadoria — definem se o card de composição é relevante
+  const temComponentesExtras =
+    compServico !== 0 ||
+    compFrete !== 0 ||
+    compOutras !== 0 ||
+    compIpi !== 0 ||
+    compDesconto !== 0 ||
+    Math.abs(ajusteResidual) > 0.01;
+
+  // Só exibe o card se houver valor_total e algum componente extra (senão é redundante com o resumo)
+  const mostrarComposicao = valorTotal > 0 && temComponentesExtras;
+
+  const linhasComposicao: { label: string; valor: number; sinal: "+" | "-" }[] = [];
+  if (compMercadoria !== 0) linhasComposicao.push({ label: "Mercadoria", valor: compMercadoria, sinal: "+" });
+  if (compServico !== 0) linhasComposicao.push({ label: "Serviço", valor: compServico, sinal: "+" });
+  if (compFrete !== 0) linhasComposicao.push({ label: "Frete", valor: compFrete, sinal: "+" });
+  if (compIpi !== 0) linhasComposicao.push({ label: "IPI", valor: compIpi, sinal: "+" });
+  if (compOutras !== 0) linhasComposicao.push({ label: "Outras despesas", valor: compOutras, sinal: "+" });
+  if (compDesconto !== 0) linhasComposicao.push({ label: "Desconto", valor: compDesconto, sinal: "-" });
+  if (Math.abs(ajusteResidual) > 0.01)
+    linhasComposicao.push({
+      label: "Outros ajustes",
+      valor: Math.abs(ajusteResidual),
+      sinal: ajusteResidual >= 0 ? "+" : "-",
+    });
 
   // Mostrar linha "Próximo aprovador" no detalhe quando o pedido tem aprovador definido
   // E está em estado relevante (em workflow OU já enviado pra aprovação OU pendente de envio).
@@ -428,6 +470,36 @@ export default function SuprimentosPedidoDetalhe() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Card: Composição do valor (só quando há componentes além da mercadoria) */}
+      {mostrarComposicao && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Receipt className="h-4 w-4" />
+              Composição do valor
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 text-sm">
+              {linhasComposicao.map((linha, idx) => (
+                <div key={idx} className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{linha.label}</span>
+                  <span className="font-mono">
+                    {linha.sinal === "-" ? "− " : ""}
+                    {formatBRL(linha.valor)}
+                  </span>
+                </div>
+              ))}
+              <Separator className="my-2" />
+              <div className="flex items-center justify-between font-semibold">
+                <span>Total</span>
+                <span className="font-mono text-emerald-600 dark:text-emerald-400">{formatBRL(valorTotal)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Card: Fornecedor e Pagamento */}
       <Card className="mb-6">
