@@ -29,6 +29,7 @@ import {
   Boxes,
   Wrench,
   History,
+  Coins,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
