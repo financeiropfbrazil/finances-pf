@@ -91,6 +91,9 @@ const VIEW_STORAGE_KEY = "suprimentos_pedidos_view";
 type ViewMode = "cards" | "lista";
 type SortDir = "asc" | "desc";
 
+// Colunas com ordenação CLIENT-SIDE (reordena os 30 da página atual).
+// A coluna "primeiro_vencimento" NÃO entra aqui — ela tem ordenação
+// SERVER-SIDE própria (varre todos os pedidos), tratada à parte.
 const COLUNAS_PEDIDOS: Array<{
   key: string;
   label: string;
@@ -127,6 +130,11 @@ export default function SuprimentosPedidos() {
   const [filtroComprador, setFiltroComprador] = useState("todos");
   const [filtroPreset, setFiltroPreset] = useState("todos");
 
+  // ── Ordenação SERVER-SIDE por primeiro vencimento ───────────────────
+  // null = ordenação padrão (updated_at desc). "asc"/"desc" = ordena por
+  // primeiro_vencimento no servidor (varre TODOS os pedidos, não só a página).
+  const [vencSort, setVencSort] = useState<SortDir | null>(null);
+
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "cards";
     const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
@@ -159,6 +167,13 @@ export default function SuprimentosPedidos() {
     }
   };
 
+  // Ciclo da ordenação server-side por vencimento: asc → desc → desligado.
+  // Ao ativar, zera o sort client-side (são mutuamente exclusivos pra não confundir).
+  const handleVencSort = () => {
+    setSortCol(null);
+    setVencSort((prev) => (prev === null ? "asc" : prev === "asc" ? "desc" : null));
+  };
+
   const PAGE_SIZE = 30;
   const [paginaAtual, setPaginaAtual] = useState(1);
 
@@ -188,17 +203,26 @@ export default function SuprimentosPedidos() {
       filtroDataFim?.toISOString(),
       filtroComprador,
       buscaDebounced,
+      vencSort,
       paginaAtual,
     ],
     queryFn: async () => {
       const inicio = (paginaAtual - 1) * PAGE_SIZE;
       const fim = inicio + PAGE_SIZE - 1;
 
-      let query = (supabase as any)
-        .from("compras_pedidos")
-        .select("*", { count: "exact" })
-        .order("updated_at", { ascending: false })
-        .range(inicio, fim);
+      let query = (supabase as any).from("compras_pedidos").select("*", { count: "exact" });
+
+      // ── Ordenação ────────────────────────────────────────────────────
+      // Se vencSort ativo, ordena por primeiro_vencimento no SERVIDOR
+      // (varre todos os pedidos). nullsFirst:false → pedidos sem vencimento
+      // vão pro fim. Senão, mantém o padrão updated_at desc.
+      if (vencSort) {
+        query = query.order("primeiro_vencimento", { ascending: vencSort === "asc", nullsFirst: false });
+      } else {
+        query = query.order("updated_at", { ascending: false });
+      }
+
+      query = query.range(inicio, fim);
 
       if (!podeVerTodos && user) {
         const { data: minhasReqs } = await (supabase as any)
@@ -215,7 +239,13 @@ export default function SuprimentosPedidos() {
         query = query.in("numero_req_comp", numerosReqs);
       }
 
-      if (filtroStatusLocal && filtroStatusLocal !== "todos") {
+      // ── Filtro de Status ──────────────────────────────────────────────
+      // "aprovados" é um filtro especial: NÃO é status_local, e sim a
+      // combinação status_aprovacao='Finalizada' + aprovado='Total'
+      // (os 3 aprovadores concluíram). Os demais valores são status_local.
+      if (filtroStatusLocal === "aprovados") {
+        query = query.eq("status_aprovacao", "Finalizada").eq("aprovado", "Total");
+      } else if (filtroStatusLocal && filtroStatusLocal !== "todos") {
         query = query.eq("status_local", filtroStatusLocal);
       }
 
@@ -291,10 +321,19 @@ export default function SuprimentosPedidos() {
   const totalPaginas = Math.max(1, Math.ceil(totalPedidos / PAGE_SIZE));
   const paginaCorrigida = Math.min(paginaAtual, totalPaginas);
 
-  // Reset pra página 1 quando filtros ou busca mudam
+  // Reset pra página 1 quando filtros, busca ou ordenação por vencimento mudam
   useEffect(() => {
     setPaginaAtual(1);
-  }, [filtroStatusLocal, filtroOrigem, filtroDataInicio, filtroDataFim, filtroComprador, filtroPreset, buscaDebounced]);
+  }, [
+    filtroStatusLocal,
+    filtroOrigem,
+    filtroDataInicio,
+    filtroDataFim,
+    filtroComprador,
+    filtroPreset,
+    buscaDebounced,
+    vencSort,
+  ]);
 
   const handlePresetData = (preset: string) => {
     setFiltroPreset(preset);
@@ -328,6 +367,7 @@ export default function SuprimentosPedidos() {
     setFiltroComprador("todos");
     setFiltroPreset("todos");
     setBuscaInput("");
+    setVencSort(null);
   };
 
   const temFiltroAtivo =
@@ -336,7 +376,8 @@ export default function SuprimentosPedidos() {
     filtroComprador !== "todos" ||
     !!filtroDataInicio ||
     !!filtroDataFim ||
-    !!buscaDebounced;
+    !!buscaDebounced ||
+    !!vencSort;
 
   const firstName = profile?.full_name?.split(" ")[0] || "";
 
@@ -354,6 +395,18 @@ export default function SuprimentosPedidos() {
       return <ArrowUpDown className="ml-1 inline h-3 w-3 opacity-40" />;
     }
     return sortDir === "asc" ? (
+      <ArrowUp className="ml-1 inline h-3 w-3" />
+    ) : (
+      <ArrowDown className="ml-1 inline h-3 w-3" />
+    );
+  };
+
+  // Ícone da coluna "Primeiro Vcto" (ordenação server-side, estado próprio)
+  const renderVencSortIcon = () => {
+    if (!vencSort) {
+      return <ArrowUpDown className="ml-1 inline h-3 w-3 opacity-40" />;
+    }
+    return vencSort === "asc" ? (
       <ArrowUp className="ml-1 inline h-3 w-3" />
     ) : (
       <ArrowDown className="ml-1 inline h-3 w-3" />
@@ -437,6 +490,7 @@ export default function SuprimentosPedidos() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="aprovados">Aprovados</SelectItem>
                 <SelectItem value="rascunho">Rascunho</SelectItem>
                 <SelectItem value="enviando">Enviando</SelectItem>
                 <SelectItem value="enviado_alvo">Enviado ao ERP</SelectItem>
@@ -565,6 +619,15 @@ export default function SuprimentosPedidos() {
                         {renderSortIcon(col.key)}
                       </th>
                     ))}
+                    {/* Coluna Primeiro Vcto — ordenação SERVER-SIDE (varre todos os pedidos) */}
+                    <th
+                      className="cursor-pointer select-none px-4 py-3 font-medium hover:text-foreground whitespace-nowrap"
+                      onClick={handleVencSort}
+                      title="Ordena por vencimento entre todos os pedidos"
+                    >
+                      Primeiro Vcto
+                      {renderVencSortIcon()}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -606,6 +669,7 @@ export default function SuprimentosPedidos() {
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">{ped.codigo_usuario || "—"}</td>
                         <td className="px-4 py-3 whitespace-nowrap">{ped.proximo_aprovador || "—"}</td>
+                        <td className="px-4 py-3 whitespace-nowrap font-mono">{formatData(ped.primeiro_vencimento)}</td>
                       </tr>
                     );
                   })}
@@ -685,6 +749,12 @@ export default function SuprimentosPedidos() {
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
                         {format(new Date(ped.data_pedido), "dd/MM/yyyy", { locale: ptBR })}
+                      </span>
+                    )}
+                    {ped.primeiro_vencimento && (
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        Vcto {formatData(ped.primeiro_vencimento)}
                       </span>
                     )}
                     {ped.numero_req_comp && (
