@@ -527,6 +527,14 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
+        <Route
+          path="/ferramentas/cron-docfin"
+          element={
+            <PermissionRoute permKey="ferramentas_cron_req">
+              <CronDocfinDashboard />
+            </PermissionRoute>
+          }
+        />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>
