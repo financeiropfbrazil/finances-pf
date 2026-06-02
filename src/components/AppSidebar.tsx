@@ -65,8 +65,10 @@ const navItems = [
   // Compras handled separately as expandable
   // Entidades handled separately as expandable
   // Contas a Pagar handled separately as expandable
+
   { titleKey: "nav.loans", url: "/loans", icon: Wallet },
   { titleKey: "nav.taxes", url: "/taxes", icon: Receipt },
+  { titleKey: "nav.realizado_despesas", url: "/despesas/realizado", icon: Coins },
 
   { titleKey: "nav.credit_cards", url: "/credit-cards", icon: CreditCard },
   { titleKey: "nav.projetos", url: "/projetos", icon: FolderKanban },
