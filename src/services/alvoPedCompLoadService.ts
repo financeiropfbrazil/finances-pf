@@ -71,6 +71,17 @@ function extrairParcelas(data: any): any[] {
   }));
 }
 
+// Menor vencimento (YYYY-MM-DD) entre as parcelas — usado para ordenar a listagem
+// por "prestes a vencer/vencidos". Cobre pedidos sem sequencia=1 (pega a parcela
+// mais antiga disponível). Retorna null se não houver vencimento.
+function calcularPrimeiroVencimento(parcelas: any[]): string | null {
+  const vencs = (parcelas || [])
+    .map((p) => p?.vencimento)
+    .filter((v): v is string => typeof v === "string" && v.length > 0);
+  if (vencs.length === 0) return null;
+  return vencs.reduce((menor, atual) => (atual < menor ? atual : menor));
+}
+
 function extrairClasseRateio(data: any): any[] {
   let list = data?.PedCompClasseRecDespChildList || [];
   if (list.length === 0) {
@@ -207,10 +218,11 @@ export async function carregarDetalhesPedido(numero: string): Promise<void> {
   const nomeCondPag = condPagObj?.Nome || null;
 
   const itens = extrairItens(data);
+  const parcelas = extrairParcelas(data);
 
   const update: Record<string, any> = {
     itens,
-    parcelas: extrairParcelas(data),
+    parcelas,
     classe_rateio: extrairClasseRateio(data),
     anexos: extrairAnexos(data),
     nome_cond_pag: nomeCondPag,
@@ -226,6 +238,7 @@ export async function carregarDetalhesPedido(numero: string): Promise<void> {
     valor_desconto: data?.ValorDescontoGeral ?? null,
     valor_outras_despesas: data?.ValorOutrasDespesas ?? null,
     valor_ipi: data?.GeralValorIPI ?? null,
+    primeiro_vencimento: calcularPrimeiroVencimento(parcelas),
     detalhes_carregados: true,
     detalhes_carregados_em: new Date().toISOString(),
     updated_at: new Date().toISOString(),
