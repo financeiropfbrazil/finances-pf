@@ -20,6 +20,16 @@ const MENU_TO_PERMISSION: Record<string, string> = {
   ferramentas_cron_req: "ferramentas.cron.view",
 };
 
+/**
+ * Heurística para distinguir um código RBAC de um menu_key legado.
+ * Códigos RBAC seguem o padrão "modulo.recurso.acao" (contêm ponto),
+ * ex.: "compras.pedidos.access", "compras.pedidos.view_all".
+ * menu_keys legados usam snake_case sem ponto, ex.: "suprimentos_pedidos".
+ */
+function isRbacCode(key: string): boolean {
+  return key.includes(".");
+}
+
 export function usePermissions() {
   const { user, profile, permissions: rbacPermissions } = useAuth();
   const [legacyPermissions, setLegacyPermissions] = useState<Record<string, boolean>>({});
@@ -50,20 +60,37 @@ export function usePermissions() {
     fetchLegacyPermissions();
   }, [user, profile?.is_admin]);
 
-  const hasAccess = (menuKey: string): boolean => {
+  /**
+   * Decide se o usuário tem acesso a um recurso.
+   *
+   * Aceita TRÊS formatos de chave:
+   *   1. menu_key migrado (ex.: "suprimentos_pedidos") → traduz via MENU_TO_PERMISSION
+   *      e checa o código RBAC resultante em rbacPermissions.
+   *   2. código RBAC direto (ex.: "compras.pedidos.access", "compras.pedidos.view_all")
+   *      → checa diretamente em rbacPermissions. Isso cobre rotas que passam a
+   *      permissão fina como permKey (detalhe/novo/dashboard de pedidos), que antes
+   *      caíam erroneamente no fallback legado e retornavam false para não-admin.
+   *   3. menu_key legado não migrado → consulta a tabela user_permissions.
+   */
+  const hasAccess = (permKey: string): boolean => {
     if (!user) return false;
 
     // Admin tem bypass total
     if (profile?.is_admin) return true;
 
-    // Se o menu foi migrado pro RBAC, decide via permissão RBAC
-    const rbacPermissionCode = MENU_TO_PERMISSION[menuKey];
+    // (1) menu_key migrado pro RBAC → traduz e checa
+    const rbacPermissionCode = MENU_TO_PERMISSION[permKey];
     if (rbacPermissionCode) {
       return rbacPermissions.includes(rbacPermissionCode);
     }
 
-    // Senão, cai no sistema antigo (tabela user_permissions)
-    return legacyPermissions[menuKey] === true;
+    // (2) código RBAC passado diretamente (contém ponto) → checa direto no RBAC
+    if (isRbacCode(permKey)) {
+      return rbacPermissions.includes(permKey);
+    }
+
+    // (3) menu_key legado → sistema antigo (tabela user_permissions)
+    return legacyPermissions[permKey] === true;
   };
 
   return {
