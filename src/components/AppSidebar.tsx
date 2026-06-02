@@ -68,7 +68,6 @@ const navItems = [
 
   { titleKey: "nav.loans", url: "/loans", icon: Wallet },
   { titleKey: "nav.taxes", url: "/taxes", icon: Receipt },
-  { titleKey: "nav.realizado_despesas", url: "/despesas/realizado", icon: Coins },
 
   { titleKey: "nav.credit_cards", url: "/credit-cards", icon: CreditCard },
   { titleKey: "nav.projetos", url: "/projetos", icon: FolderKanban },
@@ -283,7 +282,21 @@ export function AppSidebar() {
 
                       {/* Intercompany expandable */}
                       {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
-
+                      {/* Realizado de Despesas (admin-only) */}
+                      {isAdmin && (
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild>
+                            <NavLink
+                              to="/despesas/realizado"
+                              className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                              activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                            >
+                              <Coins className="h-4 w-4 shrink-0" />
+                              <span>Realizado de Despesas</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )}
                       {/* Compras expandable */}
                       {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
 
@@ -355,27 +368,6 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
-        {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to="/despesas/realizado"
-                      className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                    >
-                      <Coins className="h-4 w-4 shrink-0" />
-                      <span>Realizado de Despesas</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
 
         <SidebarSeparator className="my-2" />
 
