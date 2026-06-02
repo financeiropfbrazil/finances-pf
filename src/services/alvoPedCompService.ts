@@ -377,6 +377,15 @@ export async function syncPedidosCompra(
         vencimento: p.DataVencimento?.split("T")[0] || null,
       }));
 
+      // Menor vencimento entre as parcelas (ordenação "prestes a vencer/vencidos")
+      const vencimentosValidos: string[] = parcelas
+        .map((p: any) => p.vencimento)
+        .filter((v: any): v is string => typeof v === "string" && v.length > 0);
+      const primeiroVencimento: string | null =
+        vencimentosValidos.length > 0
+          ? vencimentosValidos.reduce((menor, atual) => (atual < menor ? atual : menor))
+          : null;
+
       let classeRateio = (loadData?.PedCompClasseRecDespChildList || []).map((c: any) => ({
         classe: c.CodigoClasseRecDesp,
         valor: c.Valor,
@@ -430,6 +439,7 @@ export async function syncPedidosCompra(
           valor_desconto: loadData?.ValorDescontoGeral ?? null,
           valor_outras_despesas: loadData?.ValorOutrasDespesas ?? null,
           valor_ipi: loadData?.GeralValorIPI ?? null,
+          primeiro_vencimento: primeiroVencimento,
           detalhes_carregados: true,
           detalhes_carregados_em: new Date().toISOString(),
           updated_at: new Date().toISOString(),
