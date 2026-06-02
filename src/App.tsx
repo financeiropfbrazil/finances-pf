@@ -65,6 +65,7 @@ import BulkEditHistorico from "./pages/ferramentas/BulkEditHistorico";
 import CronReqDashboard from "./pages/ferramentas/CronReqDashboard";
 import CronDespesasDashboard from "./pages/ferramentas/CronDespesasDashboard";
 import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
+import RealizadoDespesas from "./pages/RealizadoDespesas";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
