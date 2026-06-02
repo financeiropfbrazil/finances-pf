@@ -730,7 +730,7 @@ function RunDetailView({ detail }: { detail: RunDetail }) {
             {det.reaberturas && det.reaberturas.length > 0 && (
               <div className="text-muted-foreground">Reaberturas: {det.reaberturas.join(", ")}</div>
             )}
-            {s && (s.parado_por_watchdog as boolean) && (
+            {s && Boolean(s.parado_por_watchdog) && (
               <div className="text-amber-600">Pausado por watchdog — offset salvo, retoma na próxima rodada.</div>
             )}
           </div>
