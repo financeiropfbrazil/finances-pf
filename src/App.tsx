@@ -429,7 +429,7 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
-
+        <Route path="/despesas/realizado" element={<RealizadoDespesas />} />
         <Route
           path="/credit-cards"
           element={
