@@ -125,6 +125,7 @@ const ferramentasSubItems = [
   { label: "Histórico", url: "/ferramentas/bulk-edit/historico", icon: History },
   { label: "Cron Requisições", url: "/ferramentas/cron-req", icon: RefreshCw },
   { label: "Cron Despesas", url: "/ferramentas/cron-despesas", icon: Coins },
+  { label: "Cron Despesas DocFin", url: "/ferramentas/cron-docfin", icon: Coins },
 ];
 
 const entidadesSubItems = [
