@@ -94,22 +94,57 @@ const VIEW_STORAGE_KEY = "suprimentos_pedidos_view";
 type ViewMode = "cards" | "lista";
 type SortDir = "asc" | "desc";
 
-// Colunas com ordenação CLIENT-SIDE (reordena os 30 da página atual).
-// A coluna "primeiro_vencimento" NÃO entra aqui — ela tem ordenação
-// SERVER-SIDE própria (varre todos os pedidos), tratada à parte.
+// Colunas da tabela. `sortField` = coluna real no banco para ordenação
+// SERVER-SIDE (varre todos os registros, coerente em toda a paginação).
+// `sortable: false` → cabeçalho não clicável (ex.: Status, que é calculado
+// pelo getStatusPedido a partir de vários campos e não tem coluna única).
 const COLUNAS_PEDIDOS: Array<{
   key: string;
   label: string;
   className?: string;
-  accessor: (p: any) => any;
+  sortable: boolean;
+  sortField?: string;
+  render: (p: any) => any;
 }> = [
-  { key: "numero", label: "Nº", accessor: (p) => p.numero || "" },
-  { key: "data_pedido", label: "Data", accessor: (p) => p.data_pedido || "" },
-  { key: "status", label: "Status", accessor: (p) => getStatusPedido(p).label },
-  { key: "nome_entidade", label: "Fornecedor", accessor: (p) => (p.nome_entidade || "").toLowerCase() },
-  { key: "valor_total", label: "Valor total", className: "text-right", accessor: (p) => Number(p.valor_total) || 0 },
-  { key: "codigo_usuario", label: "Comprador", accessor: (p) => (p.codigo_usuario || "").toLowerCase() },
-  { key: "proximo_aprovador", label: "Próximo aprovador", accessor: (p) => (p.proximo_aprovador || "").toLowerCase() },
+  { key: "numero", label: "Nº", sortable: true, sortField: "numero", render: (p) => p.numero },
+  { key: "data_pedido", label: "Data", sortable: true, sortField: "data_pedido", render: (p) => p.data_pedido },
+  { key: "status", label: "Status", sortable: false, render: (p) => getStatusPedido(p).label },
+  {
+    key: "nome_entidade",
+    label: "Fornecedor",
+    sortable: true,
+    sortField: "nome_entidade",
+    render: (p) => p.nome_entidade,
+  },
+  {
+    key: "valor_total",
+    label: "Valor total",
+    className: "text-right",
+    sortable: true,
+    sortField: "valor_total",
+    render: (p) => p.valor_total,
+  },
+  {
+    key: "codigo_usuario",
+    label: "Comprador",
+    sortable: true,
+    sortField: "codigo_usuario",
+    render: (p) => p.codigo_usuario,
+  },
+  {
+    key: "proximo_aprovador",
+    label: "Próximo aprovador",
+    sortable: true,
+    sortField: "proximo_aprovador",
+    render: (p) => p.proximo_aprovador,
+  },
+  {
+    key: "primeiro_vencimento",
+    label: "Primeiro Vcto",
+    sortable: true,
+    sortField: "primeiro_vencimento",
+    render: (p) => p.primeiro_vencimento,
+  },
 ];
 
 export default function SuprimentosPedidos() {
@@ -132,11 +167,6 @@ export default function SuprimentosPedidos() {
   const [filtroDataFim, setFiltroDataFim] = useState<Date | undefined>(undefined);
   const [filtroComprador, setFiltroComprador] = useState("todos");
 
-  // ── Ordenação SERVER-SIDE por primeiro vencimento ───────────────────
-  // null = ordenação padrão (updated_at desc). "asc"/"desc" = ordena por
-  // primeiro_vencimento no servidor (varre TODOS os pedidos, não só a página).
-  const [vencSort, setVencSort] = useState<SortDir | null>(null);
-
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "cards";
     const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
@@ -152,28 +182,20 @@ export default function SuprimentosPedidos() {
     }
   };
 
-  const [sortCol, setSortCol] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  // ── Ordenação SERVER-SIDE unificada ─────────────────────────────────
+  // Um único estado: qual campo do banco ordenar e a direção. null = padrão
+  // (updated_at desc). Toda ordenação varre TODOS os registros no servidor,
+  // então a sequência é coerente em qualquer página.
+  const [orderBy, setOrderBy] = useState<{ field: string; dir: SortDir } | null>(null);
 
-  const handleSort = (colKey: string) => {
-    if (sortCol === colKey) {
-      if (sortDir === "asc") {
-        setSortDir("desc");
-      } else {
-        setSortCol(null);
-        setSortDir("asc");
-      }
-    } else {
-      setSortCol(colKey);
-      setSortDir("asc");
-    }
-  };
-
-  // Ciclo da ordenação server-side por vencimento: asc → desc → desligado.
-  // Ao ativar, zera o sort client-side (são mutuamente exclusivos pra não confundir).
-  const handleVencSort = () => {
-    setSortCol(null);
-    setVencSort((prev) => (prev === null ? "asc" : prev === "asc" ? "desc" : null));
+  // Clique no cabeçalho: asc → desc → desligado. Clicar em outra coluna
+  // troca para asc nela (só uma ordenação ativa por vez).
+  const handleSort = (sortField: string) => {
+    setOrderBy((prev) => {
+      if (!prev || prev.field !== sortField) return { field: sortField, dir: "asc" };
+      if (prev.dir === "asc") return { field: sortField, dir: "desc" };
+      return null; // terceiro clique desliga
+    });
   };
 
   const PAGE_SIZE = 30;
@@ -205,7 +227,8 @@ export default function SuprimentosPedidos() {
       filtroDataFim?.toISOString(),
       filtroComprador,
       buscaDebounced,
-      vencSort,
+      orderBy?.field,
+      orderBy?.dir,
       paginaAtual,
     ],
     queryFn: async () => {
@@ -214,12 +237,12 @@ export default function SuprimentosPedidos() {
 
       let query = (supabase as any).from("compras_pedidos").select("*", { count: "exact" });
 
-      // ── Ordenação ────────────────────────────────────────────────────
-      // Se vencSort ativo, ordena por primeiro_vencimento no SERVIDOR
-      // (varre todos os pedidos). nullsFirst:false → pedidos sem vencimento
-      // vão pro fim. Senão, mantém o padrão updated_at desc.
-      if (vencSort) {
-        query = query.order("primeiro_vencimento", { ascending: vencSort === "asc", nullsFirst: false });
+      // ── Ordenação SERVER-SIDE ─────────────────────────────────────────
+      // Ordena pelo campo escolhido no banco (varre TODOS os registros antes
+      // de paginar → sequência coerente em qualquer página). nullsFirst:false
+      // joga nulos pro fim. Sem ordenação ativa → padrão updated_at desc.
+      if (orderBy) {
+        query = query.order(orderBy.field, { ascending: orderBy.dir === "asc", nullsFirst: false });
       } else {
         query = query.order("updated_at", { ascending: false });
       }
@@ -309,36 +332,13 @@ export default function SuprimentosPedidos() {
   const pedidos = pedidosResult?.pedidos || [];
   const totalPedidos = pedidosResult?.total || 0;
 
-  const pedidosOrdenados = (() => {
-    // Se a ordenação server-side por vencimento está ativa, NÃO reordena no
-    // cliente — usa a ordem que o servidor mandou (varre todos os registros).
-    // Isso evita que o sort client-side reembaralhe a página por cima.
-    if (vencSort) return pedidos;
-    if (!sortCol) return pedidos;
-    const coluna = COLUNAS_PEDIDOS.find((c) => c.key === sortCol);
-    if (!coluna) return pedidos;
-    const copia = [...pedidos];
-    copia.sort((a, b) => {
-      const va = coluna.accessor(a);
-      const vb = coluna.accessor(b);
-      let cmp = 0;
-      if (typeof va === "number" && typeof vb === "number") {
-        cmp = va - vb;
-      } else {
-        cmp = String(va).localeCompare(String(vb), "pt-BR");
-      }
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    return copia;
-  })();
-
   const totalPaginas = Math.max(1, Math.ceil(totalPedidos / PAGE_SIZE));
   const paginaCorrigida = Math.min(paginaAtual, totalPaginas);
 
-  // Reset pra página 1 quando filtros, busca ou ordenação por vencimento mudam
+  // Reset pra página 1 quando filtros, busca ou ordenação mudam
   useEffect(() => {
     setPaginaAtual(1);
-  }, [filtroStatusLocal, filtroOrigem, filtroDataInicio, filtroDataFim, filtroComprador, buscaDebounced, vencSort]);
+  }, [filtroStatusLocal, filtroOrigem, filtroDataInicio, filtroDataFim, filtroComprador, buscaDebounced, orderBy]);
 
   const limparFiltros = () => {
     setFiltroStatusLocal("todos");
@@ -347,7 +347,7 @@ export default function SuprimentosPedidos() {
     setFiltroDataFim(undefined);
     setFiltroComprador("todos");
     setBuscaInput("");
-    setVencSort(null);
+    setOrderBy(null);
   };
 
   const temFiltroAtivo =
@@ -356,7 +356,7 @@ export default function SuprimentosPedidos() {
     filtroComprador !== "todos" ||
     (!!filtroDataInicio && !!filtroDataFim) ||
     !!buscaDebounced ||
-    !!vencSort;
+    !!orderBy;
 
   const firstName = profile?.full_name?.split(" ")[0] || "";
 
@@ -369,23 +369,11 @@ export default function SuprimentosPedidos() {
     }
   };
 
-  const renderSortIcon = (colKey: string) => {
-    if (sortCol !== colKey) {
+  const renderSortIcon = (sortField?: string) => {
+    if (!sortField || !orderBy || orderBy.field !== sortField) {
       return <ArrowUpDown className="ml-1 inline h-3 w-3 opacity-40" />;
     }
-    return sortDir === "asc" ? (
-      <ArrowUp className="ml-1 inline h-3 w-3" />
-    ) : (
-      <ArrowDown className="ml-1 inline h-3 w-3" />
-    );
-  };
-
-  // Ícone da coluna "Primeiro Vcto" (ordenação server-side, estado próprio)
-  const renderVencSortIcon = () => {
-    if (!vencSort) {
-      return <ArrowUpDown className="ml-1 inline h-3 w-3 opacity-40" />;
-    }
-    return vencSort === "asc" ? (
+    return orderBy.dir === "asc" ? (
       <ArrowUp className="ml-1 inline h-3 w-3" />
     ) : (
       <ArrowDown className="ml-1 inline h-3 w-3" />
@@ -633,28 +621,19 @@ export default function SuprimentosPedidos() {
                     {COLUNAS_PEDIDOS.map((col) => (
                       <th
                         key={col.key}
-                        className={`cursor-pointer select-none px-4 py-3 font-medium hover:text-foreground ${col.className || ""}`}
-                        onClick={() => handleSort(col.key)}
+                        className={`select-none px-4 py-3 font-medium ${col.sortable ? "cursor-pointer hover:text-foreground" : ""} ${col.className || ""} ${col.key === "primeiro_vencimento" ? "whitespace-nowrap" : ""}`}
+                        onClick={() => col.sortable && col.sortField && handleSort(col.sortField)}
+                        title={col.sortable ? "Ordena por esta coluna entre todos os pedidos" : undefined}
                       >
                         {col.label}
-                        {renderSortIcon(col.key)}
+                        {col.sortable && renderSortIcon(col.sortField)}
                       </th>
                     ))}
-                    {/* Coluna Primeiro Vcto — ordenação SERVER-SIDE (varre todos os pedidos) */}
-                    <th
-                      className="cursor-pointer select-none px-4 py-3 font-medium hover:text-foreground whitespace-nowrap"
-                      onClick={handleVencSort}
-                      title="Ordena por vencimento entre todos os pedidos"
-                    >
-                      Primeiro Vcto
-                      {renderVencSortIcon()}
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pedidosOrdenados.map((ped: any) => {
+                  {pedidos.map((ped: any) => {
                     const statusVisual = getStatusPedido(ped);
-                    const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
                     const numeroVisivel = ped.numero?.startsWith("RASCUNHO-") ? "(rascunho)" : ped.numero || "(sem nº)";
                     return (
                       <tr
