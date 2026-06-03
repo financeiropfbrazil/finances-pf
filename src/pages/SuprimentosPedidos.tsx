@@ -240,11 +240,18 @@ export default function SuprimentosPedidos() {
       }
 
       // ── Filtro de Status ──────────────────────────────────────────────
-      // "aprovados" é um filtro especial: NÃO é status_local, e sim a
-      // combinação status_aprovacao='Finalizada' + aprovado='Total'
-      // (os 3 aprovadores concluíram). Os demais valores são status_local.
+      // "aprovados" replica EXATAMENTE a regra do badge "Aprovado" verdinho
+      // do getStatusPedido: status='Aberto' + status_aprovacao='Finalizada'
+      // + aprovado='Total' + comprado != 'Sim'. As condições de status e
+      // comprado são essenciais: sem elas, entram os "Concluído"
+      // (Encerrado ou comprado='Sim') e "Pendente no ERP" (status='Pendente'),
+      // que também têm Finalizada+Total mas NÃO são "Aprovado".
       if (filtroStatusLocal === "aprovados") {
-        query = query.eq("status_aprovacao", "Finalizada").eq("aprovado", "Total");
+        query = query
+          .eq("status", "Aberto")
+          .eq("status_aprovacao", "Finalizada")
+          .eq("aprovado", "Total")
+          .neq("comprado", "Sim");
       } else if (filtroStatusLocal && filtroStatusLocal !== "todos") {
         query = query.eq("status_local", filtroStatusLocal);
       }
