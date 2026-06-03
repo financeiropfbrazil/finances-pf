@@ -10,13 +10,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
 import {
   Plus,
   ShoppingCart,
   Loader2,
   User as UserIcon,
   Building2,
-  Calendar,
+  Calendar as CalendarIcon,
   Package,
   X,
   FileText,
@@ -36,7 +39,7 @@ import {
 import { getStatusPedido } from "@/lib/statusPedido";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Home } from "lucide-react";
-import { format, subDays, startOfWeek, startOfMonth } from "date-fns";
+import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 // ════════════════════════════════════════════════════════════
@@ -128,7 +131,6 @@ export default function SuprimentosPedidos() {
   const [filtroDataInicio, setFiltroDataInicio] = useState<Date | undefined>(undefined);
   const [filtroDataFim, setFiltroDataFim] = useState<Date | undefined>(undefined);
   const [filtroComprador, setFiltroComprador] = useState("todos");
-  const [filtroPreset, setFiltroPreset] = useState("todos");
 
   // ── Ordenação SERVER-SIDE por primeiro vencimento ───────────────────
   // null = ordenação padrão (updated_at desc). "asc"/"desc" = ordena por
@@ -285,15 +287,16 @@ export default function SuprimentosPedidos() {
         );
       }
 
-      if (filtroDataInicio) {
+      // Filtro por data de competência (data_pedido): só aplica quando AMBOS
+      // (De e Até) estão preenchidos. Um sozinho não filtra.
+      if (filtroDataInicio && filtroDataFim) {
         const inicioData = new Date(filtroDataInicio);
         inicioData.setHours(0, 0, 0, 0);
-        query = query.gte("data_pedido", inicioData.toISOString().slice(0, 10));
-      }
-      if (filtroDataFim) {
         const fimData = new Date(filtroDataFim);
         fimData.setHours(23, 59, 59, 999);
-        query = query.lte("data_pedido", fimData.toISOString().slice(0, 10));
+        query = query
+          .gte("data_pedido", inicioData.toISOString().slice(0, 10))
+          .lte("data_pedido", fimData.toISOString().slice(0, 10));
       }
 
       const { data, count, error } = await query;
@@ -307,6 +310,10 @@ export default function SuprimentosPedidos() {
   const totalPedidos = pedidosResult?.total || 0;
 
   const pedidosOrdenados = (() => {
+    // Se a ordenação server-side por vencimento está ativa, NÃO reordena no
+    // cliente — usa a ordem que o servidor mandou (varre todos os registros).
+    // Isso evita que o sort client-side reembaralhe a página por cima.
+    if (vencSort) return pedidos;
     if (!sortCol) return pedidos;
     const coluna = COLUNAS_PEDIDOS.find((c) => c.key === sortCol);
     if (!coluna) return pedidos;
@@ -331,40 +338,7 @@ export default function SuprimentosPedidos() {
   // Reset pra página 1 quando filtros, busca ou ordenação por vencimento mudam
   useEffect(() => {
     setPaginaAtual(1);
-  }, [
-    filtroStatusLocal,
-    filtroOrigem,
-    filtroDataInicio,
-    filtroDataFim,
-    filtroComprador,
-    filtroPreset,
-    buscaDebounced,
-    vencSort,
-  ]);
-
-  const handlePresetData = (preset: string) => {
-    setFiltroPreset(preset);
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
-    const fimHoje = new Date();
-    fimHoje.setHours(23, 59, 59, 999);
-    if (preset === "todos") {
-      setFiltroDataInicio(undefined);
-      setFiltroDataFim(undefined);
-    } else if (preset === "hoje") {
-      setFiltroDataInicio(hoje);
-      setFiltroDataFim(fimHoje);
-    } else if (preset === "semana") {
-      setFiltroDataInicio(startOfWeek(hoje, { weekStartsOn: 1 }));
-      setFiltroDataFim(fimHoje);
-    } else if (preset === "mes") {
-      setFiltroDataInicio(startOfMonth(hoje));
-      setFiltroDataFim(fimHoje);
-    } else if (preset === "30dias") {
-      setFiltroDataInicio(subDays(hoje, 30));
-      setFiltroDataFim(fimHoje);
-    }
-  };
+  }, [filtroStatusLocal, filtroOrigem, filtroDataInicio, filtroDataFim, filtroComprador, buscaDebounced, vencSort]);
 
   const limparFiltros = () => {
     setFiltroStatusLocal("todos");
@@ -372,7 +346,6 @@ export default function SuprimentosPedidos() {
     setFiltroDataInicio(undefined);
     setFiltroDataFim(undefined);
     setFiltroComprador("todos");
-    setFiltroPreset("todos");
     setBuscaInput("");
     setVencSort(null);
   };
@@ -381,8 +354,7 @@ export default function SuprimentosPedidos() {
     filtroStatusLocal !== "todos" ||
     filtroOrigem !== "todos" ||
     filtroComprador !== "todos" ||
-    !!filtroDataInicio ||
-    !!filtroDataFim ||
+    (!!filtroDataInicio && !!filtroDataFim) ||
     !!buscaDebounced ||
     !!vencSort;
 
@@ -521,20 +493,62 @@ export default function SuprimentosPedidos() {
             </Select>
           </div>
 
-          <div className="min-w-[160px]">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Período</label>
-            <Select value={filtroPreset} onValueChange={handlePresetData}>
-              <SelectTrigger>
-                <SelectValue placeholder="Todo período" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todo período</SelectItem>
-                <SelectItem value="hoje">Hoje</SelectItem>
-                <SelectItem value="semana">Esta semana</SelectItem>
-                <SelectItem value="mes">Este mês</SelectItem>
-                <SelectItem value="30dias">Últimos 30 dias</SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Período por data de competência (data_pedido) — De/Até.
+              Só filtra quando AMBOS estão preenchidos. */}
+          <div className="min-w-[150px]">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Competência de</label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !filtroDataInicio && "text-muted-foreground",
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {filtroDataInicio ? format(filtroDataInicio, "dd/MM/yyyy", { locale: ptBR }) : "Data inicial"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarComponent
+                  mode="single"
+                  selected={filtroDataInicio}
+                  onSelect={setFiltroDataInicio}
+                  disabled={(d) => (filtroDataFim ? d > filtroDataFim : false)}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Competência até</label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !filtroDataFim && "text-muted-foreground",
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {filtroDataFim ? format(filtroDataFim, "dd/MM/yyyy", { locale: ptBR }) : "Data final"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarComponent
+                  mode="single"
+                  selected={filtroDataFim}
+                  onSelect={setFiltroDataFim}
+                  disabled={(d) => (filtroDataInicio ? d < filtroDataInicio : false)}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
 
           {podeVerTodos && (
@@ -754,13 +768,13 @@ export default function SuprimentosPedidos() {
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     {ped.data_pedido && (
                       <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
+                        <CalendarIcon className="h-3 w-3" />
                         {format(new Date(ped.data_pedido), "dd/MM/yyyy", { locale: ptBR })}
                       </span>
                     )}
                     {ped.primeiro_vencimento && (
                       <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
+                        <CalendarIcon className="h-3 w-3" />
                         Vcto {formatData(ped.primeiro_vencimento)}
                       </span>
                     )}
