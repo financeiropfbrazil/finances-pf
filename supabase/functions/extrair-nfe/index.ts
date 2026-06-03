@@ -13,7 +13,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY_NF")!;
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-4-6";
 
@@ -195,7 +195,7 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, erro: "Campo pdfBase64 é obrigatório" }, 400);
     }
     if (!ANTHROPIC_API_KEY) {
-      return json({ ok: false, erro: "ANTHROPIC_API_KEY não configurada nos secrets" }, 500);
+      return json({ ok: false, erro: "ANTHROPIC_API_KEY_NF não configurada nos secrets" }, 500);
     }
 
     // Limpa prefixo data URL se vier (ex: "data:application/pdf;base64,....")
@@ -256,6 +256,8 @@ Deno.serve(async (req: Request) => {
       extracao,
       conferencia,
       uso: {
+        modelo_solicitado: MODEL,
+        modelo_usado: data.model ?? null,
         input_tokens: data.usage?.input_tokens ?? null,
         output_tokens: data.usage?.output_tokens ?? null,
       },
