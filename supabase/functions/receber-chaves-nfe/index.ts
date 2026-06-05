@@ -1,0 +1,1 @@
+Edge NF recebedor
