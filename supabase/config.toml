@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.sync-compras-status-cron]
 verify_jwt = false
+
+[functions.receber-chaves-nfe]
+verify_jwt = false
