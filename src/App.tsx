@@ -65,6 +65,7 @@ import BulkEditHistorico from "./pages/ferramentas/BulkEditHistorico";
 import CronReqDashboard from "./pages/ferramentas/CronReqDashboard";
 import CronDespesasDashboard from "./pages/ferramentas/CronDespesasDashboard";
 import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
+import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
 import NotFound from "./pages/NotFound";
 
@@ -538,6 +539,14 @@ function AppRoutes() {
           }
         />
       </Route>
+      <Route
+        path="/ferramentas/cron-nfe"
+        element={
+          <PermissionRoute permKey="ferramentas_cron_req">
+            <CronNfeDashboard />
+          </PermissionRoute>
+        }
+      />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
