@@ -538,15 +538,17 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
+
+        <Route
+          path="/ferramentas/cron-nfe"
+          element={
+            <PermissionRoute permKey="ferramentas_cron_req">
+              <CronNfeDashboard />
+            </PermissionRoute>
+          }
+        />
       </Route>
-      <Route
-        path="/ferramentas/cron-nfe"
-        element={
-          <PermissionRoute permKey="ferramentas_cron_req">
-            <CronNfeDashboard />
-          </PermissionRoute>
-        }
-      />
+
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
