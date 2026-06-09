@@ -128,6 +128,7 @@ const ferramentasSubItems = [
   { label: "Cron Despesas", url: "/ferramentas/cron-despesas", icon: Coins },
   { label: "Cron Despesas DocFin", url: "/ferramentas/cron-docfin", icon: Coins },
   { label: "Cron NF-e", url: "/ferramentas/cron-nfe", icon: FileText },
+  { label: "Cron Intercompany", url: "/ferramentas/cron-intercompany", icon: Building2 },
 ];
 
 const entidadesSubItems = [
