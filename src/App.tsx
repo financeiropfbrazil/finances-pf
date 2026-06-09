@@ -548,6 +548,14 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
+        <Route
+          path="/ferramentas/cron-intercompany"
+          element={
+            <PermissionRoute permKey="ferramentas_cron_req">
+              <CronIntercompanyDashboard />
+            </PermissionRoute>
+          }
+        />
       </Route>
 
       <Route path="*" element={<NotFound />} />
