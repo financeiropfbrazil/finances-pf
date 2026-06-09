@@ -30,6 +30,7 @@ import {
   Wrench,
   History,
   Coins,
+  Building2,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
