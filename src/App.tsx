@@ -66,6 +66,7 @@ import CronReqDashboard from "./pages/ferramentas/CronReqDashboard";
 import CronDespesasDashboard from "./pages/ferramentas/CronDespesasDashboard";
 import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
 import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
+import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
 import NotFound from "./pages/NotFound";
 
