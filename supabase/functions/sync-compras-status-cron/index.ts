@@ -45,6 +45,25 @@
 //     - valor_total/mercadoria/servico/frete/desconto vão no upsert.
 //   O ERP não permite editar pedido aprovado, logo o ValorTotal do Alvo
 //   é a fonte da verdade — sem necessidade de guarda no Hub.
+//
+// ── VÍNCULO REQ↔PED + FLAG vinculo_requisicao (10/06/2026) ───────────
+//   Colunas novas em compras_pedidos: vinculo_requisicao
+//   ('com_vinculo'/'sem_vinculo'/'nao_verificado'), req_comp_itens
+//   (jsonb, reqs distintas no nível de item) e vinculo_verificado_em.
+//   Regra de ouro: 'sem_vinculo' só pode ser afirmado por quem viu o
+//   DETALHE COMPLETO (cabeçalho + ItemPedCompChildList). O list leve
+//   (Job 3) só afirma presença ('com_vinculo'), nunca ausência.
+//   - Job 2: extrai vínculo do detalhe (cabeçalho + itens); divergência
+//     de elo/flag marca mudou=true; upsert grava flag + req_comp_itens
+//     + vinculo_verificado_em + elo (só quando presente — nunca apaga
+//     elo existente, preservando o saneamento de 10/06/2026). O caminho
+//     "não mudou" também carimba vinculo_verificado_em — é o que drena
+//     a fila de 'nao_verificado' sem depender de mudança no pedido.
+//   - Job 3: checa existência ANTES do upsert; pedido já existente não
+//     tem criado_no_hub/status_local/detalhes_carregados sobrescritos
+//     (corrige bug de pedido criado no Hub virar criado_no_hub=false na
+//     redescoberta). Vínculo do list: presente → elo + 'com_vinculo';
+//     ausente → flag não é escrita.
 // =====================================================================
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
@@ -79,6 +98,8 @@ interface PedidoHub {
   enviou_aprovacao: string | null;
   data_notificacao_aprovador: string | null;
   valor_total: number | null;
+  numero_req_comp: string | null;
+  vinculo_requisicao: string | null;
 }
 
 interface DetalheMudanca {
@@ -202,6 +223,40 @@ function resolverValorTotalAlvo(alvo: any): number {
     return somaItens;
   }
   return cabNum;
+}
+
+/**
+ * Extrai o vínculo req↔ped do retorno completo do Alvo (cabeçalho + itens).
+ * Regra: 'sem_vinculo' só pode ser afirmado por quem viu o detalhe completo
+ * (endpoint de detalhe, que traz ItemPedCompChildList). Listagens leves
+ * nunca devem afirmar ausência.
+ * (Mesmo helper usado em alvoPedCompService.ts / alvoPedCompLoadService.ts.)
+ */
+function extrairVinculoRequisicao(data: any): {
+  numero_req_comp: string | null;
+  codigo_empresa_filial_req_comp: string | null;
+  req_comp_itens: string[] | null;
+  vinculo_requisicao: "com_vinculo" | "sem_vinculo";
+} {
+  const trim = (v: any): string | null => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return s.length > 0 ? s : null;
+  };
+  const reqCab = trim(data?.NumeroReqComp);
+  const filialCab = trim(data?.CodigoEmpresaFilialReqComp);
+  const setItens = new Set<string>();
+  for (const it of data?.ItemPedCompChildList || []) {
+    const r = trim(it?.NumeroReqComp);
+    if (r) setItens.add(r);
+  }
+  const reqsItens = Array.from(setItens);
+  const temVinculo = reqCab !== null || reqsItens.length > 0;
+  return {
+    numero_req_comp: reqCab,
+    codigo_empresa_filial_req_comp: filialCab,
+    req_comp_itens: reqsItens.length > 0 ? reqsItens : null,
+    vinculo_requisicao: temVinculo ? "com_vinculo" : "sem_vinculo",
+  };
 }
 
 async function processInChunks<T, R>(
@@ -731,6 +786,18 @@ async function syncDescobrirPedidos(
 
       const dateOnly = (s: string | null) => (s ? s.slice(0, 10) : null);
 
+      // Checa existência ANTES do upsert: pedido criado no Hub e redescoberto
+      // aqui NÃO deve ter criado_no_hub/status_local/detalhes_carregados
+      // sobrescritos (bug corrigido em 10/06/2026).
+      const { data: existingPed } = await supabase
+        .from("compras_pedidos")
+        .select("id, criado_no_hub")
+        .eq("codigo_empresa_filial", ped.CodigoEmpresaFilial)
+        .eq("numero", ped.Numero)
+        .maybeSingle();
+
+      const temVinculoNoList = !!(ped.NumeroReqComp && String(ped.NumeroReqComp).trim());
+
       const { error: errIns } = await supabase.from("compras_pedidos").upsert(
         {
           codigo_empresa_filial: ped.CodigoEmpresaFilial,
@@ -757,13 +824,27 @@ async function syncDescobrirPedidos(
           proximo_aprovador: ped.PedCompUserFieldsObject?.UserProximoAprovador ?? null,
           enviou_aprovacao: ped.PedCompUserFieldsObject?.UserEnviouAprovacao ?? null,
           data_notificacao_aprovador: ped.PedCompUserFieldsObject?.UserDataNotificao ?? null,
-          criado_no_hub: false,
-          status_local: "sincronizado",
-          numero_req_comp: ped.NumeroReqComp,
-          codigo_empresa_filial_req_comp: ped.CodigoEmpresaFilialReqComp,
-          detalhes_carregados: false,
           synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          // Campos de origem: só na PRIMEIRA descoberta (pedido novo no Hub).
+          // Pedido já existente (ex.: criado no Hub) preserva os valores atuais.
+          ...(existingPed
+            ? {}
+            : {
+                criado_no_hub: false,
+                status_local: "sincronizado",
+                detalhes_carregados: false,
+              }),
+          // Vínculo do list leve: presente → elo + 'com_vinculo'.
+          // Ausente → NÃO grava flag (list leve não pode afirmar ausência;
+          // o Job 2 / Load completo decidirá 'sem_vinculo').
+          ...(temVinculoNoList
+            ? {
+                numero_req_comp: ped.NumeroReqComp,
+                codigo_empresa_filial_req_comp: ped.CodigoEmpresaFilialReqComp,
+                vinculo_requisicao: "com_vinculo",
+              }
+            : {}),
         },
         { onConflict: "codigo_empresa_filial,numero" },
       );
@@ -901,7 +982,7 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
   const { data: candidatos, error: errSelect } = await supabase
     .from("compras_pedidos")
     .select(
-      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total",
+      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, numero_req_comp, vinculo_requisicao",
     )
     .not("status", "in", '("Encerrado","Cancelado","Cancelado Parcial")')
     .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.(Em Andamento,Reavaliar)`)
@@ -985,6 +1066,14 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
       // Comparação numérica do total (tolerância de 0,005 p/ float)
       const valorMudou = Math.abs((Number(novoValorTotal) || 0) - (Number(ped.valor_total) || 0)) > 0.005;
 
+      // ── Vínculo req↔ped (cabeçalho + itens do detalhe completo) ─────
+      const vinculo = extrairVinculoRequisicao(alvo);
+      // Elo só "muda" quando o Alvo informa um elo (não-nulo) diferente do
+      // gravado — elo nulo no Alvo NÃO apaga elo existente (saneamento).
+      const eloMudou = vinculo.numero_req_comp !== null && vinculo.numero_req_comp !== (ped.numero_req_comp || null);
+      const flagMudou = vinculo.vinculo_requisicao !== (ped.vinculo_requisicao || null);
+      const vinculoMudou = eloMudou || flagMudou;
+
       const mudou =
         !sameStr(novoStatus, ped.status) ||
         !sameStr(novoAprovado, ped.aprovado) ||
@@ -993,10 +1082,19 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
         !sameStr(novoProximoAprovador, ped.proximo_aprovador) ||
         !sameStr(novoEnviouAprovacao, ped.enviou_aprovacao) ||
         tsToMs(novoDataNotif) !== tsToMs(ped.data_notificacao_aprovador) ||
-        valorMudou;
+        valorMudou ||
+        vinculoMudou;
 
       if (!mudou) {
-        await supabase.from("compras_pedidos").update({ synced_at: new Date().toISOString() }).eq("id", ped.id);
+        // Carimba a verificação de vínculo mesmo sem mudança — é o que
+        // drena a fila de 'nao_verificado' a cada ciclo do cron.
+        await supabase
+          .from("compras_pedidos")
+          .update({
+            synced_at: new Date().toISOString(),
+            vinculo_verificado_em: new Date().toISOString(),
+          })
+          .eq("id", ped.id);
         return;
       }
 
@@ -1020,6 +1118,19 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
           valor_desconto: novoValorDesconto,
           valor_outras_despesas: novoValorOutrasDespesas,
           valor_ipi: novoValorIpi,
+          // ── Vínculo com requisição (cabeçalho + itens) ──────────────
+          // Detalhe completo é fonte autorizada: afirma presença E ausência.
+          vinculo_requisicao: vinculo.vinculo_requisicao,
+          req_comp_itens: vinculo.req_comp_itens,
+          vinculo_verificado_em: new Date().toISOString(),
+          // Elo de cabeçalho: só grava quando presente (nunca apaga elo
+          // existente, preservando o saneamento retroativo via auditoria).
+          ...(vinculo.numero_req_comp
+            ? {
+                numero_req_comp: vinculo.numero_req_comp,
+                codigo_empresa_filial_req_comp: vinculo.codigo_empresa_filial_req_comp ?? "1.01",
+              }
+            : {}),
           synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
