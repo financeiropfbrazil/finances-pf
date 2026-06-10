@@ -46,6 +46,38 @@ function resolverValorTotal(data: any, itens: any[]): number {
   return cabNum;
 }
 
+/**
+ * Extrai o vínculo req↔ped do retorno completo do Alvo (cabeçalho + itens).
+ * Regra: 'sem_vinculo' só pode ser afirmado por quem viu o detalhe completo
+ * (Load com loadChild=All). Listagens leves nunca devem afirmar ausência.
+ */
+function extrairVinculoRequisicao(data: any): {
+  numero_req_comp: string | null;
+  codigo_empresa_filial_req_comp: string | null;
+  req_comp_itens: string[] | null;
+  vinculo_requisicao: "com_vinculo" | "sem_vinculo";
+} {
+  const trim = (v: any): string | null => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return s.length > 0 ? s : null;
+  };
+  const reqCab = trim(data?.NumeroReqComp);
+  const filialCab = trim(data?.CodigoEmpresaFilialReqComp);
+  const setItens = new Set<string>();
+  for (const it of data?.ItemPedCompChildList || []) {
+    const r = trim(it?.NumeroReqComp);
+    if (r) setItens.add(r);
+  }
+  const reqsItens = Array.from(setItens);
+  const temVinculo = reqCab !== null || reqsItens.length > 0;
+  return {
+    numero_req_comp: reqCab,
+    codigo_empresa_filial_req_comp: filialCab,
+    req_comp_itens: reqsItens.length > 0 ? reqsItens : null,
+    vinculo_requisicao: temVinculo ? "com_vinculo" : "sem_vinculo",
+  };
+}
+
 async function fetchWithRetry(
   endpoint: string,
   body: object,
@@ -342,6 +374,7 @@ export async function syncPedidosCompra(
       if (!loadResp.ok) continue;
 
       const loadData = await loadResp.json();
+      const vinculo = extrairVinculoRequisicao(loadData);
 
       const itens = (loadData?.ItemPedCompChildList || []).map((item: any) => ({
         sequencia: item.Sequencia,
@@ -443,6 +476,20 @@ export async function syncPedidosCompra(
           detalhes_carregados: true,
           detalhes_carregados_em: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          // ── Vínculo com requisição (cabeçalho + itens) ───────────────────
+          // O Load completo é fonte autorizada: pode afirmar tanto presença
+          // quanto ausência de vínculo. 'nao_verificado' nunca é escrito aqui.
+          vinculo_requisicao: vinculo.vinculo_requisicao,
+          req_comp_itens: vinculo.req_comp_itens,
+          vinculo_verificado_em: new Date().toISOString(),
+          // Elo de cabeçalho: só grava quando presente (nunca apaga elo
+          // existente, preservando o saneamento retroativo via auditoria).
+          ...(vinculo.numero_req_comp
+            ? {
+                numero_req_comp: vinculo.numero_req_comp,
+                codigo_empresa_filial_req_comp: vinculo.codigo_empresa_filial_req_comp ?? "1.01",
+              }
+            : {}),
         },
         { onConflict: "codigo_empresa_filial,numero" },
       );
@@ -586,16 +633,14 @@ export async function syncPedidosCompra(
   }
 
   // Step 4: Save sync timestamp with period info
-  await supabase
-    .from("compras_config")
-    .upsert(
-      {
-        chave: "pedcomp_last_sync_ts",
-        valor: JSON.stringify({ timestamp: Date.now(), mes, ano }),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "chave" },
-    );
+  await supabase.from("compras_config").upsert(
+    {
+      chave: "pedcomp_last_sync_ts",
+      valor: JSON.stringify({ timestamp: Date.now(), mes, ano }),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "chave" },
+  );
 
   const summary = `Sincronização concluída: ${mapped.length} pedidos de ${String(mes).padStart(2, "0")}/${ano} (${inserted} novos, ${updated} atualizados)`;
   onProgress?.(summary);
