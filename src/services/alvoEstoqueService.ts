@@ -392,6 +392,7 @@ async function processarProduto(
       lastError = null;
       break; // sucesso, sai do loop
     } catch (err: any) {
+      } catch (err: any) {
       lastError = err;
       // Backoff: 500ms, 1000ms, 2000ms
       if (attempt < MAX_RETRIES) {
@@ -691,7 +692,6 @@ export async function enriquecerUnidadesMedida(
 
       const path = `/estoque/produto-load/${encodeURIComponent(p.codigo_produto)}`;
       let detail: any;
-
       try {
         detail = await callGatewayEstoqueGet(path);
         console.log("DETAIL_DEBUG", p.codigo_produto,
