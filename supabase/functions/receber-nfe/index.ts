@@ -47,9 +47,11 @@ interface ParsedNfe {
   chave_acesso: string;
   numero: string | null;
   serie: string | null;
+  modelo: string | null;
+  natureza_operacao: string | null;
   data_emissao: string | null;
-  fornecedor_cnpj: string | null;
-  fornecedor_nome: string | null;
+  emitente_cnpj: string | null;
+  emitente_nome: string | null;
   valor_produtos: number | null;
   valor_frete: number | null;
   valor_seguro: number | null;
@@ -107,9 +109,11 @@ function parseNfe(xml: string): ParsedNfe {
     chave_acesso: chave,
     numero: pick(ide, "nNF"),
     serie: pick(ide, "serie"),
+    modelo: pick(ide, "mod"),
+    natureza_operacao: pick(ide, "natOp"),
     data_emissao: pick(ide, "dhEmi"),
-    fornecedor_cnpj: pick(emit, "CNPJ"),
-    fornecedor_nome: pick(emit, "xNome"),
+    emitente_cnpj: pick(emit, "CNPJ"),
+    emitente_nome: pick(emit, "xNome"),
     valor_produtos: num(tot, "vProd"),
     valor_frete: num(tot, "vFrete"),
     valor_seguro: num(tot, "vSeg"),
@@ -185,6 +189,7 @@ Deno.serve(async (req) => {
   const { itens, ...campos } = parsed;
   const { error } = await supabase.from("compras_nfe").insert({
     ...campos,
+    tipo_documento: "NFe",
     origem: body.origem || "Alvo",
     raw_xml: xml,
     dados_extraidos: { itens },
