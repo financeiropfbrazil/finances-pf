@@ -104,7 +104,6 @@ const inventorySubItems = [
 
 const comprasSubItems = [
   { label: "Pedidos de Compra", url: "/compras/pedidos-compra", icon: ClipboardList },
-  { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
   { label: "Notas de Serviço", url: "/compras/notas-servico", icon: FileText },
   { label: "Certificado Digital", url: "/compras/certificado", icon: ShieldCheck },
 ];
@@ -113,6 +112,7 @@ const suprimentosSubItems = [
   { label: "Dashboard", url: "/suprimentos/dashboard", icon: BarChart3 },
   { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
   { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
+  { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
 ];
 
 const intercompanySubItems = [
