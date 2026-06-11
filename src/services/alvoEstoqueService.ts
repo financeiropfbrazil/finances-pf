@@ -695,6 +695,12 @@ export async function enriquecerUnidadesMedida(
         detail = await callGatewayEstoqueGet(path);
       } catch (err: any) {
         if (err?.status === 404) {
+          // Produto existe no Hub mas não no Alvo (deletado lá).
+          // Carimba lote_verificado_em pra sair da fila (senão reprocessa eternamente).
+          await (supabase as any)
+            .from("stock_products")
+            .update({ lote_verificado_em: new Date().toISOString() })
+            .eq("id", p.id);
           result.skipped++;
           await new Promise((r) => setTimeout(r, DELAY_MS));
           continue;
