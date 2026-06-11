@@ -1,31 +1,33 @@
 /**
- * VincularPedidoNfeDialog — vincula uma NF-e de PRODUTO (compras_nfe) a um
- * pedido de compra. Adaptado do VincularPedidoDialog (que era de NFS-e/serviço).
+ * VincularPedidoNfeDialog — vincula uma NF-e de PRODUTO (compras_nfe) a UM OU
+ * MAIS pedidos de compra (multi-seleção).
  *
- * Diferenças vs o original:
- *  - Grava em compras_nfe (não compras_nfse)
- *  - Vocabulário de produto (emitente, não prestador)
- *  - SUGESTÃO: destaca o pedido cujo CNPJ == emitente E valor ~ valor da NF
- *    (tolerância ±5%), via badge "Sugerido"
+ * Mudanças vs versão single-pedido:
+ *  - Multi-seleção via Checkbox (era RadioGroup, 1 só).
+ *  - Filtro: apenas pedidos APROVADOS 100% (status=Aberto + status_aprovacao=
+ *    Finalizada + aprovado=Total). Sem filtro de "comprado".
+ *  - Grava N vínculos na tabela compras_nfe_pedidos (A2).
+ *  - Pedido PRINCIPAL = primeiro selecionado → preenche as colunas legadas
+ *    pedido_compra_* em compras_nfe (compatibilidade) + is_principal=true.
+ *  - nf_vinculada=true marcado em TODOS os pedidos selecionados.
+ *  - Reabrir o modal pré-marca os pedidos já vinculados (modo edição).
  *
- * Após vincular: status_lancamento='vinculada' + grava classe/CC/cond.pag/entidade.
+ * A edição fina de classe/CC por item NÃO acontece aqui — fica no de-para de
+ * itens do lançamento (LancarNfeModal). Aqui só se amarra NFe ↔ pedidos.
  */
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { authenticateAlvo, clearAlvoToken } from "@/services/alvoService";
-import { carregarDetalhesPedido } from "@/services/alvoPedCompLoadService";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, Link as LinkIcon, AlertTriangle, Search, Sparkles } from "lucide-react";
+import { Loader2, Link as LinkIcon, Search, Sparkles } from "lucide-react";
 
-const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
 const TOLERANCIA_VALOR = 0.05; // ±5% para a sugestão de match por valor
 
 const fmtBRL = (v: number | null | undefined) =>
@@ -42,15 +44,18 @@ const fmtCNPJ = (cnpj: string) => {
 };
 
 const PEDIDO_SELECT_COLS =
-  "id, numero, data_pedido, valor_total, status, aprovado, codigo_entidade, nome_entidade, cnpj_entidade, texto, tipo, classe_rec_desp, centro_custo, nome_cond_pag, itens, detalhes_carregados";
+  "id, numero, codigo_empresa_filial, data_pedido, valor_total, status, status_aprovacao, aprovado, comprado, codigo_entidade, nome_entidade, cnpj_entidade, texto, tipo, classe_rec_desp, centro_custo, codigo_cond_pag, nome_cond_pag, itens, detalhes_carregados";
 
 interface Pedido {
   id: string;
   numero: string;
+  codigo_empresa_filial: string | null;
   data_pedido: string | null;
   valor_total: number | null;
   status: string | null;
+  status_aprovacao: string | null;
   aprovado: string | null;
+  comprado: string | null;
   codigo_entidade: string | null;
   nome_entidade: string | null;
   cnpj_entidade: string | null;
@@ -58,23 +63,10 @@ interface Pedido {
   tipo: string | null;
   classe_rec_desp: string | null;
   centro_custo: string | null;
+  codigo_cond_pag: string | null;
   nome_cond_pag: string | null;
   itens: any[] | null;
   detalhes_carregados: boolean | null;
-}
-interface PedidoDetails {
-  classe: string | null;
-  centroCusto: string | null;
-  condPag: string | null;
-  condPagNome: string | null;
-}
-interface PedidoDetailsExtra {
-  tipo: string | null;
-  condPagNome: string | null;
-  texto: string | null;
-  classeNome: string | null;
-  ccNome: string | null;
-  itens: any[];
 }
 
 interface Props {
@@ -94,10 +86,8 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
   const { toast } = useToast();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [details, setDetails] = useState<PedidoDetails | null>(null);
-  const [detailsExtra, setDetailsExtra] = useState<PedidoDetailsExtra | null>(null);
-  const [loadingDetails, setLoadingDetails] = useState(false);
+  // Multi-seleção: ids de pedido marcados
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<Pedido[]>([]);
@@ -107,7 +97,7 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
   const cnpjLimpo = (nfe.emitente_cnpj || "").replace(/\D/g, "");
   const valorNf = nfe.valor_total || 0;
 
-  // Sugestão: pedido com CNPJ igual E valor dentro da tolerância
+  // Sugestão: pedido com CNPJ igual E valor dentro da tolerância (apenas destaca)
   const isSugerido = (p: Pedido): boolean => {
     const cnpjPed = (p.cnpj_entidade || "").replace(/\D/g, "");
     if (!cnpjPed || cnpjPed !== cnpjLimpo) return false;
@@ -116,12 +106,11 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
     return Math.abs(vp - valorNf) / valorNf <= TOLERANCIA_VALOR;
   };
 
+  // Reset + carregamento inicial ao abrir
   useEffect(() => {
     if (!open) {
       setPedidos([]);
-      setSelectedId(null);
-      setDetails(null);
-      setDetailsExtra(null);
+      setSelectedIds(new Set());
       setSearchTerm("");
       setSearchResults([]);
       setHasSearched(false);
@@ -130,6 +119,31 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
     searchPedidos();
   }, [open]);
 
+  // Pré-marca os pedidos JÁ vinculados a esta NF-e (modo edição).
+  // Roda depois que pedidos/searchResults estão populados, casando por numero.
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      const { data } = await supabase.from("compras_nfe_pedidos").select("pedido_numero").eq("nfe_id", nfe.id);
+      if (!data || data.length === 0) return;
+      const numerosVinculados = new Set(data.map((d) => d.pedido_numero));
+      const todos = [...pedidos, ...searchResults];
+      const idsPre = new Set<string>();
+      for (const p of todos) {
+        if (numerosVinculados.has(p.numero)) idsPre.add(p.id);
+      }
+      if (idsPre.size > 0) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          idsPre.forEach((id) => next.add(id));
+          return next;
+        });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, pedidos, searchResults, nfe.id]);
+
+  // Busca automática: pedidos APROVADOS do fornecedor (por CNPJ).
   const searchPedidos = async () => {
     setLoading(true);
     try {
@@ -137,7 +151,9 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
         .from("compras_pedidos")
         .select(PEDIDO_SELECT_COLS)
         .eq("cnpj_entidade", cnpjLimpo)
-        .in("status", ["Aberto", "Parcial", "Comprado Parcial"])
+        .eq("status", "Aberto")
+        .eq("status_aprovacao", "Finalizada")
+        .eq("aprovado", "Total")
         .order("data_pedido", { ascending: false });
 
       if (!data || data.length === 0) {
@@ -152,7 +168,9 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
             .from("compras_pedidos")
             .select(PEDIDO_SELECT_COLS)
             .eq("codigo_entidade", cacheData.codigo_entidade)
-            .in("status", ["Aberto", "Parcial", "Comprado Parcial"])
+            .eq("status", "Aberto")
+            .eq("status_aprovacao", "Finalizada")
+            .eq("aprovado", "Total")
             .order("data_pedido", { ascending: false });
           data = res.data;
         }
@@ -165,6 +183,7 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
     }
   };
 
+  // Busca manual: também restrita a APROVADOS.
   const handleSearch = async () => {
     const term = searchTerm.trim();
     if (!term) return;
@@ -175,7 +194,9 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
       let query = supabase
         .from("compras_pedidos")
         .select(PEDIDO_SELECT_COLS)
-        .in("status", ["Aberto", "Parcial", "Comprado Parcial"])
+        .eq("status", "Aberto")
+        .eq("status_aprovacao", "Finalizada")
+        .eq("aprovado", "Total")
         .order("data_pedido", { ascending: false })
         .limit(20);
       if (cleanSearch.length >= 11) query = query.eq("cnpj_entidade", cleanSearch);
@@ -190,135 +211,37 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
     }
   };
 
-  const allPedidos = [...pedidos, ...searchResults];
+  // Lista combinada (sem duplicar por id)
+  const allPedidos = (() => {
+    const map = new Map<string, Pedido>();
+    for (const p of [...pedidos, ...searchResults]) map.set(p.id, p);
+    return Array.from(map.values());
+  })();
 
-  const resolveNames = async (classe: string | null, centroCusto: string | null) => {
-    const [classeRes, ccRes] = await Promise.all([
-      classe ? supabase.from("classes_rec_desp").select("nome").eq("codigo", classe).maybeSingle() : null,
-      centroCusto ? supabase.from("cost_centers").select("name").eq("erp_code", centroCusto).maybeSingle() : null,
-    ]);
-    return { classeNome: classeRes?.data?.nome || null, ccNome: ccRes?.data?.name || null };
+  const togglePedido = (pedidoId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pedidoId)) next.delete(pedidoId);
+      else next.add(pedidoId);
+      return next;
+    });
   };
 
-  const handleSelectPedido = async (pedidoId: string) => {
-    setSelectedId(pedidoId);
-    setDetails(null);
-    setDetailsExtra(null);
-    setLoadingDetails(true);
-    const pedido = allPedidos.find((p) => p.id === pedidoId);
-    if (!pedido) {
-      setLoadingDetails(false);
-      return;
-    }
-
-    try {
-      const { data: cached } = await supabase
-        .from("compras_pedidos")
-        .select(
-          "classe_rateio, nome_cond_pag, itens, detalhes_carregados, codigo_cond_pag, classe_rec_desp, centro_custo",
-        )
-        .eq("numero", pedido.numero)
-        .eq("codigo_empresa_filial", "1.01")
-        .maybeSingle();
-
-      let classe: string | null = null,
-        centroCusto: string | null = null;
-      let condPag: string | null = null,
-        condPagNome: string | null = null;
-      let itensData: any[] = [];
-
-      if (cached?.detalhes_carregados) {
-        const cr = (cached.classe_rateio as any[]) || [];
-        classe = cr[0]?.classe || cached.classe_rec_desp || null;
-        centroCusto = cr[0]?.centrosCusto?.[0]?.codigo || cached.centro_custo || null;
-        condPag = cached.codigo_cond_pag || null;
-        condPagNome = cached.nome_cond_pag || null;
-        itensData = (cached.itens as any[]) || [];
-      } else {
-        const auth = await authenticateAlvo();
-        if (!auth.success || !auth.token) {
-          setDetails({ classe: null, centroCusto: null, condPag: null, condPagNome: null });
-          setDetailsExtra({
-            tipo: pedido.tipo,
-            condPagNome: null,
-            texto: pedido.texto,
-            classeNome: null,
-            ccNome: null,
-            itens: [],
-          });
-          setLoadingDetails(false);
-          return;
-        }
-        const url = `${ERP_BASE_URL}/PedComp/Load?codigoEmpresaFilial=1.01&numero=${encodeURIComponent(pedido.numero)}&loadChild=All`;
-        const resp = await fetch(url, { method: "GET", headers: { "riosoft-token": auth.token } });
-        if (resp.status === 409) clearAlvoToken();
-        if (!resp.ok) {
-          setDetails({ classe: null, centroCusto: null, condPag: null, condPagNome: null });
-          setDetailsExtra({
-            tipo: pedido.tipo,
-            condPagNome: null,
-            texto: pedido.texto,
-            classeNome: null,
-            ccNome: null,
-            itens: [],
-          });
-          setLoadingDetails(false);
-          return;
-        }
-        const data = await resp.json();
-        const classeList = data?.PedCompClasseRecDespChildList;
-        if (classeList?.length > 0) {
-          classe = classeList[0].CodigoClasseRecDesp || null;
-          const rateioList = classeList[0].RateioPedCompChildList;
-          if (rateioList?.length > 0) centroCusto = rateioList[0].CodigoCentroCtrl || null;
-        }
-        if (!classe) {
-          const itemList = data?.ItemPedCompChildList;
-          if (itemList?.length > 0) {
-            const itemClasse = itemList[0].ItemPedCompClasseRecdespChildList;
-            if (itemClasse?.length > 0) {
-              classe = itemClasse[0].CodigoClasseRecDesp || null;
-              const itemRateio = itemClasse[0].RateioItemPedCompChildList;
-              if (itemRateio?.length > 0) centroCusto = itemRateio[0].CodigoCentroCtrl || null;
-            }
-          }
-        }
-        const condPagObj = data?.CondPagPedCompObject;
-        condPag = condPagObj?.CodigoCondPag || null;
-        condPagNome = condPagObj?.Nome || null;
-        const itemList = data?.ItemPedCompChildList || [];
-        itensData = itemList.map((item: any) => ({
-          codigoProduto: item.CodigoProduto,
-          nomeProduto: item.NomeProduto || item.DescricaoAlternativaProduto,
-          quantidade: item.QuantidadeProdUnidMedPrincipal,
-          valorTotal: item.ValorTotal,
-          sequencia: item.Sequencia,
-        }));
-        try {
-          await carregarDetalhesPedido(pedido.numero);
-        } catch (e) {
-          console.warn(e);
-        }
-      }
-
-      const { classeNome, ccNome } = await resolveNames(classe, centroCusto);
-      setDetails({ classe, centroCusto, condPag, condPagNome });
-      setDetailsExtra({ tipo: pedido.tipo, condPagNome, texto: pedido.texto, classeNome, ccNome, itens: itensData });
-    } catch (err) {
-      console.error("Erro ao carregar detalhes:", err);
-      setDetails({ classe: null, centroCusto: null, condPag: null, condPagNome: null });
-      setDetailsExtra(null);
-    } finally {
-      setLoadingDetails(false);
-    }
-  };
+  const selecionados = allPedidos.filter((p) => selectedIds.has(p.id));
+  const valorSelecionado = selecionados.reduce((s, p) => s + (p.valor_total || 0), 0);
 
   const handleVincular = async () => {
-    if (!selectedId) return;
-    const pedido = allPedidos.find((p) => p.id === selectedId);
-    if (!pedido) return;
+    if (selectedIds.size === 0) return;
     setSaving(true);
     try {
+      // ordem estável: usa a ordem em que aparecem em allPedidos
+      const selOrdenados = allPedidos.filter((p) => selectedIds.has(p.id));
+      const principal = selOrdenados[0];
+      if (!principal) throw new Error("Nenhum pedido selecionado");
+
+      const user = (await supabase.auth.getUser()).data.user;
+
+      // (a) compras_nfe — colunas legadas com o pedido PRINCIPAL
       const { data: currentRow, error: loadError } = await supabase
         .from("compras_nfe")
         .select("*")
@@ -326,33 +249,55 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
         .single();
       if (loadError || !currentRow) throw loadError || new Error("NF-e não encontrada");
 
-      const payload = {
-        ...currentRow,
-        status_lancamento: "vinculada",
-        pedido_compra_numero: pedido.numero,
-        pedido_compra_entidade: pedido.codigo_entidade,
-        pedido_compra_classe: details?.classe || null,
-        pedido_compra_centro_custo: details?.centroCusto || null,
-        pedido_compra_cond_pagamento: details?.condPag
-          ? `${details.condPag}${details.condPagNome ? ` (${details.condPagNome})` : ""}`
-          : null,
-        pedido_compra_valor: pedido.valor_total,
-        updated_at: new Date().toISOString(),
-      };
-      const { error } = await supabase.from("compras_nfe").upsert(payload, { onConflict: "id" });
-      if (error) throw error;
+      const condPagLegado = principal.codigo_cond_pag
+        ? `${principal.codigo_cond_pag}${principal.nome_cond_pag ? ` (${principal.nome_cond_pag})` : ""}`
+        : null;
 
-      await supabase
-        .from("compras_pedidos")
-        .update({
-          nf_vinculada: true,
-          nf_vinculada_em: new Date().toISOString(),
-          nf_vinculada_tipo: "compras_nfe",
-        } as any)
-        .eq("numero", pedido.numero)
-        .eq("codigo_empresa_filial", "1.01");
+      const { error: nfeErr } = await supabase.from("compras_nfe").upsert(
+        {
+          ...currentRow,
+          status_lancamento: "vinculada",
+          pedido_compra_numero: principal.numero,
+          pedido_compra_entidade: principal.codigo_entidade,
+          pedido_compra_classe: principal.classe_rec_desp || null,
+          pedido_compra_centro_custo: principal.centro_custo || null,
+          pedido_compra_cond_pagamento: condPagLegado,
+          pedido_compra_valor: principal.valor_total,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" },
+      );
+      if (nfeErr) throw nfeErr;
 
-      toast({ title: `NF-e vinculada ao Pedido ${pedido.numero}` });
+      // (b) compras_nfe_pedidos — limpa e regrava (idempotente p/ re-edição)
+      await supabase.from("compras_nfe_pedidos").delete().eq("nfe_id", nfe.id);
+
+      const vinculos = selOrdenados.map((p, idx) => ({
+        nfe_id: nfe.id,
+        pedido_numero: p.numero,
+        codigo_empresa_filial: p.codigo_empresa_filial || "1.01",
+        is_principal: idx === 0,
+        created_by: user?.id || null,
+      }));
+      const { error: vincErr } = await supabase.from("compras_nfe_pedidos").insert(vinculos);
+      if (vincErr) throw vincErr;
+
+      // (c) nf_vinculada=true em TODOS os selecionados
+      for (const p of selOrdenados) {
+        await supabase
+          .from("compras_pedidos")
+          .update({
+            nf_vinculada: true,
+            nf_vinculada_em: new Date().toISOString(),
+            nf_vinculada_tipo: "compras_nfe",
+          } as any)
+          .eq("numero", p.numero)
+          .eq("codigo_empresa_filial", p.codigo_empresa_filial || "1.01");
+      }
+
+      toast({
+        title: `NF-e vinculada a ${selOrdenados.length} pedido${selOrdenados.length > 1 ? "s" : ""}`,
+      });
       onOpenChange(false);
       onVinculado();
     } catch (err: any) {
@@ -388,14 +333,17 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
   const renderPedidoRows = (list: Pedido[]) =>
     list.map((p) => {
       const sugerido = isSugerido(p);
+      const checked = selectedIds.has(p.id);
       return (
         <TableRow
           key={p.id}
-          className={`cursor-pointer hover:bg-muted/50 ${sugerido ? "bg-emerald-500/5" : ""}`}
-          onClick={() => handleSelectPedido(p.id)}
+          className={`cursor-pointer hover:bg-muted/50 ${sugerido ? "bg-emerald-500/5" : ""} ${
+            checked ? "bg-primary/5" : ""
+          }`}
+          onClick={() => togglePedido(p.id)}
         >
-          <TableCell>
-            <RadioGroupItem value={p.id} />
+          <TableCell onClick={(e) => e.stopPropagation()}>
+            <Checkbox checked={checked} onCheckedChange={() => togglePedido(p.id)} />
           </TableCell>
           <TableCell className="font-mono text-xs">
             {p.numero}
@@ -409,11 +357,6 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
           <TableCell className="text-xs truncate max-w-[140px]">{p.nome_entidade || "—"}</TableCell>
           <TableCell>{tipoBadge(p.tipo)}</TableCell>
           <TableCell className="text-right text-xs font-mono">{fmtBRL(p.valor_total)}</TableCell>
-          <TableCell>
-            <Badge variant="outline" className="text-xs">
-              {p.status}
-            </Badge>
-          </TableCell>
         </TableRow>
       );
     });
@@ -427,7 +370,6 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
         <TableHead>Fornecedor</TableHead>
         <TableHead>Tipo</TableHead>
         <TableHead className="text-right">Valor</TableHead>
-        <TableHead>Status</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -436,109 +378,82 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-base">Vincular NF-e a Pedido de Compra</DialogTitle>
+          <DialogTitle className="text-base">Vincular NF-e a Pedido(s) de Compra</DialogTitle>
           <p className="text-xs text-muted-foreground">
             NF-e #{nfe.numero || "—"} — {nfe.emitente_nome || "—"} — {fmtBRL(nfe.valor_total)}
           </p>
+          <p className="text-[11px] text-muted-foreground">
+            Marque um ou mais pedidos aprovados. Itens de cada pedido são mapeados na hora do lançamento.
+          </p>
         </DialogHeader>
 
-        <RadioGroup value={selectedId || ""} onValueChange={handleSelectPedido}>
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Pedidos do fornecedor ({cnpjLimpo ? fmtCNPJ(cnpjLimpo) : "—"})</p>
-            {loading ? (
-              <div className="flex items-center justify-center py-4 gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-xs text-muted-foreground">Buscando pedidos do fornecedor...</span>
-              </div>
-            ) : pedidos.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-2">Nenhum pedido aberto encontrado para este CNPJ.</p>
-            ) : (
-              <Table>
-                {pedidoTableHeader}
-                <TableBody>{renderPedidoRows(pedidos)}</TableBody>
-              </Table>
-            )}
-          </div>
-
-          <Separator className="my-3" />
-
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Buscar pedido de outro fornecedor</p>
-            <p className="text-xs text-muted-foreground">
-              Use quando o pedido foi emitido em outro CNPJ (marketplace, matriz, etc.)
-            </p>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Nome do fornecedor, CNPJ ou número do pedido"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                className="text-xs h-8"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSearch}
-                disabled={searching}
-                className="gap-1 shrink-0"
-              >
-                {searching ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />} Buscar
-              </Button>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">
+            Pedidos aprovados do fornecedor ({cnpjLimpo ? fmtCNPJ(cnpjLimpo) : "—"})
+          </p>
+          {loading ? (
+            <div className="flex items-center justify-center py-4 gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-xs text-muted-foreground">Buscando pedidos aprovados do fornecedor...</span>
             </div>
-            {searching ? (
-              <div className="flex items-center justify-center py-4 gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-xs text-muted-foreground">Buscando...</span>
-              </div>
-            ) : hasSearched && searchResults.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-2">Nenhum pedido encontrado para "{searchTerm}".</p>
-            ) : searchResults.length > 0 ? (
-              <Table>
-                {pedidoTableHeader}
-                <TableBody>{renderPedidoRows(searchResults)}</TableBody>
-              </Table>
-            ) : null}
-          </div>
-        </RadioGroup>
+          ) : pedidos.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-2">
+              Nenhum pedido aprovado (100%) encontrado para este CNPJ.
+            </p>
+          ) : (
+            <Table>
+              {pedidoTableHeader}
+              <TableBody>{renderPedidoRows(pedidos)}</TableBody>
+            </Table>
+          )}
+        </div>
 
-        {selectedId && (
-          <div className="rounded border bg-muted/30 p-3 text-xs space-y-3">
-            {loadingDetails ? (
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-3 w-3 animate-spin" /> Carregando detalhes do pedido...
-              </div>
-            ) : details ? (
-              <>
-                <div className="space-y-1">
-                  <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Classificação</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div>
-                      <span className="text-muted-foreground">Classe: </span>
-                      <strong className="font-mono">{details.classe || "N/D"}</strong>
-                      {detailsExtra?.classeNome && (
-                        <span className="text-muted-foreground"> — {detailsExtra.classeNome}</span>
-                      )}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Centro de Custo: </span>
-                      <strong className="font-mono">{details.centroCusto || "N/D"}</strong>
-                      {detailsExtra?.ccNome && <span className="text-muted-foreground"> — {detailsExtra.ccNome}</span>}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Cond. Pagamento: </span>
-                      <strong className="font-mono">{details.condPag || "N/D"}</strong>
-                      {details.condPagNome && <span className="text-muted-foreground"> — {details.condPagNome}</span>}
-                    </div>
-                  </div>
-                  {!details.classe && !details.centroCusto && (
-                    <div className="flex items-center gap-1 text-yellow-600 mt-1">
-                      <AlertTriangle className="h-3 w-3" />
-                      <span>Este pedido não possui classificação definida.</span>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : null}
+        <Separator className="my-3" />
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Buscar pedido de outro fornecedor</p>
+          <p className="text-xs text-muted-foreground">
+            Use quando o pedido foi emitido em outro CNPJ (marketplace, matriz, etc.). Só lista aprovados.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Nome do fornecedor, CNPJ ou número do pedido"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              className="text-xs h-8"
+            />
+            <Button variant="outline" size="sm" onClick={handleSearch} disabled={searching} className="gap-1 shrink-0">
+              {searching ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />} Buscar
+            </Button>
+          </div>
+          {searching ? (
+            <div className="flex items-center justify-center py-4 gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-xs text-muted-foreground">Buscando...</span>
+            </div>
+          ) : hasSearched && searchResults.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-2">Nenhum pedido aprovado encontrado para "{searchTerm}".</p>
+          ) : searchResults.length > 0 ? (
+            <Table>
+              {pedidoTableHeader}
+              <TableBody>{renderPedidoRows(searchResults)}</TableBody>
+            </Table>
+          ) : null}
+        </div>
+
+        {selecionados.length > 0 && (
+          <div className="rounded border bg-muted/30 p-3 text-xs flex items-center justify-between">
+            <div>
+              <span className="text-muted-foreground">Pedidos selecionados: </span>
+              <strong>{selecionados.length}</strong>
+              <span className="text-muted-foreground"> · principal: </span>
+              <strong className="font-mono">{selecionados[0].numero}</strong>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Valor somado: </span>
+              <strong>{fmtBRL(valorSelecionado)}</strong>
+            </div>
           </div>
         )}
 
@@ -546,8 +461,9 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleVincular} disabled={!selectedId || loadingDetails || saving} className="gap-2">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />} Vincular
+          <Button onClick={handleVincular} disabled={selectedIds.size === 0 || saving} className="gap-2">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />}
+            Vincular{selectedIds.size > 0 ? ` (${selectedIds.size} pedido${selectedIds.size > 1 ? "s" : ""})` : ""}
           </Button>
         </DialogFooter>
       </DialogContent>
