@@ -1,0 +1,1 @@
+//Receber NF Função
