@@ -695,8 +695,6 @@ export async function enriquecerUnidadesMedida(
 
       try {
         detail = await callGatewayEstoqueGet(path);
-        try {
-        detail = await callGatewayEstoqueGet(path);
         console.log("DETAIL_DEBUG", p.codigo_produto,
           "tem_ProdEmpresaFilial:", !!detail?.ProdEmpresaFilialChildList,
           "tem_ProdUnidMed:", !!detail?.ProdUnidMedChildList,
