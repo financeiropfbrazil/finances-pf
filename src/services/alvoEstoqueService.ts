@@ -392,6 +392,7 @@ async function processarProduto(
       lastError = null;
       break; // sucesso, sai do loop
     } catch (err: any) {
+      } catch (err: any) {
       lastError = err;
       // Backoff: 500ms, 1000ms, 2000ms
       if (attempt < MAX_RETRIES) {
@@ -693,10 +694,6 @@ export async function enriquecerUnidadesMedida(
       let detail: any;
       try {
         detail = await callGatewayEstoqueGet(path);
-        console.log("DETAIL_DEBUG", p.codigo_produto,
-          "EmpresaFilial_len:", Array.isArray(detail?.ProdEmpresaFilialChildList) ? detail.ProdEmpresaFilialChildList.length : "NAO_ARRAY",
-          "UnidMed_len:", Array.isArray(detail?.ProdUnidMedChildList) ? detail.ProdUnidMedChildList.length : "NAO_ARRAY",
-          "filiais:", JSON.stringify((detail?.ProdEmpresaFilialChildList || []).map((f: any) => f.CodigoEmpresaFilial)));
       } catch (err: any) {
         if (err?.status === 404) {
           result.skipped++;
