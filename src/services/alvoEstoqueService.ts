@@ -703,16 +703,45 @@ export async function enriquecerUnidadesMedida(
         throw err;
       }
 
+      // ── Unidade de medida (ProdUnidMedChildList) ──
       const childList = detail?.ProdUnidMedChildList ?? [];
       let unidadeCodigo: string | null = null;
-
       if (Array.isArray(childList) && childList.length > 0) {
         const principal = childList.find((u: any) => u.Posicao === 1) ?? childList[0];
         unidadeCodigo = principal?.CodigoUnidMedida ?? null;
       }
 
+      // ── Lote (ProdEmpresaFilialChildList, filial 1.01) ──
+      // Regra: controla lote ⟺ existe entrada filial 1.01 com ControlaLote="Sim".
+      // Sem entrada 1.01 (lista vazia) → não controla lote.
+      const filialList = detail?.ProdEmpresaFilialChildList ?? [];
+      const filial101 = Array.isArray(filialList)
+        ? filialList.find((f: any) => f.CodigoEmpresaFilial === "1.01")
+        : null;
+      const controlaLote = filial101?.ControlaLote === "Sim";
+      const geraNumLote = controlaLote ? (filial101?.CodigoGeraNumLote ?? null) : null;
+      const permiteLoteVencido = controlaLote ? filial101?.PermiteLoteVencido === "Sim" : null;
+
       if (!unidadeCodigo) {
-        result.skipped++;
+        // Mesmo sem unidade, grava a correção de lote (não perde o dado fiscal de lote).
+        const { error: loteErr } = await (supabase as any).from("stock_products").upsert(
+          {
+            id: p.id,
+            codigo_produto: p.codigo_produto,
+            nome_produto: p.nome_produto,
+            controla_lote: controlaLote,
+            gera_num_lote: geraNumLote,
+            permite_lote_vencido: permiteLoteVencido,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" },
+        );
+        if (loteErr) {
+          console.error(`Erro atualizando lote ${p.codigo_produto}:`, loteErr.message);
+          result.errors++;
+        } else {
+          result.skipped++; // sem unidade, mas lote gravado
+        }
         await new Promise((r) => setTimeout(r, DELAY_MS));
         continue;
       }
@@ -723,6 +752,9 @@ export async function enriquecerUnidadesMedida(
           codigo_produto: p.codigo_produto,
           nome_produto: p.nome_produto,
           unidade_medida: unidadeCodigo,
+          controla_lote: controlaLote,
+          gera_num_lote: geraNumLote,
+          permite_lote_vencido: permiteLoteVencido,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "id" },
