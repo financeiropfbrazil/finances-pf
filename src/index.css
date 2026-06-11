@@ -84,6 +84,11 @@
 .inventory-draft-dot {
   position: relative;
 }
+
+/* Compras / Notas Fiscais — aumentar itens de 10px para 12px */
+.text-\[10px\] {
+  font-size: 12px;
+}
 .inventory-draft-dot::after {
   content: "";
   position: absolute;
