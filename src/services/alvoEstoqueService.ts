@@ -694,6 +694,12 @@ export async function enriquecerUnidadesMedida(
 
       try {
         detail = await callGatewayEstoqueGet(path);
+        try {
+        detail = await callGatewayEstoqueGet(path);
+        console.log("DETAIL_DEBUG", p.codigo_produto,
+          "tem_ProdEmpresaFilial:", !!detail?.ProdEmpresaFilialChildList,
+          "tem_ProdUnidMed:", !!detail?.ProdUnidMedChildList,
+          "keys:", detail ? Object.keys(detail).slice(0, 10).join(",") : "NULL");
       } catch (err: any) {
         if (err?.status === 404) {
           result.skipped++;
