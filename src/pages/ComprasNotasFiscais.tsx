@@ -103,9 +103,11 @@ const formatCurrency = (v: number | null | undefined) =>
   v != null ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v) : "—";
 const formatDate = (d: string | null | undefined) => {
   if (!d) return "—";
-  const dt = new Date(d);
-  if (isNaN(dt.getTime())) return d;
-  return dt.toLocaleDateString("pt-BR");
+  // data_emissao é um date "YYYY-MM-DD" — formata por split pra não aplicar
+  // timezone (new Date("2026-06-03") vira meia-noite UTC e recua 1 dia em UTC-3).
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return d;
 };
 const formatCnpj = (cnpj: string | null) => {
   if (!cnpj) return "—";
