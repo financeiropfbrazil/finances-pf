@@ -41,6 +41,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { VincularPedidoNfeDialog } from "@/components/compras/VincularPedidoNfeDialog";
 import { LancarNfeModal } from "@/components/compras/LancarNfeModal";
+import { UploadXmlButton } from "@/components/compras/UploadXmlButton";
 import { carregarMovEstq } from "@/services/alvoMovEstqLoadService";
 
 // ── Types ──
@@ -333,9 +334,12 @@ const ComprasNotasFiscais = () => {
             </SelectContent>
           </Select>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchRows} disabled={loadingRows} className="gap-1">
-          {loadingRows ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <UploadXmlButton onImported={fetchRows} />
+          <Button variant="outline" size="sm" onClick={fetchRows} disabled={loadingRows} className="gap-1">
+            {loadingRows ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Atualizar
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
