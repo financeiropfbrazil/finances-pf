@@ -392,6 +392,7 @@ async function processarProduto(
       lastError = null;
       break; // sucesso, sai do loop
     } catch (err: any) {
+      } catch (err: any) {
       lastError = err;
       // Backoff: 500ms, 1000ms, 2000ms
       if (attempt < MAX_RETRIES) {
