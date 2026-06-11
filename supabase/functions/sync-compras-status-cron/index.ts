@@ -64,6 +64,23 @@
 //     (corrige bug de pedido criado no Hub virar criado_no_hub=false na
 //     redescoberta). Vínculo do list: presente → elo + 'com_vinculo';
 //     ausente → flag não é escrita.
+//
+// ── JOB 4 SEM apenasAbertas + RECONCILIAÇÃO NA JANELA (10/06/2026) ───
+//   O list agora usa apenasAbertas=false: traz TODAS as reqs digitadas
+//   na janela (abertas, convertidas em pedido, canceladas). Validado
+//   empiricamente: Status='Pedido' e GerouPedComp='Total' vêm
+//   preenchidos no grid. Com isso o Job 4 passou a:
+//   - INSERIR reqs ausentes do Hub mesmo com Numero <= cursor
+//     (reconciliação na janela — antes, req convertida entre ciclos
+//     nunca era descoberta);
+//   - ATUALIZAR o status de reqs existentes que converteram/cancelaram
+//     (detectado pelo list), sem esperar o Job 1;
+//   - Guarda anti-rebaixamento: status terminal (convertida_pedido /
+//     cancelada) nunca volta a 'sincronizada' pelo list (que pode estar
+//     defasado do detalhe).
+//   Mapeamento ampliado: Status='Pedido' OU GerouPedComp Total/Parcial
+//   → convertida_pedido. O número do pedido continua sendo gravado
+//   apenas pelo merge (Job 3/2) — o list de req não o informa.
 // =====================================================================
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
@@ -395,8 +412,10 @@ async function syncDescobrirRequisicoes(
   const dataInicio = inicio.toISOString().slice(0, 10);
 
   // ── 3. /req-comp/list ───────────────────────────────────────────────
-  const path = `/req-comp/list?dataInicio=${dataInicio}&dataFim=${dataFim}&apenasAbertas=true`;
-  const resp = await callErpProxy(erpUrl, systemSecret, path);
+  // apenasAbertas=false (10/06/2026): traz também reqs convertidas e
+  // canceladas — essencial para descobrir reqs que fecharam entre ciclos.
+  const reqListPath = `/req-comp/list?dataInicio=${dataInicio}&dataFim=${dataFim}&apenasAbertas=false`;
+  const resp = await callErpProxy(erpUrl, systemSecret, reqListPath);
 
   if (!resp.ok) {
     console.error(`[descobrir-req] /list falhou: status=${resp.status}`);
@@ -416,18 +435,35 @@ async function syncDescobrirRequisicoes(
 
   console.log(`[descobrir-req] Alvo retornou ${todasReqs.length} reqs na janela`);
 
-  // ── 4. Filtra: Numero > cursor ──────────────────────────────────────
-  const novas = todasReqs.filter((r) => r.Numero > lastKnownNumero);
-  console.log(`[descobrir-req] ${novas.length} reqs novas (> ${lastKnownNumero})`);
+  // ── 4. Separa novas (inserir) de existentes (atualizar status) ──────
+  // Com apenasAbertas=false, reqs ausentes do Hub são inseridas mesmo com
+  // Numero <= cursor (reconciliação na janela); reqs existentes têm o
+  // status atualizado quando o list indicar conversão/cancelamento.
+  const numerosJanela = todasReqs.map((r) => r.Numero).filter(Boolean);
 
-  if (novas.length === 0) {
-    return result;
+  const existentesMap = new Map<string, { id: string; status: string }>();
+  if (numerosJanela.length > 0) {
+    const { data: existentes, error: errExist } = await supabase
+      .from("compras_requisicoes")
+      .select("id, numero_alvo, codigo_empresa_filial, status")
+      .in("numero_alvo", numerosJanela);
+
+    if (errExist) {
+      console.error("[descobrir-req] erro ao buscar existentes:", errExist);
+      result.total_erros = 1;
+      return result;
+    }
+    for (const e of existentes || []) {
+      existentesMap.set(`${e.codigo_empresa_filial}|${e.numero_alvo}`, { id: e.id, status: e.status });
+    }
   }
 
-  // ── 5. Insere cada req nova ─────────────────────────────────────────
+  const STATUS_TERMINAIS = ["convertida_pedido", "cancelada"];
+
+  // ── 5. Processa cada req da janela ──────────────────────────────────
   let maiorNumeroVisto = lastKnownNumero;
 
-  for (const req of novas) {
+  for (const req of todasReqs) {
     try {
       if (!req.Numero) {
         console.warn(`[descobrir-req] req sem Numero, ignorada`);
@@ -436,64 +472,107 @@ async function syncDescobrirRequisicoes(
 
       const dateOnly = (s: string | null) => (s ? s.slice(0, 10) : null);
 
-      // Mapeia status local
+      // Mapeia status local (Status='Pedido' OU GerouPedComp Total/Parcial
+      // indicam conversão — validado empiricamente no grid em 10/06/2026)
       let statusLocal = "sincronizada";
-      if (req.GerouPedComp === "Total" || req.GerouPedComp === "Parcial") {
+      if (req.GerouPedComp === "Total" || req.GerouPedComp === "Parcial" || req.Status === "Pedido") {
         statusLocal = "convertida_pedido";
       }
       if (req.Status === "Cancelado" || req.Status === "Cancelada") {
         statusLocal = "cancelada";
       }
 
-      // Verifica se já existe pra decidir entre INSERT (novo) ou UPDATE seletivo (existente).
-      // UPDATE NÃO TOCA em requisitante_user_id, codigo_funcionario, codigo_centro_ctrl,
-      // codigo_finalidade_compra, data_necessidade — esses são preenchidos pelo wizard do Hub
-      // e NÃO devem ser sobrescritos por descoberta do Alvo.
-      const { data: existing } = await supabase
-        .from("compras_requisicoes")
-        .select("id")
-        .eq("codigo_empresa_filial", req.CodigoEmpresaFilial)
-        .eq("numero_alvo", req.Numero)
-        .maybeSingle();
+      const chave = `${req.CodigoEmpresaFilial}|${req.Numero}`;
+      const existing = existentesMap.get(chave);
 
-      let errUpsert: any = null;
       if (existing) {
-        // Já existe → UPDATE só do status (campo do Alvo que pode mudar)
-        const { error } = await supabase
+        // ── Req JÁ existe no Hub: atualiza status se houver progressão ──
+        // Guarda anti-rebaixamento: status terminal nunca volta a
+        // 'sincronizada' pelo list (que pode estar defasado do detalhe).
+        // UPDATE NÃO TOCA em requisitante_user_id, codigo_funcionario,
+        // codigo_centro_ctrl etc. — campos do wizard do Hub.
+        const rebaixamento = STATUS_TERMINAIS.includes(existing.status) && !STATUS_TERMINAIS.includes(statusLocal);
+
+        if (existing.status === statusLocal || rebaixamento) {
+          if (req.Numero > maiorNumeroVisto) maiorNumeroVisto = req.Numero;
+          continue;
+        }
+
+        const { error: errUpd } = await supabase
           .from("compras_requisicoes")
           .update({
             status: statusLocal,
             updated_at: new Date().toISOString(),
           })
           .eq("id", existing.id);
-        errUpsert = error;
-      } else {
-        // Nova descoberta via Alvo → INSERT completo com requisitante_user_id null
-        const { error } = await supabase.from("compras_requisicoes").insert({
-          codigo_empresa_filial: req.CodigoEmpresaFilial,
-          numero_alvo: req.Numero,
-          status: statusLocal,
-          codigo_funcionario: req.CodigoFuncionario,
-          codigo_centro_ctrl: req.CodigoCentroCtrl,
-          codigo_finalidade_compra: req.CodigoFinalidadeCompra,
-          descricao: req.Descricao,
-          data_necessidade: dateOnly(req.Data),
-          requisitante_user_id: null,
-          total_itens: null,
-          updated_at: new Date().toISOString(),
+
+        if (errUpd) {
+          result.total_erros++;
+          result.detalhes.push({
+            tipo: "req",
+            id: existing.id,
+            numero_alvo: req.Numero,
+            erro: `UPDATE status falhou: ${errUpd.message}`,
+          });
+          console.error(`[descobrir-req] ${req.Numero} UPDATE falhou:`, errUpd);
+          continue;
+        }
+
+        const eventoAudit =
+          statusLocal === "convertida_pedido"
+            ? "convertida_pedido"
+            : statusLocal === "cancelada"
+              ? "cancelada_alvo"
+              : "sync_status";
+
+        await supabase.from("compras_requisicoes_auditoria").insert({
+          requisicao_id: existing.id,
+          evento: eventoAudit,
+          user_id: null,
+          user_nome: "Job 4 — Descoberta automática",
+          sucesso: true,
+          resposta_alvo: req,
         });
-        errUpsert = error;
+
+        result.total_mudaram++;
+        result.detalhes.push({
+          tipo: "req",
+          id: existing.id,
+          numero_alvo: req.Numero,
+          status_anterior: existing.status,
+          status_novo: statusLocal,
+        });
+
+        console.log(`[descobrir-req] ${req.Numero}: ${existing.status} → ${statusLocal} (via list)`);
+
+        if (req.Numero > maiorNumeroVisto) maiorNumeroVisto = req.Numero;
+        continue;
       }
 
-      if (errUpsert) {
+      // ── Req NÃO existe no Hub: INSERT (descoberta / reconciliação) ────
+      const { error: errIns } = await supabase.from("compras_requisicoes").insert({
+        codigo_empresa_filial: req.CodigoEmpresaFilial,
+        numero_alvo: req.Numero,
+        status: statusLocal,
+        codigo_funcionario: req.CodigoFuncionario,
+        codigo_centro_ctrl: req.CodigoCentroCtrl,
+        codigo_finalidade_compra: req.CodigoFinalidadeCompra,
+        descricao: req.Descricao,
+        data_necessidade: dateOnly(req.Data),
+        requisitante_user_id: null,
+        total_itens: null,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (errIns) {
         result.total_erros++;
         result.detalhes.push({
           tipo: "req",
           id: "",
           numero_alvo: req.Numero,
-          erro: `UPSERT falhou: ${errUpsert.message}`,
+          erro: `INSERT falhou: ${errIns.message}`,
         });
-        console.error(`[descobrir-req] ${req.Numero} UPSERT falhou:`, errUpsert);
+        console.error(`[descobrir-req] ${req.Numero} INSERT falhou:`, errIns);
         continue;
       }
 
