@@ -302,7 +302,8 @@ const ComprasNotasFiscais = () => {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Notas Fiscais (NF-e)</h1>
         <p className="text-muted-foreground">
-          Recebimento e lançamento de NF-e de produto no Alvo. As notas chegam automaticamente via SEFAZ (cron).
+          Recebimento e lançamento de NF-e de produto no Alvo. As notas chegam via integração (API) ou upload manual de
+          XML.
         </p>
       </div>
 
