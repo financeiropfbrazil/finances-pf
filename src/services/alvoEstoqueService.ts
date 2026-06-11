@@ -666,7 +666,8 @@ export async function enriquecerUnidadesMedida(
     .from("stock_products")
     .select("id, codigo_produto, nome_produto")
     .eq("ativo", true)
-    .or("unidade_medida.is.null,lote_verificado_em.is.null");
+    .or("unidade_medida.is.null,lote_verificado_em.is.null")
+    .limit(5000);
 
   if (error) throw new Error(`Erro ao buscar produtos: ${error.message}`);
   if (!produtos || produtos.length === 0) {
