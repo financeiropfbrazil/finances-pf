@@ -46,6 +46,7 @@ import { useHasPermission } from "@/hooks/useHasPermission";
 import { PERMISSIONS } from "@/constants/permissions";
 import { supabase } from "@/integrations/supabase/client";
 import { carregarPedidoParaDetalhe, excluirPedido, getUrlAssinadaArquivoPedido } from "@/services/pedidosService";
+import VincularRequisicaoCard from "@/components/VincularRequisicaoCard";
 import { getStatusPedido } from "@/lib/statusPedido";
 import { carregarDetalhesPedido } from "@/services/alvoPedCompLoadService";
 
@@ -438,16 +439,10 @@ export default function SuprimentosPedidoDetalhe() {
             </div>
           </div>
         )}
-
-        {/* Origem (se veio de uma requisição) */}
-        {pedido.origem_numero_req_alvo && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <FileText className="h-4 w-4" />
-            Gerado a partir da requisição{" "}
-            <span className="font-mono font-medium text-foreground">{pedido.origem_numero_req_alvo}</span>
-          </div>
-        )}
       </div>
+
+      {/* Requisição de origem — vincular/desvincular */}
+      <VincularRequisicaoCard pedidoId={id!} numeroReqVinculada={pedido.origem_numero_req_alvo} onChange={refetch} />
 
       {/* Resumo financeiro */}
       <Card className="mb-6 border-2">
