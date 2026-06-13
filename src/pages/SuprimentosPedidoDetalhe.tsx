@@ -24,6 +24,8 @@ import {
   ShoppingCart,
   Home,
   Receipt,
+  Link2,
+  Unlink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +63,22 @@ const EVENTO_CONFIG: Record<string, { label: string; icon: any; className: strin
   envio_sucesso: { label: "Enviado ao ERP", icon: CheckCircle2, className: "text-emerald-600 dark:text-emerald-400" },
   envio_falha: { label: "Falha no envio", icon: XCircle, className: "text-red-600 dark:text-red-400" },
   excluido_hub: { label: "Excluído", icon: Trash2, className: "text-red-600 dark:text-red-400" },
+  vinculado_requisicao: {
+    label: "Vinculado à requisição",
+    icon: Link2,
+    className: "text-indigo-600 dark:text-indigo-400",
+  },
+  desvinculado_requisicao: {
+    label: "Desvinculado da requisição",
+    icon: Unlink,
+    className: "text-slate-600 dark:text-slate-400",
+  },
+  vinculado_pedido: { label: "Vinculado ao pedido", icon: Link2, className: "text-indigo-600 dark:text-indigo-400" },
+  desvinculado_pedido: {
+    label: "Desvinculado do pedido",
+    icon: Unlink,
+    className: "text-slate-600 dark:text-slate-400",
+  },
 };
 
 // ════════════════════════════════════════════════════════════
