@@ -4,10 +4,15 @@
 // Acaba com o limite de 1000 linhas do PostgREST: as RPCs retornam
 // resultados já agregados, não as linhas brutas.
 //
-// 4 métricas respeitam o filtro de período { dataDe, dataAte }:
+// Cards que respeitam o filtro de período { dataDe, dataAte }:
 //   - valor médio, tempo req→pedido, tempo aprovação, funil
-// 1 métrica IGNORA o filtro (sempre últimos 6 meses):
-//   - volume mensal
+// Métricas que IGNORAM o filtro:
+//   - volume mensal (sempre últimos 6 meses)
+//   - aguardando aprovação (fila atual = "agora")
+//
+// v2: tempos agora usam MEDIANA (manchete) + P90 (cauda) em vez de média.
+//     tempo de aprovação migrado p/ datas do Alvo (digitação → aprovação),
+//     que têm cobertura ~total — antes vinha da auditoria (cobertura parcial).
 
 import { supabase } from "@/integrations/supabase/client";
 
@@ -20,11 +25,11 @@ export interface PeriodoFiltro {
 // TIPOS DE RESULTADO
 // ════════════════════════════════════════════════════════════
 
-export interface TempoReqPedidoResult {
+export interface TempoResult {
   qtd: number;
-  diasMedio: number | null;
-  diasMin: number | null;
-  diasMax: number | null;
+  diasMediana: number | null;
+  diasP90: number | null;
+  diasMedia: number | null;
 }
 
 export interface ValorMedioResult {
@@ -35,11 +40,11 @@ export interface ValorMedioResult {
   valorTotal: number;
 }
 
-export interface TempoAprovacaoResult {
+export interface AguardandoAprovacaoResult {
   qtd: number;
-  diasMedio: number | null;
-  diasMin: number | null;
-  diasMax: number | null;
+  valorTotal: number;
+  diasEsperaMax: number | null;
+  diasEsperaMediana: number | null;
 }
 
 export interface FunilEstagio {
@@ -95,7 +100,7 @@ export async function getValorMedioPedidos(periodo: PeriodoFiltro): Promise<Valo
 // MÉTRICA 2 — Tempo req→pedido (RPC dashboard_supr_tempo_req_pedido)
 // ════════════════════════════════════════════════════════════
 
-export async function getTempoMedioReqParaPedido(periodo: PeriodoFiltro): Promise<TempoReqPedidoResult> {
+export async function getTempoMedioReqParaPedido(periodo: PeriodoFiltro): Promise<TempoResult> {
   const { data, error } = await (supabase as any).rpc("dashboard_supr_tempo_req_pedido", {
     p_data_de: periodo.dataDe || null,
     p_data_ate: periodo.dataAte || null,
@@ -103,15 +108,15 @@ export async function getTempoMedioReqParaPedido(periodo: PeriodoFiltro): Promis
 
   if (error || !data || data.length === 0) {
     if (error) console.error("[dashboard] tempo_req_pedido:", error);
-    return { qtd: 0, diasMedio: null, diasMin: null, diasMax: null };
+    return { qtd: 0, diasMediana: null, diasP90: null, diasMedia: null };
   }
 
   const r = data[0];
   return {
     qtd: Number(r.qtd) || 0,
-    diasMedio: r.dias_medio !== null ? Number(r.dias_medio) : null,
-    diasMin: r.dias_min !== null ? Number(r.dias_min) : null,
-    diasMax: r.dias_max !== null ? Number(r.dias_max) : null,
+    diasMediana: r.dias_mediana !== null ? Number(r.dias_mediana) : null,
+    diasP90: r.dias_p90 !== null ? Number(r.dias_p90) : null,
+    diasMedia: r.dias_media !== null ? Number(r.dias_media) : null,
   };
 }
 
@@ -119,7 +124,7 @@ export async function getTempoMedioReqParaPedido(periodo: PeriodoFiltro): Promis
 // MÉTRICA 3 — Tempo de aprovação (RPC dashboard_supr_tempo_aprovacao)
 // ════════════════════════════════════════════════════════════
 
-export async function getTempoMedioAprovacao(periodo: PeriodoFiltro): Promise<TempoAprovacaoResult> {
+export async function getTempoMedioAprovacao(periodo: PeriodoFiltro): Promise<TempoResult> {
   const { data, error } = await (supabase as any).rpc("dashboard_supr_tempo_aprovacao", {
     p_data_de: periodo.dataDe || null,
     p_data_ate: periodo.dataAte || null,
@@ -127,15 +132,15 @@ export async function getTempoMedioAprovacao(periodo: PeriodoFiltro): Promise<Te
 
   if (error || !data || data.length === 0) {
     if (error) console.error("[dashboard] tempo_aprovacao:", error);
-    return { qtd: 0, diasMedio: null, diasMin: null, diasMax: null };
+    return { qtd: 0, diasMediana: null, diasP90: null, diasMedia: null };
   }
 
   const r = data[0];
   return {
     qtd: Number(r.qtd) || 0,
-    diasMedio: r.dias_medio !== null ? Number(r.dias_medio) : null,
-    diasMin: r.dias_min !== null ? Number(r.dias_min) : null,
-    diasMax: r.dias_max !== null ? Number(r.dias_max) : null,
+    diasMediana: r.dias_mediana !== null ? Number(r.dias_mediana) : null,
+    diasP90: r.dias_p90 !== null ? Number(r.dias_p90) : null,
+    diasMedia: r.dias_media !== null ? Number(r.dias_media) : null,
   };
 }
 
@@ -188,25 +193,49 @@ export async function getVolumeMensal(): Promise<VolumeMes[]> {
 }
 
 // ════════════════════════════════════════════════════════════
+// MÉTRICA 6 — Aguardando aprovação (RPC dashboard_supr_aguardando_aprovacao)
+// Fila ATUAL — ignora o filtro de período (é "agora").
+// ════════════════════════════════════════════════════════════
+
+export async function getAguardandoAprovacao(): Promise<AguardandoAprovacaoResult> {
+  const { data, error } = await (supabase as any).rpc("dashboard_supr_aguardando_aprovacao");
+
+  if (error || !data || data.length === 0) {
+    if (error) console.error("[dashboard] aguardando_aprovacao:", error);
+    return { qtd: 0, valorTotal: 0, diasEsperaMax: null, diasEsperaMediana: null };
+  }
+
+  const r = data[0];
+  return {
+    qtd: Number(r.qtd) || 0,
+    valorTotal: Number(r.valor_total) || 0,
+    diasEsperaMax: r.dias_espera_max !== null ? Number(r.dias_espera_max) : null,
+    diasEsperaMediana: r.dias_espera_mediana !== null ? Number(r.dias_espera_mediana) : null,
+  };
+}
+
+// ════════════════════════════════════════════════════════════
 // AGREGADOR
 // ════════════════════════════════════════════════════════════
 
 export interface DashboardData {
-  tempoReqPedido: TempoReqPedidoResult;
+  tempoReqPedido: TempoResult;
   valorMedio: ValorMedioResult;
-  tempoAprovacao: TempoAprovacaoResult;
+  tempoAprovacao: TempoResult;
   funil: FunilEstagio[];
   volumeMensal: VolumeMes[];
+  aguardando: AguardandoAprovacaoResult;
 }
 
 export async function getDashboardSuprimentos(periodo: PeriodoFiltro): Promise<DashboardData> {
-  const [tempoReqPedido, valorMedio, tempoAprovacao, funil, volumeMensal] = await Promise.all([
+  const [tempoReqPedido, valorMedio, tempoAprovacao, funil, volumeMensal, aguardando] = await Promise.all([
     getTempoMedioReqParaPedido(periodo),
     getValorMedioPedidos(periodo),
     getTempoMedioAprovacao(periodo),
     getFunilStatus(periodo),
     getVolumeMensal(), // sem período — sempre 6 meses
+    getAguardandoAprovacao(), // sem período — fila atual
   ]);
 
-  return { tempoReqPedido, valorMedio, tempoAprovacao, funil, volumeMensal };
+  return { tempoReqPedido, valorMedio, tempoAprovacao, funil, volumeMensal, aguardando };
 }
