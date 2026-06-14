@@ -241,17 +241,30 @@ export default function SuprimentosDashboard() {
               </CardContent>
             </Card>
 
-            {/* Tempo req → pedido — MEDIANA (via Hub) */}
+            {/* Tempo req → pedido — PRELIMINAR (data de sync, cobertura parcial: ~141 reqs)
+                Métrica rebaixada de propósito: o valor mede tempo de SINCRONIZAÇÃO, não
+                de abertura real no Alvo, e cobre só as reqs presentes no Hub.
+                Vira definitiva na Fase 2 (backfill de data_abertura_alvo). */}
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">Tempo req → pedido (mediana)</p>
-                  <FileClock className="h-4 w-4 text-blue-600" />
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm text-muted-foreground">Tempo req → pedido</p>
+                    <span
+                      className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
+                      title="Métrica preliminar: calculada sobre a data de sincronização no Hub (não a abertura real no Alvo) e cobre apenas as ~141 requisições já presentes no Hub. O número definitivo virá com o backfill de data_abertura_alvo (Fase 2)."
+                    >
+                      preliminar
+                    </span>
+                  </div>
+                  <FileClock className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <p className="mt-2 text-3xl font-bold text-foreground">{formatDias(data.tempoReqPedido.diasMediana)}</p>
+                <p className="mt-2 text-3xl font-bold text-muted-foreground">
+                  {formatDias(data.tempoReqPedido.diasMediana)}
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {data.tempoReqPedido.qtd > 0
-                    ? `${data.tempoReqPedido.qtd} ${data.tempoReqPedido.qtd === 1 ? "conversão" : "conversões"} via Hub · p90 ${formatDias(data.tempoReqPedido.diasP90)}`
+                    ? `${data.tempoReqPedido.qtd} ${data.tempoReqPedido.qtd === 1 ? "conversão" : "conversões"} via Hub · data de sync, cobertura parcial`
                     : "Sem conversões via Hub no período"}
                 </p>
               </CardContent>
