@@ -311,3 +311,326 @@ export function conferenciaItem187035(): string {
 
   return linhas.join("\n");
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// Builder do HEADER — monta o MovEstq completo
+// ══════════════════════════════════════════════════════════════════════════
+//
+// Junta peças JÁ PRONTAS: cabeçalho + itens (de buildItemMovEstq) + parcelas
+// (de gerarParcelas) + classe/CC do total. Função pura.
+//
+// Recebe o CodigoTipoLanc já decidido pela tela (produto de lote → E0000158,
+// "automático com aviso"). O builder não decide o tipo.
+
+/** Uma parcela já montada (formato do molde 17575). */
+export interface ParcelaMovEstq {
+  Sequencia: number;
+  NumeroDuplicata: string;
+  DataEmissao: string; // ISO
+  ValorParcela: number;
+  DataVencimento: string; // ISO
+  DataProrrogacao: string; // ISO
+  CodigoTipoCobranca: string; // default "0000021" (BOLETO OUTROS BANCOS)
+}
+
+export interface BuildHeaderInput {
+  codigoTipoLanc: string; // já decidido (E0000158 / E0000003)
+  numero: string; // número da NF
+  serie: string; // default "1"
+  especie: string; // default "NF-e"
+  chaveAcessoNfe: string; // 44 díg, read-only
+  dataEmissao: string; // ISO
+  dataMovimento: string; // ISO (data de entrada)
+  codigoEntidade: string; // fornecedor
+  nomeEntidade: string;
+  cpfCnpjEntidade: string;
+  codigoCondPag: string; // ex. "0000037"
+  codigoTipoPagRec: string; // tipo conta a pagar, default "0000016"
+  valorTotal: number; // soma dos itens
+  classeTotal: string; // classe do rateio do total
+  centroCustoTotal: string;
+  itens: any[]; // de buildItemMovEstq
+  parcelas: ParcelaMovEstq[]; // de gerarParcelas
+}
+
+/**
+ * Monta o MovEstq completo, pronto para enviar ao Save do Alvo.
+ * Pura: mesmas peças → mesmo payload.
+ */
+export function montarMovEstq(input: BuildHeaderInput): any {
+  const v = input.valorTotal;
+
+  // Rateio classe/CC do total (header)
+  const classeTotal = [
+    {
+      CodigoEmpresaFilial: FILIAL,
+      ChaveMovEstq: 1,
+      CodigoClasseRecDesp: input.classeTotal,
+      Valor: v,
+      Percentual: 100,
+      RateioMovEstqChildList: [
+        {
+          CodigoEmpresaFilial: FILIAL,
+          ChaveMovEstq: 1,
+          CodigoClasseRecDesp: input.classeTotal,
+          CodigoCentroCtrl: input.centroCustoTotal,
+          Valor: v,
+          Percentual: 100,
+        },
+      ],
+    },
+  ];
+
+  const parcelas = input.parcelas.map((p) => ({
+    CodigoEmpresaFilial: FILIAL,
+    ChaveMovEstq: 1,
+    Sequencia: p.Sequencia,
+    EspecieDocumento: input.especie,
+    SerieDocumento: input.serie,
+    NumeroDuplicata: p.NumeroDuplicata,
+    DataEmissao: p.DataEmissao,
+    ValorParcela: p.ValorParcela,
+    DataVencimento: p.DataVencimento,
+    DataProrrogacao: p.DataProrrogacao,
+    CodigoTipoCobranca: p.CodigoTipoCobranca,
+  }));
+
+  return {
+    CodigoEmpresaFilial: FILIAL,
+    Chave: 0,
+    CodigoTipoLanc: input.codigoTipoLanc,
+    Especie: input.especie,
+    EspecieSelectBox: input.especie,
+    Serie: input.serie,
+    SerieSelectBox: input.serie,
+    Numero: input.numero,
+    NumeroDocumentoReferencia: input.numero,
+    ChaveAcessoNFe: input.chaveAcessoNfe,
+    DataEmissao: input.dataEmissao,
+    DataMovimento: input.dataMovimento,
+    DataEntrada: input.dataMovimento,
+    CodigoEmpresaFilialDocumento: FILIAL,
+    CodigoEntidade: input.codigoEntidade,
+    NomeEntidade: input.nomeEntidade,
+    CPFCNPJEntidade: input.cpfCnpjEntidade.replace(/\D/g, ""),
+    CodigoCondPag: input.codigoCondPag,
+    CodigoTipoPagRec: input.codigoTipoPagRec,
+    CodigoIndEconomicoDocumento: "0000001", // Real
+    ValorCambioDocumento: 1,
+    CodigoEntidadeEmpresaFilial: "0000002",
+    ValorMercadoria: v,
+    ValorFinalMercadoria: v,
+    ValorDocumento: v,
+    ValorLiberado: v,
+    ValorOriginal: v,
+    ValorLiquidoDocumento: v,
+    ValorTotalParcelas: v,
+    Origem: "Estoque",
+    Operacao: "Entrada",
+    ControlaEstoque: "Não",
+    RecalcularImpostos: false, // C1: tributos vêm prontos do XML
+    ZerouImpostos: false,
+    MovEstqNfEletronicaChildList: [
+      {
+        CodigoEmpresaFilial: FILIAL,
+        ChaveNFEletronica: input.chaveAcessoNfe,
+        Status: "Manual",
+      },
+    ],
+    ItemMovEstqChildList: input.itens,
+    MovEstqClasseRecDespChildList: classeTotal,
+    ParcPagMovEstqChildList: parcelas,
+  };
+}
+
+// ── Geração de parcelas (função à parte) ──────────────────────────────────
+//
+// A partir da condição de pagamento (qtd parcelas, dias entre, primeiro
+// vencimento após), gera as parcelas. A operadora ajusta cada vencimento
+// no Date Picker (fase de UI). Default de cobrança = "0000021".
+
+export interface CondicaoPagamento {
+  quantidade_parcelas: number;
+  dias_entre_parcelas: number;
+  primeiro_vencimento_apos: number;
+}
+
+function addDias(iso: string, dias: number): string {
+  const d = new Date(iso);
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().split("T")[0] + "T00:00:00-03:00";
+}
+
+export function gerarParcelas(input: {
+  numeroNf: string;
+  dataEmissao: string; // ISO
+  valorTotal: number;
+  cond: CondicaoPagamento;
+  codigoTipoCobranca?: string; // default "0000021"
+}): ParcelaMovEstq[] {
+  const qtd = Math.max(1, input.cond.quantidade_parcelas || 1);
+  const diasEntre = input.cond.dias_entre_parcelas || 30;
+  const primeiro = input.cond.primeiro_vencimento_apos || 30;
+  const cobranca = input.codigoTipoCobranca || "0000021";
+
+  // Divide o valor em qtd parcelas; última ajusta o centavo residual.
+  const base = Math.floor((input.valorTotal / qtd) * 100) / 100;
+  const parcelas: ParcelaMovEstq[] = [];
+  for (let i = 0; i < qtd; i++) {
+    const venc = addDias(input.dataEmissao, primeiro + diasEntre * i);
+    const valor = i === qtd - 1 ? Number((input.valorTotal - base * (qtd - 1)).toFixed(2)) : base;
+    parcelas.push({
+      Sequencia: i + 1,
+      NumeroDuplicata: `${input.numeroNf}/${i + 1}-${qtd}`,
+      DataEmissao: input.dataEmissao,
+      ValorParcela: valor,
+      DataVencimento: venc,
+      DataProrrogacao: venc,
+      CodigoTipoCobranca: cobranca,
+    });
+  }
+  return parcelas;
+}
+
+// ── Conferência do header (validação para o controller) ───────────────────
+//
+// Monta o MovEstq completo da SISPACK 187035 (2 itens) e compara com o
+// lançamento real 17575, em português. Roda no Console (autocontido na tela).
+
+export function conferenciaHeader187035(): string {
+  const item1 = buildItemMovEstq({
+    sequencia: 1,
+    produto: {
+      codigo_produto: "001.003.00104",
+      nome_produto: "INDICADOR BIOLÓGICO ETO 48 HORAS - BT10 - BIONOVA (C/100UN)",
+      unidade_medida: "UNID",
+      classificacao_fiscal: "0000032",
+      codigo_alternativo: "801861",
+      controla_lote: true,
+    },
+    imposto: {
+      icms_cst: "00",
+      icms_orig: "1",
+      icms_mod_bc: "3",
+      icms_base: 1732.5,
+      icms_percentual: 18,
+      icms_valor: 311.85,
+      pis_cst: "01",
+      pis_base: 1732.5,
+      pis_percentual: 0.65,
+      pis_valor: 11.26,
+      cofins_cst: "01",
+      cofins_base: 1732.5,
+      cofins_percentual: 3,
+      cofins_valor: 51.98,
+      ipi_cst: "53",
+      ipi_base: null,
+      ipi_percentual: null,
+      ipi_valor: null,
+    },
+    natureza: "1.101.003",
+    quantidade: 100,
+    valorUnitario: 17.325,
+    valorProduto: 1732.5,
+    classe: "11.03",
+    centroCusto: "00010.00002.00007.00002",
+    vinculo: { numeroPedComp: "0004036", codigoProdutoPedComp: "001.003.00104", sequenciaItemPedComp: 1 },
+    lote: { numero: "0002572", validade: "2027-06-30", fabricacao: "2025-07-01" },
+    codigoEntidade: "0000381",
+  });
+  const item2 = buildItemMovEstq({
+    sequencia: 2,
+    produto: {
+      codigo_produto: "001.003.00037",
+      nome_produto: "INDICADOR DE LIMPEZA ULTRASSONICA - TESTE DE CAVITAÇÃO (CDWU)",
+      unidade_medida: "UN",
+      classificacao_fiscal: "0000581",
+      codigo_alternativo: "800839",
+      controla_lote: true,
+    },
+    imposto: {
+      icms_cst: "00",
+      icms_orig: "1",
+      icms_mod_bc: "3",
+      icms_base: 1039.5,
+      icms_percentual: 18,
+      icms_valor: 187.11,
+      pis_cst: "01",
+      pis_base: 1039.5,
+      pis_percentual: 0.65,
+      pis_valor: 6.76,
+      cofins_cst: "01",
+      cofins_base: 1039.5,
+      cofins_percentual: 3,
+      cofins_valor: 31.19,
+      ipi_cst: "53",
+      ipi_base: null,
+      ipi_percentual: null,
+      ipi_valor: null,
+    },
+    natureza: "1.101.003",
+    quantidade: 30,
+    valorUnitario: 34.65,
+    valorProduto: 1039.5,
+    classe: "11.03",
+    centroCusto: "00010.00002.00007.00002",
+    vinculo: { numeroPedComp: "0004036", codigoProdutoPedComp: "001.003.00037", sequenciaItemPedComp: 2 },
+    lote: { numero: "0002573", validade: "2027-07-31", fabricacao: "2026-02-01" },
+    codigoEntidade: "0000381",
+  });
+
+  const parcelas = gerarParcelas({
+    numeroNf: "187035",
+    dataEmissao: "2026-06-09T00:00:00-03:00",
+    valorTotal: 2772,
+    cond: { quantidade_parcelas: 1, dias_entre_parcelas: 30, primeiro_vencimento_apos: 30 },
+  });
+
+  const mov = montarMovEstq({
+    codigoTipoLanc: "E0000158",
+    numero: "187035",
+    serie: "1",
+    especie: "NF-e",
+    chaveAcessoNfe: "35260654565478000198550010001870351588728391",
+    dataEmissao: "2026-06-09T00:00:00-03:00",
+    dataMovimento: "2026-06-12T00:00:00-03:00",
+    codigoEntidade: "0000381",
+    nomeEntidade: "SISPACK MEDICAL LTDA.",
+    cpfCnpjEntidade: "54565478000198",
+    codigoCondPag: "0000037",
+    codigoTipoPagRec: "0000016",
+    valorTotal: 2772,
+    classeTotal: "11.03",
+    centroCustoTotal: "00010.00002.00007.00002",
+    itens: [item1, item2],
+    parcelas,
+  });
+
+  const linhas: string[] = [];
+  const conf = (nome: string, g: any, r: any) =>
+    linhas.push(`${g === r ? "✓" : "✗"} ${nome}: gerado=${g} | real 17575=${r}`);
+
+  conf("CodigoTipoLanc", mov.CodigoTipoLanc, "E0000158");
+  conf("Numero", mov.Numero, "187035");
+  conf("ChaveAcessoNFe", mov.ChaveAcessoNFe?.length, 44);
+  conf("CodigoEntidade", mov.CodigoEntidade, "0000381");
+  conf("CodigoCondPag", mov.CodigoCondPag, "0000037");
+  conf("CodigoTipoPagRec (conta)", mov.CodigoTipoPagRec, "0000016");
+  conf("ValorDocumento", mov.ValorDocumento, 2772);
+  conf("Qtd itens", mov.ItemMovEstqChildList.length, 2);
+  conf("RecalcularImpostos (C1)", mov.RecalcularImpostos, false);
+  conf("Chave NF-e no child", mov.MovEstqNfEletronicaChildList[0].ChaveNFEletronica?.length, 44);
+  conf("Status NF-e child", mov.MovEstqNfEletronicaChildList[0].Status, "Manual");
+  conf("Qtd parcelas", mov.ParcPagMovEstqChildList.length, 1);
+  conf("Parcela duplicata", mov.ParcPagMovEstqChildList[0].NumeroDuplicata, "187035/1-1");
+  conf("Parcela cobrança (0000021)", mov.ParcPagMovEstqChildList[0].CodigoTipoCobranca, "0000021");
+  conf("Parcela vencimento (emissão+30)", mov.ParcPagMovEstqChildList[0].DataVencimento.split("T")[0], "2026-07-09");
+  conf("Classe total", mov.MovEstqClasseRecDespChildList[0].CodigoClasseRecDesp, "11.03");
+  conf(
+    "Soma itens = total",
+    mov.ItemMovEstqChildList.reduce((s: number, it: any) => s + it.ValorProduto, 0),
+    2772,
+  );
+
+  return linhas.join("\n");
+}
