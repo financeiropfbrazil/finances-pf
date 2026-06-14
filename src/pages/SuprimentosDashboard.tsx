@@ -96,24 +96,22 @@ export default function SuprimentosDashboard() {
           CARD-HERÓI — Aguardando aprovação (fila atual, ignora filtro)
           ════════════════════════════════════════════════════════ */}
       {data && (
-        <Card className="border-amber-300 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20">
+        <Card className="border-amber-500/40 bg-amber-500/10">
           <CardContent className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">
                   <AlarmClock className="h-4 w-4 text-amber-600" />
-                  <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Aguardando aprovação</p>
-                  <span className="text-[10px] uppercase tracking-wide text-amber-700/70 dark:text-amber-400/70">
+                  <p className="text-sm font-medium text-amber-600">Aguardando aprovação</p>
+                  <span className="text-[10px] uppercase tracking-wide text-amber-600/70">
                     fila atual · não depende do filtro
                   </span>
                 </div>
                 {data.aguardando.qtd === 0 ? (
-                  <p className="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                    Nenhum pedido na fila
-                  </p>
+                  <p className="mt-2 text-2xl font-bold text-emerald-600">Nenhum pedido na fila</p>
                 ) : (
                   <>
-                    <p className="mt-2 text-4xl font-bold text-amber-700 dark:text-amber-300">
+                    <p className="mt-2 text-4xl font-bold text-amber-600">
                       {data.aguardando.qtd}
                       <span className="ml-2 text-base font-normal text-muted-foreground">
                         {data.aguardando.qtd === 1 ? "pedido" : "pedidos"}
