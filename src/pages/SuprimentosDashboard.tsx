@@ -25,6 +25,7 @@ import {
   X,
   TrendingUp,
   Package,
+  AlarmClock,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -91,13 +92,60 @@ export default function SuprimentosDashboard() {
         <p className="text-sm text-muted-foreground">Visão geral de requisições e pedidos de compra.</p>
       </div>
 
+      {/* ════════════════════════════════════════════════════════
+          CARD-HERÓI — Aguardando aprovação (fila atual, ignora filtro)
+          ════════════════════════════════════════════════════════ */}
+      {data && (
+        <Card className="border-amber-300 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20">
+          <CardContent className="p-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <AlarmClock className="h-4 w-4 text-amber-600" />
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Aguardando aprovação</p>
+                  <span className="text-[10px] uppercase tracking-wide text-amber-700/70 dark:text-amber-400/70">
+                    fila atual · não depende do filtro
+                  </span>
+                </div>
+                {data.aguardando.qtd === 0 ? (
+                  <p className="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                    Nenhum pedido na fila
+                  </p>
+                ) : (
+                  <>
+                    <p className="mt-2 text-4xl font-bold text-amber-700 dark:text-amber-300">
+                      {data.aguardando.qtd}
+                      <span className="ml-2 text-base font-normal text-muted-foreground">
+                        {data.aguardando.qtd === 1 ? "pedido" : "pedidos"}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatBRLCompact(data.aguardando.valorTotal)} parados
+                      {data.aguardando.diasEsperaMax !== null && (
+                        <> · mais antigo parado há {data.aguardando.diasEsperaMax.toFixed(0)} dias</>
+                      )}
+                    </p>
+                  </>
+                )}
+              </div>
+              {data.aguardando.qtd > 0 && data.aguardando.diasEsperaMediana !== null && (
+                <div className="text-right">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Espera mediana</p>
+                  <p className="text-2xl font-bold text-foreground">{formatDias(data.aguardando.diasEsperaMediana)}</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Filtro de período */}
       <Card>
         <CardContent className="p-4">
           <div className="mb-3 flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-semibold">Período</span>
-            <span className="text-xs text-muted-foreground">(afeta os cards e o funil)</span>
+            <span className="text-xs text-muted-foreground">(afeta os cards de valor/tempo e o funil)</span>
             {temFiltro && (
               <Button variant="ghost" size="sm" onClick={limparFiltro} className="ml-auto h-7 text-xs">
                 <X className="mr-1 h-3 w-3" /> Limpar
@@ -161,7 +209,7 @@ export default function SuprimentosDashboard() {
         </div>
       ) : (
         <>
-          {/* Cards de números */}
+          {/* Cards de números (respeitam o período) */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {/* Valor médio */}
             <Card>
@@ -179,33 +227,33 @@ export default function SuprimentosDashboard() {
               </CardContent>
             </Card>
 
-            {/* Tempo médio de aprovação */}
+            {/* Tempo de aprovação — MEDIANA (digitação → aprovação, datas do Alvo) */}
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">Tempo médio de aprovação</p>
+                  <p className="text-sm text-muted-foreground">Tempo de aprovação (mediana)</p>
                   <Clock className="h-4 w-4 text-amber-600" />
                 </div>
-                <p className="mt-2 text-3xl font-bold text-foreground">{formatDias(data.tempoAprovacao.diasMedio)}</p>
+                <p className="mt-2 text-3xl font-bold text-foreground">{formatDias(data.tempoAprovacao.diasMediana)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {data.tempoAprovacao.qtd > 0
-                    ? `${data.tempoAprovacao.qtd} aprovações · de ${formatDias(data.tempoAprovacao.diasMin)} a ${formatDias(data.tempoAprovacao.diasMax)}`
+                    ? `${data.tempoAprovacao.qtd} aprovações · p90 ${formatDias(data.tempoAprovacao.diasP90)}`
                     : "Sem aprovações no período"}
                 </p>
               </CardContent>
             </Card>
 
-            {/* Tempo médio req → pedido */}
+            {/* Tempo req → pedido — MEDIANA (via Hub) */}
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">Tempo médio req → pedido</p>
+                  <p className="text-sm text-muted-foreground">Tempo req → pedido (mediana)</p>
                   <FileClock className="h-4 w-4 text-blue-600" />
                 </div>
-                <p className="mt-2 text-3xl font-bold text-foreground">{formatDias(data.tempoReqPedido.diasMedio)}</p>
+                <p className="mt-2 text-3xl font-bold text-foreground">{formatDias(data.tempoReqPedido.diasMediana)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {data.tempoReqPedido.qtd > 0
-                    ? `${data.tempoReqPedido.qtd} ${data.tempoReqPedido.qtd === 1 ? "conversão" : "conversões"} via Hub`
+                    ? `${data.tempoReqPedido.qtd} ${data.tempoReqPedido.qtd === 1 ? "conversão" : "conversões"} via Hub · p90 ${formatDias(data.tempoReqPedido.diasP90)}`
                     : "Sem conversões via Hub no período"}
                 </p>
               </CardContent>
