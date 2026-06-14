@@ -66,6 +66,7 @@ const CORES_FUNIL: Record<string, string> = {
   "Aguardando aprovação": "#f59e0b", // amber
   Aprovado: "#3b82f6", // blue
   Concluído: "#059669", // emerald
+  Cancelado: "#dc2626", // red
   Indefinido: "#94a3b8", // slate claro
 };
 
