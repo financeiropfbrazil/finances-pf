@@ -249,6 +249,22 @@ function resolverValorTotalAlvo(alvo: any): number {
  * nunca devem afirmar ausência.
  * (Mesmo helper usado em alvoPedCompService.ts / alvoPedCompLoadService.ts.)
  */
+/**
+ * Extrai a data de aprovação final do pedido a partir do detalhe completo.
+ * A DataAprovacao fica no item (ItemPedCompChildList), não no cabeçalho.
+ * Todos os itens aprovados juntos compartilham a mesma data (a final).
+ * Pega a primeira DataAprovacao de item não-cancelado. Null se não aprovado.
+ */
+function extrairDataAprovacaoAlvo(alvo: any): string | null {
+  const itens = (alvo?.ItemPedCompChildList || []) as any[];
+  for (const it of itens) {
+    if (it?.DataAprovacao && it?.Cancelado !== "Sim") {
+      return it.DataAprovacao;
+    }
+  }
+  return null;
+}
+
 function extrairVinculoRequisicao(data: any): {
   numero_req_comp: string | null;
   codigo_empresa_filial_req_comp: string | null;
@@ -789,6 +805,7 @@ async function syncDescobrirPedidos(
   erpUrl: string,
   systemSecret: string,
   runId: string,
+  windowDaysOverride?: number,
 ): Promise<JobResult> {
   const result: JobResult = {
     total_candidatos: 0,
@@ -800,7 +817,9 @@ async function syncDescobrirPedidos(
 
   const CURSOR_NAME = "ped-comp-last-numero-1.01";
   const FILIAL = "1.01";
-  const WINDOW_DAYS = 7;
+  // Janela normal de 30 dias (alinhada ao Job 4). Override permite recuperação
+  // de histórico (ex.: 180) num disparo manual, sem alterar o regime normal.
+  const WINDOW_DAYS = windowDaysOverride && windowDaysOverride > 0 ? windowDaysOverride : 30;
 
   const { data: cursorRow, error: errCursor } = await supabase
     .from("sync_cursors")
@@ -847,8 +866,14 @@ async function syncDescobrirPedidos(
 
   console.log(`[descobrir-ped] Alvo retornou ${todosPedidos.length} pedidos na janela`);
 
-  const novos = todosPedidos.filter((p) => p.Numero > lastKnownNumero);
-  console.log(`[descobrir-ped] ${novos.length} pedidos novos (> ${lastKnownNumero})`);
+  // ── RECONCILIAÇÃO NA JANELA (correção do buraco de descoberta) ──────
+  // Antes: filtrava só Numero > cursor, então pedidos que ficaram abaixo do
+  // cursor mas ausentes do Hub NUNCA eram inseridos (causa do buraco de abril
+  // 3733-3908). Agora processa TODOS os pedidos da janela: insere os ausentes
+  // (mesmo Numero <= cursor) e pula os que já existem sem mudança relevante.
+  // Espelha a correção aplicada ao Job 4 em 10/06/2026.
+  const novos = todosPedidos;
+  console.log(`[descobrir-ped] ${novos.length} pedidos na janela (reconciliação completa, cursor=${lastKnownNumero})`);
 
   if (novos.length === 0) {
     return result;
@@ -875,6 +900,17 @@ async function syncDescobrirPedidos(
         .eq("numero", ped.Numero)
         .maybeSingle();
 
+      // RECONCILIAÇÃO: na janela processamos todos, mas o Job 3 só INSERE os
+      // ausentes. Pedidos já existentes ficam a cargo do Job 2 (mudanças) —
+      // não os reprocessamos aqui para evitar upserts redundantes. Ainda assim
+      // atualizamos o "maior número visto" para o cursor avançar corretamente.
+      if (existingPed) {
+        if (ped.Numero > maiorNumeroVisto) {
+          maiorNumeroVisto = ped.Numero;
+        }
+        continue;
+      }
+
       const temVinculoNoList = !!(ped.NumeroReqComp && String(ped.NumeroReqComp).trim());
 
       const { error: errIns } = await supabase.from("compras_pedidos").upsert(
@@ -890,6 +926,8 @@ async function syncDescobrirPedidos(
           data_cadastro: dateOnly(ped.DataCadastro),
           data_entrega: dateOnly(ped.DataEntrega),
           data_validade: dateOnly(ped.DataValidade),
+          // Data de digitação real do Alvo (o list leve traz DataHoraDigitacao).
+          data_digitacao_alvo: ped.DataHoraDigitacao ?? null,
           codigo_entidade: ped.CodigoEntidade,
           nome_entidade: ped.NomeEntidade,
           valor_mercadoria: ped.ValorMercadoria ?? 0,
@@ -1147,6 +1185,10 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
 
       // ── Vínculo req↔ped (cabeçalho + itens do detalhe completo) ─────
       const vinculo = extrairVinculoRequisicao(alvo);
+      // Datas reais do Alvo (detalhe completo): digitação (cabeçalho) e
+      // aprovação final (item). Preenchem as colunas do dashboard de lead time.
+      const novaDataDigitacao = alvo?.DataHoraDigitacao ?? null;
+      const novaDataAprovacao = extrairDataAprovacaoAlvo(alvo);
       // Elo só "muda" quando o Alvo informa um elo (não-nulo) diferente do
       // gravado — elo nulo no Alvo NÃO apaga elo existente (saneamento).
       const eloMudou = vinculo.numero_req_comp !== null && vinculo.numero_req_comp !== (ped.numero_req_comp || null);
@@ -1167,11 +1209,15 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
       if (!mudou) {
         // Carimba a verificação de vínculo mesmo sem mudança — é o que
         // drena a fila de 'nao_verificado' a cada ciclo do cron.
+        // Também preenche as datas do Alvo (digitação/aprovação) caso ainda
+        // estejam nulas — backfill incremental dos ativos via cron.
         await supabase
           .from("compras_pedidos")
           .update({
             synced_at: new Date().toISOString(),
             vinculo_verificado_em: new Date().toISOString(),
+            data_digitacao_alvo: novaDataDigitacao,
+            data_aprovacao_alvo: novaDataAprovacao,
           })
           .eq("id", ped.id);
         return;
@@ -1189,6 +1235,9 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
           proximo_aprovador: novoProximoAprovador,
           enviou_aprovacao: novoEnviouAprovacao,
           data_notificacao_aprovador: novoDataNotif,
+          // ── Datas reais do Alvo (dashboard de lead time) ───────────────
+          data_digitacao_alvo: novaDataDigitacao,
+          data_aprovacao_alvo: novaDataAprovacao,
           // ── Propaga valores do Alvo (corrige listagem defasada) ─────
           valor_total: novoValorTotal,
           valor_mercadoria: novoValorMercadoria,
@@ -1388,6 +1437,12 @@ Deno.serve(async (req: Request) => {
   const validTriggers = ["pg_cron", "manual_admin", "test"];
   const safeTrigger = validTriggers.includes(triggeredBy) ? triggeredBy : "pg_cron";
 
+  // Override opcional da janela do Job 3 (descoberta de pedidos) para
+  // recuperação de histórico num disparo manual. Ex.: {"ped_window_days": 180}
+  // recupera buracos antigos. Sem o param, usa a janela normal (30 dias).
+  const pedWindowDaysRaw = Number(bodyJson?.ped_window_days);
+  const pedWindowDays = Number.isFinite(pedWindowDaysRaw) && pedWindowDaysRaw > 0 ? pedWindowDaysRaw : undefined;
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseServiceRole);
@@ -1473,7 +1528,7 @@ Deno.serve(async (req: Request) => {
     // 3. Job 1 — sync mudanças em reqs já no Hub
     // 4. Job 2 — sync mudanças em pedidos já no Hub
     job4 = await syncDescobrirRequisicoes(supabase, erpUrl, systemSecret, runId);
-    job3 = await syncDescobrirPedidos(supabase, erpUrl, systemSecret, runId);
+    job3 = await syncDescobrirPedidos(supabase, erpUrl, systemSecret, runId, pedWindowDays);
     job1 = await syncRequisicoes(supabase, erpUrl, systemSecret);
     job2 = await syncPedidos(supabase, erpUrl, systemSecret);
   } catch (err: any) {
