@@ -68,6 +68,8 @@ import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
 import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
+import ReqBackfillDataAbertura from "./pages/ferramentas/ReqBackfillDataAbertura";
+
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -545,6 +547,14 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="ferramentas_cron_req">
               <CronNfeDashboard />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/ferramentas/req-backfill-abertura"
+          element={
+            <PermissionRoute permKey="ferramentas_cron_req">
+              <ReqBackfillDataAbertura />
             </PermissionRoute>
           }
         />
