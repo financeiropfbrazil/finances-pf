@@ -241,10 +241,10 @@ export default function SuprimentosDashboard() {
               </CardContent>
             </Card>
 
-            {/* Tempo req → pedido — PRELIMINAR (data de sync, cobertura parcial: ~141 reqs)
-                Métrica rebaixada de propósito: o valor mede tempo de SINCRONIZAÇÃO, não
-                de abertura real no Alvo, e cobre só as reqs presentes no Hub.
-                Vira definitiva na Fase 2 (backfill de data_abertura_alvo). */}
+            {/* Tempo req → pedido — datas reais do Alvo nas duas pontas
+                (data_digitacao_alvo - data_abertura_alvo). Mantido rebaixado:
+                o VALOR é real, mas a COBERTURA ainda é parcial (39 conversões
+                rastreáveis hoje). Sobe a representatividade com o Degrau B. */}
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center justify-between">
@@ -252,9 +252,9 @@ export default function SuprimentosDashboard() {
                     <p className="text-sm text-muted-foreground">Tempo req → pedido</p>
                     <span
                       className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
-                      title="Métrica preliminar: calculada sobre a data de sincronização no Hub (não a abertura real no Alvo) e cobre apenas as ~141 requisições já presentes no Hub. O número definitivo virá com o backfill de data_abertura_alvo (Fase 2)."
+                      title="Valor com data real do Alvo nas duas pontas (digitação do pedido − abertura da requisição). Cobertura ainda parcial: só conversões com requisição vinculada e sincronizada no Hub. Sobe com a recuperação das requisições ausentes (Degrau B)."
                     >
-                      preliminar
+                      cobertura parcial
                     </span>
                   </div>
                   <FileClock className="h-4 w-4 text-muted-foreground" />
@@ -264,8 +264,8 @@ export default function SuprimentosDashboard() {
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {data.tempoReqPedido.qtd > 0
-                    ? `${data.tempoReqPedido.qtd} ${data.tempoReqPedido.qtd === 1 ? "conversão" : "conversões"} via Hub · data de sync, cobertura parcial`
-                    : "Sem conversões via Hub no período"}
+                    ? `${data.tempoReqPedido.qtd} ${data.tempoReqPedido.qtd === 1 ? "conversão rastreável" : "conversões rastreáveis"} · p90 ${formatDias(data.tempoReqPedido.diasP90)}`
+                    : "Sem conversões rastreáveis no período"}
                 </p>
               </CardContent>
             </Card>
