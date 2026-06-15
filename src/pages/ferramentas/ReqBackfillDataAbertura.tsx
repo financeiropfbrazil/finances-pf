@@ -92,7 +92,7 @@ export default function ReqBackfillDataAbertura() {
 
     try {
       // 1) Reqs sem data_abertura_alvo
-      const { data: pendentes, error } = await supabase
+      const { data: pendentes, error } = await (supabase as any)
         .from("compras_requisicoes")
         .select("numero_alvo, codigo_empresa_filial")
         .is("data_abertura_alvo", null);
