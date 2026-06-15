@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { LancarNfeItensTable } from "@/components/compras/LancarNfeItensTable";
 
 // ── Tipos de lançamento (MovEstq) ──────────────────────────────────────────
 // E0000158 = entrada com laudo (produto de lote). E0000003 = entrada comum.
@@ -167,10 +168,13 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
             </p>
           </div>
 
-          {/* ── Placeholder das próximas fatias ── */}
-          <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-            Itens, impostos, lote e pagamento entram nas próximas etapas.
-          </div>
+          {/* ── Itens (fatia 2b) ── */}
+          <LancarNfeItensTable
+            itensXml={(nfe.dados_extraidos?.itens || []) as any}
+            onChange={() => {
+              /* fatia seguinte: guardar itens p/ o payload */
+            }}
+          />
         </div>
 
         <DialogFooter>
