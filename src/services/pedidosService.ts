@@ -216,89 +216,47 @@ async function callGatewayJson(path: string, payload: any): Promise<any> {
 }
 
 // ████████████████████████████████████████████████████████████████████
-// BLOCO A — cole logo após a função callGatewayJson (seção HELPERS)
+// SUBSTITUIÇÃO 1 — troque a função baixarRequisicaoAlvo inteira por esta
+// (mantenha o callGatewayGet que já está acima dela — não muda)
 // ████████████████████████████████████████████████████████████████████
 
 /**
- * Chamada GET ao gateway (com JWT). Usada para buscar o Load de uma
- * requisição antes de baixá-la (precisamos do objeto completo e atual
- * da req para devolver via SavePartial?action=Update).
- */
-async function callGatewayGet(path: string): Promise<any> {
-  const jwt = await getSupabaseJWT();
-  const url = `${ERP_PROXY_URL}${path}`;
-  const resp = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${jwt}` },
-  });
-  let data: any = null;
-  try {
-    data = await resp.json();
-  } catch {}
-  if (!resp.ok) {
-    const msg = data?.error || `HTTP ${resp.status}`;
-    const err = new Error(msg) as Error & { status?: number; details?: any };
-    err.status = resp.status;
-    err.details = data?.details;
-    throw err;
-  }
-  return data;
-}
-
-/**
  * "Baixa" a requisição no Alvo depois que o Hub gerou um pedido a partir dela.
+ * v1 (Postura A + Opção 1): atualiza SOMENTE a requisição, sempre "Total".
  *
- * v1 (Postura A + Opção 1):
- *   - Atualiza SOMENTE a requisição (o pedido não é tocado).
- *   - Baixa SEMPRE como "Total" (o Hub já impede 2º pedido da mesma req,
- *     então Total é sempre coerente no fluxo do Hub).
- *   - Marca o cabeçalho: Status="Pedido", GerouPedComp="Total".
- *   - Marca TODOS os itens da req: GerouPedComp="T", NumeroPedComp=<pedido>.
- *   - NÃO afirma correspondência item-a-item (itens são livres no v1):
- *     opera só no nível de cabeçalho + flags dos itens da própria req.
+ * Retorna { ok, erro } — em caso de falha, `erro` traz a mensagem real
+ * devolvida pelo Alvo/proxy (para diagnóstico na auditoria).
  *
- * Mecânica (2 chamadas, ambas via erp-proxy por causa do CORS):
- *   1. GET  /req-comp/{filial}/{numero}     → pega o JSON atual da req (Load)
- *   2. POST /req-comp/update                → devolve o JSON com 3 campos alterados
- *
- * IMPORTANTE: esta função é "best-effort". Qualquer erro é capturado e
- * logado, mas NÃO é propagado — o pedido já foi criado com sucesso e não
- * pode ser revertido por uma falha de baixa. Retorna true se baixou, false
- * se falhou (apenas para log/telemetria do chamador).
+ * Best-effort: nunca lança exceção; o pedido já foi criado e não é afetado.
  */
 async function baixarRequisicaoAlvo(params: {
   codigoEmpresaFilialReq: string;
   numeroReqAlvo: string;
   numeroPedidoAlvo: string;
-}): Promise<boolean> {
+}): Promise<{ ok: boolean; erro?: string }> {
   const { codigoEmpresaFilialReq, numeroReqAlvo, numeroPedidoAlvo } = params;
 
   try {
-    // ── 1. Carrega a req atual do Alvo (precisamos do objeto completo) ──
+    // ── 1. Carrega a req atual do Alvo ──
     const reqAtual = await callGatewayGet(
       `/req-comp/${encodeURIComponent(codigoEmpresaFilialReq)}/${encodeURIComponent(numeroReqAlvo)}`,
     );
 
     if (!reqAtual || typeof reqAtual !== "object" || !reqAtual.Numero) {
-      console.warn(
-        `[baixaReq] Load da req ${numeroReqAlvo} retornou objeto inesperado — baixa abortada (pedido segue OK).`,
-      );
-      return false;
+      const erro = `Load da req ${numeroReqAlvo} retornou objeto inesperado: ${JSON.stringify(reqAtual)?.slice(0, 300)}`;
+      console.warn(`[baixaReq] ${erro}`);
+      return { ok: false, erro };
     }
 
-    // Se a req JÁ está baixada (ex: baixou numa tentativa anterior ou foi
-    // convertida nativamente), não faz nada — idempotência.
+    // Idempotência: se já baixada, nada a fazer.
     if (reqAtual.Status === "Pedido" && reqAtual.GerouPedComp === "Total") {
-      console.log(`[baixaReq] req ${numeroReqAlvo} já estava baixada (Status=Pedido). Nada a fazer.`);
-      return true;
+      console.log(`[baixaReq] req ${numeroReqAlvo} já estava baixada.`);
+      return { ok: true };
     }
 
-    // ── 2. Altera os campos de baixa no objeto carregado ──
-    // Cabeçalho:
+    // ── 2. Altera os campos de baixa ──
     reqAtual.Status = "Pedido";
     reqAtual.GerouPedComp = "Total";
-
-    // Itens: marca todos como gerados, apontando para o pedido criado.
     if (Array.isArray(reqAtual.ItemReqCompChildList)) {
       for (const item of reqAtual.ItemReqCompChildList) {
         item.GerouPedComp = "T";
@@ -306,19 +264,18 @@ async function baixarRequisicaoAlvo(params: {
       }
     }
 
-    // ── 3. Devolve o objeto inteiro via update (SavePartial?action=Update) ──
+    // ── 3. Devolve via update ──
     const resp = await callGatewayJson("/req-comp/update", reqAtual);
-
-    const statusFinal = resp?.Status || "?";
-    console.log(`[baixaReq] req ${numeroReqAlvo} baixada → pedido ${numeroPedidoAlvo} (Status agora: ${statusFinal}).`);
-    return true;
-  } catch (err: any) {
-    // Best-effort: loga e segue. O pedido NÃO é afetado.
-    console.warn(
-      `[baixaReq] Falha ao baixar req ${numeroReqAlvo} (pedido ${numeroPedidoAlvo} segue OK):`,
-      err?.message || err,
+    console.log(
+      `[baixaReq] req ${numeroReqAlvo} baixada → pedido ${numeroPedidoAlvo} (Status: ${resp?.Status || "?"}).`,
     );
-    return false;
+    return { ok: true };
+  } catch (err: any) {
+    // Captura a mensagem real do Alvo/proxy.
+    const detalhe = err?.details && typeof err.details === "object" ? JSON.stringify(err.details).slice(0, 400) : "";
+    const erro = `${err?.message || String(err)}${detalhe ? ` | details: ${detalhe}` : ""}`;
+    console.warn(`[baixaReq] Falha ao baixar req ${numeroReqAlvo}: ${erro}`);
+    return { ok: false, erro };
   }
 }
 //FIM DA INSERÇÃO A: o helper callGatewayGet + a função baixarRequisicaoAlvo.
@@ -1333,20 +1290,12 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         },
         { onConflict: "id" },
       );
-      // BLOCO B — cole DENTRO de enviarPedido, no bloco de SUCESSO do envio,
-      //           logo APÓS o upsert que grava status_local: "enviado_alvo"
-      //           e ANTES do "if (input.origem_requisicao_id) { ... }".
-      //
-      //           (numeroAlvo já está definido acima, vindo de respData?.Numero)
+
+      // ████████████████████████████████████████████████████████████████████
+      // SUBSTITUIÇÃO 2 — troque o Bloco B inteiro por este
       // ████████████████████████████████████████████████████████████████████
 
       // ── BAIXA DA REQUISIÇÃO (v1: só a req é atualizada) ──────────────
-      // Se este pedido nasceu de uma requisição, "baixa" a req no Alvo
-      // (Aberto → Pedido). Best-effort: falha aqui NÃO derruba o pedido.
-      //
-      // Resolve a origem com fallback: primeiro tenta o input; se vier
-      // vazio, lê da própria tabela compras_pedidos (que já foi gravada
-      // acima com numero_req_comp / codigo_empresa_filial_req_comp).
       {
         let reqAlvoParaBaixar: string | null = input.origem_numero_req_alvo || null;
         let filialReqParaBaixar: string | null = input.origem_codigo_empresa_filial || null;
@@ -1365,32 +1314,29 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         }
 
         console.log(
-          `[baixaReq] origem resolvida → numeroAlvo=${numeroAlvo} ` +
-            `req=${reqAlvoParaBaixar} filialReq=${filialReqParaBaixar} ` +
-            `(input.req=${input.origem_numero_req_alvo} input.filial=${input.origem_codigo_empresa_filial})`,
+          `[baixaReq] origem → numeroAlvo=${numeroAlvo} req=${reqAlvoParaBaixar} filialReq=${filialReqParaBaixar}`,
         );
 
         if (numeroAlvo && reqAlvoParaBaixar && filialReqParaBaixar) {
-          const baixou = await baixarRequisicaoAlvo({
+          const resultadoBaixa = await baixarRequisicaoAlvo({
             codigoEmpresaFilialReq: filialReqParaBaixar,
             numeroReqAlvo: reqAlvoParaBaixar,
             numeroPedidoAlvo: numeroAlvo,
           });
-          // Auditoria do resultado da baixa (não bloqueia nada).
+
           await (supabase as any).from("compras_pedidos_auditoria").insert({
             pedido_id: pedidoId,
-            evento: baixou ? "req_baixada" : "req_baixa_falhou",
+            evento: resultadoBaixa.ok ? "req_baixada" : "req_baixa_falhou",
             user_id: input.user_id,
             user_nome: input.analista_nome,
-            sucesso: baixou,
-            mensagem_erro: baixou
+            sucesso: resultadoBaixa.ok,
+            mensagem_erro: resultadoBaixa.ok
               ? null
-              : `Baixa da req ${reqAlvoParaBaixar} falhou — pedido ${numeroAlvo} criado OK, baixa pendente.`,
+              : `[req ${reqAlvoParaBaixar} → ped ${numeroAlvo}] ${resultadoBaixa.erro || "erro desconhecido"}`,
           });
         } else {
           console.warn(
-            `[baixaReq] origem incompleta — baixa não disparada. ` +
-              `numeroAlvo=${numeroAlvo} req=${reqAlvoParaBaixar} filialReq=${filialReqParaBaixar}`,
+            `[baixaReq] origem incompleta — baixa não disparada. req=${reqAlvoParaBaixar} filialReq=${filialReqParaBaixar}`,
           );
         }
       }
