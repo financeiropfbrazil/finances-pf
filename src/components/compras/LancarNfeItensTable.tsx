@@ -169,8 +169,8 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
         </Button>
       </div>
 
-      <div className="rounded-md border overflow-x-auto">
-        <table className="w-full text-xs">
+      <div className="rounded-md border">
+        <table className="w-full table-fixed text-xs">
           <thead className="bg-muted/50">
             <tr className="text-left">
               <th className="p-2 font-medium">Item da NF (fornecedor)</th>
