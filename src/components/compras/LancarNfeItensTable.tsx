@@ -3,15 +3,13 @@
 // Etapa B / Fatia 2b — Tabela de itens do lançamento de NF-e.
 // Componente separado (filho do LancarNfeModalV2) para isolar a complexidade.
 //
-// SUB-FATIA 2b-i (revisada): tabela pré-populada com os itens do XML (Opção A).
-// O seletor de produto usa Popover+Command (renderiza em PORTAL) — assim a
-// lista de opções nunca fica atrás dos campos das linhas de baixo, problema
-// que o ProductCombobox (posicionamento absoluto) tinha dentro da tabela.
-// Mesmo padrão do rateio de classe/CC do SuprimentosPedidoNovo.
+// SUB-FATIA 2b-i: tabela pré-populada com itens do XML; seletor de produto
+//   Popover+Command (portal). Qtd/valor livres.
+// SUB-FATIA 2b-ii: seletor de NATUREZA DE OPERAÇÃO por item, abaixo do produto
+//   (Opção B). Busca server-side via rota do proxy /mov-estq/nat-operacao.
+//   Só aparece depois que o produto foi escolhido.
 //
-// A query já traz unidade_medida e controla_lote — sem busca complementar.
-//
-// AINDA NÃO TEM: dropdown de natureza (2b-ii) nem classe/CC (2b-iii).
+// AINDA NÃO TEM: classe/CC por item (2b-iii).
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,11 +21,14 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Trash2, Plus, AlertTriangle, ChevronsUpDown, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// URL do proxy (mesma usada no resto do Hub para falar com o Alvo).
+const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
+
 // ── Tipos ──────────────────────────────────────────────────────────────────
 
 export interface ItemXml {
   numero_item: number;
-  codigo_produto: string; // código do FORNECEDOR
+  codigo_produto: string;
   descricao: string;
   ncm: string | null;
   cfop: string | null;
@@ -35,7 +36,7 @@ export interface ItemXml {
   quantidade: number | null;
   valor_unitario: number | null;
   valor_total: number | null;
-  imposto?: any; // do parseNfeXml (C1)
+  imposto?: any;
 }
 
 export interface ItemLancamento {
@@ -46,6 +47,8 @@ export interface ItemLancamento {
   controlaLote: boolean;
   codigoAlternativo: string | null;
   classificacaoFiscal: string | null;
+  natureza: string | null; // CodigoNatOperacao (2b-ii)
+  naturezaNome: string | null;
   quantidade: number;
   valorUnitario: number;
   valorProduto: number;
@@ -58,6 +61,11 @@ interface ProdutoBusca {
   controla_lote: boolean | null;
   codigo_alternativo: string | null;
   classificacao_fiscal: string | null;
+}
+
+interface NaturezaOpcao {
+  Codigo: string;
+  Nome: string;
 }
 
 interface LancarNfeItensTableProps {
@@ -79,10 +87,18 @@ function linhaInicial(itemXml: ItemXml): ItemLancamento {
     controlaLote: false,
     codigoAlternativo: null,
     classificacaoFiscal: null,
+    natureza: null,
+    naturezaNome: null,
     quantidade: qtd,
     valorUnitario: vUnit,
     valorProduto: Number((qtd * vUnit).toFixed(2)),
   };
+}
+
+// Helper: pega o JWT do Supabase para autenticar no proxy.
+async function getJwt(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || null;
 }
 
 // ── Seletor de produto (Popover + Command, em portal) ──────────────────────
@@ -173,6 +189,108 @@ function ProdutoSelector({
   );
 }
 
+// ── Seletor de natureza de operação (Popover + Command, busca no proxy) ─────
+
+function NaturezaSelector({
+  value,
+  displayValue,
+  onSelect,
+}: {
+  value: string | null;
+  displayValue: string;
+  onSelect: (n: NaturezaOpcao) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState<NaturezaOpcao[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    if (search.length < 2) {
+      setResults([]);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true);
+      setErro(null);
+      try {
+        const jwt = await getJwt();
+        const r = await fetch(`${ERP_PROXY_URL}/mov-estq/nat-operacao`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+          body: JSON.stringify({ search, pageSize: 20 }),
+        });
+        if (!r.ok) {
+          setErro("Erro ao buscar naturezas.");
+          setResults([]);
+        } else {
+          const lista = await r.json();
+          setResults(Array.isArray(lista) ? lista : []);
+        }
+      } catch {
+        setErro("Falha de conexão.");
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 350);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-8 text-[11px]">
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {value ? displayValue : "Natureza de operação..."}
+          </span>
+          <ChevronsUpDown className="ml-2 h-3 w-3 opacity-50 shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[320px] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Buscar natureza (2+ letras)..." value={search} onValueChange={setSearch} />
+          <CommandList>
+            {loading && (
+              <div className="flex items-center justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {!loading && erro && <CommandEmpty>{erro}</CommandEmpty>}
+            {!loading && !erro && search.length < 2 && <CommandEmpty>Digite 2+ caracteres.</CommandEmpty>}
+            {!loading && !erro && search.length >= 2 && results.length === 0 && (
+              <CommandEmpty>Nenhuma natureza encontrada.</CommandEmpty>
+            )}
+            <CommandGroup>
+              {results.map((n) => (
+                <CommandItem
+                  key={n.Codigo}
+                  value={n.Codigo}
+                  onSelect={() => {
+                    onSelect(n);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                  className="text-[11px]"
+                >
+                  <Check className={cn("mr-2 h-3 w-3", value === n.Codigo ? "opacity-100" : "opacity-0")} />
+                  <span className="font-mono mr-2">{n.Codigo}</span>
+                  <span className="truncate text-muted-foreground">{n.Nome}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ── Tabela ─────────────────────────────────────────────────────────────────
 
 export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableProps) {
@@ -211,6 +329,13 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
     [atualizarLinha],
   );
 
+  const onSelecionarNatureza = useCallback(
+    (idx: number, n: NaturezaOpcao) => {
+      atualizarLinha(idx, { natureza: n.Codigo, naturezaNome: n.Nome });
+    },
+    [atualizarLinha],
+  );
+
   const removerLinha = (idx: number) => setItens((prev) => prev.filter((_, i) => i !== idx));
 
   const adicionarLinha = () =>
@@ -231,6 +356,7 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
 
   const totalGeral = itens.reduce((s, it) => s + it.valorProduto, 0);
   const algumSemProduto = itens.some((it) => !it.produtoInterno);
+  const algumSemNatureza = itens.some((it) => it.produtoInterno && !it.natureza);
 
   return (
     <div className="space-y-2">
@@ -245,8 +371,8 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
         <table className="w-full table-fixed text-xs">
           <thead className="bg-muted/50">
             <tr className="text-left">
-              <th className="p-2 font-medium w-[28%]">Item da NF (fornecedor)</th>
-              <th className="p-2 font-medium w-[34%]">Produto interno</th>
+              <th className="p-2 font-medium w-[26%]">Item da NF (fornecedor)</th>
+              <th className="p-2 font-medium w-[36%]">Produto interno + natureza</th>
               <th className="p-2 font-medium text-right w-[11%]">Qtd.</th>
               <th className="p-2 font-medium text-right w-[13%]">V. unit.</th>
               <th className="p-2 font-medium text-right w-[14%]">Total</th>
@@ -267,13 +393,13 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
                   </div>
                 </td>
 
-                <td className="p-2">
+                <td className="p-2 space-y-1">
                   <ProdutoSelector
                     value={it.produtoInterno}
                     displayValue={it.produtoInterno ? `${it.produtoInterno} — ${it.produtoNome || ""}` : ""}
                     onSelect={(p) => onSelecionarProduto(idx, p)}
                   />
-                  <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                     {it.produtoInterno ? (
                       <>
                         <span>un.: {it.unidade || "—"}</span>
@@ -289,6 +415,22 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
                       </span>
                     )}
                   </div>
+
+                  {/* Natureza de operação — só após escolher o produto (Opção B) */}
+                  {it.produtoInterno && (
+                    <>
+                      <NaturezaSelector
+                        value={it.natureza}
+                        displayValue={it.natureza ? `${it.natureza} — ${it.naturezaNome || ""}` : ""}
+                        onSelect={(n) => onSelecionarNatureza(idx, n)}
+                      />
+                      {!it.natureza && (
+                        <span className="flex items-center gap-1 text-[10px] text-amber-600">
+                          <AlertTriangle className="h-3 w-3" /> escolha a natureza
+                        </span>
+                      )}
+                    </>
+                  )}
                 </td>
 
                 <td className="p-2 text-right">
@@ -340,10 +482,12 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
         </table>
       </div>
 
-      {algumSemProduto && (
+      {(algumSemProduto || algumSemNatureza) && (
         <p className="flex items-center gap-1 text-[11px] text-amber-600">
           <AlertTriangle className="h-3 w-3" />
-          Todos os itens precisam de um produto interno antes de lançar.
+          {algumSemProduto
+            ? "Todos os itens precisam de um produto interno antes de lançar."
+            : "Todos os itens precisam de uma natureza de operação antes de lançar."}
         </p>
       )}
     </div>
