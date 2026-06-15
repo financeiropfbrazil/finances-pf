@@ -356,39 +356,13 @@ async function baixarRequisicaoAlvo(params: {
     );
     return { ok: true };
   } catch (err: any) {
-    const detalhe =
-      err?.details && typeof err.details === "object" ? JSON.stringify(err.details).slice(0, 400) : "";
-    const erro = `${err?.message || String(err)}${detalhe ? ` | details: ${detalhe}` : ""}`;
-    console.warn(`[baixaReq] Falha ao baixar req ${numeroReqAlvo}: ${erro}`);
-    return { ok: false, erro };
-  }
-}
-
-    // ── 2. Altera os campos de baixa ──
-    reqAtual.Status = "Pedido";
-    reqAtual.GerouPedComp = "Total";
-    if (Array.isArray(reqAtual.ItemReqCompChildList)) {
-      for (const item of reqAtual.ItemReqCompChildList) {
-        item.GerouPedComp = "T";
-        item.NumeroPedComp = numeroPedidoAlvo;
-      }
-    }
-
-    // ── 3. Devolve via update ──
-    const resp = await callGatewayJson("/req-comp/update", reqAtual);
-    console.log(
-      `[baixaReq] req ${numeroReqAlvo} baixada → pedido ${numeroPedidoAlvo} (Status: ${resp?.Status || "?"}).`,
-    );
-    return { ok: true };
-  } catch (err: any) {
-    // Captura a mensagem real do Alvo/proxy.
     const detalhe = err?.details && typeof err.details === "object" ? JSON.stringify(err.details).slice(0, 400) : "";
     const erro = `${err?.message || String(err)}${detalhe ? ` | details: ${detalhe}` : ""}`;
     console.warn(`[baixaReq] Falha ao baixar req ${numeroReqAlvo}: ${erro}`);
     return { ok: false, erro };
   }
 }
-//FIM DA INSERÇÃO A: o helper callGatewayGet + a função baixarRequisicaoAlvo.
+
 // ════════════════════════════════════════════════════════════
 // ENRIQUECIMENTO DE ITEM VIA ALVO
 // ════════════════════════════════════════════════════════════
