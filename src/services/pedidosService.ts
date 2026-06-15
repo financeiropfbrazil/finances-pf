@@ -214,7 +214,30 @@ async function callGatewayJson(path: string, payload: any): Promise<any> {
   }
   return data;
 }
-
+/**
+ * Chamada GET ao gateway (com JWT). Usada para buscar o Load de uma
+ * requisição antes de baixá-la.
+ */
+async function callGatewayGet(path: string): Promise<any> {
+  const jwt = await getSupabaseJWT();
+  const url = `${ERP_PROXY_URL}${path}`;
+  const resp = await fetch(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${jwt}` },
+  });
+  let data: any = null;
+  try {
+    data = await resp.json();
+  } catch {}
+  if (!resp.ok) {
+    const msg = data?.error || `HTTP ${resp.status}`;
+    const err = new Error(msg) as Error & { status?: number; details?: any };
+    err.status = resp.status;
+    err.details = data?.details;
+    throw err;
+  }
+  return data;
+}
 // ████████████████████████████████████████████████████████████████████
 // SUBSTITUIÇÃO 1 — troque a função baixarRequisicaoAlvo inteira por esta
 // (mantenha o callGatewayGet que já está acima dela — não muda)
