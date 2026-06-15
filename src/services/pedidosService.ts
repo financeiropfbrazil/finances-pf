@@ -1343,24 +1343,56 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       // ── BAIXA DA REQUISIÇÃO (v1: só a req é atualizada) ──────────────
       // Se este pedido nasceu de uma requisição, "baixa" a req no Alvo
       // (Aberto → Pedido). Best-effort: falha aqui NÃO derruba o pedido.
-      if (numeroAlvo && input.origem_numero_req_alvo && input.origem_codigo_empresa_filial) {
-        const baixou = await baixarRequisicaoAlvo({
-          codigoEmpresaFilialReq: input.origem_codigo_empresa_filial,
-          numeroReqAlvo: input.origem_numero_req_alvo,
-          numeroPedidoAlvo: numeroAlvo,
-        });
+      //
+      // Resolve a origem com fallback: primeiro tenta o input; se vier
+      // vazio, lê da própria tabela compras_pedidos (que já foi gravada
+      // acima com numero_req_comp / codigo_empresa_filial_req_comp).
+      {
+        let reqAlvoParaBaixar: string | null = input.origem_numero_req_alvo || null;
+        let filialReqParaBaixar: string | null = input.origem_codigo_empresa_filial || null;
 
-        // Auditoria do resultado da baixa (não bloqueia nada).
-        await (supabase as any).from("compras_pedidos_auditoria").insert({
-          pedido_id: pedidoId,
-          evento: baixou ? "req_baixada" : "req_baixa_falhou",
-          user_id: input.user_id,
-          user_nome: input.analista_nome,
-          sucesso: baixou,
-          mensagem_erro: baixou
-            ? null
-            : `Baixa da req ${input.origem_numero_req_alvo} falhou — pedido ${numeroAlvo} criado OK, baixa pendente.`,
-        });
+        // Fallback: busca na tabela se o input não trouxe.
+        if (!reqAlvoParaBaixar || !filialReqParaBaixar) {
+          const { data: pedOrigem } = await (supabase as any)
+            .from("compras_pedidos")
+            .select("numero_req_comp, codigo_empresa_filial_req_comp")
+            .eq("id", pedidoId)
+            .single();
+          if (pedOrigem) {
+            reqAlvoParaBaixar = reqAlvoParaBaixar || pedOrigem.numero_req_comp || null;
+            filialReqParaBaixar = filialReqParaBaixar || pedOrigem.codigo_empresa_filial_req_comp || null;
+          }
+        }
+
+        console.log(
+          `[baixaReq] origem resolvida → numeroAlvo=${numeroAlvo} ` +
+            `req=${reqAlvoParaBaixar} filialReq=${filialReqParaBaixar} ` +
+            `(input.req=${input.origem_numero_req_alvo} input.filial=${input.origem_codigo_empresa_filial})`,
+        );
+
+        if (numeroAlvo && reqAlvoParaBaixar && filialReqParaBaixar) {
+          const baixou = await baixarRequisicaoAlvo({
+            codigoEmpresaFilialReq: filialReqParaBaixar,
+            numeroReqAlvo: reqAlvoParaBaixar,
+            numeroPedidoAlvo: numeroAlvo,
+          });
+          // Auditoria do resultado da baixa (não bloqueia nada).
+          await (supabase as any).from("compras_pedidos_auditoria").insert({
+            pedido_id: pedidoId,
+            evento: baixou ? "req_baixada" : "req_baixa_falhou",
+            user_id: input.user_id,
+            user_nome: input.analista_nome,
+            sucesso: baixou,
+            mensagem_erro: baixou
+              ? null
+              : `Baixa da req ${reqAlvoParaBaixar} falhou — pedido ${numeroAlvo} criado OK, baixa pendente.`,
+          });
+        } else {
+          console.warn(
+            `[baixaReq] origem incompleta — baixa não disparada. ` +
+              `numeroAlvo=${numeroAlvo} req=${reqAlvoParaBaixar} filialReq=${filialReqParaBaixar}`,
+          );
+        }
       }
       // ── FIM DA BAIXA DA REQUISIÇÃO ──────────────────────────────────
 
