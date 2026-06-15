@@ -3,31 +3,31 @@
 // Etapa B / Fatia 2b — Tabela de itens do lançamento de NF-e.
 // Componente separado (filho do LancarNfeModalV2) para isolar a complexidade.
 //
-// SUB-FATIA 2b-i: tabela pré-populada com os itens do XML (Opção A).
-// Cada linha mostra o que veio na NF (descrição do fornecedor, qtd, valor) e,
-// ao lado, a operadora escolhe o PRODUTO INTERNO (ProductCombobox) e ajusta
-// quantidade/valor. A unidade e o controla_lote vêm de uma busca complementar
-// em stock_products (o ProductCombobox não devolve esses campos).
+// SUB-FATIA 2b-i (revisada): tabela pré-populada com os itens do XML (Opção A).
+// O seletor de produto usa Popover+Command (renderiza em PORTAL) — assim a
+// lista de opções nunca fica atrás dos campos das linhas de baixo, problema
+// que o ProductCombobox (posicionamento absoluto) tinha dentro da tabela.
+// Mesmo padrão do rateio de classe/CC do SuprimentosPedidoNovo.
+//
+// A query já traz unidade_medida e controla_lote — sem busca complementar.
 //
 // AINDA NÃO TEM: dropdown de natureza (2b-ii) nem classe/CC (2b-iii).
-//
-// O componente sobe o estado dos itens para o pai via onChange, para o modal
-// poder montar o payload depois.
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ProductCombobox } from "@/components/ProductCombobox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, Plus, Loader2, AlertTriangle } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Trash2, Plus, AlertTriangle, ChevronsUpDown, Check, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 // ── Tipos ──────────────────────────────────────────────────────────────────
 
-/** Item do XML (de dados_extraidos.itens). */
 export interface ItemXml {
   numero_item: number;
-  codigo_produto: string; // código do FORNECEDOR (não serve p/ Alvo)
+  codigo_produto: string; // código do FORNECEDOR
   descricao: string;
   ncm: string | null;
   cfop: string | null;
@@ -35,24 +35,29 @@ export interface ItemXml {
   quantidade: number | null;
   valor_unitario: number | null;
   valor_total: number | null;
-  imposto?: any; // do parseNfeXml (C1) — usado na fatia de impostos
+  imposto?: any; // do parseNfeXml (C1)
 }
 
-/** Linha de lançamento: o item do XML + o de-para que a operadora montou. */
 export interface ItemLancamento {
-  // referência ao XML (origem)
   origemXml: ItemXml;
-  // de-para interno (escolhido pela operadora)
-  produtoInterno: string | null; // codigo_produto do stock_products
+  produtoInterno: string | null;
   produtoNome: string | null;
-  unidade: string | null; // do cadastro, editável
+  unidade: string | null;
   controlaLote: boolean;
   codigoAlternativo: string | null;
   classificacaoFiscal: string | null;
-  // valores (operadora ajusta)
   quantidade: number;
   valorUnitario: number;
   valorProduto: number;
+}
+
+interface ProdutoBusca {
+  codigo_produto: string;
+  nome_produto: string;
+  unidade_medida: string | null;
+  controla_lote: boolean | null;
+  codigo_alternativo: string | null;
+  classificacao_fiscal: string | null;
 }
 
 interface LancarNfeItensTableProps {
@@ -63,7 +68,6 @@ interface LancarNfeItensTableProps {
 const fmtMoeda = (v: number | null | undefined) =>
   (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-// Cria uma linha de lançamento inicial a partir de um item do XML (sem de-para).
 function linhaInicial(itemXml: ItemXml): ItemLancamento {
   const qtd = itemXml.quantidade ?? 0;
   const vUnit = itemXml.valor_unitario ?? 0;
@@ -81,60 +85,128 @@ function linhaInicial(itemXml: ItemXml): ItemLancamento {
   };
 }
 
+// ── Seletor de produto (Popover + Command, em portal) ──────────────────────
+
+function ProdutoSelector({
+  value,
+  displayValue,
+  onSelect,
+}: {
+  value: string | null;
+  displayValue: string;
+  onSelect: (p: ProdutoBusca) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState<ProdutoBusca[]>([]);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    if (search.length < 2) {
+      setResults([]);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true);
+      const { data } = await (supabase as any)
+        .from("stock_products")
+        .select("codigo_produto, nome_produto, unidade_medida, controla_lote, codigo_alternativo, classificacao_fiscal")
+        .or(`nome_produto.ilike.%${search}%,codigo_produto.ilike.%${search}%`)
+        .eq("ativo", true)
+        .limit(20)
+        .order("nome_produto");
+      setResults((data as ProdutoBusca[] | null) || []);
+      setLoading(false);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9 text-xs">
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {value ? displayValue : "Buscar produto..."}
+          </span>
+          <ChevronsUpDown className="ml-2 h-3 w-3 opacity-50 shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[280px] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Digite 2+ letras..." value={search} onValueChange={setSearch} />
+          <CommandList>
+            {loading && (
+              <div className="flex items-center justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {!loading && search.length < 2 && <CommandEmpty>Digite 2+ caracteres para buscar.</CommandEmpty>}
+            {!loading && search.length >= 2 && results.length === 0 && (
+              <CommandEmpty>Nenhum produto encontrado.</CommandEmpty>
+            )}
+            <CommandGroup>
+              {results.map((p) => (
+                <CommandItem
+                  key={p.codigo_produto}
+                  value={p.codigo_produto}
+                  onSelect={() => {
+                    onSelect(p);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                  className="text-xs"
+                >
+                  <Check className={cn("mr-2 h-3 w-3", value === p.codigo_produto ? "opacity-100" : "opacity-0")} />
+                  <span className="font-mono mr-2">{p.codigo_produto}</span>
+                  <span className="truncate text-muted-foreground">{p.nome_produto}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ── Tabela ─────────────────────────────────────────────────────────────────
+
 export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableProps) {
   const [itens, setItens] = useState<ItemLancamento[]>([]);
-  const [buscandoProduto, setBuscandoProduto] = useState<number | null>(null);
 
-  // Pré-popula a tabela com os itens do XML (Opção A) ao montar/trocar de nota.
   useEffect(() => {
     setItens((itensXml || []).map(linhaInicial));
   }, [itensXml]);
 
-  // Sempre que itens muda, avisa o pai.
   useEffect(() => {
     onChange(itens);
   }, [itens, onChange]);
 
-  // Atualiza uma linha por índice.
   const atualizarLinha = useCallback((idx: number, patch: Partial<ItemLancamento>) => {
     setItens((prev) =>
       prev.map((it, i) => {
         if (i !== idx) return it;
         const merged = { ...it, ...patch };
-        // recalcula o total se qtd ou valor unitário mudaram
         merged.valorProduto = Number((merged.quantidade * merged.valorUnitario).toFixed(2));
         return merged;
       }),
     );
   }, []);
 
-  // Busca complementar em stock_products (o ProductCombobox não traz unidade/lote).
   const onSelecionarProduto = useCallback(
-    async (idx: number, codigo: string, nome: string) => {
-      setBuscandoProduto(idx);
-      try {
-        const { data } = await (supabase as any)
-          .from("stock_products")
-          .select(
-            "codigo_produto, nome_produto, unidade_medida, controla_lote, codigo_alternativo, classificacao_fiscal",
-          )
-          .eq("codigo_produto", codigo)
-          .maybeSingle();
-
-        atualizarLinha(idx, {
-          produtoInterno: codigo,
-          produtoNome: data?.nome_produto || nome,
-          unidade: data?.unidade_medida || null,
-          controlaLote: !!data?.controla_lote,
-          codigoAlternativo: data?.codigo_alternativo || null,
-          classificacaoFiscal: data?.classificacao_fiscal || null,
-        });
-      } catch {
-        // Sem dados complementares: registra ao menos código/nome do combobox.
-        atualizarLinha(idx, { produtoInterno: codigo, produtoNome: nome });
-      } finally {
-        setBuscandoProduto(null);
-      }
+    (idx: number, p: ProdutoBusca) => {
+      atualizarLinha(idx, {
+        produtoInterno: p.codigo_produto,
+        produtoNome: p.nome_produto,
+        unidade: p.unidade_medida || null,
+        controlaLote: !!p.controla_lote,
+        codigoAlternativo: p.codigo_alternativo || null,
+        classificacaoFiscal: p.classificacao_fiscal || null,
+      });
     },
     [atualizarLinha],
   );
@@ -173,42 +245,36 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
         <table className="w-full table-fixed text-xs">
           <thead className="bg-muted/50">
             <tr className="text-left">
-              <th className="p-2 font-medium">Item da NF (fornecedor)</th>
-              <th className="p-2 font-medium min-w-[220px]">Produto interno</th>
-              <th className="p-2 font-medium text-right">Qtd.</th>
-              <th className="p-2 font-medium text-right">V. unit.</th>
-              <th className="p-2 font-medium text-right">Total</th>
+              <th className="p-2 font-medium w-[28%]">Item da NF (fornecedor)</th>
+              <th className="p-2 font-medium w-[34%]">Produto interno</th>
+              <th className="p-2 font-medium text-right w-[11%]">Qtd.</th>
+              <th className="p-2 font-medium text-right w-[13%]">V. unit.</th>
+              <th className="p-2 font-medium text-right w-[14%]">Total</th>
               <th className="p-2 w-8" />
             </tr>
           </thead>
           <tbody>
             {itens.map((it, idx) => (
               <tr key={idx} className="border-t align-top">
-                {/* Origem (XML do fornecedor) */}
-                <td className="p-2 max-w-[200px]">
+                <td className="p-2">
                   <p className="truncate" title={it.origemXml.descricao}>
                     {it.origemXml.descricao || "—"}
                   </p>
-                  <div className="mt-0.5 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                  <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground">
                     {it.origemXml.codigo_produto && <span>cód. forn.: {it.origemXml.codigo_produto}</span>}
                     {it.origemXml.ncm && <span>NCM {it.origemXml.ncm}</span>}
                     {it.origemXml.cfop && <span>CFOP {it.origemXml.cfop}</span>}
                   </div>
                 </td>
 
-                {/* De-para: produto interno */}
                 <td className="p-2">
-                  <ProductCombobox
-                    value={it.produtoInterno || ""}
+                  <ProdutoSelector
+                    value={it.produtoInterno}
                     displayValue={it.produtoInterno ? `${it.produtoInterno} — ${it.produtoNome || ""}` : ""}
-                    onSelect={(p) => onSelecionarProduto(idx, p.codigo, p.nome)}
+                    onSelect={(p) => onSelecionarProduto(idx, p)}
                   />
                   <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-                    {buscandoProduto === idx ? (
-                      <span className="flex items-center gap-1">
-                        <Loader2 className="h-3 w-3 animate-spin" /> carregando dados...
-                      </span>
-                    ) : it.produtoInterno ? (
+                    {it.produtoInterno ? (
                       <>
                         <span>un.: {it.unidade || "—"}</span>
                         {it.controlaLote && (
@@ -225,31 +291,27 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
                   </div>
                 </td>
 
-                {/* Quantidade */}
                 <td className="p-2 text-right">
                   <Input
                     type="number"
                     value={it.quantidade}
                     onChange={(e) => atualizarLinha(idx, { quantidade: Number(e.target.value) || 0 })}
-                    className="h-8 w-20 text-right text-xs"
+                    className="h-8 text-right text-xs"
                   />
                 </td>
 
-                {/* Valor unitário */}
                 <td className="p-2 text-right">
                   <Input
                     type="number"
                     step="0.01"
                     value={it.valorUnitario}
                     onChange={(e) => atualizarLinha(idx, { valorUnitario: Number(e.target.value) || 0 })}
-                    className="h-8 w-24 text-right text-xs"
+                    className="h-8 text-right text-xs"
                   />
                 </td>
 
-                {/* Total da linha */}
                 <td className="p-2 text-right whitespace-nowrap font-medium">{fmtMoeda(it.valorProduto)}</td>
 
-                {/* Remover */}
                 <td className="p-2">
                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => removerLinha(idx)}>
                     <Trash2 className="h-3 w-3 text-muted-foreground" />
