@@ -252,6 +252,65 @@ async function callGatewayGet(path: string): Promise<any> {
  *
  * Best-effort: nunca lança exceção; o pedido já foi criado e não é afetado.
  */
+// ═══════════════════════════════════════════════════════════════════
+// CORREÇÃO — baixarRequisicaoAlvo robusta ao formato do GET
+// ═══════════════════════════════════════════════════════════════════
+//
+// O erro "ItemReqCompChildList ausente ou vazio" mostra que o GET do
+// proxy devolve a req num formato que NÃO tem o ItemReqCompChildList no
+// nível raiz — provavelmente embrulhada (.data, listaReqComp[0], etc).
+//
+// Esta versão "desembrulha" o objeto da req antes de usar, aceitando
+// vários formatos possíveis. Troque a função baixarRequisicaoAlvo INTEIRA
+// por esta. (O callGatewayGet continua igual, não mexe.)
+//
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Tenta extrair o objeto "plano" da requisição de qualquer envelope
+ * que o GET do proxy possa devolver:
+ *   - objeto direto:            { CodigoEmpresaFilial, Numero, ItemReqCompChildList, ... }
+ *   - dentro de .data:          { data: { ...req... } }
+ *   - lista nomeada:            { listaReqComp: [ { ...req... } ] }
+ *   - array puro:               [ { ...req... } ]
+ * Retorna null se não achar um objeto com ItemReqCompChildList.
+ */
+function desembrulharReq(bruto: any): any | null {
+  if (!bruto || typeof bruto !== "object") return null;
+
+  // 1. Objeto direto já com a lista de itens
+  if (Array.isArray(bruto.ItemReqCompChildList) && bruto.Numero) {
+    return bruto;
+  }
+
+  // 2. Envelope { data: ... }
+  if (bruto.data && typeof bruto.data === "object") {
+    const d = bruto.data;
+    if (Array.isArray(d.ItemReqCompChildList) && d.Numero) return d;
+    if (Array.isArray(d) && d[0]?.ItemReqCompChildList) return d[0];
+  }
+
+  // 3. Listas nomeadas conhecidas
+  for (const chave of ["listaReqComp", "ReqComp", "result", "Result"]) {
+    const v = bruto[chave];
+    if (Array.isArray(v) && v[0]?.ItemReqCompChildList && v[0]?.Numero) return v[0];
+    if (v && typeof v === "object" && Array.isArray(v.ItemReqCompChildList) && v.Numero) return v;
+  }
+
+  // 4. Array puro
+  if (Array.isArray(bruto) && bruto[0]?.ItemReqCompChildList && bruto[0]?.Numero) {
+    return bruto[0];
+  }
+
+  return null;
+}
+
+/**
+ * "Baixa" a requisição no Alvo depois que o Hub gerou um pedido a partir dela.
+ * v1 (Postura A + Opção 1): atualiza SOMENTE a requisição, sempre "Total".
+ * Retorna { ok, erro } — `erro` traz a mensagem real do Alvo/proxy.
+ * Best-effort: nunca lança; o pedido já foi criado e não é afetado.
+ */
 async function baixarRequisicaoAlvo(params: {
   codigoEmpresaFilialReq: string;
   numeroReqAlvo: string;
@@ -260,13 +319,16 @@ async function baixarRequisicaoAlvo(params: {
   const { codigoEmpresaFilialReq, numeroReqAlvo, numeroPedidoAlvo } = params;
 
   try {
-    // ── 1. Carrega a req atual do Alvo ──
-    const reqAtual = await callGatewayGet(
+    // ── 1. Carrega a req atual e desembrulha ──
+    const bruto = await callGatewayGet(
       `/req-comp/${encodeURIComponent(codigoEmpresaFilialReq)}/${encodeURIComponent(numeroReqAlvo)}`,
     );
 
-    if (!reqAtual || typeof reqAtual !== "object" || !reqAtual.Numero) {
-      const erro = `Load da req ${numeroReqAlvo} retornou objeto inesperado: ${JSON.stringify(reqAtual)?.slice(0, 300)}`;
+    const reqAtual = desembrulharReq(bruto);
+
+    if (!reqAtual) {
+      const amostra = JSON.stringify(bruto)?.slice(0, 300);
+      const erro = `GET da req ${numeroReqAlvo} não trouxe ItemReqCompChildList reconhecível. Retorno: ${amostra}`;
       console.warn(`[baixaReq] ${erro}`);
       return { ok: false, erro };
     }
@@ -276,6 +338,31 @@ async function baixarRequisicaoAlvo(params: {
       console.log(`[baixaReq] req ${numeroReqAlvo} já estava baixada.`);
       return { ok: true };
     }
+
+    // ── 2. Altera os campos de baixa ──
+    reqAtual.Status = "Pedido";
+    reqAtual.GerouPedComp = "Total";
+    if (Array.isArray(reqAtual.ItemReqCompChildList)) {
+      for (const item of reqAtual.ItemReqCompChildList) {
+        item.GerouPedComp = "T";
+        item.NumeroPedComp = numeroPedidoAlvo;
+      }
+    }
+
+    // ── 3. Devolve via update ──
+    const resp = await callGatewayJson("/req-comp/update", reqAtual);
+    console.log(
+      `[baixaReq] req ${numeroReqAlvo} baixada → pedido ${numeroPedidoAlvo} (Status: ${resp?.Status || "?"}).`,
+    );
+    return { ok: true };
+  } catch (err: any) {
+    const detalhe =
+      err?.details && typeof err.details === "object" ? JSON.stringify(err.details).slice(0, 400) : "";
+    const erro = `${err?.message || String(err)}${detalhe ? ` | details: ${detalhe}` : ""}`;
+    console.warn(`[baixaReq] Falha ao baixar req ${numeroReqAlvo}: ${erro}`);
+    return { ok: false, erro };
+  }
+}
 
     // ── 2. Altera os campos de baixa ──
     reqAtual.Status = "Pedido";
