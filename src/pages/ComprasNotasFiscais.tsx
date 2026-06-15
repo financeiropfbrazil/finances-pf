@@ -40,7 +40,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { VincularPedidoNfeDialog } from "@/components/compras/VincularPedidoNfeDialog";
-import { LancarNfeModal } from "@/components/compras/LancarNfeModal";
+import { LancarNfeModalV2 } from "@/components/compras/LancarNfeModalV2";
 import { UploadXmlButton } from "@/components/compras/UploadXmlButton";
 import { carregarMovEstq } from "@/services/alvoMovEstqLoadService";
 
@@ -774,7 +774,7 @@ const ComprasNotasFiscais = () => {
       )}
 
       {/* Lançar */}
-      <LancarNfeModal
+      <LancarNfeModalV2
         open={lancarModal.open}
         onOpenChange={(open) => setLancarModal((prev) => ({ ...prev, open }))}
         nfe={lancarModal.nfe as any}
