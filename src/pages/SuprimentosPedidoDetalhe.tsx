@@ -6,6 +6,8 @@ import { ptBR } from "date-fns/locale";
 import {
   ArrowLeft,
   Pencil,
+  Send,
+  ShieldCheck,
   Trash2,
   Building2,
   Package,
@@ -47,7 +49,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
 import { PERMISSIONS } from "@/constants/permissions";
 import { supabase } from "@/integrations/supabase/client";
-import { carregarPedidoParaDetalhe, excluirPedido, getUrlAssinadaArquivoPedido } from "@/services/pedidosService";
+import {
+  carregarPedidoParaDetalhe,
+  excluirPedido,
+  getUrlAssinadaArquivoPedido,
+  enviarPedidoParaAprovacao,
+} from "@/services/pedidosService";
 import VincularRequisicaoCard from "@/components/VincularRequisicaoCard";
 import { getStatusPedido } from "@/lib/statusPedido";
 import { carregarDetalhesPedido } from "@/services/alvoPedCompLoadService";
@@ -78,6 +85,16 @@ const EVENTO_CONFIG: Record<string, { label: string; icon: any; className: strin
     label: "Desvinculado do pedido",
     icon: Unlink,
     className: "text-slate-600 dark:text-slate-400",
+  },
+  enviado_aprovacao: {
+    label: "Enviado para aprovação",
+    icon: Send,
+    className: "text-blue-600 dark:text-blue-400",
+  },
+  enviar_aprovacao_falhou: {
+    label: "Falha ao enviar p/ aprovação",
+    icon: XCircle,
+    className: "text-red-600 dark:text-red-400",
   },
 };
 
@@ -132,6 +149,8 @@ export default function SuprimentosPedidoDetalhe() {
 
   const [showExcluirDialog, setShowExcluirDialog] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
+  const [showAprovacaoDialog, setShowAprovacaoDialog] = useState(false);
+  const [enviandoAprovacao, setEnviandoAprovacao] = useState(false);
 
   // ── Query principal: detalhes do pedido ────────────────────
   const {
@@ -278,6 +297,40 @@ export default function SuprimentosPedidoDetalhe() {
       setShowExcluirDialog(false);
     }
   }
+  async function handleEnviarAprovacao() {
+    if (!id || !user) return;
+    setEnviandoAprovacao(true);
+    try {
+      const nomeUsuario = (user as any).user_metadata?.full_name || user.email || "Usuário";
+      const resultado = await enviarPedidoParaAprovacao(id, user.id, nomeUsuario);
+
+      if (resultado.ok) {
+        toast({
+          title: "Pedido enviado para aprovação",
+          description: resultado.proximo_aprovador
+            ? `Próximo aprovador: ${resultado.proximo_aprovador}`
+            : "O pedido seguiu no fluxo de aprovação do ERP.",
+        });
+        setShowAprovacaoDialog(false);
+        refetch();
+      } else {
+        toast({
+          title: "Não foi possível enviar para aprovação",
+          description: resultado.erro || "Tente novamente.",
+          variant: "destructive",
+        });
+        // NÃO fecha o dialog — deixa o usuário tentar de novo
+      }
+    } catch (err: any) {
+      toast({
+        title: "Erro ao enviar para aprovação",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setEnviandoAprovacao(false);
+    }
+  }
 
   // ── Loading ────────────────────────────────────────────────
   if (isLoading) {
@@ -318,6 +371,12 @@ export default function SuprimentosPedidoDetalhe() {
   // Status unificado: combina pedido + pedidoMeta pra captar todos os campos relevantes
   const pedidoComMeta = { ...pedido, ...(pedidoMeta || {}) };
   const statusVisual = getStatusPedido(pedidoComMeta);
+  const jaEnviouAprovacao = pedidoComMeta.enviou_aprovacao === "Sim";
+  const podeEnviarAprovacao =
+    !pedido.numero?.startsWith("RASCUNHO-") &&
+    pedido.status_local !== "rascunho" &&
+    pedido.status_local !== "erro_envio" &&
+    !jaEnviouAprovacao;
 
   const numeroVisivel = pedido.numero?.startsWith("RASCUNHO-") ? `(rascunho)` : pedido.numero || "(rascunho)";
 
@@ -385,8 +444,22 @@ export default function SuprimentosPedidoDetalhe() {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
         </Button>
-
         <div className="flex items-center gap-2">
+          {podeEnviarAprovacao && (
+            <Button onClick={() => setShowAprovacaoDialog(true)} className="bg-blue-600 text-white hover:bg-blue-700">
+              <Send className="mr-2 h-4 w-4" />
+              Enviar para Aprovação
+            </Button>
+          )}
+          {jaEnviouAprovacao && (
+            <Badge
+              variant="outline"
+              className="flex items-center gap-1.5 border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Enviado para aprovação
+            </Badge>
+          )}
           {isEditavel && (
             <Button variant="outline" onClick={() => navigate(`/suprimentos/pedidos/novo?pedidoId=${id}`)}>
               <Pencil className="mr-2 h-4 w-4" />
@@ -824,6 +897,78 @@ export default function SuprimentosPedidoDetalhe() {
                 <>
                   <Trash2 className="mr-2 h-4 w-4" />
                   Sim, excluir
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog de confirmação de ENVIO PARA APROVAÇÃO (revisão read-only) */}
+      <AlertDialog open={showAprovacaoDialog} onOpenChange={setShowAprovacaoDialog}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-blue-600" />
+              Enviar pedido {numeroVisivel} para aprovação?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    Após enviar, o pedido seguirá no fluxo de aprovação do ERP. Dependendo do andamento, ele{" "}
+                    <strong>não poderá mais ser editado</strong>. Confira os dados antes de confirmar.
+                  </p>
+                </div>
+
+                {/* Resumo read-only */}
+                <div className="space-y-2 rounded-md border bg-muted/20 p-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Fornecedor</span>
+                    <span className="font-medium text-right">{pedido.nome_entidade}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Valor total</span>
+                    <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                      {formatBRL(valorTotal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Condição de pagamento</span>
+                    <span className="font-medium text-right">{pedido.nome_cond_pag}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Itens</span>
+                    <span className="font-medium">{pedido.itens.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Parcelas</span>
+                    <span className="font-medium">{pedido.parcelas.length}</span>
+                  </div>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={enviandoAprovacao}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault(); // impede o fechamento automático em caso de erro
+                handleEnviarAprovacao();
+              }}
+              disabled={enviandoAprovacao}
+              className="bg-blue-600 text-white hover:bg-blue-700"
+            >
+              {enviandoAprovacao ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Enviando…
+                </>
+              ) : (
+                <>
+                  <Send className="mr-2 h-4 w-4" />
+                  Confirmar envio
                 </>
               )}
             </AlertDialogAction>
