@@ -1,23 +1,23 @@
 // src/components/compras/LancarNfeModalV2.tsx
 //
 // Etapa B — Modal de lançamento de NF-e (produto) no Alvo. Versão nova (V2).
+// Layout ERP quase tela cheia: header fixo, conteúdo rolável, footer fixo.
 //
-// Layout profissional de ERP: quase tela cheia, header fixo no topo, conteúdo
-// rolável no meio, footer fixo embaixo (Lançar/Cancelar sempre visíveis).
-// Cabeçalho da nota compacto; seções bem separadas.
-//
-// FATIAS PRONTAS: 1 (cabeçalho + tipo), 2b (tabela de itens completa).
-// PRÓXIMAS: 3 (impostos), 4 (lote), 5 (pagamento), 6 (conferência + lançar).
+// FATIAS PRONTAS: 1 (cabeçalho+tipo), 2b (tabela itens completa),
+//   3a (parse do raw_xml → injeta imposto nos itens p/ a fatia 3 de impostos).
+// Header: copiar chave completa + placeholder do botão DANFE (B5 follow-up).
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { LancarNfeItensTable, type ItemLancamento } from "@/components/compras/LancarNfeItensTable";
-import { X, FileText, Building2, Calendar, Hash, KeyRound, Link2, AlertTriangle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { LancarNfeItensTable, type ItemLancamento, type ItemXml } from "@/components/compras/LancarNfeItensTable";
+import { parseNfeXml } from "@/services/parseNfeXml";
+import { X, FileText, Building2, Calendar, Hash, KeyRound, Link2, AlertTriangle, Copy, FileDown } from "lucide-react";
 
 const TIPOS_LANCAMENTO = [
   { codigo: "E0000158", nome: "Entrada NF-e c/ Laudo (lote)" },
@@ -68,7 +68,6 @@ const fmtCnpj = (c: string | null) => {
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
 };
 
-// Bloco compacto de info do cabeçalho (label pequeno + valor)
 function InfoBloco({ icon: Icon, label, children }: { icon: any; label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
@@ -81,6 +80,7 @@ function InfoBloco({ icon: Icon, label, children }: { icon: any; label: string; 
 }
 
 export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarNfeModalV2Props) {
+  const { toast } = useToast();
   const [tipoLancamento, setTipoLancamento] = useState("E0000158");
   const [itens, setItens] = useState<ItemLancamento[]>([]);
 
@@ -91,18 +91,47 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
     }
   }, [open, nfe?.id]);
 
+  // 3a — parseia o raw_xml e injeta o imposto em cada item (casando por numero_item).
+  // Se não houver XML, cai no dados_extraidos sem imposto (fallback gracioso).
+  const itensComImposto: ItemXml[] = useMemo(() => {
+    const base: ItemXml[] = (nfe?.dados_extraidos?.itens || []) as ItemXml[];
+    if (!nfe?.raw_xml) return base;
+    try {
+      const parsed = parseNfeXml(nfe.raw_xml);
+      const mapaImposto = new Map<number, any>();
+      for (const it of parsed.itens || []) {
+        mapaImposto.set(Number(it.numero_item), it.imposto);
+      }
+      // Se dados_extraidos estiver vazio, usa os itens do próprio parse.
+      const origem = base.length > 0 ? base : (parsed.itens as any[]);
+      return origem.map((it) => ({
+        ...it,
+        imposto: it.imposto || mapaImposto.get(Number(it.numero_item)) || null,
+      }));
+    } catch {
+      return base;
+    }
+  }, [nfe?.raw_xml, nfe?.dados_extraidos]);
+
   if (!nfe) return null;
 
   const temPedido = !!nfe.pedido_compra_numero;
   const totalItens = itens.reduce((s, it) => s + it.valorProduto, 0);
   const diferenca = Number((totalItens - (nfe.valor_total || 0)).toFixed(2));
 
+  const copiarChave = async () => {
+    if (!nfe.chave_acesso) return;
+    try {
+      await navigator.clipboard.writeText(nfe.chave_acesso);
+      toast({ title: "Chave copiada", description: "A chave de acesso (44 dígitos) foi copiada." });
+    } catch {
+      toast({ title: "Não foi possível copiar", variant: "destructive" });
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-w-[95vw] w-[95vw] h-[92vh] p-0 gap-0 flex flex-col overflow-hidden sm:rounded-lg"
-        // remove o X padrão do shadcn (temos um próprio no header)
-      >
+      <DialogContent className="max-w-[95vw] w-[95vw] h-[92vh] p-0 gap-0 flex flex-col overflow-hidden sm:rounded-lg">
         {/* ─────────── HEADER FIXO ─────────── */}
         <div className="shrink-0 border-b bg-muted/30 px-6 py-3">
           <div className="flex items-start justify-between gap-4">
@@ -118,12 +147,23 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
                 </p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => onOpenChange(false)}>
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              {/* DANFE — placeholder até a B5 (gerador próprio) */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                disabled
+                title="Geração da DANFE em breve (B5)"
+              >
+                <FileDown className="h-3.5 w-3.5" /> DANFE
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => onOpenChange(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
-          {/* Linha de infos compactas */}
           <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 md:grid-cols-4 lg:grid-cols-5">
             <InfoBloco icon={Building2} label="Fornecedor">
               <span title={nfe.emitente_nome || ""}>{nfe.emitente_nome || "—"}</span>
@@ -146,11 +186,27 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
                 <span className="text-amber-600 text-xs">não vinculado</span>
               )}
             </InfoBloco>
-            <InfoBloco icon={KeyRound} label="Chave de acesso">
-              <span className="font-mono text-[11px] font-normal break-all" title={nfe.chave_acesso || ""}>
-                {nfe.chave_acesso ? `${nfe.chave_acesso.slice(0, 12)}…${nfe.chave_acesso.slice(-6)}` : "—"}
-              </span>
-            </InfoBloco>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                <KeyRound className="h-3 w-3" /> Chave de acesso
+              </div>
+              <div className="mt-0.5 flex items-center gap-1">
+                <span className="font-mono text-[11px] truncate" title={nfe.chave_acesso || ""}>
+                  {nfe.chave_acesso ? `${nfe.chave_acesso.slice(0, 12)}…${nfe.chave_acesso.slice(-6)}` : "—"}
+                </span>
+                {nfe.chave_acesso && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 shrink-0"
+                    onClick={copiarChave}
+                    title="Copiar chave completa"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -163,7 +219,6 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
             </div>
           )}
 
-          {/* Tipo de lançamento */}
           <section className="space-y-1.5 max-w-xl">
             <Label htmlFor="tipo-lancamento" className="text-sm font-medium">
               Tipo de lançamento
@@ -188,17 +243,15 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
 
           <Separator />
 
-          {/* Itens */}
           <section>
             <LancarNfeItensTable
-              itensXml={(nfe.dados_extraidos?.itens || []) as any}
+              itensXml={itensComImposto}
               classePedido={nfe.pedido_compra_classe}
               ccPedido={nfe.pedido_compra_centro_custo}
               onChange={setItens}
             />
           </section>
 
-          {/* Placeholder próximas fatias */}
           <Separator />
           <section className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             Impostos, lote e pagamento entram nas próximas etapas.
@@ -208,7 +261,6 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
         {/* ─────────── FOOTER FIXO ─────────── */}
         <div className="shrink-0 border-t bg-muted/30 px-6 py-3">
           <div className="flex items-center justify-between gap-4">
-            {/* Conferência rápida de diferença */}
             <div className="flex items-center gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Total itens: </span>
@@ -222,7 +274,6 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
                 dif. {fmtMoeda(diferenca)}
               </Badge>
             </div>
-
             <div className="flex items-center gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
