@@ -84,7 +84,7 @@ export interface BuildItemInput {
   valorProduto: number; // total do item (qtd * unitário)
   classe: string; // do pedido, ex. "11.03"
   centroCusto: string; // do pedido, ex. "00010.00002.00007.00002"
-  vinculo: VinculoPedido;
+  vinculo?: VinculoPedido | null;
   lote?: LoteManual; // presente só se produto.controla_lote
   codigoEntidade: string; // fornecedor, ex. "0000381"
 }
@@ -190,10 +190,14 @@ export function buildItemMovEstq(input: BuildItemInput): any {
     ChaveMovEstq: 0,
     Sequencia: sequencia,
     CodigoNatOperacao: natureza, // do dropdown
-    CodigoEmpresaFilialPedComp: FILIAL,
-    NumeroPedComp: vinculo.numeroPedComp,
-    CodigoProdutoPedComp: vinculo.codigoProdutoPedComp,
-    SequenciaItemPedComp: vinculo.sequenciaItemPedComp,
+    ...(vinculo
+      ? {
+          CodigoEmpresaFilialPedComp: FILIAL,
+          NumeroPedComp: vinculo.numeroPedComp,
+          CodigoProdutoPedComp: vinculo.codigoProdutoPedComp,
+          SequenciaItemPedComp: vinculo.sequenciaItemPedComp,
+        }
+      : {}),
     QuantidadeProdUnidMedPrincipal: quantidade, // operadora
     Quantidade2: quantidade,
     ValorProduto: valorProduto,
@@ -633,4 +637,158 @@ export function conferenciaHeader187035(): string {
   );
 
   return linhas.join("\n");
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Ponte UI → payload (fatia 6)
+// ══════════════════════════════════════════════════════════════════════════
+//
+// Converte o estado coletado no modal (itens da tabela + pagamento + dados da
+// nota) no MovEstq completo, pronto para a rota /mov-estq/save.
+//
+// Os tipos de entrada espelham o que a UI produz (LancarNfeItensTable e
+// LancarNfePagamento), mas mantidos frouxos (any) para não acoplar o service
+// aos componentes. A UI passa os objetos como estão.
+
+export interface MontarDoModalInput {
+  // cabeçalho / nota
+  codigoTipoLanc: string;
+  numero: string;
+  serie: string;
+  especie?: string;
+  chaveAcessoNfe: string;
+  dataEmissao: string; // ISO (YYYY-MM-DD)
+  dataMovimento?: string; // ISO; default = hoje
+  codigoEntidade: string; // pedido_compra_entidade
+  nomeEntidade: string;
+  cpfCnpjEntidade: string;
+  numeroPedComp?: string | null; // pedido_compra_numero (vínculo de cabeçalho)
+  // itens (do estado da tabela)
+  itens: Array<{
+    produtoInterno: string;
+    produtoNome: string;
+    unidade: string;
+    codigoAlternativo: string | null;
+    classificacaoFiscal: string | null;
+    controlaLote: boolean;
+    natureza: string;
+    classe: string;
+    centroCusto: string;
+    quantidade: number;
+    valorUnitario: number;
+    valorProduto: number;
+    imposto: any; // ItemImposto da UI
+    lote?: { numero: string; validade: string; fabricacao: string } | null;
+    origemXml?: { ncm?: string | null } | null;
+  }>;
+  // pagamento (do estado do componente de pagamento)
+  pagamento: {
+    tipoContaPagar: string;
+    parcelas: Array<{ sequencia: number; vencimento: Date | string; valor: number; tipoCobranca: string }>;
+  };
+}
+
+function isoDate(d: Date | string): string {
+  const dt = typeof d === "string" ? new Date(d) : d;
+  return dt.toISOString().split("T")[0] + "T00:00:00-03:00";
+}
+
+export function montarPayloadDoModal(input: MontarDoModalInput): any {
+  const especie = input.especie || "NF-e";
+  const dataMov = input.dataMovimento || new Date().toISOString().split("T")[0];
+
+  // 1. Monta os itens via buildItemMovEstq.
+  const itensPayload = input.itens.map((it, idx) => {
+    const imp = it.imposto || {};
+    return buildItemMovEstq({
+      sequencia: idx + 1,
+      produto: {
+        codigo_produto: it.produtoInterno,
+        nome_produto: it.produtoNome,
+        unidade_medida: it.unidade,
+        classificacao_fiscal: it.classificacaoFiscal,
+        codigo_alternativo: it.codigoAlternativo,
+        controla_lote: it.controlaLote,
+      },
+      imposto: {
+        icms_cst: imp.icms_cst ?? null,
+        icms_orig: imp.icms_orig ?? "1",
+        icms_mod_bc: imp.icms_mod_bc ?? "3",
+        icms_base: imp.icms_base ?? 0,
+        icms_percentual: imp.icms_percentual ?? 0,
+        icms_valor: imp.icms_valor ?? 0,
+        pis_cst: imp.pis_cst ?? null,
+        pis_base: imp.pis_base ?? 0,
+        pis_percentual: imp.pis_percentual ?? 0,
+        pis_valor: imp.pis_valor ?? 0,
+        cofins_cst: imp.cofins_cst ?? null,
+        cofins_base: imp.cofins_base ?? 0,
+        cofins_percentual: imp.cofins_percentual ?? 0,
+        cofins_valor: imp.cofins_valor ?? 0,
+        ipi_cst: imp.ipi_cst ?? null,
+        ipi_base: imp.ipi_base ?? 0,
+        ipi_percentual: 0,
+        ipi_valor: imp.ipi_valor ?? 0,
+      } as any,
+      natureza: it.natureza,
+      quantidade: it.quantidade,
+      valorUnitario: it.valorUnitario,
+      valorProduto: it.valorProduto,
+      classe: it.classe,
+      centroCusto: it.centroCusto,
+      // vínculo item-pedido: vazio por ora (descobrir no fire-test se é exigido).
+      // Mantemos só o vínculo de cabeçalho (NumeroPedComp no header).
+      vinculo: null,
+      lote:
+        it.controlaLote && it.lote && it.lote.numero
+          ? { numero: it.lote.numero, validade: it.lote.validade || null, fabricacao: it.lote.fabricacao || null }
+          : undefined,
+      codigoEntidade: input.codigoEntidade,
+    });
+  });
+
+  // 2. Monta as parcelas no formato do builder.
+  const valorTotal = Number(input.itens.reduce((s, it) => s + it.valorProduto, 0).toFixed(2));
+  const parcelas: ParcelaMovEstq[] = input.pagamento.parcelas.map((p) => ({
+    Sequencia: p.sequencia,
+    NumeroDuplicata: `${input.numero}/${p.sequencia}-${input.pagamento.parcelas.length}`,
+    DataEmissao: isoDate(input.dataEmissao),
+    ValorParcela: p.valor,
+    DataVencimento: isoDate(p.vencimento),
+    DataProrrogacao: isoDate(p.vencimento),
+    CodigoTipoCobranca: p.tipoCobranca,
+  }));
+
+  // 3. Classe/CC do total: usa a do primeiro item (rateio único do cabeçalho).
+  const classeTotal = input.itens[0]?.classe || "";
+  const ccTotal = input.itens[0]?.centroCusto || "";
+
+  // 4. Monta o MovEstq completo.
+  const mov = montarMovEstq({
+    codigoTipoLanc: input.codigoTipoLanc,
+    numero: input.numero,
+    serie: input.serie,
+    especie,
+    chaveAcessoNfe: input.chaveAcessoNfe,
+    dataEmissao: isoDate(input.dataEmissao),
+    dataMovimento: isoDate(dataMov),
+    codigoEntidade: input.codigoEntidade,
+    nomeEntidade: input.nomeEntidade,
+    cpfCnpjEntidade: input.cpfCnpjEntidade,
+    codigoCondPag: "", // o Alvo usa as parcelas; cond. pagamento informativa
+    codigoTipoPagRec: input.pagamento.tipoContaPagar,
+    valorTotal,
+    classeTotal,
+    centroCustoTotal: ccTotal,
+    itens: itensPayload,
+    parcelas,
+  });
+
+  // 5. Vínculo de cabeçalho com o pedido (se houver).
+  if (input.numeroPedComp) {
+    mov.NumeroPedComp = input.numeroPedComp;
+    mov.CodigoEmpresaFilialPedComp = FILIAL;
+  }
+
+  return mov;
 }
