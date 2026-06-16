@@ -1,15 +1,13 @@
 // src/components/compras/LancarNfeItensTable.tsx
 //
-// Etapa B / Fatia 2b — Tabela de itens do lançamento de NF-e.
-// Componente separado (filho do LancarNfeModalV2) para isolar a complexidade.
+// Etapa B / Fatia 2b + 3b — Tabela de itens do lançamento de NF-e.
 //
 // 2b-i: tabela pré-populada do XML; seletor de produto Popover+Command (portal).
 // 2b-ii: natureza de operação por item (busca no proxy /mov-estq/nat-operacao).
-// 2b-iii: CLASSE e CENTRO DE CUSTO por item (abaixo da natureza, Opção B).
-//   - Classe: classes_rec_desp (grupo=F, natureza=Débito)
-//   - CC: cost_centers (is_active, group_type=F)
-//   - Pré-preenchidos do pedido (props classePedido / ccPedido) quando existirem.
-//   - 1 CC a 100% por item (estrutura interna pronta p/ multi-CC no futuro).
+// 2b-iii: classe e CC por item (pré-preenchidos do pedido; 1 CC 100%).
+// 3b: PAINEL DE IMPOSTOS expansível por linha (Opção A). Pré-preenchido do XML
+//   (C1, via campo origemXml.imposto injetado pelo modal), editável. Resumo na
+//   linha fechada. CBS/IBS zerados, editáveis (reforma; operadora preenche).
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,12 +16,45 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Trash2, Plus, AlertTriangle, ChevronsUpDown, Check, Loader2 } from "lucide-react";
+import {
+  Trash2,
+  Plus,
+  AlertTriangle,
+  ChevronsUpDown,
+  Check,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  Receipt,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 
 // ── Tipos ──────────────────────────────────────────────────────────────────
+
+export interface ItemImposto {
+  icms_cst: string | null;
+  icms_base: number | null;
+  icms_percentual: number | null;
+  icms_valor: number | null;
+  pis_cst: string | null;
+  pis_base: number | null;
+  pis_percentual: number | null;
+  pis_valor: number | null;
+  cofins_cst: string | null;
+  cofins_base: number | null;
+  cofins_percentual: number | null;
+  cofins_valor: number | null;
+  ipi_cst: string | null;
+  ipi_base: number | null;
+  ipi_valor: number | null;
+  // reforma — zerados por padrão, editáveis
+  cbs_base: number | null;
+  cbs_valor: number | null;
+  ibs_base: number | null;
+  ibs_valor: number | null;
+}
 
 export interface ItemXml {
   numero_item: number;
@@ -48,10 +79,11 @@ export interface ItemLancamento {
   classificacaoFiscal: string | null;
   natureza: string | null;
   naturezaNome: string | null;
-  classe: string | null; // codigo da classe (2b-iii)
+  classe: string | null;
   classeNome: string | null;
-  centroCusto: string | null; // erp_code do CC (2b-iii)
+  centroCusto: string | null;
   centroCustoNome: string | null;
+  imposto: ItemImposto;
   quantidade: number;
   valorUnitario: number;
   valorProduto: number;
@@ -65,7 +97,6 @@ interface ProdutoBusca {
   codigo_alternativo: string | null;
   classificacao_fiscal: string | null;
 }
-
 interface NaturezaOpcao {
   Codigo: string;
   Nome: string;
@@ -82,13 +113,39 @@ interface CcOpcao {
 
 interface LancarNfeItensTableProps {
   itensXml: ItemXml[];
-  classePedido?: string | null; // pedido_compra_classe (pré-preenche)
-  ccPedido?: string | null; // pedido_compra_centro_custo (pré-preenche)
+  classePedido?: string | null;
+  ccPedido?: string | null;
   onChange: (itens: ItemLancamento[]) => void;
 }
 
 const fmtMoeda = (v: number | null | undefined) =>
   (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// Constrói o ItemImposto a partir do imposto cru do XML (origemXml.imposto).
+function impostoInicial(raw: any): ItemImposto {
+  const n = (v: any) => (v == null || isNaN(Number(v)) ? null : Number(v));
+  return {
+    icms_cst: raw?.icms_cst ?? null,
+    icms_base: n(raw?.icms_base),
+    icms_percentual: n(raw?.icms_percentual),
+    icms_valor: n(raw?.icms_valor),
+    pis_cst: raw?.pis_cst ?? null,
+    pis_base: n(raw?.pis_base),
+    pis_percentual: n(raw?.pis_percentual),
+    pis_valor: n(raw?.pis_valor),
+    cofins_cst: raw?.cofins_cst ?? null,
+    cofins_base: n(raw?.cofins_base),
+    cofins_percentual: n(raw?.cofins_percentual),
+    cofins_valor: n(raw?.cofins_valor),
+    ipi_cst: raw?.ipi_cst ?? null,
+    ipi_base: n(raw?.ipi_base),
+    ipi_valor: n(raw?.ipi_valor),
+    cbs_base: 0,
+    cbs_valor: 0,
+    ibs_base: 0,
+    ibs_valor: 0,
+  };
+}
 
 function linhaInicial(itemXml: ItemXml, classePedido?: string | null, ccPedido?: string | null): ItemLancamento {
   const qtd = itemXml.quantidade ?? 0;
@@ -103,10 +160,11 @@ function linhaInicial(itemXml: ItemXml, classePedido?: string | null, ccPedido?:
     classificacaoFiscal: null,
     natureza: null,
     naturezaNome: null,
-    classe: classePedido || null, // pré-preenche do pedido
+    classe: classePedido || null,
     classeNome: null,
-    centroCusto: ccPedido || null, // pré-preenche do pedido
+    centroCusto: ccPedido || null,
     centroCustoNome: null,
+    imposto: impostoInicial(itemXml.imposto),
     quantidade: qtd,
     valorUnitario: vUnit,
     valorProduto: Number((qtd * vUnit).toFixed(2)),
@@ -134,7 +192,6 @@ function ProdutoSelector({
   const [results, setResults] = useState<ProdutoBusca[]>([]);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-
   useEffect(() => {
     if (search.length < 2) {
       setResults([]);
@@ -157,7 +214,6 @@ function ProdutoSelector({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [search]);
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -206,7 +262,7 @@ function ProdutoSelector({
   );
 }
 
-// ── Seletor de natureza (busca no proxy) ───────────────────────────────────
+// ── Seletor de natureza ────────────────────────────────────────────────────
 
 function NaturezaSelector({
   value,
@@ -223,7 +279,6 @@ function NaturezaSelector({
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-
   useEffect(() => {
     if (search.length < 2) {
       setResults([]);
@@ -258,7 +313,6 @@ function NaturezaSelector({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [search]);
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -308,7 +362,7 @@ function NaturezaSelector({
   );
 }
 
-// ── Seletor genérico de classe/CC (busca local no Supabase) ────────────────
+// ── Seletor de classe/CC ───────────────────────────────────────────────────
 
 function ClasseCcSelector({
   tipo,
@@ -328,7 +382,6 @@ function ClasseCcSelector({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const placeholder = tipo === "classe" ? "Classe..." : "Centro de custo...";
-
   const filtered =
     search.length === 0
       ? options.slice(0, 50)
@@ -339,7 +392,6 @@ function ClasseCcSelector({
               o.nome.toLowerCase().includes(search.toLowerCase()),
           )
           .slice(0, 50);
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -385,6 +437,134 @@ function ClasseCcSelector({
   );
 }
 
+// ── Painel de impostos (3b) ────────────────────────────────────────────────
+
+function CampoImposto({
+  label,
+  value,
+  onChange,
+  prefixo,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (v: number) => void;
+  prefixo?: string;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <label className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</label>
+      <Input
+        type="number"
+        step="0.01"
+        value={value ?? 0}
+        onChange={(e) => onChange(Number(e.target.value) || 0)}
+        className="h-7 text-[11px] text-right"
+      />
+    </div>
+  );
+}
+
+function PainelImpostos({
+  imposto,
+  onChange,
+}: {
+  imposto: ItemImposto;
+  onChange: (patch: Partial<ItemImposto>) => void;
+}) {
+  return (
+    <div className="rounded-md border bg-muted/20 p-3">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        {/* ICMS */}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1 text-xs font-medium">
+            <span>ICMS</span>
+            <Input
+              value={imposto.icms_cst ?? ""}
+              onChange={(e) => onChange({ icms_cst: e.target.value })}
+              className="h-6 w-16 text-[10px]"
+              placeholder="CST"
+            />
+          </div>
+          <CampoImposto label="Base" value={imposto.icms_base} onChange={(v) => onChange({ icms_base: v })} />
+          <CampoImposto label="%" value={imposto.icms_percentual} onChange={(v) => onChange({ icms_percentual: v })} />
+          <CampoImposto label="Valor" value={imposto.icms_valor} onChange={(v) => onChange({ icms_valor: v })} />
+        </div>
+        {/* PIS */}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1 text-xs font-medium">
+            <span>PIS</span>
+            <Input
+              value={imposto.pis_cst ?? ""}
+              onChange={(e) => onChange({ pis_cst: e.target.value })}
+              className="h-6 w-16 text-[10px]"
+              placeholder="CST"
+            />
+          </div>
+          <CampoImposto label="Base" value={imposto.pis_base} onChange={(v) => onChange({ pis_base: v })} />
+          <CampoImposto label="%" value={imposto.pis_percentual} onChange={(v) => onChange({ pis_percentual: v })} />
+          <CampoImposto label="Valor" value={imposto.pis_valor} onChange={(v) => onChange({ pis_valor: v })} />
+        </div>
+        {/* COFINS */}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1 text-xs font-medium">
+            <span>COFINS</span>
+            <Input
+              value={imposto.cofins_cst ?? ""}
+              onChange={(e) => onChange({ cofins_cst: e.target.value })}
+              className="h-6 w-16 text-[10px]"
+              placeholder="CST"
+            />
+          </div>
+          <CampoImposto label="Base" value={imposto.cofins_base} onChange={(v) => onChange({ cofins_base: v })} />
+          <CampoImposto
+            label="%"
+            value={imposto.cofins_percentual}
+            onChange={(v) => onChange({ cofins_percentual: v })}
+          />
+          <CampoImposto label="Valor" value={imposto.cofins_valor} onChange={(v) => onChange({ cofins_valor: v })} />
+        </div>
+        {/* IPI */}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1 text-xs font-medium">
+            <span>IPI</span>
+            <Input
+              value={imposto.ipi_cst ?? ""}
+              onChange={(e) => onChange({ ipi_cst: e.target.value })}
+              className="h-6 w-16 text-[10px]"
+              placeholder="CST"
+            />
+          </div>
+          <CampoImposto label="Base" value={imposto.ipi_base} onChange={(v) => onChange({ ipi_base: v })} />
+          <CampoImposto label="Valor" value={imposto.ipi_valor} onChange={(v) => onChange({ ipi_valor: v })} />
+        </div>
+      </div>
+
+      {/* CBS/IBS (reforma) */}
+      <div className="mt-3 border-t pt-3">
+        <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+          CBS / IBS (reforma) — não vêm no XML; preencha se aplicável
+        </p>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <CampoImposto label="Base CBS" value={imposto.cbs_base} onChange={(v) => onChange({ cbs_base: v })} />
+          <CampoImposto label="Valor CBS" value={imposto.cbs_valor} onChange={(v) => onChange({ cbs_valor: v })} />
+          <CampoImposto label="Base IBS" value={imposto.ibs_base} onChange={(v) => onChange({ ibs_base: v })} />
+          <CampoImposto label="Valor IBS" value={imposto.ibs_valor} onChange={(v) => onChange({ ibs_valor: v })} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// resumo curto do imposto p/ a linha fechada
+function resumoImposto(imp: ItemImposto): string {
+  const partes: string[] = [];
+  if (imp.icms_valor) partes.push(`ICMS ${fmtMoeda(imp.icms_valor)}`);
+  if (imp.pis_valor) partes.push(`PIS ${fmtMoeda(imp.pis_valor)}`);
+  if (imp.cofins_valor) partes.push(`COFINS ${fmtMoeda(imp.cofins_valor)}`);
+  if (imp.ipi_valor) partes.push(`IPI ${fmtMoeda(imp.ipi_valor)}`);
+  return partes.length ? partes.join(" · ") : "sem impostos destacados";
+}
+
 // ── Tabela ─────────────────────────────────────────────────────────────────
 
 export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange }: LancarNfeItensTableProps) {
@@ -392,8 +572,8 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
   const [classes, setClasses] = useState<ClasseOpcao[]>([]);
   const [ccs, setCcs] = useState<CcOpcao[]>([]);
   const [loadingDrops, setLoadingDrops] = useState(true);
+  const [expandido, setExpandido] = useState<number | null>(null); // linha com painel de imposto aberto
 
-  // Carrega classes e CCs uma vez.
   useEffect(() => {
     (async () => {
       setLoadingDrops(true);
@@ -437,6 +617,10 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
     );
   }, []);
 
+  const atualizarImposto = useCallback((idx: number, patch: Partial<ItemImposto>) => {
+    setItens((prev) => prev.map((it, i) => (i === idx ? { ...it, imposto: { ...it.imposto, ...patch } } : it)));
+  }, []);
+
   const onSelecionarProduto = useCallback(
     (idx: number, p: ProdutoBusca) => {
       atualizarLinha(idx, {
@@ -475,7 +659,6 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
 
   const classeOpts = classes.map((c) => ({ codigo: c.codigo, nome: c.nome }));
   const ccOpts = ccs.map((c) => ({ codigo: c.erp_code, nome: c.name }));
-
   const nomeClasse = (cod: string | null) => classes.find((c) => c.codigo === cod)?.nome || "";
   const nomeCc = (cod: string | null) => ccs.find((c) => c.erp_code === cod)?.name || "";
 
@@ -498,106 +681,127 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
           <thead className="bg-muted/50">
             <tr className="text-left">
               <th className="p-2 font-medium w-[24%]">Item da NF (fornecedor)</th>
-              <th className="p-2 font-medium w-[38%]">Produto · natureza · classe · CC</th>
-              <th className="p-2 font-medium text-right w-[11%]">Qtd.</th>
-              <th className="p-2 font-medium text-right w-[13%]">V. unit.</th>
-              <th className="p-2 font-medium text-right w-[14%]">Total</th>
-              <th className="p-2 w-8" />
+              <th className="p-2 font-medium w-[36%]">Produto · natureza · classe · CC</th>
+              <th className="p-2 font-medium text-right w-[10%]">Qtd.</th>
+              <th className="p-2 font-medium text-right w-[12%]">V. unit.</th>
+              <th className="p-2 font-medium text-right w-[13%]">Total</th>
+              <th className="p-2 w-[5%]" />
             </tr>
           </thead>
           <tbody>
             {itens.map((it, idx) => (
-              <tr key={idx} className="border-t align-top">
-                <td className="p-2">
-                  <p className="truncate" title={it.origemXml.descricao}>
-                    {it.origemXml.descricao || "—"}
-                  </p>
-                  <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground">
-                    {it.origemXml.codigo_produto && <span>cód. forn.: {it.origemXml.codigo_produto}</span>}
-                    {it.origemXml.ncm && <span>NCM {it.origemXml.ncm}</span>}
-                    {it.origemXml.cfop && <span>CFOP {it.origemXml.cfop}</span>}
-                  </div>
-                </td>
+              <>
+                <tr key={idx} className="border-t align-top">
+                  <td className="p-2">
+                    <p className="truncate" title={it.origemXml.descricao}>
+                      {it.origemXml.descricao || "—"}
+                    </p>
+                    <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground">
+                      {it.origemXml.codigo_produto && <span>cód. forn.: {it.origemXml.codigo_produto}</span>}
+                      {it.origemXml.ncm && <span>NCM {it.origemXml.ncm}</span>}
+                      {it.origemXml.cfop && <span>CFOP {it.origemXml.cfop}</span>}
+                    </div>
+                  </td>
 
-                <td className="p-2 space-y-1">
-                  <ProdutoSelector
-                    value={it.produtoInterno}
-                    displayValue={it.produtoInterno ? `${it.produtoInterno} — ${it.produtoNome || ""}` : ""}
-                    onSelect={(p) => onSelecionarProduto(idx, p)}
-                  />
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                    {it.produtoInterno ? (
+                  <td className="p-2 space-y-1">
+                    <ProdutoSelector
+                      value={it.produtoInterno}
+                      displayValue={it.produtoInterno ? `${it.produtoInterno} — ${it.produtoNome || ""}` : ""}
+                      onSelect={(p) => onSelecionarProduto(idx, p)}
+                    />
+                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                      {it.produtoInterno ? (
+                        <>
+                          <span>un.: {it.unidade || "—"}</span>
+                          {it.controlaLote && (
+                            <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+                              lote
+                            </Badge>
+                          )}
+                        </>
+                      ) : (
+                        <span className="flex items-center gap-1 text-amber-600">
+                          <AlertTriangle className="h-3 w-3" /> escolha o produto
+                        </span>
+                      )}
+                    </div>
+                    {it.produtoInterno && (
                       <>
-                        <span>un.: {it.unidade || "—"}</span>
-                        {it.controlaLote && (
-                          <Badge variant="secondary" className="h-4 px-1 text-[9px]">
-                            lote
-                          </Badge>
-                        )}
+                        <NaturezaSelector
+                          value={it.natureza}
+                          displayValue={it.natureza ? `${it.natureza} — ${it.naturezaNome || ""}` : ""}
+                          onSelect={(n) => atualizarLinha(idx, { natureza: n.Codigo, naturezaNome: n.Nome })}
+                        />
+                        <ClasseCcSelector
+                          tipo="classe"
+                          value={it.classe}
+                          displayValue={it.classe ? `${it.classe} — ${it.classeNome || nomeClasse(it.classe)}` : ""}
+                          options={classeOpts}
+                          loading={loadingDrops}
+                          onSelect={(cod, nome) => atualizarLinha(idx, { classe: cod, classeNome: nome })}
+                        />
+                        <ClasseCcSelector
+                          tipo="cc"
+                          value={it.centroCusto}
+                          displayValue={
+                            it.centroCusto ? `${it.centroCusto} — ${it.centroCustoNome || nomeCc(it.centroCusto)}` : ""
+                          }
+                          options={ccOpts}
+                          loading={loadingDrops}
+                          onSelect={(cod, nome) => atualizarLinha(idx, { centroCusto: cod, centroCustoNome: nome })}
+                        />
+                        {/* resumo + toggle de impostos */}
+                        <button
+                          type="button"
+                          onClick={() => setExpandido(expandido === idx ? null : idx)}
+                          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                        >
+                          {expandido === idx ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
+                          <Receipt className="h-3 w-3" />
+                          <span className="truncate">{resumoImposto(it.imposto)}</span>
+                        </button>
                       </>
-                    ) : (
-                      <span className="flex items-center gap-1 text-amber-600">
-                        <AlertTriangle className="h-3 w-3" /> escolha o produto
-                      </span>
                     )}
-                  </div>
+                  </td>
 
-                  {it.produtoInterno && (
-                    <>
-                      <NaturezaSelector
-                        value={it.natureza}
-                        displayValue={it.natureza ? `${it.natureza} — ${it.naturezaNome || ""}` : ""}
-                        onSelect={(n) => atualizarLinha(idx, { natureza: n.Codigo, naturezaNome: n.Nome })}
-                      />
-                      <ClasseCcSelector
-                        tipo="classe"
-                        value={it.classe}
-                        displayValue={it.classe ? `${it.classe} — ${it.classeNome || nomeClasse(it.classe)}` : ""}
-                        options={classeOpts}
-                        loading={loadingDrops}
-                        onSelect={(cod, nome) => atualizarLinha(idx, { classe: cod, classeNome: nome })}
-                      />
-                      <ClasseCcSelector
-                        tipo="cc"
-                        value={it.centroCusto}
-                        displayValue={
-                          it.centroCusto ? `${it.centroCusto} — ${it.centroCustoNome || nomeCc(it.centroCusto)}` : ""
-                        }
-                        options={ccOpts}
-                        loading={loadingDrops}
-                        onSelect={(cod, nome) => atualizarLinha(idx, { centroCusto: cod, centroCustoNome: nome })}
-                      />
-                    </>
-                  )}
-                </td>
+                  <td className="p-2 text-right">
+                    <Input
+                      type="number"
+                      value={it.quantidade}
+                      onChange={(e) => atualizarLinha(idx, { quantidade: Number(e.target.value) || 0 })}
+                      className="h-8 text-right text-xs"
+                    />
+                  </td>
+                  <td className="p-2 text-right">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={it.valorUnitario}
+                      onChange={(e) => atualizarLinha(idx, { valorUnitario: Number(e.target.value) || 0 })}
+                      className="h-8 text-right text-xs"
+                    />
+                  </td>
+                  <td className="p-2 text-right whitespace-nowrap font-medium">{fmtMoeda(it.valorProduto)}</td>
+                  <td className="p-2">
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => removerLinha(idx)}>
+                      <Trash2 className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  </td>
+                </tr>
 
-                <td className="p-2 text-right">
-                  <Input
-                    type="number"
-                    value={it.quantidade}
-                    onChange={(e) => atualizarLinha(idx, { quantidade: Number(e.target.value) || 0 })}
-                    className="h-8 text-right text-xs"
-                  />
-                </td>
-
-                <td className="p-2 text-right">
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={it.valorUnitario}
-                    onChange={(e) => atualizarLinha(idx, { valorUnitario: Number(e.target.value) || 0 })}
-                    className="h-8 text-right text-xs"
-                  />
-                </td>
-
-                <td className="p-2 text-right whitespace-nowrap font-medium">{fmtMoeda(it.valorProduto)}</td>
-
-                <td className="p-2">
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => removerLinha(idx)}>
-                    <Trash2 className="h-3 w-3 text-muted-foreground" />
-                  </Button>
-                </td>
-              </tr>
+                {/* Painel de impostos expandido (3b) */}
+                {expandido === idx && it.produtoInterno && (
+                  <tr className="border-t bg-muted/10">
+                    <td colSpan={6} className="p-3">
+                      <PainelImpostos imposto={it.imposto} onChange={(patch) => atualizarImposto(idx, patch)} />
+                    </td>
+                  </tr>
+                )}
+              </>
             ))}
 
             {itens.length === 0 && (
