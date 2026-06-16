@@ -3,13 +3,13 @@
 // Etapa B / Fatia 2b — Tabela de itens do lançamento de NF-e.
 // Componente separado (filho do LancarNfeModalV2) para isolar a complexidade.
 //
-// SUB-FATIA 2b-i: tabela pré-populada com itens do XML; seletor de produto
-//   Popover+Command (portal). Qtd/valor livres.
-// SUB-FATIA 2b-ii: seletor de NATUREZA DE OPERAÇÃO por item, abaixo do produto
-//   (Opção B). Busca server-side via rota do proxy /mov-estq/nat-operacao.
-//   Só aparece depois que o produto foi escolhido.
-//
-// AINDA NÃO TEM: classe/CC por item (2b-iii).
+// 2b-i: tabela pré-populada do XML; seletor de produto Popover+Command (portal).
+// 2b-ii: natureza de operação por item (busca no proxy /mov-estq/nat-operacao).
+// 2b-iii: CLASSE e CENTRO DE CUSTO por item (abaixo da natureza, Opção B).
+//   - Classe: classes_rec_desp (grupo=F, natureza=Débito)
+//   - CC: cost_centers (is_active, group_type=F)
+//   - Pré-preenchidos do pedido (props classePedido / ccPedido) quando existirem.
+//   - 1 CC a 100% por item (estrutura interna pronta p/ multi-CC no futuro).
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,7 +21,6 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Trash2, Plus, AlertTriangle, ChevronsUpDown, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// URL do proxy (mesma usada no resto do Hub para falar com o Alvo).
 const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 
 // ── Tipos ──────────────────────────────────────────────────────────────────
@@ -47,8 +46,12 @@ export interface ItemLancamento {
   controlaLote: boolean;
   codigoAlternativo: string | null;
   classificacaoFiscal: string | null;
-  natureza: string | null; // CodigoNatOperacao (2b-ii)
+  natureza: string | null;
   naturezaNome: string | null;
+  classe: string | null; // codigo da classe (2b-iii)
+  classeNome: string | null;
+  centroCusto: string | null; // erp_code do CC (2b-iii)
+  centroCustoNome: string | null;
   quantidade: number;
   valorUnitario: number;
   valorProduto: number;
@@ -67,16 +70,27 @@ interface NaturezaOpcao {
   Codigo: string;
   Nome: string;
 }
+interface ClasseOpcao {
+  codigo: string;
+  nome: string;
+}
+interface CcOpcao {
+  erp_code: string;
+  name: string;
+  department_type: string | null;
+}
 
 interface LancarNfeItensTableProps {
   itensXml: ItemXml[];
+  classePedido?: string | null; // pedido_compra_classe (pré-preenche)
+  ccPedido?: string | null; // pedido_compra_centro_custo (pré-preenche)
   onChange: (itens: ItemLancamento[]) => void;
 }
 
 const fmtMoeda = (v: number | null | undefined) =>
   (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-function linhaInicial(itemXml: ItemXml): ItemLancamento {
+function linhaInicial(itemXml: ItemXml, classePedido?: string | null, ccPedido?: string | null): ItemLancamento {
   const qtd = itemXml.quantidade ?? 0;
   const vUnit = itemXml.valor_unitario ?? 0;
   return {
@@ -89,19 +103,22 @@ function linhaInicial(itemXml: ItemXml): ItemLancamento {
     classificacaoFiscal: null,
     natureza: null,
     naturezaNome: null,
+    classe: classePedido || null, // pré-preenche do pedido
+    classeNome: null,
+    centroCusto: ccPedido || null, // pré-preenche do pedido
+    centroCustoNome: null,
     quantidade: qtd,
     valorUnitario: vUnit,
     valorProduto: Number((qtd * vUnit).toFixed(2)),
   };
 }
 
-// Helper: pega o JWT do Supabase para autenticar no proxy.
 async function getJwt(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token || null;
 }
 
-// ── Seletor de produto (Popover + Command, em portal) ──────────────────────
+// ── Seletor de produto ─────────────────────────────────────────────────────
 
 function ProdutoSelector({
   value,
@@ -189,7 +206,7 @@ function ProdutoSelector({
   );
 }
 
-// ── Seletor de natureza de operação (Popover + Command, busca no proxy) ─────
+// ── Seletor de natureza (busca no proxy) ───────────────────────────────────
 
 function NaturezaSelector({
   value,
@@ -291,14 +308,119 @@ function NaturezaSelector({
   );
 }
 
+// ── Seletor genérico de classe/CC (busca local no Supabase) ────────────────
+
+function ClasseCcSelector({
+  tipo,
+  value,
+  displayValue,
+  options,
+  loading,
+  onSelect,
+}: {
+  tipo: "classe" | "cc";
+  value: string | null;
+  displayValue: string;
+  options: { codigo: string; nome: string }[];
+  loading: boolean;
+  onSelect: (codigo: string, nome: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const placeholder = tipo === "classe" ? "Classe..." : "Centro de custo...";
+
+  const filtered =
+    search.length === 0
+      ? options.slice(0, 50)
+      : options
+          .filter(
+            (o) =>
+              o.codigo.toLowerCase().includes(search.toLowerCase()) ||
+              o.nome.toLowerCase().includes(search.toLowerCase()),
+          )
+          .slice(0, 50);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-8 text-[11px]">
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {value ? displayValue : placeholder}
+          </span>
+          <ChevronsUpDown className="ml-2 h-3 w-3 opacity-50 shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[320px] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput placeholder={`Buscar ${placeholder.toLowerCase()}`} value={search} onValueChange={setSearch} />
+          <CommandList>
+            {loading && (
+              <div className="flex items-center justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {!loading && filtered.length === 0 && <CommandEmpty>Nada encontrado.</CommandEmpty>}
+            <CommandGroup>
+              {filtered.map((o) => (
+                <CommandItem
+                  key={o.codigo}
+                  value={o.codigo}
+                  onSelect={() => {
+                    onSelect(o.codigo, o.nome);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                  className="text-[11px]"
+                >
+                  <Check className={cn("mr-2 h-3 w-3", value === o.codigo ? "opacity-100" : "opacity-0")} />
+                  <span className="font-mono mr-2">{o.codigo}</span>
+                  <span className="truncate text-muted-foreground">{o.nome}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ── Tabela ─────────────────────────────────────────────────────────────────
 
-export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableProps) {
+export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange }: LancarNfeItensTableProps) {
   const [itens, setItens] = useState<ItemLancamento[]>([]);
+  const [classes, setClasses] = useState<ClasseOpcao[]>([]);
+  const [ccs, setCcs] = useState<CcOpcao[]>([]);
+  const [loadingDrops, setLoadingDrops] = useState(true);
+
+  // Carrega classes e CCs uma vez.
+  useEffect(() => {
+    (async () => {
+      setLoadingDrops(true);
+      const [{ data: cls }, { data: cc }] = await Promise.all([
+        (supabase as any)
+          .from("classes_rec_desp")
+          .select("codigo, nome")
+          .eq("grupo", "F")
+          .eq("natureza", "Débito")
+          .eq("is_active", true)
+          .order("codigo"),
+        (supabase as any)
+          .from("cost_centers")
+          .select("erp_code, name, department_type")
+          .eq("is_active", true)
+          .eq("group_type", "F")
+          .order("erp_code"),
+      ]);
+      setClasses((cls as ClasseOpcao[] | null) || []);
+      setCcs((cc as CcOpcao[] | null) || []);
+      setLoadingDrops(false);
+    })();
+  }, []);
 
   useEffect(() => {
-    setItens((itensXml || []).map(linhaInicial));
-  }, [itensXml]);
+    setItens((itensXml || []).map((x) => linhaInicial(x, classePedido, ccPedido)));
+  }, [itensXml, classePedido, ccPedido]);
 
   useEffect(() => {
     onChange(itens);
@@ -329,34 +451,38 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
     [atualizarLinha],
   );
 
-  const onSelecionarNatureza = useCallback(
-    (idx: number, n: NaturezaOpcao) => {
-      atualizarLinha(idx, { natureza: n.Codigo, naturezaNome: n.Nome });
-    },
-    [atualizarLinha],
-  );
-
   const removerLinha = (idx: number) => setItens((prev) => prev.filter((_, i) => i !== idx));
 
   const adicionarLinha = () =>
     setItens((prev) => [
       ...prev,
-      linhaInicial({
-        numero_item: prev.length + 1,
-        codigo_produto: "",
-        descricao: "(item manual)",
-        ncm: null,
-        cfop: null,
-        unidade: null,
-        quantidade: 0,
-        valor_unitario: 0,
-        valor_total: 0,
-      }),
+      linhaInicial(
+        {
+          numero_item: prev.length + 1,
+          codigo_produto: "",
+          descricao: "(item manual)",
+          ncm: null,
+          cfop: null,
+          unidade: null,
+          quantidade: 0,
+          valor_unitario: 0,
+          valor_total: 0,
+        },
+        classePedido,
+        ccPedido,
+      ),
     ]);
+
+  const classeOpts = classes.map((c) => ({ codigo: c.codigo, nome: c.nome }));
+  const ccOpts = ccs.map((c) => ({ codigo: c.erp_code, nome: c.name }));
+
+  const nomeClasse = (cod: string | null) => classes.find((c) => c.codigo === cod)?.nome || "";
+  const nomeCc = (cod: string | null) => ccs.find((c) => c.erp_code === cod)?.name || "";
 
   const totalGeral = itens.reduce((s, it) => s + it.valorProduto, 0);
   const algumSemProduto = itens.some((it) => !it.produtoInterno);
   const algumSemNatureza = itens.some((it) => it.produtoInterno && !it.natureza);
+  const algumSemClasseCc = itens.some((it) => it.produtoInterno && (!it.classe || !it.centroCusto));
 
   return (
     <div className="space-y-2">
@@ -371,8 +497,8 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
         <table className="w-full table-fixed text-xs">
           <thead className="bg-muted/50">
             <tr className="text-left">
-              <th className="p-2 font-medium w-[26%]">Item da NF (fornecedor)</th>
-              <th className="p-2 font-medium w-[36%]">Produto interno + natureza</th>
+              <th className="p-2 font-medium w-[24%]">Item da NF (fornecedor)</th>
+              <th className="p-2 font-medium w-[38%]">Produto · natureza · classe · CC</th>
               <th className="p-2 font-medium text-right w-[11%]">Qtd.</th>
               <th className="p-2 font-medium text-right w-[13%]">V. unit.</th>
               <th className="p-2 font-medium text-right w-[14%]">Total</th>
@@ -416,19 +542,31 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
                     )}
                   </div>
 
-                  {/* Natureza de operação — só após escolher o produto (Opção B) */}
                   {it.produtoInterno && (
                     <>
                       <NaturezaSelector
                         value={it.natureza}
                         displayValue={it.natureza ? `${it.natureza} — ${it.naturezaNome || ""}` : ""}
-                        onSelect={(n) => onSelecionarNatureza(idx, n)}
+                        onSelect={(n) => atualizarLinha(idx, { natureza: n.Codigo, naturezaNome: n.Nome })}
                       />
-                      {!it.natureza && (
-                        <span className="flex items-center gap-1 text-[10px] text-amber-600">
-                          <AlertTriangle className="h-3 w-3" /> escolha a natureza
-                        </span>
-                      )}
+                      <ClasseCcSelector
+                        tipo="classe"
+                        value={it.classe}
+                        displayValue={it.classe ? `${it.classe} — ${it.classeNome || nomeClasse(it.classe)}` : ""}
+                        options={classeOpts}
+                        loading={loadingDrops}
+                        onSelect={(cod, nome) => atualizarLinha(idx, { classe: cod, classeNome: nome })}
+                      />
+                      <ClasseCcSelector
+                        tipo="cc"
+                        value={it.centroCusto}
+                        displayValue={
+                          it.centroCusto ? `${it.centroCusto} — ${it.centroCustoNome || nomeCc(it.centroCusto)}` : ""
+                        }
+                        options={ccOpts}
+                        loading={loadingDrops}
+                        onSelect={(cod, nome) => atualizarLinha(idx, { centroCusto: cod, centroCustoNome: nome })}
+                      />
                     </>
                   )}
                 </td>
@@ -482,12 +620,14 @@ export function LancarNfeItensTable({ itensXml, onChange }: LancarNfeItensTableP
         </table>
       </div>
 
-      {(algumSemProduto || algumSemNatureza) && (
+      {(algumSemProduto || algumSemNatureza || algumSemClasseCc) && (
         <p className="flex items-center gap-1 text-[11px] text-amber-600">
           <AlertTriangle className="h-3 w-3" />
           {algumSemProduto
             ? "Todos os itens precisam de um produto interno antes de lançar."
-            : "Todos os itens precisam de uma natureza de operação antes de lançar."}
+            : algumSemNatureza
+              ? "Todos os itens precisam de uma natureza de operação."
+              : "Todos os itens precisam de classe e centro de custo."}
         </p>
       )}
     </div>
