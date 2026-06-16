@@ -171,6 +171,8 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
           {/* ── Itens (fatia 2b) ── */}
           <LancarNfeItensTable
             itensXml={(nfe.dados_extraidos?.itens || []) as any}
+            classePedido={nfe.pedido_compra_classe}
+            ccPedido={nfe.pedido_compra_centro_custo}
             onChange={() => {
               /* fatia seguinte: guardar itens p/ o payload */
             }}
