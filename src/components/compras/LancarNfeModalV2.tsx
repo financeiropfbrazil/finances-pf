@@ -84,6 +84,7 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
   const { toast } = useToast();
   const [tipoLancamento, setTipoLancamento] = useState("E0000158");
   const [itens, setItens] = useState<ItemLancamento[]>([]);
+  const [pagamento, setPagamento] = useState<PagamentoState | null>(null);
 
   useEffect(() => {
     if (open) {
