@@ -17,9 +17,8 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { LancarNfeItensTable, type ItemLancamento, type ItemXml } from "@/components/compras/LancarNfeItensTable";
 import { parseNfeXml } from "@/services/parseNfeXml";
-import { X, FileText, Building2, Calendar, Hash, KeyRound, Link2, AlertTriangle, Copy, FileDown }
+import { X, FileText, Building2, Calendar, Hash, KeyRound, Link2, AlertTriangle, Copy, FileDown } from "lucide-react";
 import { LancarNfePagamento, type PagamentoState } from "@/components/compras/LancarNfePagamento";
-from "lucide-react";
 
 const TIPOS_LANCAMENTO = [
   { codigo: "E0000158", nome: "Entrada NF-e c/ Laudo (lote)" },
