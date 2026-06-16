@@ -2190,3 +2190,212 @@ export async function calcularParcelas(
 
   return parcelas;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// PEÇA 2 — Função enviarPedidoParaAprovacao (pedidosService.ts)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Adicionar no pedidosService.ts. Reaproveita callGatewayGet e
+// callGatewayJson que JÁ existem (criados na baixa da req).
+//
+// Fluxo:
+//   1. Carrega o pedido completo do Alvo (GET /ped-comp/:filial/:numero,
+//      que já vem com loadChild=All etc).
+//   2. Desembrulha o objeto do pedido (defensivo, igual fizemos na req).
+//   3. Seta PedCompUserFieldsObject.UserEnviarAprovacao = "Sim".
+//   4. Remanda via POST /ped-comp/update.
+//   5. Atualiza o Hub (compras_pedidos) com o novo status de aprovação
+//      e grava auditoria.
+//
+// NÃO mexe em aprovador (o Alvo define sozinho — confirmado).
+// NÃO edita nenhum outro campo do pedido.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Desembrulha o objeto do pedido de qualquer envelope que o GET possa
+ * devolver (objeto direto, .data, lista nomeada, array puro).
+ * Identifica o pedido por ter Numero + ItemPedCompChildList.
+ */
+function desembrulharPedido(bruto: any): any | null {
+  if (!bruto || typeof bruto !== "object") return null;
+
+  // 1. Objeto direto
+  if (Array.isArray(bruto.ItemPedCompChildList) && bruto.Numero) return bruto;
+
+  // 2. Envelope { data: ... }
+  if (bruto.data && typeof bruto.data === "object") {
+    const d = bruto.data;
+    if (Array.isArray(d.ItemPedCompChildList) && d.Numero) return d;
+    if (Array.isArray(d) && d[0]?.ItemPedCompChildList) return d[0];
+  }
+
+  // 3. Listas nomeadas conhecidas
+  for (const chave of ["pedComp", "PedComp", "result", "Result"]) {
+    const v = bruto[chave];
+    if (Array.isArray(v) && v[0]?.ItemPedCompChildList && v[0]?.Numero) return v[0];
+    if (v && typeof v === "object" && Array.isArray(v.ItemPedCompChildList) && v.Numero) return v;
+  }
+
+  // 4. Array puro
+  if (Array.isArray(bruto) && bruto[0]?.ItemPedCompChildList && bruto[0]?.Numero) return bruto[0];
+
+  return null;
+}
+
+export interface EnviarAprovacaoResult {
+  ok: boolean;
+  erro?: string;
+  status_aprovacao?: string | null;
+  proximo_aprovador?: string | null;
+}
+
+/**
+ * Envia um pedido existente para aprovação no Alvo.
+ *
+ * Carrega o pedido completo, seta UserEnviarAprovacao="Sim" e remanda
+ * via SavePartial?action=Update. O Alvo dispara o workflow de aprovação
+ * (define o próximo aprovador sozinho).
+ *
+ * @param pedidoId   id do pedido na tabela compras_pedidos (Hub)
+ * @param userId     id do usuário (pra auditoria)
+ * @param userNome   nome do usuário (pra auditoria)
+ *
+ * Retorna { ok, erro }. Em sucesso, traz status_aprovacao e
+ * proximo_aprovador que o Alvo definiu.
+ *
+ * NÃO é best-effort silencioso: aqui o usuário CLICOU pra enviar, então
+ * queremos retornar o erro claramente pra UI mostrar.
+ */
+export async function enviarPedidoParaAprovacao(
+  pedidoId: string,
+  userId: string,
+  userNome: string,
+): Promise<EnviarAprovacaoResult> {
+  // ── 1. Busca o número/filial do pedido no Hub ──
+  const { data: ped, error: errPed } = await (supabase as any)
+    .from("compras_pedidos")
+    .select("numero, codigo_empresa_filial, status_local")
+    .eq("id", pedidoId)
+    .single();
+
+  if (errPed || !ped) {
+    return { ok: false, erro: `Pedido não encontrado no Hub: ${errPed?.message || "?"}` };
+  }
+
+  // Guarda: só envia pedido que já está no Alvo (tem número real, não RASCUNHO-)
+  if (!ped.numero || ped.numero.startsWith("RASCUNHO-")) {
+    return {
+      ok: false,
+      erro: "Este pedido ainda não foi enviado ao Alvo. Envie o pedido antes de mandar para aprovação.",
+    };
+  }
+
+  const numeroAlvo = ped.numero;
+  const filial = ped.codigo_empresa_filial;
+
+  try {
+    // ── 2. Carrega o pedido completo do Alvo ──
+    const bruto = await callGatewayGet(`/ped-comp/${encodeURIComponent(filial)}/${encodeURIComponent(numeroAlvo)}`);
+
+    const pedidoAlvo = desembrulharPedido(bruto);
+
+    if (!pedidoAlvo) {
+      const amostra = JSON.stringify(bruto)?.slice(0, 300);
+      return {
+        ok: false,
+        erro: `GET do pedido ${numeroAlvo} não trouxe ItemPedCompChildList reconhecível. Retorno: ${amostra}`,
+      };
+    }
+
+    // ── 3. Idempotência: se já foi enviado pra aprovação, não reenvia ──
+    const jaEnviou =
+      pedidoAlvo?.PedCompUserFieldsObject?.UserEnviouAprovacao === "Sim" ||
+      pedidoAlvo?.PedCompUserFieldsObject?.UserEnviarAprovacao === "Sim";
+
+    if (jaEnviou) {
+      // Já está em aprovação — atualiza o Hub e retorna ok (sem remandar)
+      const statusAprov = pedidoAlvo?.StatusAprovacao || null;
+      const proxAprov = pedidoAlvo?.PedCompUserFieldsObject?.UserProximoAprovador || null;
+
+      await (supabase as any).from("compras_pedidos").upsert(
+        {
+          id: pedidoId,
+          codigo_empresa_filial: filial,
+          numero: numeroAlvo,
+          enviou_aprovacao: "Sim",
+          status_aprovacao: statusAprov,
+          proximo_aprovador: proxAprov,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" },
+      );
+
+      return {
+        ok: true,
+        status_aprovacao: statusAprov,
+        proximo_aprovador: proxAprov,
+      };
+    }
+
+    // ── 4. Seta o campo de envio pra aprovação ──
+    if (!pedidoAlvo.PedCompUserFieldsObject || typeof pedidoAlvo.PedCompUserFieldsObject !== "object") {
+      pedidoAlvo.PedCompUserFieldsObject = {};
+    }
+    pedidoAlvo.PedCompUserFieldsObject.UserEnviarAprovacao = "Sim";
+
+    // ── 5. Remanda via update ──
+    const resp = await callGatewayJson("/ped-comp/update", pedidoAlvo);
+    const respPedido = desembrulharPedido(resp) || resp;
+
+    const statusAprov = respPedido?.StatusAprovacao || null;
+    const proxAprov = respPedido?.PedCompUserFieldsObject?.UserProximoAprovador || null;
+    const enviou = respPedido?.PedCompUserFieldsObject?.UserEnviouAprovacao || "Sim";
+
+    // ── 6. Atualiza o Hub ──
+    await (supabase as any).from("compras_pedidos").upsert(
+      {
+        id: pedidoId,
+        codigo_empresa_filial: filial,
+        numero: numeroAlvo,
+        enviou_aprovacao: enviou,
+        status_aprovacao: statusAprov,
+        proximo_aprovador: proxAprov,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    );
+
+    // ── 7. Auditoria ──
+    await (supabase as any).from("compras_pedidos_auditoria").insert({
+      pedido_id: pedidoId,
+      evento: "enviado_aprovacao",
+      user_id: userId,
+      user_nome: userNome,
+      sucesso: true,
+    });
+
+    console.log(`[enviarAprovacao] pedido ${numeroAlvo} → aprovação OK (status=${statusAprov} prox=${proxAprov})`);
+
+    return {
+      ok: true,
+      status_aprovacao: statusAprov,
+      proximo_aprovador: proxAprov,
+    };
+  } catch (err: any) {
+    const detalhe = err?.details && typeof err.details === "object" ? JSON.stringify(err.details).slice(0, 400) : "";
+    const erro = `${err?.message || String(err)}${detalhe ? ` | details: ${detalhe}` : ""}`;
+
+    // Auditoria de falha (clicado pelo usuário, então registramos)
+    await (supabase as any).from("compras_pedidos_auditoria").insert({
+      pedido_id: pedidoId,
+      evento: "enviar_aprovacao_falhou",
+      user_id: userId,
+      user_nome: userNome,
+      sucesso: false,
+      mensagem_erro: `[ped ${numeroAlvo}] ${erro}`,
+    });
+
+    console.warn(`[enviarAprovacao] falha no pedido ${numeroAlvo}: ${erro}`);
+    return { ok: false, erro };
+  }
+}
