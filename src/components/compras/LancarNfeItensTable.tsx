@@ -26,6 +26,7 @@ import {
   ChevronDown,
   ChevronRight,
   Receipt,
+  Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +70,12 @@ export interface ItemXml {
   imposto?: any;
 }
 
+export interface LoteItem {
+  numero: string;
+  validade: string; // YYYY-MM-DD ou ""
+  fabricacao: string; // YYYY-MM-DD ou ""
+}
+
 export interface ItemLancamento {
   origemXml: ItemXml;
   produtoInterno: string | null;
@@ -84,6 +91,7 @@ export interface ItemLancamento {
   centroCusto: string | null;
   centroCustoNome: string | null;
   imposto: ItemImposto;
+  lote: LoteItem;
   quantidade: number;
   valorUnitario: number;
   valorProduto: number;
@@ -165,6 +173,7 @@ function linhaInicial(itemXml: ItemXml, classePedido?: string | null, ccPedido?:
     centroCusto: ccPedido || null,
     centroCustoNome: null,
     imposto: impostoInicial(itemXml.imposto),
+    lote: { numero: "", validade: "", fabricacao: "" },
     quantidade: qtd,
     valorUnitario: vUnit,
     valorProduto: Number((qtd * vUnit).toFixed(2)),
@@ -565,6 +574,50 @@ function resumoImposto(imp: ItemImposto): string {
   return partes.length ? partes.join(" · ") : "sem impostos destacados";
 }
 
+// ── Painel de lote (fatia 4) ───────────────────────────────────────────────
+
+function PainelLote({ lote, onChange }: { lote: LoteItem; onChange: (patch: Partial<LoteItem>) => void }) {
+  return (
+    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.04] p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+        <Boxes className="h-3.5 w-3.5" /> Controle de lote
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="space-y-0.5">
+          <label className="text-[10px] uppercase tracking-wide text-muted-foreground">Número do lote *</label>
+          <Input
+            value={lote.numero}
+            onChange={(e) => onChange({ numero: e.target.value })}
+            placeholder="ex.: A50373"
+            className="h-8 text-xs"
+          />
+        </div>
+        <div className="space-y-0.5">
+          <label className="text-[10px] uppercase tracking-wide text-muted-foreground">Validade</label>
+          <Input
+            type="date"
+            value={lote.validade}
+            onChange={(e) => onChange({ validade: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+        <div className="space-y-0.5">
+          <label className="text-[10px] uppercase tracking-wide text-muted-foreground">Fabricação</label>
+          <Input
+            type="date"
+            value={lote.fabricacao}
+            onChange={(e) => onChange({ fabricacao: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+      </div>
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Preenchimento manual. O número do lote é obrigatório para produtos com controle de lote.
+      </p>
+    </div>
+  );
+}
+
 // ── Tabela ─────────────────────────────────────────────────────────────────
 
 export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange }: LancarNfeItensTableProps) {
@@ -572,7 +625,11 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
   const [classes, setClasses] = useState<ClasseOpcao[]>([]);
   const [ccs, setCcs] = useState<CcOpcao[]>([]);
   const [loadingDrops, setLoadingDrops] = useState(true);
-  const [expandido, setExpandido] = useState<number | null>(null); // linha com painel de imposto aberto
+  // painel aberto por linha: "imposto" | "lote" | null
+  const [painelAberto, setPainelAberto] = useState<{ idx: number; tipo: "imposto" | "lote" } | null>(null);
+  const isAberto = (idx: number, tipo: "imposto" | "lote") => painelAberto?.idx === idx && painelAberto?.tipo === tipo;
+  const togglePainel = (idx: number, tipo: "imposto" | "lote") =>
+    setPainelAberto((p) => (p?.idx === idx && p?.tipo === tipo ? null : { idx, tipo }));
 
   useEffect(() => {
     (async () => {
@@ -621,6 +678,10 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
     setItens((prev) => prev.map((it, i) => (i === idx ? { ...it, imposto: { ...it.imposto, ...patch } } : it)));
   }, []);
 
+  const atualizarLote = useCallback((idx: number, patch: Partial<LoteItem>) => {
+    setItens((prev) => prev.map((it, i) => (i === idx ? { ...it, lote: { ...it.lote, ...patch } } : it)));
+  }, []);
+
   const onSelecionarProduto = useCallback(
     (idx: number, p: ProdutoBusca) => {
       atualizarLinha(idx, {
@@ -666,6 +727,7 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
   const algumSemProduto = itens.some((it) => !it.produtoInterno);
   const algumSemNatureza = itens.some((it) => it.produtoInterno && !it.natureza);
   const algumSemClasseCc = itens.some((it) => it.produtoInterno && (!it.classe || !it.centroCusto));
+  const algumSemLote = itens.some((it) => it.produtoInterno && it.controlaLote && !it.lote.numero.trim());
 
   return (
     <div className="space-y-2">
@@ -750,20 +812,37 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
                           loading={loadingDrops}
                           onSelect={(cod, nome) => atualizarLinha(idx, { centroCusto: cod, centroCustoNome: nome })}
                         />
-                        {/* resumo + toggle de impostos */}
-                        <button
-                          type="button"
-                          onClick={() => setExpandido(expandido === idx ? null : idx)}
-                          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                        >
-                          {expandido === idx ? (
-                            <ChevronDown className="h-3 w-3" />
-                          ) : (
-                            <ChevronRight className="h-3 w-3" />
+                        {/* linha de botões: impostos + lote */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => togglePainel(idx, "imposto")}
+                            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                          >
+                            {isAberto(idx, "imposto") ? (
+                              <ChevronDown className="h-3 w-3" />
+                            ) : (
+                              <ChevronRight className="h-3 w-3" />
+                            )}
+                            <Receipt className="h-3 w-3" />
+                            <span className="truncate max-w-[260px]">{resumoImposto(it.imposto)}</span>
+                          </button>
+                          {it.controlaLote && (
+                            <button
+                              type="button"
+                              onClick={() => togglePainel(idx, "lote")}
+                              className={cn(
+                                "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border",
+                                it.lote.numero
+                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
+                                  : "border-amber-500/50 bg-amber-500/10 text-amber-600 animate-pulse",
+                              )}
+                            >
+                              <Boxes className="h-3 w-3" />
+                              {it.lote.numero ? `Lote ${it.lote.numero}` : "Informar lote"}
+                            </button>
                           )}
-                          <Receipt className="h-3 w-3" />
-                          <span className="truncate">{resumoImposto(it.imposto)}</span>
-                        </button>
+                        </div>
                       </>
                     )}
                   </td>
@@ -794,10 +873,19 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
                 </tr>
 
                 {/* Painel de impostos expandido (3b) */}
-                {expandido === idx && it.produtoInterno && (
+                {isAberto(idx, "imposto") && it.produtoInterno && (
                   <tr className="border-t bg-muted/10">
                     <td colSpan={6} className="p-3">
                       <PainelImpostos imposto={it.imposto} onChange={(patch) => atualizarImposto(idx, patch)} />
+                    </td>
+                  </tr>
+                )}
+
+                {/* Painel de lote expandido (fatia 4) — só p/ itens com controla_lote */}
+                {isAberto(idx, "lote") && it.produtoInterno && it.controlaLote && (
+                  <tr className="border-t bg-emerald-500/[0.04]">
+                    <td colSpan={6} className="p-3">
+                      <PainelLote lote={it.lote} onChange={(patch) => atualizarLote(idx, patch)} />
                     </td>
                   </tr>
                 )}
@@ -824,14 +912,16 @@ export function LancarNfeItensTable({ itensXml, classePedido, ccPedido, onChange
         </table>
       </div>
 
-      {(algumSemProduto || algumSemNatureza || algumSemClasseCc) && (
+      {(algumSemProduto || algumSemNatureza || algumSemClasseCc || algumSemLote) && (
         <p className="flex items-center gap-1 text-[11px] text-amber-600">
           <AlertTriangle className="h-3 w-3" />
           {algumSemProduto
             ? "Todos os itens precisam de um produto interno antes de lançar."
             : algumSemNatureza
               ? "Todos os itens precisam de uma natureza de operação."
-              : "Todos os itens precisam de classe e centro de custo."}
+              : algumSemClasseCc
+                ? "Todos os itens precisam de classe e centro de custo."
+                : "Itens com controle de lote precisam do número do lote."}
         </p>
       )}
     </div>
