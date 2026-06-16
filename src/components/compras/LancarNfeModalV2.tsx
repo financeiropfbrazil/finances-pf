@@ -17,7 +17,9 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { LancarNfeItensTable, type ItemLancamento, type ItemXml } from "@/components/compras/LancarNfeItensTable";
 import { parseNfeXml } from "@/services/parseNfeXml";
-import { X, FileText, Building2, Calendar, Hash, KeyRound, Link2, AlertTriangle, Copy, FileDown } from "lucide-react";
+import { X, FileText, Building2, Calendar, Hash, KeyRound, Link2, AlertTriangle, Copy, FileDown }
+import { LancarNfePagamento, type PagamentoState } from "@/components/compras/LancarNfePagamento";
+from "lucide-react";
 
 const TIPOS_LANCAMENTO = [
   { codigo: "E0000158", nome: "Entrada NF-e c/ Laudo (lote)" },
@@ -253,8 +255,13 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
           </section>
 
           <Separator />
-          <section className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-            Impostos, lote e pagamento entram nas próximas etapas.
+          <section>
+            <LancarNfePagamento
+              codigoCondPagPedido={nfe.pedido_compra_cond_pagamento}
+              totalItens={totalItens}
+              dataEmissao={nfe.data_emissao}
+              onChange={setPagamento}
+            />
           </section>
         </div>
 
