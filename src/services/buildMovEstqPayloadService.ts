@@ -748,10 +748,14 @@ export function montarPayloadDoModal(input: MontarDoModalInput): any {
   });
 
   // 2. Monta as parcelas no formato do builder.
+  // Blindagem: descarta parcelas com valor <= 0 (ex.: linha criada por engano) e re-sequencia.
   const valorTotal = Number(input.itens.reduce((s, it) => s + it.valorProduto, 0).toFixed(2));
-  const parcelas: ParcelaMovEstq[] = input.pagamento.parcelas.map((p) => ({
+  const parcelasValidas = input.pagamento.parcelas
+    .filter((p) => Number(p.valor) > 0)
+    .map((p, i) => ({ ...p, sequencia: i + 1 }));
+  const parcelas: ParcelaMovEstq[] = parcelasValidas.map((p) => ({
     Sequencia: p.sequencia,
-    NumeroDuplicata: `${input.numero}/${p.sequencia}-${input.pagamento.parcelas.length}`,
+    NumeroDuplicata: `${input.numero}/${p.sequencia}-${parcelasValidas.length}`,
     DataEmissao: isoDate(input.dataEmissao),
     ValorParcela: p.valor,
     DataVencimento: isoDate(p.vencimento),
