@@ -3,9 +3,8 @@
 // Etapa B — Modal de lançamento de NF-e (produto) no Alvo. Versão nova (V2).
 // Layout ERP quase tela cheia: header fixo, conteúdo rolável, footer fixo.
 //
-// FATIAS PRONTAS: 1 (cabeçalho+tipo), 2b (tabela itens completa),
-//   3a (parse do raw_xml → injeta imposto nos itens p/ a fatia 3 de impostos).
-// Header: copiar chave completa + placeholder do botão DANFE (B5 follow-up).
+// FATIAS: 1 (cabeçalho+tipo), 2b (itens), 3 (impostos), 4 (lote),
+//   5 (pagamento), 6 (conferência + lançar via LancarNfeConfirmacao).
 
 import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -15,10 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import { LancarNfeItensTable, type ItemLancamento, type ItemXml } from "@/components/compras/LancarNfeItensTable";
-import { parseNfeXml } from "@/services/parseNfeXml";
-import { X, FileText, Building2, Calendar, Hash, KeyRound, Link2, AlertTriangle, Copy, FileDown } from "lucide-react";
 import { LancarNfePagamento, type PagamentoState } from "@/components/compras/LancarNfePagamento";
+import { LancarNfeConfirmacao } from "@/components/compras/LancarNfeConfirmacao";
+import { parseNfeXml } from "@/services/parseNfeXml";
+import { montarPayloadDoModal } from "@/services/buildMovEstqPayloadService";
+import { X, FileText, Building2, Calendar, Hash, KeyRound, Link2, AlertTriangle, Copy, FileDown } from "lucide-react";
 
 const TIPOS_LANCAMENTO = [
   { codigo: "E0000158", nome: "Entrada NF-e c/ Laudo (lote)" },
@@ -85,31 +87,29 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
   const [tipoLancamento, setTipoLancamento] = useState("E0000158");
   const [itens, setItens] = useState<ItemLancamento[]>([]);
   const [pagamento, setPagamento] = useState<PagamentoState | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [payload, setPayload] = useState<any | null>(null);
 
   useEffect(() => {
     if (open) {
       setTipoLancamento("E0000158");
       setItens([]);
+      setPagamento(null);
+      setConfirmOpen(false);
+      setPayload(null);
     }
   }, [open, nfe?.id]);
 
-  // 3a — parseia o raw_xml e injeta o imposto em cada item (casando por numero_item).
-  // Se não houver XML, cai no dados_extraidos sem imposto (fallback gracioso).
+  // 3a — parseia o raw_xml e injeta o imposto em cada item (casa por numero_item).
   const itensComImposto: ItemXml[] = useMemo(() => {
     const base: ItemXml[] = (nfe?.dados_extraidos?.itens || []) as ItemXml[];
     if (!nfe?.raw_xml) return base;
     try {
       const parsed = parseNfeXml(nfe.raw_xml);
       const mapaImposto = new Map<number, any>();
-      for (const it of parsed.itens || []) {
-        mapaImposto.set(Number(it.numero_item), it.imposto);
-      }
-      // Se dados_extraidos estiver vazio, usa os itens do próprio parse.
+      for (const it of parsed.itens || []) mapaImposto.set(Number(it.numero_item), it.imposto);
       const origem = base.length > 0 ? base : (parsed.itens as any[]);
-      return origem.map((it) => ({
-        ...it,
-        imposto: it.imposto || mapaImposto.get(Number(it.numero_item)) || null,
-      }));
+      return origem.map((it) => ({ ...it, imposto: it.imposto || mapaImposto.get(Number(it.numero_item)) || null }));
     } catch {
       return base;
     }
@@ -121,6 +121,20 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
   const totalItens = itens.reduce((s, it) => s + it.valorProduto, 0);
   const diferenca = Number((totalItens - (nfe.valor_total || 0)).toFixed(2));
 
+  // Validações de habilitação do Lançar.
+  const itensOk =
+    itens.length > 0 &&
+    itens.every(
+      (it) =>
+        it.produtoInterno &&
+        it.natureza &&
+        it.classe &&
+        it.centroCusto &&
+        (!it.controlaLote || (it.lote && it.lote.numero.trim())),
+    );
+  const pagamentoOk = !!pagamento && pagamento.parcelas.length > 0;
+  const podeLancar = temPedido && itensOk && pagamentoOk && Math.abs(diferenca) < 0.01;
+
   const copiarChave = async () => {
     if (!nfe.chave_acesso) return;
     try {
@@ -131,167 +145,230 @@ export function LancarNfeModalV2({ open, onOpenChange, nfe, onLancado }: LancarN
     }
   };
 
+  // Monta o payload e abre a confirmação.
+  const prepararLancamento = () => {
+    if (!pagamento) return;
+    const mov = montarPayloadDoModal({
+      codigoTipoLanc: tipoLancamento,
+      numero: nfe.numero || "",
+      serie: nfe.serie || "1",
+      chaveAcessoNfe: nfe.chave_acesso || "",
+      dataEmissao: nfe.data_emissao || new Date().toISOString().split("T")[0],
+      codigoEntidade: nfe.pedido_compra_entidade || "",
+      nomeEntidade: nfe.emitente_nome || "",
+      cpfCnpjEntidade: nfe.emitente_cnpj || "",
+      numeroPedComp: nfe.pedido_compra_numero,
+      itens: itens.map((it) => ({
+        produtoInterno: it.produtoInterno!,
+        produtoNome: it.produtoNome || "",
+        unidade: it.unidade || "UNID",
+        codigoAlternativo: it.codigoAlternativo,
+        classificacaoFiscal: it.classificacaoFiscal,
+        controlaLote: it.controlaLote,
+        natureza: it.natureza!,
+        classe: it.classe!,
+        centroCusto: it.centroCusto!,
+        quantidade: it.quantidade,
+        valorUnitario: it.valorUnitario,
+        valorProduto: it.valorProduto,
+        imposto: it.imposto,
+        lote: it.lote,
+        origemXml: it.origemXml,
+      })),
+      pagamento: { tipoContaPagar: pagamento.tipoContaPagar, parcelas: pagamento.parcelas },
+    });
+    setPayload(mov);
+    setConfirmOpen(true);
+  };
+
+  // Grava o status no Hub após sucesso no Alvo.
+  const aoSucesso = async (chave: string | number) => {
+    try {
+      await (supabase as any)
+        .from("compras_nfe")
+        .update({
+          status_lancamento: "lancada",
+          erp_chave_movestq: typeof chave === "number" ? chave : Number(chave) || null,
+          lancado_em: new Date().toISOString(),
+        })
+        .eq("id", nfe.id);
+    } catch {
+      /* status no Hub é secundário; o lançamento no Alvo já ocorreu */
+    }
+    toast({ title: "NF-e lançada", description: `Chave ${chave} criada no Alvo.` });
+    onLancado();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-[95vw] h-[92vh] p-0 gap-0 flex flex-col overflow-hidden sm:rounded-lg">
-        {/* ─────────── HEADER FIXO ─────────── */}
-        <div className="shrink-0 border-b bg-muted/30 px-6 py-3">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <div className="rounded-md bg-primary/10 p-2">
-                <FileText className="h-5 w-5 text-primary" />
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-[95vw] w-[95vw] h-[92vh] p-0 gap-0 flex flex-col overflow-hidden sm:rounded-lg">
+          {/* HEADER FIXO */}
+          <div className="shrink-0 border-b bg-muted/30 px-6 py-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <div className="rounded-md bg-primary/10 p-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold leading-tight">Lançar NF-e no estoque</h2>
+                  <p className="text-xs text-muted-foreground">
+                    NF {nfe.numero || "s/nº"}
+                    {nfe.serie ? `-${nfe.serie}` : ""} · entrada de mercadoria
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-base font-semibold leading-tight">Lançar NF-e no estoque</h2>
-                <p className="text-xs text-muted-foreground">
-                  NF {nfe.numero || "s/nº"}
-                  {nfe.serie ? `-${nfe.serie}` : ""} · entrada de mercadoria
-                </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1 text-xs"
+                  disabled
+                  title="Geração da DANFE em breve (B5)"
+                >
+                  <FileDown className="h-3.5 w-3.5" /> DANFE
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => onOpenChange(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
             </div>
-            <div className="flex items-center gap-1">
-              {/* DANFE — placeholder até a B5 (gerador próprio) */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1 text-xs"
-                disabled
-                title="Geração da DANFE em breve (B5)"
-              >
-                <FileDown className="h-3.5 w-3.5" /> DANFE
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => onOpenChange(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 md:grid-cols-4 lg:grid-cols-5">
-            <InfoBloco icon={Building2} label="Fornecedor">
-              <span title={nfe.emitente_nome || ""}>{nfe.emitente_nome || "—"}</span>
-              <div className="text-[11px] font-normal text-muted-foreground font-mono">
-                {fmtCnpj(nfe.emitente_cnpj)}
-              </div>
-            </InfoBloco>
-            <InfoBloco icon={Calendar} label="Emissão">
-              {fmtData(nfe.data_emissao)}
-            </InfoBloco>
-            <InfoBloco icon={Hash} label="Valor da nota">
-              {fmtMoeda(nfe.valor_total)}
-            </InfoBloco>
-            <InfoBloco icon={Link2} label="Pedido">
-              {temPedido ? (
-                <Badge variant="secondary" className="font-mono text-xs">
-                  {nfe.pedido_compra_numero}
-                </Badge>
-              ) : (
-                <span className="text-amber-600 text-xs">não vinculado</span>
-              )}
-            </InfoBloco>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground">
-                <KeyRound className="h-3 w-3" /> Chave de acesso
-              </div>
-              <div className="mt-0.5 flex items-center gap-1">
-                <span className="font-mono text-[11px] truncate" title={nfe.chave_acesso || ""}>
-                  {nfe.chave_acesso ? `${nfe.chave_acesso.slice(0, 12)}…${nfe.chave_acesso.slice(-6)}` : "—"}
-                </span>
-                {nfe.chave_acesso && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5 shrink-0"
-                    onClick={copiarChave}
-                    title="Copiar chave completa"
-                  >
-                    <Copy className="h-3 w-3" />
-                  </Button>
+            <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 md:grid-cols-4 lg:grid-cols-5">
+              <InfoBloco icon={Building2} label="Fornecedor">
+                <span title={nfe.emitente_nome || ""}>{nfe.emitente_nome || "—"}</span>
+                <div className="text-[11px] font-normal text-muted-foreground font-mono">
+                  {fmtCnpj(nfe.emitente_cnpj)}
+                </div>
+              </InfoBloco>
+              <InfoBloco icon={Calendar} label="Emissão">
+                {fmtData(nfe.data_emissao)}
+              </InfoBloco>
+              <InfoBloco icon={Hash} label="Valor da nota">
+                {fmtMoeda(nfe.valor_total)}
+              </InfoBloco>
+              <InfoBloco icon={Link2} label="Pedido">
+                {temPedido ? (
+                  <Badge variant="secondary" className="font-mono text-xs">
+                    {nfe.pedido_compra_numero}
+                  </Badge>
+                ) : (
+                  <span className="text-amber-600 text-xs">não vinculado</span>
                 )}
+              </InfoBloco>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  <KeyRound className="h-3 w-3" /> Chave de acesso
+                </div>
+                <div className="mt-0.5 flex items-center gap-1">
+                  <span className="font-mono text-[11px] truncate" title={nfe.chave_acesso || ""}>
+                    {nfe.chave_acesso ? `${nfe.chave_acesso.slice(0, 12)}…${nfe.chave_acesso.slice(-6)}` : "—"}
+                  </span>
+                  {nfe.chave_acesso && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 shrink-0"
+                      onClick={copiarChave}
+                      title="Copiar chave completa"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* ─────────── CONTEÚDO ROLÁVEL ─────────── */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-          {!temPedido && (
-            <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              Esta nota não está vinculada a um pedido de compra. Vincule antes de lançar.
-            </div>
-          )}
-
-          <section className="space-y-1.5 max-w-xl">
-            <Label htmlFor="tipo-lancamento" className="text-sm font-medium">
-              Tipo de lançamento
-            </Label>
-            <Select value={tipoLancamento} onValueChange={setTipoLancamento}>
-              <SelectTrigger id="tipo-lancamento" className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIPOS_LANCAMENTO.map((t) => (
-                  <SelectItem key={t.codigo} value={t.codigo}>
-                    <span className="font-mono text-xs mr-2">{t.codigo}</span>
-                    {t.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Produtos com controle de lote sugerem automaticamente o tipo com laudo (E0000158).
-            </p>
-          </section>
-
-          <Separator />
-
-          <section>
-            <LancarNfeItensTable
-              itensXml={itensComImposto}
-              classePedido={nfe.pedido_compra_classe}
-              ccPedido={nfe.pedido_compra_centro_custo}
-              onChange={setItens}
-            />
-          </section>
-
-          <Separator />
-          <section>
-            <LancarNfePagamento
-              codigoCondPagPedido={nfe.pedido_compra_cond_pagamento}
-              totalItens={totalItens}
-              dataEmissao={nfe.data_emissao}
-              onChange={setPagamento}
-            />
-          </section>
-        </div>
-
-        {/* ─────────── FOOTER FIXO ─────────── */}
-        <div className="shrink-0 border-t bg-muted/30 px-6 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Total itens: </span>
-                <span className="font-semibold">{fmtMoeda(totalItens)}</span>
+          {/* CONTEÚDO ROLÁVEL */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+            {!temPedido && (
+              <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                Esta nota não está vinculada a um pedido de compra. Vincule antes de lançar.
               </div>
-              <div>
-                <span className="text-muted-foreground">Nota: </span>
-                <span className="font-semibold">{fmtMoeda(nfe.valor_total)}</span>
+            )}
+
+            <section className="space-y-1.5 max-w-xl">
+              <Label htmlFor="tipo-lancamento" className="text-sm font-medium">
+                Tipo de lançamento
+              </Label>
+              <Select value={tipoLancamento} onValueChange={setTipoLancamento}>
+                <SelectTrigger id="tipo-lancamento" className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIPOS_LANCAMENTO.map((t) => (
+                    <SelectItem key={t.codigo} value={t.codigo}>
+                      <span className="font-mono text-xs mr-2">{t.codigo}</span>
+                      {t.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Produtos com controle de lote sugerem automaticamente o tipo com laudo (E0000158).
+              </p>
+            </section>
+
+            <Separator />
+            <section>
+              <LancarNfeItensTable
+                itensXml={itensComImposto}
+                classePedido={nfe.pedido_compra_classe}
+                ccPedido={nfe.pedido_compra_centro_custo}
+                onChange={setItens}
+              />
+            </section>
+
+            <Separator />
+            <section>
+              <LancarNfePagamento
+                codigoCondPagPedido={nfe.pedido_compra_cond_pagamento}
+                totalItens={totalItens}
+                dataEmissao={nfe.data_emissao}
+                onChange={setPagamento}
+              />
+            </section>
+          </div>
+
+          {/* FOOTER FIXO */}
+          <div className="shrink-0 border-t bg-muted/30 px-6 py-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Total itens: </span>
+                  <span className="font-semibold">{fmtMoeda(totalItens)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Nota: </span>
+                  <span className="font-semibold">{fmtMoeda(nfe.valor_total)}</span>
+                </div>
+                <Badge variant={Math.abs(diferenca) < 0.01 ? "secondary" : "destructive"} className="font-mono">
+                  dif. {fmtMoeda(diferenca)}
+                </Badge>
               </div>
-              <Badge variant={Math.abs(diferenca) < 0.01 ? "secondary" : "destructive"} className="font-mono">
-                dif. {fmtMoeda(diferenca)}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancelar
-              </Button>
-              <Button disabled title="Disponível quando todas as etapas estiverem completas">
-                Lançar
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => onOpenChange(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={prepararLancamento}
+                  disabled={!podeLancar}
+                  title={
+                    podeLancar ? "Revisar e lançar" : "Complete itens, lote, pagamento e a diferença deve ser zero"
+                  }
+                >
+                  Lançar
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revisão + disparo (fatia 6) */}
+      <LancarNfeConfirmacao open={confirmOpen} onOpenChange={setConfirmOpen} payload={payload} onSucesso={aoSucesso} />
+    </>
   );
 }
