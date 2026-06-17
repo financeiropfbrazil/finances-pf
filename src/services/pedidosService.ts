@@ -141,8 +141,7 @@ function montarStampAnalista(input: NovoPedidoInput): string {
   const yyyy = now.getFullYear();
   const hh = String(now.getHours()).padStart(2, "0");
   const mi = String(now.getMinutes()).padStart(2, "0");
-  return `[Hub] Analista: ${input.analista_nome} | ${dd}/${mm}/${yyyy} ${hh}:${mi} | ID: ${idCurto}`;
-}
+  return `[Hub] Operador de Compras: ${input.analista_nome} | ${dd}/${mm}/${yyyy} ${hh}:${mi} | ID: ${idCurto}`;
 
 function montarTextoCompleto(input: NovoPedidoInput): string {
   const stamp = montarStampAnalista(input);
@@ -754,10 +753,11 @@ interface MontarPayloadParams {
   texto_historico_completo: string;
   arquivos_guids?: string[];
   itens_enriquecidos: ItemEnriquecido[]; // 1 por item, na mesma ordem que input.itens
+  codigo_comprador: string | null;
 }
 
 function montarPayloadPedComp(p: MontarPayloadParams): any {
-  const { input, texto_completo, texto_historico_completo, arquivos_guids, itens_enriquecidos } = p;
+  const { input, texto_completo, texto_historico_completo, arquivos_guids, itens_enriquecidos, codigo_comprador } = p;
 
   if (itens_enriquecidos.length !== input.itens.length) {
     throw new Error(`Inconsistência: ${input.itens.length} itens vs ${itens_enriquecidos.length} enriquecimentos`);
@@ -959,6 +959,7 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     PercentualDescontoEspecialServico: null,
     ValorCambio: 1,
     CodigoUsuario: USUARIO_LOGADO,
+    CodigoComprador: codigo_comprador,
     Texto: texto_completo,
     Origem: origem,
     CodigoTipoPagRec: "0000016",
@@ -1327,12 +1328,13 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
     }
 
     const payload = montarPayloadPedComp({
-      input,
-      texto_completo: textoCompleto,
-      texto_historico_completo: textoHistoricoCompleto,
-      arquivos_guids: guids.length > 0 ? guids : undefined,
-      itens_enriquecidos: itensEnriquecidos,
-    });
+//       input,
+//       texto_completo: textoCompleto,
+//       texto_historico_completo: textoHistoricoCompleto,
+//       arquivos_guids: guids.length > 0 ? guids : undefined,
+//       itens_enriquecidos: itensEnriquecidos,
+//       codigo_comprador: codigoComprador,   // ← ADICIONE
+//     });
 
     await (supabase as any).from("compras_pedidos_auditoria").insert({
       pedido_id: pedidoId,
