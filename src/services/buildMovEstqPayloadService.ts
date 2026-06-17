@@ -437,6 +437,7 @@ export function montarMovEstq(input: BuildHeaderInput): any {
     MovEstqNfEletronicaChildList: [
       {
         CodigoEmpresaFilial: FILIAL,
+        ChaveMovEstq: 0, // placeholder no Insert; Alvo resolve (exigido: parte da chave)
         ChaveNFEletronica: input.chaveAcessoNfe,
         Status: "Manual",
       },
