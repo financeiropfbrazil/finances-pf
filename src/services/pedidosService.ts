@@ -237,33 +237,60 @@ async function callGatewayGet(path: string): Promise<any> {
   }
   return data;
 }
-// ████████████████████████████████████████████████████████████████████
-// SUBSTITUIÇÃO 1 — troque a função baixarRequisicaoAlvo inteira por esta
-// (mantenha o callGatewayGet que já está acima dela — não muda)
-// ████████████████████████████████████████████████████████████████████
 
-/**
- * "Baixa" a requisição no Alvo depois que o Hub gerou um pedido a partir dela.
- * v1 (Postura A + Opção 1): atualiza SOMENTE a requisição, sempre "Total".
- *
- * Retorna { ok, erro } — em caso de falha, `erro` traz a mensagem real
- * devolvida pelo Alvo/proxy (para diagnóstico na auditoria).
- *
- * Best-effort: nunca lança exceção; o pedido já foi criado e não é afetado.
- */
 // ═══════════════════════════════════════════════════════════════════
-// CORREÇÃO — baixarRequisicaoAlvo robusta ao formato do GET
+// RESOLVER CODIGO COMPRADOR (requisitante se vínculo; senão operador)
 // ═══════════════════════════════════════════════════════════════════
 //
-// O erro "ItemReqCompChildList ausente ou vazio" mostra que o GET do
-// proxy devolve a req num formato que NÃO tem o ItemReqCompChildList no
-// nível raiz — provavelmente embrulhada (.data, listaReqComp[0], etc).
+// Regra de negócio:
+//   1. Pedido COM vínculo a requisição → comprador = REQUISITANTE
+//      (codigo_funcionario gravado na requisição de origem).
+//   2. Pedido SEM vínculo → comprador = OPERADOR que emitiu
+//      (funcionario_alvo_codigo do profile do usuário logado).
+//   3. Fallback → null (o Alvo aplica seu default).
 //
-// Esta versão "desembrulha" o objeto da req antes de usar, aceitando
-// vários formatos possíveis. Troque a função baixarRequisicaoAlvo INTEIRA
-// por esta. (O callGatewayGet continua igual, não mexe.)
-//
-// ═══════════════════════════════════════════════════════════════════
+// Função no NÍVEL DO MÓDULO (fora de montarPayloadPedComp) para que
+// enviarPedido possa chamá-la.
+
+async function resolverCodigoComprador(input: NovoPedidoInput): Promise<string | null> {
+  // ── Caso 1: pedido COM vínculo a requisição → requisitante ──
+  if (input.origem_requisicao_id) {
+    const { data: req } = await (supabase as any)
+      .from("compras_requisicoes")
+      .select("codigo_funcionario")
+      .eq("id", input.origem_requisicao_id)
+      .maybeSingle();
+
+    const codFuncReq = req?.codigo_funcionario;
+    if (codFuncReq && String(codFuncReq).trim().length > 0) {
+      console.log(`[comprador] vínculo → requisitante (codigo_funcionario=${codFuncReq})`);
+      return String(codFuncReq).trim();
+    }
+    console.warn(`[comprador] req ${input.origem_requisicao_id} sem codigo_funcionario — usando operador`);
+  }
+
+  // ── Caso 2: pedido SEM vínculo (ou req sem código) → operador logado ──
+  const { data: profile } = await (supabase as any)
+    .from("profiles")
+    .select("funcionario_alvo_codigo")
+    .eq("user_id", input.user_id)
+    .maybeSingle();
+
+  const codOperador = profile?.funcionario_alvo_codigo;
+  if (codOperador && String(codOperador).trim().length > 0) {
+    console.log(`[comprador] sem vínculo → operador (funcionario_alvo_codigo=${codOperador})`);
+    return String(codOperador).trim();
+  }
+
+  console.warn(
+    `[comprador] nem requisitante nem operador resolveram (user_id=${input.user_id}). CodigoComprador=null.`,
+  );
+  return null;
+}
+
+// ████████████████████████████████████████████████████████████████████
+// baixarRequisicaoAlvo + desembrulharReq
+// ████████████████████████████████████████████████████████████████████
 
 /**
  * Tenta extrair o objeto "plano" da requisição de qualquer envelope
@@ -369,28 +396,15 @@ async function baixarRequisicaoAlvo(params: {
 // Sem essa chamada, o Alvo rejeita o pedido com:
 //   "Produto X Situação Tributária não cadastrada"
 //   "Produto X Classificação Fiscal não cadastrada"
-//
-// O Alvo PRECISA receber os campos fiscais já preenchidos no item.
-// Esses campos NÃO ficam no produto isolado — dependem do CFOP, do
-// fornecedor (UF), da operação (compra/venda), etc.
-//
-// Solução: chamar /PedComp/AtualizaItemPedido ANTES de montar o
-// payload final. Esse endpoint retorna o item enriquecido com:
-//   - CodigoClasFiscal
-//   - CodigoSitTributaria
-//   - CodigoTributA, CodigoTributB
-//   - PercentualICMS, BaseICMS, ValorICMS, etc.
 
 interface EnriquecimentoItemInput {
   codigo_produto: string;
   codigo_prod_unid_med: string;
   quantidade: number;
   valor_unitario: number;
-  // Dados completos do produto pra CodigoProdutoObject (crítico pro Alvo resolver tributação)
   produto_nome: string;
   produto_codigo_alternativo: string;
   produto_codigo_reduzido?: string;
-  // Cabeçalho mínimo do pedido (PedCompDTO)
   codigo_empresa_filial: string;
   codigo_entidade: string;
   nome_entidade: string;
@@ -415,7 +429,6 @@ interface ItemEnriquecido {
   PercentualIPI: number;
   BaseIPI: number;
   ValorIPI: number;
-  // Pode ter outros que viram zero mesmo, mas pegamos só o essencial
 }
 
 /**
@@ -429,8 +442,6 @@ async function enriquecerItemViaAlvo(params: EnriquecimentoItemInput): Promise<I
   const dataCompetenciaIso = `${params.data_competencia}T00:00:00`;
   const dataBaseVencIso = `${params.data_base_vencimento}T00:00:00`;
 
-  // PedCompDTO: vem ANTES de ItemPedComp no payload. Chamou DENTRO do DTO, não fora.
-  // NÃO enviar DataValidade aqui (Alvo nessa fase nem chegou nela).
   const pedCompDTO = {
     CodigoEmpresaFilial: params.codigo_empresa_filial,
     Numero: "",
@@ -467,8 +478,6 @@ async function enriquecerItemViaAlvo(params: EnriquecimentoItemInput): Promise<I
     NumeroPedCompReferencia: null,
   };
 
-  // ItemPedComp: campos do produto vêm VAZIOS/ZERO. O Alvo é quem preenche.
-  // Apenas CodigoProduto + CodigoProdutoObject identificam o produto.
   const itemBase: any = {
     QuantidadeSaldo: 0,
     QuantidadeDesmembrar: 0,
@@ -711,8 +720,6 @@ async function enriquecerItemViaAlvo(params: EnriquecimentoItemInput): Promise<I
     },
   };
 
-  // Payload: PedCompDTO PRIMEIRO, ItemPedComp DEPOIS (ordem importa pro Alvo).
-  // SEM Chamou no root — ele vai dentro do PedCompDTO.
   const payload = {
     PedCompDTO: pedCompDTO,
     ItemPedComp: itemBase,
@@ -720,8 +727,6 @@ async function enriquecerItemViaAlvo(params: EnriquecimentoItemInput): Promise<I
 
   const resp = await callGatewayJson("/ped-comp/atualiza-item-pedido", payload);
 
-  // O Alvo retorna { itemPedComp: { ... enriquecido ... } } (lowercase)
-  // Aceitamos também ItemPedComp ou retorno direto (defesa contra variações)
   const enriquecido = resp?.itemPedComp || resp?.ItemPedComp || resp;
 
   if (!enriquecido || typeof enriquecido !== "object") {
@@ -762,41 +767,7 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
   if (itens_enriquecidos.length !== input.itens.length) {
     throw new Error(`Inconsistência: ${input.itens.length} itens vs ${itens_enriquecidos.length} enriquecimentos`);
   }
-  async function resolverCodigoComprador(input: NovoPedidoInput): Promise<string | null> {
-    // ── Caso 1: pedido COM vínculo a requisição → requisitante ──
-    if (input.origem_requisicao_id) {
-      const { data: req } = await (supabase as any)
-        .from("compras_requisicoes")
-        .select("codigo_funcionario")
-        .eq("id", input.origem_requisicao_id)
-        .maybeSingle();
 
-      const codFuncReq = req?.codigo_funcionario;
-      if (codFuncReq && String(codFuncReq).trim().length > 0) {
-        console.log(`[comprador] vínculo → requisitante (codigo_funcionario=${codFuncReq})`);
-        return String(codFuncReq).trim();
-      }
-      console.warn(`[comprador] req ${input.origem_requisicao_id} sem codigo_funcionario — usando operador`);
-    }
-
-    // ── Caso 2: pedido SEM vínculo (ou req sem código) → operador logado ──
-    const { data: profile } = await (supabase as any)
-      .from("profiles")
-      .select("funcionario_alvo_codigo")
-      .eq("user_id", input.user_id)
-      .maybeSingle();
-
-    const codOperador = profile?.funcionario_alvo_codigo;
-    if (codOperador && String(codOperador).trim().length > 0) {
-      console.log(`[comprador] sem vínculo → operador (funcionario_alvo_codigo=${codOperador})`);
-      return String(codOperador).trim();
-    }
-
-    console.warn(
-      `[comprador] nem requisitante nem operador resolveram (user_id=${input.user_id}). CodigoComprador=null.`,
-    );
-    return null;
-  }
   const valorMercadoria = round2(input.itens.reduce((acc, it) => acc + it.quantidade * it.valor_unitario, 0));
   const valorTotal = valorMercadoria;
   const origem = input.origem_requisicao_id ? "Requisição" : "Pedido";
@@ -812,8 +783,6 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     const valorTotalItem = round2(item.quantidade * item.valor_unitario);
     const enriq = itens_enriquecidos[idx];
 
-    // BaseICMS e ValorICMS recalculados com o valor real do item
-    // (o Alvo retornou PercentualICMS válido para a operação)
     const baseICMS = enriq.PercentualICMS > 0 ? valorTotalItem : 0;
     const valorICMS = round2((baseICMS * enriq.PercentualICMS) / 100);
 
@@ -857,7 +826,6 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
       ValorUnitario: item.valor_unitario,
       ValorTotal: valorTotalItem,
       ValorFinal: valorTotalItem,
-      // Campos enriquecidos pelo Alvo via /PedComp/AtualizaItemPedido:
       BaseICMS: baseICMS,
       PercentualICMS: enriq.PercentualICMS,
       ValorICMS: valorICMS,
@@ -870,7 +838,6 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
       CodigoTributB: enriq.CodigoTributB,
       CodigoSitTributariaIBSCBS: enriq.CodigoSitTributariaIBSCBS,
       ImpostoZerado: "Não",
-      // Resto dos campos do item:
       SaldoQuantidade: item.quantidade,
       CodigoProdUnidMedValor: item.codigo_prod_unid_med,
       Quantidade2: item.quantidade,
@@ -884,7 +851,6 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     };
   });
 
-  // Cabeçalho: somar BaseICMS e ValorICMS dos itens enriquecidos
   const geralBaseICMS = round2(itensPayload.reduce((s, it) => s + (it.BaseICMS || 0), 0));
   const geralValorICMS = round2(itensPayload.reduce((s, it) => s + (it.ValorICMS || 0), 0));
 
@@ -899,7 +865,6 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     DataVencimento: formatarDataParaAlvo(p.data_vencimento),
   }));
 
-  // Rateio agregado do PEDIDO (soma de todos itens)
   const rateioAgregado = new Map<string, Map<string, { valor: number; pct: number }>>();
 
   for (const item of input.itens) {
@@ -1070,13 +1035,8 @@ async function salvarArquivoNoStorage(pedidoId: string, arquivo: ArquivoInput, u
 
 /**
  * Limpa todos os filhos de um pedido (itens, rateios, parcelas, arquivos).
- * Usado em modo "edição": antes de reinserir os dados novos vindos da UI,
- * apagamos os antigos pra evitar conflitos de UNIQUE e órfãos.
- *
- * NÃO apaga o pedido pai nem a auditoria (que mantém histórico de tentativas).
  */
 async function limparFilhosDoPedido(pedidoId: string): Promise<void> {
-  // 1. Pega arquivos pra remover do storage também
   const { data: arquivos } = await (supabase as any)
     .from("compras_pedidos_arquivos")
     .select("storage_path")
@@ -1084,7 +1044,6 @@ async function limparFilhosDoPedido(pedidoId: string): Promise<void> {
 
   if (arquivos && arquivos.length > 0) {
     const paths = arquivos.map((a: any) => a.storage_path);
-    // Best-effort: ignora erro de storage (arquivo pode já ter sido removido)
     try {
       await supabase.storage.from(STORAGE_BUCKET).remove(paths);
     } catch (e) {
@@ -1092,7 +1051,6 @@ async function limparFilhosDoPedido(pedidoId: string): Promise<void> {
     }
   }
 
-  // 2. Apaga rateios (filhos dos itens) via subquery
   const { data: itensIds } = await (supabase as any)
     .from("compras_pedidos_itens")
     .select("id")
@@ -1103,7 +1061,6 @@ async function limparFilhosDoPedido(pedidoId: string): Promise<void> {
     await (supabase as any).from("compras_pedidos_itens_rateio").delete().in("item_id", ids);
   }
 
-  // 3. Apaga itens, parcelas, arquivos (em qualquer ordem — todos filhos do pedido)
   await (supabase as any).from("compras_pedidos_itens").delete().eq("pedido_id", pedidoId);
   await (supabase as any).from("compras_pedidos_parcelas").delete().eq("pedido_id", pedidoId);
   await (supabase as any).from("compras_pedidos_arquivos").delete().eq("pedido_id", pedidoId);
@@ -1130,7 +1087,6 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
   const textoCompleto = montarTextoCompleto(input);
   const textoHistoricoCompleto = montarTextoHistoricoCompleto(input);
 
-  // Em modo edição (reenvio), reusa o id existente. Em modo criação, será gerado.
   let pedidoId: string | null = pedidoIdExistente || null;
   const modoEdicao = !!pedidoIdExistente;
 
@@ -1138,12 +1094,8 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
     const valorTotal = input.itens.reduce((acc, it) => acc + it.quantidade * it.valor_unitario, 0);
 
     if (modoEdicao) {
-      // ── MODO EDIÇÃO ──
-      // Limpa filhos antigos (itens, rateios, parcelas, arquivos), atualiza o pedido pai.
       await limparFilhosDoPedido(pedidoId!);
 
-      // Busca o numero atual pra preservar no upsert
-      // (NÃO usar .update() — bloqueado por CORS PATCH no Supabase hospedado).
       const { data: pedAtual, error: errFetch } = await (supabase as any)
         .from("compras_pedidos")
         .select("numero")
@@ -1190,7 +1142,6 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         throw new Error(`Erro ao atualizar pedido: ${errUpd.message}`);
       }
     } else {
-      // ── MODO CRIAÇÃO ──
       const { data: pedidoCriado, error: errPed } = await (supabase as any)
         .from("compras_pedidos")
         .insert({
@@ -1230,7 +1181,6 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
 
     // ── REINSERÇÃO DOS FILHOS (vale pra ambos modos) ──
 
-    // Itens + rateio (achatado: 1 linha por par classe-cc)
     for (let idx = 0; idx < input.itens.length; idx++) {
       const item = input.itens[idx];
       const valorTotalItem = round2(item.quantidade * item.valor_unitario);
@@ -1258,9 +1208,6 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         throw new Error(`Erro ao criar item ${idx + 1}: ${errItem?.message}`);
       }
 
-      // Salva rateio achatado:
-      // Cada combinação (classe, cc) vira 1 linha com percentual relativo ao TOTAL DO ITEM
-      // = (% da classe) × (% do CC dentro da classe) ÷ 100
       for (const cls of item.rateio) {
         for (const cc of cls.ccs) {
           const percFinal = round2((cls.percentual * cc.percentual) / 100);
@@ -1301,10 +1248,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       sucesso: true,
     });
 
-    // Atualiza status pra "enviando" antes da chamada ao Alvo.
-    // Em modo edição, preserva o numero existente (não gera novo RASCUNHO-).
     if (modoEdicao) {
-      // Busca o numero atual pra preservar
       const { data: pedAtualEnviando } = await (supabase as any)
         .from("compras_pedidos")
         .select("numero")
@@ -1335,9 +1279,6 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
     const guids = input.arquivos?.map((a) => a.upload_identify_guid) || [];
 
     // ── ENRIQUECIMENTO FISCAL ──────────────────────────────
-    // Para cada item, chamar o Alvo (via erp-proxy) e obter os campos
-    // fiscais corretos (CodigoClasFiscal, CodigoSitTributaria, etc).
-    // Sem isso, o Alvo rejeita o pedido por "Situação Tributária / Classificação Fiscal não cadastrada".
     const itensEnriquecidos: ItemEnriquecido[] = [];
     for (const item of input.itens) {
       const enriq = await enriquecerItemViaAlvo({
@@ -1414,16 +1355,11 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         { onConflict: "id" },
       );
 
-      // ████████████████████████████████████████████████████████████████████
-      // SUBSTITUIÇÃO 2 — troque o Bloco B inteiro por este
-      // ████████████████████████████████████████████████████████████████████
-
       // ── BAIXA DA REQUISIÇÃO (v1: só a req é atualizada) ──────────────
       {
         let reqAlvoParaBaixar: string | null = input.origem_numero_req_alvo || null;
         let filialReqParaBaixar: string | null = input.origem_codigo_empresa_filial || null;
 
-        // Fallback: busca na tabela se o input não trouxe.
         if (!reqAlvoParaBaixar || !filialReqParaBaixar) {
           const { data: pedOrigem } = await (supabase as any)
             .from("compras_pedidos")
@@ -1503,10 +1439,8 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
           );
         }
 
-        // ⭐ NOVO: clona anexos da requisição pro pedido (só em modo criação)
         if (!modoEdicao) {
-          // DESATIVADO: a clonagem de anexos agora acontece no wizard (SuprimentosPedidoNovo),
-          // pré-carregando os anexos da req como editáveis pra a analista decidir manter/remover.
+          // DESATIVADO: a clonagem de anexos agora acontece no wizard (SuprimentosPedidoNovo).
           // await clonarAnexosDaRequisicao(input.origem_requisicao_id, pedidoId!);
         }
       }
@@ -1531,7 +1465,6 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       };
 
       if (modoEdicao) {
-        // Busca numero atual pra preservar
         const { data: pedAtualErro } = await (supabase as any)
           .from("compras_pedidos")
           .select("numero")
@@ -1637,11 +1570,9 @@ export interface CarregarPedidoResult {
   status_local: string;
   erro_envio: { message?: string; details?: any; timestamp?: string } | null;
 
-  // Origem (se veio de uma req)
   origem_numero_req_alvo: string | null;
   origem_codigo_empresa_filial_req_comp: string | null;
 
-  // Cabeçalho
   codigo_entidade: string;
   nome_entidade: string;
   cnpj_entidade: string | null;
@@ -1652,7 +1583,6 @@ export interface CarregarPedidoResult {
   data_entrega: string;
   data_validade: string;
 
-  // Itens (com rateio reconstruído em hierarquia classe→cc)
   itens: Array<{
     item_servico: boolean;
     codigo_produto: string;
@@ -1675,10 +1605,8 @@ export interface CarregarPedidoResult {
     }>;
   }>;
 
-  // Parcelas
   parcelas: ParcelaInput[];
 
-  // Arquivos já salvos (metadata — não tem o File em si)
   arquivos_existentes: Array<{
     id: string;
     upload_identify_guid: string;
@@ -1688,42 +1616,26 @@ export interface CarregarPedidoResult {
     tamanho_bytes: number;
   }>;
 
-  // Textos
   texto_livre_existente: string;
   texto_historico_existente: string;
 }
 
-/**
- * Carrega um pedido salvo no Hub (rascunho ou erro_envio) com todos os filhos,
- * reconstruindo a estrutura hierárquica de rateio (Classe→CCs) a partir do
- * formato achatado guardado no banco.
- *
- * Usado pra editar um rascunho/erro_envio antes de reenviar.
- */
 export async function carregarPedidoParaEdicao(pedidoId: string): Promise<CarregarPedidoResult> {
   return _carregarPedidoCompleto(pedidoId, /* modoEdicao */ true);
 }
 
-/**
- * Carrega um pedido salvo no Hub para VISUALIZAÇÃO (tela de Detalhe).
- *
- * Idêntico a `carregarPedidoParaEdicao`, mas SEM a trava de status.
- * Aceita qualquer pedido independente do status_local.
- */
 export async function carregarPedidoParaDetalhe(pedidoId: string): Promise<CarregarPedidoResult> {
   return _carregarPedidoCompleto(pedidoId, /* modoEdicao */ false);
 }
+
 // ────────────────────────────────────────────────────────────
 // HELPERS — Fallback para reconstruir itens/parcelas do jsonb
-// (usado quando pedido veio do Alvo via cron e tabelas relacionais
-// estão vazias, mas compras_pedidos.itens/parcelas têm dados)
 // ────────────────────────────────────────────────────────────
 
 function reconstruirItensDoJsonb(itensJsonb: any[]): any[] {
   if (!Array.isArray(itensJsonb) || itensJsonb.length === 0) return [];
 
   return itensJsonb.map((it: any) => {
-    // Reconstrói rateio a partir do classeRateio do jsonb
     const rateio = Array.isArray(it.classeRateio)
       ? it.classeRateio.map((cls: any) => ({
           codigo_classe_rec_desp: cls.classe || "",
@@ -1765,13 +1677,11 @@ function reconstruirParcelasDoJsonb(parcelasJsonb: any[]): any[] {
     data_vencimento: p.vencimento || null,
   }));
 }
+
 /**
  * Helper interno — carrega o pedido completo com filhos e reconstrói rateio.
- * Chamado por `carregarPedidoParaEdicao` (com trava) e
- * `carregarPedidoParaDetalhe` (sem trava).
  */
 async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): Promise<CarregarPedidoResult> {
-  // 1. Cabeçalho
   const { data: ped, error: errPed } = await (supabase as any)
     .from("compras_pedidos")
     .select("*")
@@ -1788,7 +1698,6 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
     );
   }
 
-  // 2. Itens
   const { data: itensRows, error: errItens } = await (supabase as any)
     .from("compras_pedidos_itens")
     .select("*")
@@ -1799,8 +1708,6 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
     throw new Error(`Erro ao carregar itens: ${errItens.message}`);
   }
 
-  // FALLBACK: se tabela relacional vazia mas o jsonb ped.itens tem dados,
-  // reconstrói a partir do jsonb (caso de pedidos vindos do Alvo via cron)
   const usarJsonbItens = (!itensRows || itensRows.length === 0) && Array.isArray(ped.itens) && ped.itens.length > 0;
   let itens: any[] = [];
 
@@ -1808,16 +1715,11 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
     itens = reconstruirItensDoJsonb(ped.itens);
   } else {
     for (const itemRow of itensRows || []) {
-      // 2a. Rateios desse item (achatado: 1 linha por par classe-cc)
       const { data: rateiosRows } = await (supabase as any)
         .from("compras_pedidos_itens_rateio")
         .select("*")
         .eq("item_id", itemRow.id);
 
-      // 2b. Reconstrói hierarquia classe→cc.
-      // O percentual gravado é o produto (perc_classe × perc_cc / 100).
-      // Pra reverter: agrupa por classe, soma percentuais → vira % da classe.
-      // Dentro da classe, cada CC tem peso = (perc_gravado / soma_da_classe) × 100.
       const porClasse = new Map<
         string,
         {
@@ -1827,7 +1729,7 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
           ccs: Array<{
             codigo_centro_ctrl: string;
             centro_ctrl_label: string | null;
-            percentual: number; // antes da normalização
+            percentual: number;
           }>;
         }
       >();
@@ -1851,13 +1753,11 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
         });
       }
 
-      // 2c. Normaliza percentual dos CCs dentro de cada classe (somam 100%)
       const rateioFinal = Array.from(porClasse.values()).map((cls) => {
         const ccs = cls.ccs.map((cc) => ({
           ...cc,
           percentual: cls.percentual > 0 ? round2((cc.percentual / cls.percentual) * 100) : 0,
         }));
-        // Ajuste de arredondamento: força soma=100 mexendo no último CC
         if (ccs.length > 0) {
           const somaCcs = ccs.reduce((s, c) => s + c.percentual, 0);
           const diff = round2(100 - somaCcs);
@@ -1887,15 +1787,13 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
       });
     }
   }
-  // 3. Parcelas
+
   const { data: parcelasRows } = await (supabase as any)
     .from("compras_pedidos_parcelas")
     .select("*")
     .eq("pedido_id", pedidoId)
     .order("sequencia", { ascending: true });
 
-  // FALLBACK: se tabela relacional vazia mas o jsonb ped.parcelas tem dados,
-  // reconstrói a partir do jsonb (caso de pedidos vindos do Alvo via cron)
   const usarJsonbParcelas =
     (!parcelasRows || parcelasRows.length === 0) && Array.isArray(ped.parcelas) && ped.parcelas.length > 0;
 
@@ -1909,19 +1807,18 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
         data_vencimento: p.data_vencimento,
       }));
 
-  // 4. Arquivos existentes (metadata)
   const { data: arquivosRows } = await (supabase as any)
     .from("compras_pedidos_arquivos")
     .select("id, upload_identify_guid, nome_original, storage_path, mime_type, tamanho_bytes")
     .eq("pedido_id", pedidoId);
 
-  // 5. Extração de texto livre / histórico (remove o stamp, que será reaplicado no envio)
+  // Remove o stamp (primeira linha [Hub] ...) ao carregar para edição.
+  // Aceita tanto o stamp antigo "[Hub] Analista:" quanto o novo
+  // "[Hub] Operador de Compras:".
   const removerStamp = (texto: string | null): string => {
     if (!texto) return "";
-    // Stamp tem o padrão: "[Hub] Analista: NOME | DD/MM/YYYY HH:MM | ID: XXXXXXXX"
-    // Estratégia: descarta a primeira linha SE começar com "[Hub] Analista:"
     const linhas = texto.split("\n");
-    if (linhas.length > 0 && linhas[0].startsWith("[Hub] Analista:")) {
+    if (linhas.length > 0 && linhas[0].startsWith("[Hub] ")) {
       return linhas.slice(1).join("\n").trim();
     }
     return texto;
@@ -2021,8 +1918,6 @@ export async function clonarDeRequisicao(requisicaoId: string): Promise<CloneReq
   const itensClonados = itens.map((item: any) => {
     const rateioReq = item.compras_requisicoes_itens_classe_rec_desp || [];
 
-    // Cada classe da Req vira 1 classe no rateio do Pedido,
-    // com 1 CC dentro (do item da Req) com 100% interno
     const rateioSugerido: RateioClasseInput[] = rateioReq.map((r: any) => ({
       codigo_classe_rec_desp: r.codigo_classe_rec_desp,
       classe_rec_desp_label: r.classe_rec_desp_label,
@@ -2101,15 +1996,10 @@ export async function removerArquivoPedido(arquivoId: string): Promise<void> {
 // ════════════════════════════════════════════════════════════
 // CLONAR ANEXOS DA REQUISIÇÃO → PEDIDO
 // ════════════════════════════════════════════════════════════
-// Copia anexos da req origem (bucket compras-requisicoes) pro
-// pedido (bucket compras-pedidos). Só faz algo se a req tiver
-// anexos — reqs vindas do Alvo não têm, então é no-op pra elas.
-// Falha em 1 anexo não derruba os outros nem o pedido.
 
 const STORAGE_BUCKET_REQ = "compras-requisicoes";
 
 async function clonarAnexosDaRequisicao(requisicaoId: string, pedidoId: string): Promise<void> {
-  // 1. Lista anexos da requisição
   const { data: anexosReq, error: errList } = await (supabase as any)
     .from("compras_requisicoes_arquivos")
     .select("nome_original, storage_path, mime_type, tamanho_bytes, uploaded_by_user_id")
@@ -2121,7 +2011,6 @@ async function clonarAnexosDaRequisicao(requisicaoId: string, pedidoId: string):
   }
 
   if (!anexosReq || anexosReq.length === 0) {
-    // Req sem anexos (caso típico de req vinda do Alvo) — nada a fazer
     return;
   }
 
@@ -2129,7 +2018,6 @@ async function clonarAnexosDaRequisicao(requisicaoId: string, pedidoId: string):
 
   for (const anexo of anexosReq) {
     try {
-      // 2. Baixa o arquivo do bucket da requisição
       const { data: fileData, error: errDl } = await supabase.storage
         .from(STORAGE_BUCKET_REQ)
         .download(anexo.storage_path);
@@ -2139,12 +2027,10 @@ async function clonarAnexosDaRequisicao(requisicaoId: string, pedidoId: string):
         continue;
       }
 
-      // 3. Gera novo path no bucket do pedido: {pedido_id}/{novo_guid}.ext
       const novoGuid = crypto.randomUUID();
       const ext = anexo.nome_original?.split(".").pop() || "bin";
       const novoStoragePath = `${pedidoId}/${novoGuid}.${ext}`;
 
-      // 4. Sobe no bucket do pedido
       const { error: errUp } = await supabase.storage.from(STORAGE_BUCKET).upload(novoStoragePath, fileData, {
         contentType: anexo.mime_type || "application/octet-stream",
         upsert: false,
@@ -2155,7 +2041,6 @@ async function clonarAnexosDaRequisicao(requisicaoId: string, pedidoId: string):
         continue;
       }
 
-      // 5. Insere metadados na tabela de anexos do pedido
       const { error: errIns } = await (supabase as any).from("compras_pedidos_arquivos").insert({
         pedido_id: pedidoId,
         upload_identify_guid: novoGuid,
@@ -2168,7 +2053,6 @@ async function clonarAnexosDaRequisicao(requisicaoId: string, pedidoId: string):
 
       if (errIns) {
         console.warn(`[clonarAnexos] Falha ao inserir metadados de ${anexo.nome_original}:`, errIns.message);
-        // Rollback do arquivo subido (best effort)
         await supabase.storage.from(STORAGE_BUCKET).remove([novoStoragePath]);
       }
     } catch (err: any) {
@@ -2231,51 +2115,30 @@ export async function calcularParcelas(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// PEÇA 2 — Função enviarPedidoParaAprovacao (pedidosService.ts)
-// ═══════════════════════════════════════════════════════════════════
-//
-// Adicionar no pedidosService.ts. Reaproveita callGatewayGet e
-// callGatewayJson que JÁ existem (criados na baixa da req).
-//
-// Fluxo:
-//   1. Carrega o pedido completo do Alvo (GET /ped-comp/:filial/:numero,
-//      que já vem com loadChild=All etc).
-//   2. Desembrulha o objeto do pedido (defensivo, igual fizemos na req).
-//   3. Seta PedCompUserFieldsObject.UserEnviarAprovacao = "Sim".
-//   4. Remanda via POST /ped-comp/update.
-//   5. Atualiza o Hub (compras_pedidos) com o novo status de aprovação
-//      e grava auditoria.
-//
-// NÃO mexe em aprovador (o Alvo define sozinho — confirmado).
-// NÃO edita nenhum outro campo do pedido.
+// enviarPedidoParaAprovacao + desembrulharPedido
 // ═══════════════════════════════════════════════════════════════════
 
 /**
  * Desembrulha o objeto do pedido de qualquer envelope que o GET possa
  * devolver (objeto direto, .data, lista nomeada, array puro).
- * Identifica o pedido por ter Numero + ItemPedCompChildList.
  */
 function desembrulharPedido(bruto: any): any | null {
   if (!bruto || typeof bruto !== "object") return null;
 
-  // 1. Objeto direto
   if (Array.isArray(bruto.ItemPedCompChildList) && bruto.Numero) return bruto;
 
-  // 2. Envelope { data: ... }
   if (bruto.data && typeof bruto.data === "object") {
     const d = bruto.data;
     if (Array.isArray(d.ItemPedCompChildList) && d.Numero) return d;
     if (Array.isArray(d) && d[0]?.ItemPedCompChildList) return d[0];
   }
 
-  // 3. Listas nomeadas conhecidas
   for (const chave of ["pedComp", "PedComp", "result", "Result"]) {
     const v = bruto[chave];
     if (Array.isArray(v) && v[0]?.ItemPedCompChildList && v[0]?.Numero) return v[0];
     if (v && typeof v === "object" && Array.isArray(v.ItemPedCompChildList) && v.Numero) return v;
   }
 
-  // 4. Array puro
   if (Array.isArray(bruto) && bruto[0]?.ItemPedCompChildList && bruto[0]?.Numero) return bruto[0];
 
   return null;
@@ -2290,27 +2153,12 @@ export interface EnviarAprovacaoResult {
 
 /**
  * Envia um pedido existente para aprovação no Alvo.
- *
- * Carrega o pedido completo, seta UserEnviarAprovacao="Sim" e remanda
- * via SavePartial?action=Update. O Alvo dispara o workflow de aprovação
- * (define o próximo aprovador sozinho).
- *
- * @param pedidoId   id do pedido na tabela compras_pedidos (Hub)
- * @param userId     id do usuário (pra auditoria)
- * @param userNome   nome do usuário (pra auditoria)
- *
- * Retorna { ok, erro }. Em sucesso, traz status_aprovacao e
- * proximo_aprovador que o Alvo definiu.
- *
- * NÃO é best-effort silencioso: aqui o usuário CLICOU pra enviar, então
- * queremos retornar o erro claramente pra UI mostrar.
  */
 export async function enviarPedidoParaAprovacao(
   pedidoId: string,
   userId: string,
   userNome: string,
 ): Promise<EnviarAprovacaoResult> {
-  // ── 1. Busca o número/filial do pedido no Hub ──
   const { data: ped, error: errPed } = await (supabase as any)
     .from("compras_pedidos")
     .select("numero, codigo_empresa_filial, status_local")
@@ -2321,7 +2169,6 @@ export async function enviarPedidoParaAprovacao(
     return { ok: false, erro: `Pedido não encontrado no Hub: ${errPed?.message || "?"}` };
   }
 
-  // Guarda: só envia pedido que já está no Alvo (tem número real, não RASCUNHO-)
   if (!ped.numero || ped.numero.startsWith("RASCUNHO-")) {
     return {
       ok: false,
@@ -2333,7 +2180,6 @@ export async function enviarPedidoParaAprovacao(
   const filial = ped.codigo_empresa_filial;
 
   try {
-    // ── 2. Carrega o pedido completo do Alvo ──
     const bruto = await callGatewayGet(`/ped-comp/${encodeURIComponent(filial)}/${encodeURIComponent(numeroAlvo)}`);
 
     const pedidoAlvo = desembrulharPedido(bruto);
@@ -2346,13 +2192,11 @@ export async function enviarPedidoParaAprovacao(
       };
     }
 
-    // ── 3. Idempotência: se já foi enviado pra aprovação, não reenvia ──
     const jaEnviou =
       pedidoAlvo?.PedCompUserFieldsObject?.UserEnviouAprovacao === "Sim" ||
       pedidoAlvo?.PedCompUserFieldsObject?.UserEnviarAprovacao === "Sim";
 
     if (jaEnviou) {
-      // Já está em aprovação — atualiza o Hub e retorna ok (sem remandar)
       const statusAprov = pedidoAlvo?.StatusAprovacao || null;
       const proxAprov = pedidoAlvo?.PedCompUserFieldsObject?.UserProximoAprovador || null;
 
@@ -2376,13 +2220,11 @@ export async function enviarPedidoParaAprovacao(
       };
     }
 
-    // ── 4. Seta o campo de envio pra aprovação ──
     if (!pedidoAlvo.PedCompUserFieldsObject || typeof pedidoAlvo.PedCompUserFieldsObject !== "object") {
       pedidoAlvo.PedCompUserFieldsObject = {};
     }
     pedidoAlvo.PedCompUserFieldsObject.UserEnviarAprovacao = "Sim";
 
-    // ── 5. Remanda via update ──
     const resp = await callGatewayJson("/ped-comp/update", pedidoAlvo);
     const respPedido = desembrulharPedido(resp) || resp;
 
@@ -2390,7 +2232,6 @@ export async function enviarPedidoParaAprovacao(
     const proxAprov = respPedido?.PedCompUserFieldsObject?.UserProximoAprovador || null;
     const enviou = respPedido?.PedCompUserFieldsObject?.UserEnviouAprovacao || "Sim";
 
-    // ── 6. Atualiza o Hub ──
     await (supabase as any).from("compras_pedidos").upsert(
       {
         id: pedidoId,
@@ -2404,7 +2245,6 @@ export async function enviarPedidoParaAprovacao(
       { onConflict: "id" },
     );
 
-    // ── 7. Auditoria ──
     await (supabase as any).from("compras_pedidos_auditoria").insert({
       pedido_id: pedidoId,
       evento: "enviado_aprovacao",
@@ -2424,7 +2264,6 @@ export async function enviarPedidoParaAprovacao(
     const detalhe = err?.details && typeof err.details === "object" ? JSON.stringify(err.details).slice(0, 400) : "";
     const erro = `${err?.message || String(err)}${detalhe ? ` | details: ${detalhe}` : ""}`;
 
-    // Auditoria de falha (clicado pelo usuário, então registramos)
     await (supabase as any).from("compras_pedidos_auditoria").insert({
       pedido_id: pedidoId,
       evento: "enviar_aprovacao_falhou",
