@@ -791,11 +791,15 @@ export function montarPayloadDoModal(input: MontarDoModalInput): any {
     parcelas,
   });
 
-  // 5. Vínculo de cabeçalho com o pedido (se houver).
-  if (input.numeroPedComp) {
-    mov.NumeroPedComp = input.numeroPedComp;
-    mov.CodigoEmpresaFilialPedComp = FILIAL;
-  }
+  // 5. Vínculo de cabeçalho com o pedido.
+  // TESTE A: o gabarito 17575 (que funcionou) tem NumeroPedComp = null no cabeçalho.
+  // O vínculo de pedido no Alvo vai numa child list própria (MovEstqPedCompChildList),
+  // não no campo do cabeçalho. Mantemos DESLIGADO para confirmar que era a causa do null.
+  // Reativar só junto com a MovEstqPedCompChildList (vínculo correto).
+  // if (input.numeroPedComp) {
+  //   mov.NumeroPedComp = input.numeroPedComp;
+  //   mov.CodigoEmpresaFilialPedComp = FILIAL;
+  // }
 
   return mov;
 }
