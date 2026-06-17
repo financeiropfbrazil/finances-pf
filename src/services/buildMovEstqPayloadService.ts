@@ -155,6 +155,7 @@ export function buildItemMovEstq(input: BuildItemInput): any {
     {
       CodigoEmpresaFilial: FILIAL,
       CodigoProduto: produto.codigo_produto,
+      ChaveMovEstq: 1, // exigido: parte da chave do child
       SequenciaItemMovEstq: sequencia,
       CodigoLocArmaz: "001",
       QuantidadeProdUnidMedPrincipal: quantidade,
@@ -170,6 +171,7 @@ export function buildItemMovEstq(input: BuildItemInput): any {
           {
             CodigoEmpresaFilial: FILIAL,
             CodigoProduto: produto.codigo_produto,
+            ChaveMovEstq: 1, // exigido: parte da chave do child
             NumeroCtrlLote: lote.numero,
             DataValidadeCtrlLote: lote.validade,
             DataFabricacao: lote.fabricacao,
