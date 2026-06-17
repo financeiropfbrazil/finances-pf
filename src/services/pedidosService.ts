@@ -142,7 +142,7 @@ function montarStampAnalista(input: NovoPedidoInput): string {
   const hh = String(now.getHours()).padStart(2, "0");
   const mi = String(now.getMinutes()).padStart(2, "0");
   return `[Hub] Operador de Compras: ${input.analista_nome} | ${dd}/${mm}/${yyyy} ${hh}:${mi} | ID: ${idCurto}`;
-
+}
 function montarTextoCompleto(input: NovoPedidoInput): string {
   const stamp = montarStampAnalista(input);
   return input.texto_livre ? `${stamp}\n${input.texto_livre}` : stamp;
@@ -762,7 +762,41 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
   if (itens_enriquecidos.length !== input.itens.length) {
     throw new Error(`Inconsistência: ${input.itens.length} itens vs ${itens_enriquecidos.length} enriquecimentos`);
   }
+  async function resolverCodigoComprador(input: NovoPedidoInput): Promise<string | null> {
+    // ── Caso 1: pedido COM vínculo a requisição → requisitante ──
+    if (input.origem_requisicao_id) {
+      const { data: req } = await (supabase as any)
+        .from("compras_requisicoes")
+        .select("codigo_funcionario")
+        .eq("id", input.origem_requisicao_id)
+        .maybeSingle();
 
+      const codFuncReq = req?.codigo_funcionario;
+      if (codFuncReq && String(codFuncReq).trim().length > 0) {
+        console.log(`[comprador] vínculo → requisitante (codigo_funcionario=${codFuncReq})`);
+        return String(codFuncReq).trim();
+      }
+      console.warn(`[comprador] req ${input.origem_requisicao_id} sem codigo_funcionario — usando operador`);
+    }
+
+    // ── Caso 2: pedido SEM vínculo (ou req sem código) → operador logado ──
+    const { data: profile } = await (supabase as any)
+      .from("profiles")
+      .select("funcionario_alvo_codigo")
+      .eq("user_id", input.user_id)
+      .maybeSingle();
+
+    const codOperador = profile?.funcionario_alvo_codigo;
+    if (codOperador && String(codOperador).trim().length > 0) {
+      console.log(`[comprador] sem vínculo → operador (funcionario_alvo_codigo=${codOperador})`);
+      return String(codOperador).trim();
+    }
+
+    console.warn(
+      `[comprador] nem requisitante nem operador resolveram (user_id=${input.user_id}). CodigoComprador=null.`,
+    );
+    return null;
+  }
   const valorMercadoria = round2(input.itens.reduce((acc, it) => acc + it.quantidade * it.valor_unitario, 0));
   const valorTotal = valorMercadoria;
   const origem = input.origem_requisicao_id ? "Requisição" : "Pedido";
@@ -1327,14 +1361,17 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       itensEnriquecidos.push(enriq);
     }
 
+    // Resolve o CodigoComprador (requisitante se vínculo; senão operador)
+    const codigoComprador = await resolverCodigoComprador(input);
+
     const payload = montarPayloadPedComp({
-//       input,
-//       texto_completo: textoCompleto,
-//       texto_historico_completo: textoHistoricoCompleto,
-//       arquivos_guids: guids.length > 0 ? guids : undefined,
-//       itens_enriquecidos: itensEnriquecidos,
-//       codigo_comprador: codigoComprador,   // ← ADICIONE
-//     });
+      input,
+      texto_completo: textoCompleto,
+      texto_historico_completo: textoHistoricoCompleto,
+      arquivos_guids: guids.length > 0 ? guids : undefined,
+      itens_enriquecidos: itensEnriquecidos,
+      codigo_comprador: codigoComprador,
+    });
 
     await (supabase as any).from("compras_pedidos_auditoria").insert({
       pedido_id: pedidoId,
