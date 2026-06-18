@@ -367,7 +367,131 @@ function mapReqAlvoToHub(
 
   return { novoStatus: "sincronizada", numeroPedidoCompraAlvo: null };
 }
+// ─────────────────────────────────────────────────────────────────────
+// Helper: popular itens de uma requisição recém-descoberta
+// ─────────────────────────────────────────────────────────────────────
+// Quando o Job 4 descobre uma req nova, ele insere só o cabeçalho (o list
+// leve não traz itens). Esta função faz o Load completo da req no Alvo,
+// extrai o ItemReqCompChildList e popula compras_requisicoes_itens, com o
+// produto_nome resolvido localmente via stock_products (sem chamada extra
+// ao Alvo). Atualiza também total_itens no cabeçalho.
+//
+// SEGURANÇA:
+//   - Best-effort: nunca lança. Falha aqui não derruba o cron nem impede
+//     a descoberta (o cabeçalho já foi inserido).
+//   - Idempotente: se a req já tem itens, não faz nada (não duplica).
+//   - Só é chamada na DESCOBERTA (req nova). Reqs já existentes (criadas no
+//     Hub, com rateio rico) nunca passam por aqui.
+//   - Rateio de classe (compras_requisicoes_itens_classe_rec_desp) NÃO é
+//     populado: o Load dessas reqs descobertas não traz classe (só CC no
+//     item). O CC vai na coluna codigo_centro_ctrl do próprio item.
 
+/** Desembrulha o objeto da req de qualquer envelope do GET do proxy. */
+function desembrulharReqCron(bruto: any): any | null {
+  if (!bruto || typeof bruto !== "object") return null;
+  if (Array.isArray(bruto.ItemReqCompChildList) && bruto.Numero) return bruto;
+  if (bruto.data && typeof bruto.data === "object") {
+    const d = bruto.data;
+    if (Array.isArray(d.ItemReqCompChildList) && d.Numero) return d;
+    if (Array.isArray(d) && d[0]?.ItemReqCompChildList) return d[0];
+  }
+  for (const chave of ["listaReqComp", "ReqComp", "result", "Result"]) {
+    const v = bruto[chave];
+    if (Array.isArray(v) && v[0]?.ItemReqCompChildList && v[0]?.Numero) return v[0];
+    if (v && typeof v === "object" && Array.isArray(v.ItemReqCompChildList) && v.Numero) return v;
+  }
+  if (Array.isArray(bruto) && bruto[0]?.ItemReqCompChildList && bruto[0]?.Numero) return bruto[0];
+  return null;
+}
+
+async function popularItensReqDescoberta(
+  supabase: SupabaseClient,
+  erpUrl: string,
+  systemSecret: string,
+  requisicaoId: string,
+  codigoEmpresaFilial: string,
+  numeroAlvo: string,
+): Promise<{ ok: boolean; itens: number; erro?: string }> {
+  try {
+    // ── Idempotência: se já tem itens, não faz nada ──
+    const { count: jaTem } = await supabase
+      .from("compras_requisicoes_itens")
+      .select("id", { count: "exact", head: true })
+      .eq("requisicao_id", requisicaoId);
+
+    if ((jaTem ?? 0) > 0) {
+      return { ok: true, itens: jaTem ?? 0 };
+    }
+
+    // ── 1. Load completo da req no Alvo (proxy já manda loadChild=All) ──
+    const path = `/req-comp/${encodeURIComponent(codigoEmpresaFilial)}/${encodeURIComponent(numeroAlvo)}`;
+    const resp = await callErpProxy(erpUrl, systemSecret, path);
+
+    if (!resp.ok) {
+      return { ok: false, itens: 0, erro: `Load req ${numeroAlvo}: HTTP ${resp.status}` };
+    }
+
+    const reqFull = desembrulharReqCron(resp.data);
+    const itensAlvo: any[] = Array.isArray(reqFull?.ItemReqCompChildList) ? reqFull.ItemReqCompChildList : [];
+
+    if (itensAlvo.length === 0) {
+      // Req sem itens no Alvo — nada a popular, mas marca total_itens=0
+      await supabase
+        .from("compras_requisicoes")
+        .update({ total_itens: 0, updated_at: new Date().toISOString() })
+        .eq("id", requisicaoId);
+      return { ok: true, itens: 0 };
+    }
+
+    // ── 2. Resolve nomes de produto via stock_products (de-para local) ──
+    const codigos = Array.from(new Set(itensAlvo.map((it) => String(it?.CodigoProduto || "")).filter(Boolean)));
+    const nomePorCodigo = new Map<string, string>();
+    if (codigos.length > 0) {
+      const { data: prods } = await supabase
+        .from("stock_products")
+        .select("codigo_produto, nome_produto")
+        .in("codigo_produto", codigos);
+      for (const p of prods || []) {
+        if (p?.codigo_produto) nomePorCodigo.set(p.codigo_produto, p.nome_produto ?? null);
+      }
+    }
+
+    // ── 3. Monta as linhas de itens ──
+    const linhas = itensAlvo.map((it) => {
+      const unid = it?.CodigoProdUnidMed ?? null;
+      return {
+        requisicao_id: requisicaoId,
+        sequencia: Number(it?.Sequencia) || 0,
+        item_servico: it?.ItemServico === "Sim",
+        codigo_produto: String(it?.CodigoProduto || ""),
+        codigo_alternativo_produto: it?.CodigoAlternativoProduto ?? null,
+        codigo_prod_unid_med: unid,
+        quantidade: Number(it?.QuantidadeProdUnidMedPrincipal) || 0,
+        data_necessidade: it?.DataNecessidade ?? reqFull?.DataNecessidade ?? new Date().toISOString(),
+        codigo_centro_ctrl: it?.CodigoCentroCtrl ?? reqFull?.CodigoCentroCtrl ?? null,
+        observacao: it?.Observacao ?? null,
+        produto_nome: nomePorCodigo.get(String(it?.CodigoProduto || "")) ?? null,
+        produto_unidade: unid,
+      };
+    });
+
+    // ── 4. Insere os itens ──
+    const { error: errIns } = await supabase.from("compras_requisicoes_itens").insert(linhas);
+    if (errIns) {
+      return { ok: false, itens: 0, erro: `INSERT itens req ${numeroAlvo}: ${errIns.message}` };
+    }
+
+    // ── 5. Atualiza total_itens no cabeçalho ──
+    await supabase
+      .from("compras_requisicoes")
+      .update({ total_itens: linhas.length, updated_at: new Date().toISOString() })
+      .eq("id", requisicaoId);
+
+    return { ok: true, itens: linhas.length };
+  } catch (err: any) {
+    return { ok: false, itens: 0, erro: `Exception itens req ${numeroAlvo}: ${err?.message || String(err)}` };
+  }
+}
 // ─────────────────────────────────────────────────────────────────────
 // JOB 4: Descobrir Requisições NOVAS no Alvo (NOVO)
 // ─────────────────────────────────────────────────────────────────────
@@ -478,6 +602,7 @@ async function syncDescobrirRequisicoes(
 
   // ── 5. Processa cada req da janela ──────────────────────────────────
   let maiorNumeroVisto = lastKnownNumero;
+  let loadsItensFeitos = 0; // teto por rodada (REQ_ITENS_MAX_LOADS_POR_RODADA)
 
   for (const req of todasReqs) {
     try {
@@ -609,6 +734,30 @@ async function syncDescobrirRequisicoes(
           sucesso: true,
           resposta_alvo: req,
         });
+
+        // ── Puxa os itens da req recém-descoberta (Load completo) ──
+        // Best-effort, idempotente, com teto por rodada. Falha aqui não
+        // impede a descoberta (cabeçalho já inserido acima).
+        if (loadsItensFeitos < REQ_ITENS_MAX_LOADS_POR_RODADA) {
+          loadsItensFeitos++;
+          const itensRes = await popularItensReqDescoberta(
+            supabase,
+            erpUrl,
+            systemSecret,
+            reqRow.id,
+            req.CodigoEmpresaFilial,
+            req.Numero,
+          );
+          if (itensRes.ok) {
+            console.log(`[descobrir-req] ${req.Numero}: ${itensRes.itens} itens populados`);
+          } else {
+            console.warn(`[descobrir-req] ${req.Numero}: itens não populados — ${itensRes.erro}`);
+          }
+        } else {
+          console.log(
+            `[descobrir-req] ${req.Numero}: teto de Loads/rodada atingido (${REQ_ITENS_MAX_LOADS_POR_RODADA}); itens ficam para a próxima rodada`,
+          );
+        }
       }
 
       if (req.Numero > maiorNumeroVisto) {
