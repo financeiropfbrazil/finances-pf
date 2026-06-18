@@ -1334,6 +1334,19 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
 
       // ── Vínculo req↔ped (cabeçalho + itens do detalhe completo) ─────
       const vinculo = extrairVinculoRequisicao(alvo);
+
+      // ── GUARDA ANTI-REBAIXAMENTO DE VÍNCULO (18/06/2026) ────────────
+      // O detalhe do Alvo pode AFIRMAR vínculo, mas não pode NEGAR vínculo
+      // que o Hub já conhece. Pedido criado no Hub a partir de requisição
+      // grava numero_req_comp no Supabase, mas esse elo não se propaga ao
+      // Alvo (NumeroReqComp fica nulo lá). Sem esta guarda, o Job 2
+      // rebaixaria a flag para 'sem_vinculo' a cada ciclo, contradizendo o
+      // numero_req_comp preservado. Espelha a regra que já protege o campo
+      // do elo ("elo nulo no Alvo não apaga elo existente").
+      const eloHub = typeof ped.numero_req_comp === "string" ? ped.numero_req_comp.trim() : "";
+      if (vinculo.vinculo_requisicao === "sem_vinculo" && eloHub.length > 0) {
+        vinculo.vinculo_requisicao = "com_vinculo";
+      }
       // Datas reais do Alvo (detalhe completo): digitação (cabeçalho) e
       // aprovação final (item). Preenchem as colunas do dashboard de lead time.
       const novaDataDigitacao = alvo?.DataHoraDigitacao ?? null;
