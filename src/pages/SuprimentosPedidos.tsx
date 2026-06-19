@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
 import { PERMISSIONS } from "@/constants/permissions";
@@ -80,7 +80,7 @@ function formatBRL(valor: number | null | undefined): string {
 //
 // CUIDADO COM FUSO HORÁRIO: campos do tipo `date` no banco chegam como
 // string pura "YYYY-MM-DD" (sem hora). Se passados direto por new Date(),
-// o JS interpreta como MEIA-NOITE UTC e, no fuso de Brasília (UTC−3), a
+// o JS interpreta como MEIA-NOITE UTC e, no fuso de Brasília (UTC-3), a
 // data "volta" para o dia anterior (ex.: 17/06 vira 16/06). Para evitar
 // isso, quando a entrada é uma data pura nós a parseamos com componentes
 // LOCAIS (new Date(ano, mes-1, dia)), sem nenhuma conversão de fuso.
@@ -94,7 +94,7 @@ function formatData(iso: string | null | undefined): string {
     if (/^\d{4}-\d{2}-\d{2}$/.test(apenasData)) {
       const [ano, mes, dia] = apenasData.split("-").map(Number);
       if (ano && mes && dia) {
-        const d = new Date(ano, mes - 1, dia); // construtor LOCAL — sem UTC
+        const d = new Date(ano, mes - 1, dia); // construtor LOCAL - sem UTC
         return format(d, "dd/MM/yyyy", { locale: ptBR });
       }
     }
@@ -116,7 +116,7 @@ type SortDir = "asc" | "desc";
 
 // Colunas da tabela. `sortField` = coluna real no banco para ordenação
 // SERVER-SIDE (varre todos os registros, coerente em toda a paginação).
-// `sortable: false` → cabeçalho não clicável (ex.: Status, que é calculado
+// `sortable: false` -> cabeçalho não clicável (ex.: Status, que é calculado
 // pelo getStatusPedido a partir de vários campos e não tem coluna única).
 const COLUNAS_PEDIDOS: Array<{
   key: string;
@@ -167,25 +167,60 @@ const COLUNAS_PEDIDOS: Array<{
   },
 ];
 
+// ════════════════════════════════════════════════════════════
+// HELPERS DE PERSISTÊNCIA DOS FILTROS NA URL
+// ════════════════════════════════════════════════════════════
+// Os filtros ficam nos search params da URL (?status=...&dataInicio=...).
+// Isso faz o filtro PERSISTIR ao abrir um pedido e voltar (o botão Voltar
+// do detalhe usa navigate(-1), restaurando esta URL com os params). Ao sair
+// para outra rota do app, a URL muda e os filtros somem naturalmente.
+//
+// Datas viajam na URL como "YYYY-MM-DD" (sem fuso). Parse/serialize abaixo
+// usam componentes LOCAIS para não escorregar de dia (mesmo cuidado do
+// formatData).
+
+function dateToParam(d: Date | undefined): string | undefined {
+  if (!d) return undefined;
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+function paramToDate(s: string | null): Date | undefined {
+  if (!s) return undefined;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return undefined;
+  const [, ano, mes, dia] = m;
+  return new Date(Number(ano), Number(mes) - 1, Number(dia)); // local, sem UTC
+}
+
 export default function SuprimentosPedidos() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, profile } = useAuth();
   const podeVerTodos = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_VIEW_ALL);
   const podeCriar = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_CREATE);
 
+  // ── Estado inicializado A PARTIR DA URL ────────────────────────────
+  // Cada filtro lê seu valor inicial dos search params. Assim, ao voltar
+  // de um pedido (URL restaurada com os params), os filtros reaparecem.
+
   // Busca textual com debounce de 300ms (server-side via ilike)
-  const [buscaInput, setBuscaInput] = useState("");
-  const [buscaDebounced, setBuscaDebounced] = useState("");
+  const [buscaInput, setBuscaInput] = useState(() => searchParams.get("busca") || "");
+  const [buscaDebounced, setBuscaDebounced] = useState(() => searchParams.get("busca") || "");
   useEffect(() => {
     const t = setTimeout(() => setBuscaDebounced(buscaInput.trim()), 300);
     return () => clearTimeout(t);
   }, [buscaInput]);
 
-  const [filtroStatusLocal, setFiltroStatusLocal] = useState("todos");
-  const [filtroOrigem, setFiltroOrigem] = useState("todos");
-  const [filtroDataInicio, setFiltroDataInicio] = useState<Date | undefined>(undefined);
-  const [filtroDataFim, setFiltroDataFim] = useState<Date | undefined>(undefined);
-  const [filtroComprador, setFiltroComprador] = useState("todos");
+  const [filtroStatusLocal, setFiltroStatusLocal] = useState(() => searchParams.get("status") || "todos");
+  const [filtroOrigem, setFiltroOrigem] = useState(() => searchParams.get("origem") || "todos");
+  const [filtroDataInicio, setFiltroDataInicio] = useState<Date | undefined>(() =>
+    paramToDate(searchParams.get("dataInicio")),
+  );
+  const [filtroDataFim, setFiltroDataFim] = useState<Date | undefined>(() => paramToDate(searchParams.get("dataFim")));
+  const [filtroComprador, setFiltroComprador] = useState(() => searchParams.get("comprador") || "todos");
 
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "cards";
@@ -204,11 +239,16 @@ export default function SuprimentosPedidos() {
 
   // ── Ordenação SERVER-SIDE unificada ─────────────────────────────────
   // Um único estado: qual campo do banco ordenar e a direção. null = padrão
-  // (updated_at desc). Toda ordenação varre TODOS os registros no servidor,
-  // então a sequência é coerente em qualquer página.
-  const [orderBy, setOrderBy] = useState<{ field: string; dir: SortDir } | null>(null);
+  // (data_pedido desc). Toda ordenação varre TODOS os registros no servidor,
+  // então a sequência é coerente em qualquer página. Inicializa da URL.
+  const [orderBy, setOrderBy] = useState<{ field: string; dir: SortDir } | null>(() => {
+    const field = searchParams.get("ordCampo");
+    const dir = searchParams.get("ordDir");
+    if (field && (dir === "asc" || dir === "desc")) return { field, dir };
+    return null;
+  });
 
-  // Clique no cabeçalho: asc → desc → desligado. Clicar em outra coluna
+  // Clique no cabeçalho: asc -> desc -> desligado. Clicar em outra coluna
   // troca para asc nela (só uma ordenação ativa por vez).
   const handleSort = (sortField: string) => {
     setOrderBy((prev) => {
@@ -219,7 +259,44 @@ export default function SuprimentosPedidos() {
   };
 
   const PAGE_SIZE = 30;
-  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [paginaAtual, setPaginaAtual] = useState(() => {
+    const p = Number(searchParams.get("pagina"));
+    return Number.isFinite(p) && p > 0 ? p : 1;
+  });
+
+  // ── Sincroniza o ESTADO -> URL ───────────────────────────────────────
+  // Sempre que um filtro/ordenação/página muda, reescreve os search params.
+  // replace:true -> não empilha uma entrada nova no histórico a cada tecla
+  // digitada (senão o "Voltar" teria que ser clicado muitas vezes). Só os
+  // valores != padrão entram na URL, mantendo-a limpa.
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    if (buscaDebounced) next.busca = buscaDebounced;
+    if (filtroStatusLocal && filtroStatusLocal !== "todos") next.status = filtroStatusLocal;
+    if (filtroOrigem && filtroOrigem !== "todos") next.origem = filtroOrigem;
+    if (filtroComprador && filtroComprador !== "todos") next.comprador = filtroComprador;
+    const di = dateToParam(filtroDataInicio);
+    const df = dateToParam(filtroDataFim);
+    if (di) next.dataInicio = di;
+    if (df) next.dataFim = df;
+    if (orderBy) {
+      next.ordCampo = orderBy.field;
+      next.ordDir = orderBy.dir;
+    }
+    if (paginaAtual > 1) next.pagina = String(paginaAtual);
+
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    buscaDebounced,
+    filtroStatusLocal,
+    filtroOrigem,
+    filtroComprador,
+    filtroDataInicio,
+    filtroDataFim,
+    orderBy,
+    paginaAtual,
+  ]);
 
   const { data: funcionarios = [] } = useQuery({
     queryKey: ["funcionarios_filtro_pedidos"],
@@ -259,12 +336,14 @@ export default function SuprimentosPedidos() {
 
       // ── Ordenação SERVER-SIDE ─────────────────────────────────────────
       // Ordena pelo campo escolhido no banco (varre TODOS os registros antes
-      // de paginar → sequência coerente em qualquer página). nullsFirst:false
-      // joga nulos pro fim. Sem ordenação ativa → padrão updated_at desc.
+      // de paginar -> sequência coerente em qualquer página). nullsFirst:false
+      // joga nulos pro fim. Sem ordenação ativa -> padrão data_pedido desc
+      // (pedidos mais recentes por COMPETÊNCIA no topo, independente de quando
+      // foram modificados pelo cron).
       if (orderBy) {
         query = query.order(orderBy.field, { ascending: orderBy.dir === "asc", nullsFirst: false });
       } else {
-        query = query.order("updated_at", { ascending: false });
+        query = query.order("data_pedido", { ascending: false, nullsFirst: false });
       }
 
       query = query.range(inicio, fim);
