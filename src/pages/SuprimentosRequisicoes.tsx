@@ -155,7 +155,12 @@ export default function SuprimentosRequisicoes() {
       buscaDebounced,
     ],
     queryFn: async () => {
-      let query = (supabase as any).from("compras_requisicoes").select("*").order("updated_at", { ascending: false });
+      // Ordem padrão por DATA DA REQUISIÇÃO (created_at), mais recente no topo
+      // — espelha a coluna "Data Requisição" da tela. Antes era updated_at desc,
+      // o que fazia requisições antigas "subirem" ao serem modificadas pelo cron
+      // (ex.: backfill de itens). A ordenação por clique no cabeçalho (client-side,
+      // via requisicoesOrdenadas) continua funcionando por cima desta ordem base.
+      let query = (supabase as any).from("compras_requisicoes").select("*").order("created_at", { ascending: false });
 
       if (!podeVerTodas && user) {
         const funcionarioCodigo = (profile as any)?.funcionario_alvo_codigo;
@@ -543,7 +548,7 @@ export default function SuprimentosRequisicoes() {
                       {req.data_necessidade && (
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          Necessidade: {format(new Date(req.data_necessidade), "dd/MM/yyyy", { locale: ptBR })}
+                          Necessidade: {formatData(req.data_necessidade)}
                         </span>
                       )}
                     </div>
