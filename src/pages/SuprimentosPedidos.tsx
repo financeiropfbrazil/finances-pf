@@ -76,9 +76,29 @@ function formatBRL(valor: number | null | undefined): string {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(valor));
 }
 
+// Formata datas para exibição (dd/MM/yyyy).
+//
+// CUIDADO COM FUSO HORÁRIO: campos do tipo `date` no banco chegam como
+// string pura "YYYY-MM-DD" (sem hora). Se passados direto por new Date(),
+// o JS interpreta como MEIA-NOITE UTC e, no fuso de Brasília (UTC−3), a
+// data "volta" para o dia anterior (ex.: 17/06 vira 16/06). Para evitar
+// isso, quando a entrada é uma data pura nós a parseamos com componentes
+// LOCAIS (new Date(ano, mes-1, dia)), sem nenhuma conversão de fuso.
+// Timestamps completos com offset (ex.: updated_at "2026-06-17T14:00:00+00")
+// continuam indo pelo new Date() normal, que os interpreta corretamente.
 function formatData(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
+    const apenasData = iso.slice(0, 10); // "2026-06-17" (ignora hora, se houver)
+    // Detecta data pura no formato YYYY-MM-DD (10 chars, dois hífens).
+    if (/^\d{4}-\d{2}-\d{2}$/.test(apenasData)) {
+      const [ano, mes, dia] = apenasData.split("-").map(Number);
+      if (ano && mes && dia) {
+        const d = new Date(ano, mes - 1, dia); // construtor LOCAL — sem UTC
+        return format(d, "dd/MM/yyyy", { locale: ptBR });
+      }
+    }
+    // Fallback para timestamps completos com fuso (ex.: updated_at/created_at).
     return format(new Date(iso), "dd/MM/yyyy", { locale: ptBR });
   } catch {
     return "—";
@@ -748,7 +768,7 @@ export default function SuprimentosPedidos() {
                     {ped.data_pedido && (
                       <span className="flex items-center gap-1">
                         <CalendarIcon className="h-3 w-3" />
-                        {format(new Date(ped.data_pedido), "dd/MM/yyyy", { locale: ptBR })}
+                        {formatData(ped.data_pedido)}
                       </span>
                     )}
                     {ped.primeiro_vencimento && (
