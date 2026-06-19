@@ -116,9 +116,28 @@ function formatTamanho(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// Formata datas para exibição (dd/MM/yyyy).
+//
+// CUIDADO COM FUSO HORÁRIO: campos do tipo `date` no banco chegam como
+// string pura "YYYY-MM-DD" (sem hora). Se passados direto por new Date(),
+// o JS interpreta como MEIA-NOITE UTC e, no fuso de Brasília (UTC-3), a
+// data "volta" para o dia anterior (ex.: 17/06 vira 16/06). Para evitar
+// isso, quando a entrada é uma data pura nós a parseamos com componentes
+// LOCAIS (new Date(ano, mes-1, dia)), sem nenhuma conversão de fuso.
+// Timestamps completos com offset (ex.: created_at) continuam indo pelo
+// new Date() normal, que os interpreta corretamente. O formatDataHora
+// trata sempre de timestamps completos, então mantém new Date() direto.
 function formatData(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
+    const apenasData = iso.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(apenasData)) {
+      const [ano, mes, dia] = apenasData.split("-").map(Number);
+      if (ano && mes && dia) {
+        const d = new Date(ano, mes - 1, dia); // construtor LOCAL - sem UTC
+        return format(d, "dd/MM/yyyy", { locale: ptBR });
+      }
+    }
     return format(new Date(iso), "dd/MM/yyyy", { locale: ptBR });
   } catch {
     return "—";
@@ -143,6 +162,22 @@ export default function SuprimentosPedidoDetalhe() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
+
+  // ── Voltar para a lista PRESERVANDO OS FILTROS ──────────────────────
+  // A lista guarda os filtros nos search params da URL. Se o usuário chegou
+  // aqui clicando num pedido, navigate(-1) volta para aquela URL exata (com
+  // os filtros). Mas se entrou direto (link colado, refresh nesta página),
+  // não há histórico interno para voltar — aí caímos na rota fixa da lista.
+  // Detecção: o React Router mantém um índice incremental em history.state.idx;
+  // idx > 0 significa que há ao menos uma entrada anterior nesta navegação SPA.
+  const voltarParaLista = () => {
+    const idx = (window.history.state && (window.history.state as any).idx) || 0;
+    if (idx > 0) {
+      navigate(-1);
+    } else {
+      navigate("/suprimentos/pedidos");
+    }
+  };
 
   // RBAC: quem pode ver todos os pedidos × quem só vê os próprios (derivados das suas reqs)
   const podeVerTodos = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_VIEW_ALL);
@@ -346,7 +381,7 @@ export default function SuprimentosPedidoDetalhe() {
   if (error || !pedido) {
     return (
       <div className="container mx-auto max-w-4xl px-4 py-8">
-        <Button variant="ghost" onClick={() => navigate("/suprimentos/pedidos")} className="mb-4">
+        <Button variant="ghost" onClick={voltarParaLista} className="mb-4">
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
         </Button>
@@ -440,7 +475,7 @@ export default function SuprimentosPedidoDetalhe() {
     <div className="container mx-auto max-w-5xl px-4 py-6">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between gap-4">
-        <Button variant="ghost" onClick={() => navigate("/suprimentos/pedidos")}>
+        <Button variant="ghost" onClick={voltarParaLista}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
         </Button>
@@ -979,7 +1014,7 @@ export default function SuprimentosPedidoDetalhe() {
       <Separator className="my-8" />
 
       <div className="flex justify-start">
-        <Button variant="ghost" onClick={() => navigate("/suprimentos/pedidos")}>
+        <Button variant="ghost" onClick={voltarParaLista}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar para lista
         </Button>
