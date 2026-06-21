@@ -974,8 +974,18 @@ TOTAL = 8.140,00 EUR`}
                     {resultado.pdf_status.anexado_alvo ? "anexado ✓" : "falhou ✗"}
                   </>
                 )}
-                {" · Redirecionando..."}
               </p>
+              <div className="flex gap-2 mt-3">
+                {resultado.pdf_status?.storage_path && (
+                  <Button size="sm" variant="outline" onClick={handleDownloadPdf}>
+                    <Download className="mr-1.5 h-4 w-4" />
+                    Baixar PDF
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => navigate("/intercompany/master")}>
+                  Ir para o Master
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
