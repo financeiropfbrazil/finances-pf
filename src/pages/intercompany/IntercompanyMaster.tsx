@@ -94,7 +94,6 @@ const classificationEmoji: Record<MasterClassificationStatus, string> = {
 
 export default function IntercompanyMaster() {
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   // ─── STATE: Filtros ───────────────────────────────────────────────────
   const [dataDe, setDataDe] = useState<Date | undefined>(undefined);
@@ -113,12 +112,6 @@ export default function IntercompanyMaster() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
 
-  // ─── STATE: Sync modal ────────────────────────────────────────────────
-  const [syncModalOpen, setSyncModalOpen] = useState(false);
-  const [syncDataDe, setSyncDataDe] = useState<Date | undefined>(undefined);
-  const [syncDataAte, setSyncDataAte] = useState<Date | undefined>(undefined);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<SyncBatchResponse | null>(null);
 
   // ─── STATE: Modal câmbio ──────────────────────────────────────────────
   const [cambioModalOpen, setCambioModalOpen] = useState(false);
