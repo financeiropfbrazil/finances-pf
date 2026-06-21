@@ -32,6 +32,8 @@ import type {
   BlocoManualInput,
   RateioBlocoManual,
 } from "@/types/intercompany";
+import { downloadIntercompanyPdf } from "@/utils/downloadIntercompanyPdf";
+import { Download } from "lucide-react";
 
 // ═════════════════════════════════════════════════════════════
 // Constantes
@@ -438,16 +440,31 @@ export default function ReembolsoNovo() {
     });
   };
 
+  const handleDownloadPdf = async () => {
+    const path = resultado?.pdf_status?.storage_path;
+    if (!path) return;
+    const ok = await downloadIntercompanyPdf(
+      "intercompany-reembolso-manual",
+      path,
+      `INV ${resultado!.numero_invoice.replace("/", ".")} - PF GMBH - RE.pdf`,
+    );
+    if (!ok) {
+      toast({
+        title: "Não foi possível baixar o PDF",
+        description: "O arquivo pode não estar disponível. Tente pela tela de invoices.",
+        variant: "destructive",
+      });
+    }
+  };
+
   useEffect(() => {
     if (status === "sucesso" && resultado) {
       toast({
         title: "Reembolso Manual emitido com sucesso!",
         description: `Invoice ${resultado.numero_invoice} (Chave Alvo ${resultado.chave_alvo}). PDF: ${resultado.pdf_status?.anexado_alvo ? "anexado ✓" : "falhou ✗"}`,
       });
-      const t = setTimeout(() => navigate("/intercompany/master"), 1800);
-      return () => clearTimeout(t);
     }
-  }, [status, resultado, navigate]);
+  }, [status, resultado]);
 
   // ═════════════════════════════════════════════════════════════
   // Renders auxiliares
