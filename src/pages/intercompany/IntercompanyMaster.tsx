@@ -256,19 +256,6 @@ export default function IntercompanyMaster() {
           <p className="text-sm text-muted-foreground">Invoices intercompany P&amp;F ↔ PEF Áustria</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSyncDataDe(undefined);
-              setSyncDataAte(undefined);
-              setSyncResult(null);
-              setSyncModalOpen(true);
-            }}
-          >
-            <CloudDownload className="mr-1.5 h-3.5 w-3.5" />
-            Sincronizar do Alvo
-          </Button>
           <Button variant="outline" size="sm" onClick={() => listQuery.refetch()} disabled={listQuery.isFetching}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${listQuery.isFetching ? "animate-spin" : ""}`} />
             Atualizar
@@ -292,6 +279,7 @@ export default function IntercompanyMaster() {
           </Button>
         </div>
       </div>
+
 
       {/* ─── Modal: Sincronizar do Alvo ─── */}
       <Dialog open={syncModalOpen} onOpenChange={(open) => !syncing && setSyncModalOpen(open)}>
