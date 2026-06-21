@@ -14,7 +14,8 @@
  *
  * Ao confirmar:
  *   - Chama useEmitirInvoice → POST /intercompany/reembolso-nf/emit
- *   - Sucesso: toast verde, fecha modal, cesta esvazia (invalidação automática), redireciona pra master
+ *   - Sucesso: vira TELA DE SUCESSO dentro do modal, com botão "Baixar PDF"
+ *     e "Ir para o Master" (operador controla quando sair — sem redirect automático)
  *   - Erro "alvo_orfao": abre ModalOrfao com chave_orfa
  *   - Outros erros: toast vermelho, modal permanece aberto pra retry
  */
@@ -33,11 +34,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AlertCircle, CheckCircle2, Loader2, Send, Sparkles } from "lucide-react";
+import { AlertCircle, CheckCircle2, Download, Loader2, Send, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useEmitirInvoice } from "@/hooks/useReembolsoNf";
 import { ReembolsoNfError, friendlyErrorMessage } from "@/services/intercompanyReembolsoNfService";
 import { buscarSugestaoNumero } from "@/services/intercompanyMasterService";
+import { downloadIntercompanyPdf } from "@/utils/downloadIntercompanyPdf";
 import type { RascunhoDetails, SugestaoNumeroInvoice } from "@/types/intercompanyReembolsoNf";
 import { ModalOrfao } from "./ModalOrfao";
 
@@ -70,6 +72,13 @@ export function ModalEmitir({ open, onOpenChange, rascunho }: ModalEmitirProps) 
   // ─── Modal Orfão (erro tardio) ───
   const [orfaoChave, setOrfaoChave] = useState<number | null>(null);
 
+  // ─── Sucesso: guarda o resultado pra mostrar tela de download ───
+  const [sucessoResult, setSucessoResult] = useState<{
+    numero_invoice: string;
+    chave_alvo?: number;
+    storage_path?: string | null;
+  } | null>(null);
+
   // Carrega sugestão quando o modal abre
   useEffect(() => {
     if (!open) return;
@@ -92,6 +101,7 @@ export function ModalEmitir({ open, onOpenChange, rascunho }: ModalEmitirProps) 
       setCambioStr("");
       setDataEmissao(hojeISO());
       setDescricaoRica("");
+      setSucessoResult(null);
       emitirMutation.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,7 +121,7 @@ export function ModalEmitir({ open, onOpenChange, rascunho }: ModalEmitirProps) 
   const descricaoValida = descricaoRica.trim().length > 0;
   const formValido = numeroValido && cambioValido && dataValida && descricaoValida;
 
-  // ─── Handler ───
+  // ─── Handler de emissão ───
   const handleEmitir = async () => {
     if (!formValido) return;
     try {
@@ -127,9 +137,12 @@ export function ModalEmitir({ open, onOpenChange, rascunho }: ModalEmitirProps) 
           title: `Invoice ${result.master.numero_invoice} emitida com sucesso!`,
           description: `Chave Alvo: ${result.master.chave_docfin_alvo} · ${result.master.blocos_criados} blocos · ${formatEUR(result.master.valor_eur_total)}`,
         });
-        onOpenChange(false);
-        // Redireciona pra master após 1.5s
-        setTimeout(() => navigate("/intercompany/master"), 1500);
+        setSucessoResult({
+          numero_invoice: result.master.numero_invoice,
+          chave_alvo: result.master.chave_docfin_alvo,
+          storage_path: result.pdf_status?.storage_path ?? null,
+        });
+        // NÃO fecha o modal nem redireciona — vira tela de sucesso com download
       }
     } catch (err) {
       // Erro tardio (alvo orfão): abre modal crítico
@@ -156,148 +169,206 @@ export function ModalEmitir({ open, onOpenChange, rascunho }: ModalEmitirProps) 
     }
   };
 
+  // ─── Handler de download do PDF ───
+  const handleDownloadPdf = async () => {
+    if (!sucessoResult?.storage_path) return;
+    const ok = await downloadIntercompanyPdf(
+      "intercompany-reembolso-nf",
+      sucessoResult.storage_path,
+      `INV ${sucessoResult.numero_invoice.replace("/", ".")} - PF GMBH - RE.pdf`,
+    );
+    if (!ok) {
+      toast({
+        title: "Não foi possível baixar o PDF",
+        description: "O arquivo pode não estar disponível. Tente pela tela de invoices.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // ─── Fecha a tela de sucesso e vai pro Master ───
+  const handleFecharSucesso = () => {
+    setSucessoResult(null);
+    onOpenChange(false);
+    navigate("/intercompany/master");
+  };
+
   const isPending = emitirMutation.isPending;
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(v) => !isPending && onOpenChange(v)}>
+      <Dialog open={open} onOpenChange={(v) => !isPending && !sucessoResult && onOpenChange(v)}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Emitir Invoice no Alvo</DialogTitle>
+            <DialogTitle>{sucessoResult ? "Invoice emitida" : "Emitir Invoice no Alvo"}</DialogTitle>
             <DialogDescription>
-              {rascunho.total_itens} {rascunho.total_itens === 1 ? "item" : "itens"} · Total{" "}
-              {formatBRL(rascunho.total_brl)}
+              {sucessoResult
+                ? "A invoice foi registrada no Alvo e no Hub."
+                : `${rascunho.total_itens} ${rascunho.total_itens === 1 ? "item" : "itens"} · Total ${formatBRL(rascunho.total_brl)}`}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            {/* Sugestão de número */}
-            {sugestao && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary/5 border border-primary/20 rounded p-2">
-                <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span>
-                  Sugestão: <span className="font-mono font-semibold">{sugestao.sugestao}</span> · Maior sequencial em{" "}
-                  {sugestao.ano}: {sugestao.maior_sequencial}
-                </span>
-              </div>
-            )}
-
-            {/* Linha 1: Número + Data */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="numero-inv" className="text-xs">
-                  Número da Invoice *
-                </Label>
-                <Input
-                  id="numero-inv"
-                  value={numeroInvoice}
-                  onChange={(e) => setNumeroInvoice(e.target.value)}
-                  placeholder={loadingSugestao ? "Carregando..." : "Ex: 132/2026"}
-                  className="font-mono"
-                  disabled={isPending}
-                />
-                <p className="text-[10px] text-muted-foreground mt-1">Formato NNN/AAAA</p>
-              </div>
-              <div>
-                <Label htmlFor="data-emissao" className="text-xs">
-                  Data de emissão *
-                </Label>
-                <Input
-                  id="data-emissao"
-                  type="date"
-                  value={dataEmissao}
-                  onChange={(e) => setDataEmissao(e.target.value)}
-                  disabled={isPending}
-                />
-                <p className="text-[10px] text-muted-foreground mt-1">Vencimento = data + 14 dias</p>
-              </div>
-            </div>
-
-            {/* Linha 2: Câmbio + Preview EUR */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="cambio" className="text-xs">
-                  Câmbio EUR → BRL *
-                </Label>
-                <Input
-                  id="cambio"
-                  type="text"
-                  inputMode="decimal"
-                  value={cambioStr}
-                  onChange={(e) => setCambioStr(e.target.value)}
-                  placeholder="Ex: 6.10"
-                  disabled={isPending}
-                />
-                <p className="text-[10px] text-muted-foreground mt-1">PTAX dia anterior</p>
-              </div>
-              <div>
-                <Label className="text-xs">Total em EUR (calculado)</Label>
-                <div className="h-10 px-3 flex items-center rounded-md border border-input bg-muted/50 text-sm font-mono font-semibold">
-                  {totalEur > 0 ? formatEUR(totalEur) : "—"}
-                </div>
-                {totalEur > 0 && (
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    {formatBRL(rascunho.total_brl)} ÷ {cambioStr.replace(".", ",")}
+          {sucessoResult ? (
+            /* ═══════════ TELA DE SUCESSO ═══════════ */
+            <div className="space-y-4 py-2">
+              <div className="flex items-start gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-emerald-600">
+                    Invoice {sucessoResult.numero_invoice} emitida com sucesso!
                   </p>
-                )}
-              </div>
-            </div>
-
-            {/* Descrição */}
-            <div>
-              <Label htmlFor="descricao" className="text-xs">
-                Descrição (Observação no DocFin Alvo) *
-              </Label>
-              <Textarea
-                id="descricao"
-                value={descricaoRica}
-                onChange={(e) => setDescricaoRica(e.target.value)}
-                placeholder="Ex: Reembolso de despesas - matéria-prima BioCollagen mar/2026"
-                rows={3}
-                disabled={isPending}
-              />
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Texto que vai pro campo Observação do DocFin Alvo. Seja descritivo.
-              </p>
-            </div>
-
-            {/* Aviso de validação */}
-            {!formValido && (numeroInvoice || cambioStr || descricaoRica) && (
-              <div className="flex items-start gap-2 text-xs text-amber-600 bg-amber-500/5 border border-amber-500/20 rounded p-2">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <div className="space-y-0.5">
-                  {!numeroValido && <p>Número deve estar no formato NNN/AAAA (ex: 132/2026)</p>}
-                  {!cambioValido && <p>Câmbio deve ser maior que zero</p>}
-                  {!dataValida && <p>Selecione a data de emissão</p>}
-                  {!descricaoValida && <p>Preencha a descrição</p>}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Chave Alvo: <span className="font-mono">{sucessoResult.chave_alvo}</span>
+                  </p>
+                  {!sucessoResult.storage_path && (
+                    <p className="text-xs text-amber-600 mt-2">
+                      O PDF não está disponível para download (a geração pode ter falhado). A invoice foi emitida
+                      normalmente no Alvo.
+                    </p>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-              Cancelar
-            </Button>
-            <Button onClick={handleEmitir} disabled={!formValido || isPending} className="min-w-[160px]">
-              {isPending ? (
-                <>
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                  Emitindo no Alvo...
-                </>
-              ) : emitirMutation.isSuccess ? (
-                <>
-                  <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                  Emitida!
-                </>
-              ) : (
-                <>
-                  <Send className="mr-1.5 h-4 w-4" />
-                  Emitir Invoice
-                </>
+              <div className="flex gap-2">
+                {sucessoResult.storage_path && (
+                  <Button variant="outline" onClick={handleDownloadPdf}>
+                    <Download className="mr-1.5 h-4 w-4" />
+                    Baixar PDF
+                  </Button>
+                )}
+                <Button onClick={handleFecharSucesso} className="ml-auto">
+                  Ir para o Master
+                </Button>
+              </div>
+            </div>
+          ) : (
+            /* ═══════════ FORM DE EMISSÃO ═══════════ */
+            <div className="space-y-4">
+              {/* Sugestão de número */}
+              {sugestao && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary/5 border border-primary/20 rounded p-2">
+                  <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span>
+                    Sugestão: <span className="font-mono font-semibold">{sugestao.sugestao}</span> · Maior sequencial em{" "}
+                    {sugestao.ano}: {sugestao.maior_sequencial}
+                  </span>
+                </div>
               )}
-            </Button>
-          </DialogFooter>
+
+              {/* Linha 1: Número + Data */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="numero-inv" className="text-xs">
+                    Número da Invoice *
+                  </Label>
+                  <Input
+                    id="numero-inv"
+                    value={numeroInvoice}
+                    onChange={(e) => setNumeroInvoice(e.target.value)}
+                    placeholder={loadingSugestao ? "Carregando..." : "Ex: 132/2026"}
+                    className="font-mono"
+                    disabled={isPending}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">Formato NNN/AAAA</p>
+                </div>
+                <div>
+                  <Label htmlFor="data-emissao" className="text-xs">
+                    Data de emissão *
+                  </Label>
+                  <Input
+                    id="data-emissao"
+                    type="date"
+                    value={dataEmissao}
+                    onChange={(e) => setDataEmissao(e.target.value)}
+                    disabled={isPending}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">Vencimento = data + 14 dias</p>
+                </div>
+              </div>
+
+              {/* Linha 2: Câmbio + Preview EUR */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="cambio" className="text-xs">
+                    Câmbio EUR → BRL *
+                  </Label>
+                  <Input
+                    id="cambio"
+                    type="text"
+                    inputMode="decimal"
+                    value={cambioStr}
+                    onChange={(e) => setCambioStr(e.target.value)}
+                    placeholder="Ex: 6.10"
+                    disabled={isPending}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">PTAX dia anterior</p>
+                </div>
+                <div>
+                  <Label className="text-xs">Total em EUR (calculado)</Label>
+                  <div className="h-10 px-3 flex items-center rounded-md border border-input bg-muted/50 text-sm font-mono font-semibold">
+                    {totalEur > 0 ? formatEUR(totalEur) : "—"}
+                  </div>
+                  {totalEur > 0 && (
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      {formatBRL(rascunho.total_brl)} ÷ {cambioStr.replace(".", ",")}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Descrição */}
+              <div>
+                <Label htmlFor="descricao" className="text-xs">
+                  Descrição (Observação no DocFin Alvo) *
+                </Label>
+                <Textarea
+                  id="descricao"
+                  value={descricaoRica}
+                  onChange={(e) => setDescricaoRica(e.target.value)}
+                  placeholder="Ex: Reembolso de despesas - matéria-prima BioCollagen mar/2026"
+                  rows={3}
+                  disabled={isPending}
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Texto que vai pro campo Observação do DocFin Alvo. Seja descritivo.
+                </p>
+              </div>
+
+              {/* Aviso de validação */}
+              {!formValido && (numeroInvoice || cambioStr || descricaoRica) && (
+                <div className="flex items-start gap-2 text-xs text-amber-600 bg-amber-500/5 border border-amber-500/20 rounded p-2">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    {!numeroValido && <p>Número deve estar no formato NNN/AAAA (ex: 132/2026)</p>}
+                    {!cambioValido && <p>Câmbio deve ser maior que zero</p>}
+                    {!dataValida && <p>Selecione a data de emissão</p>}
+                    {!descricaoValida && <p>Preencha a descrição</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!sucessoResult && (
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
+                Cancelar
+              </Button>
+              <Button onClick={handleEmitir} disabled={!formValido || isPending} className="min-w-[160px]">
+                {isPending ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    Emitindo no Alvo...
+                  </>
+                ) : (
+                  <>
+                    <Send className="mr-1.5 h-4 w-4" />
+                    Emitir Invoice
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
 
