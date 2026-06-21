@@ -290,6 +290,14 @@ export interface EmitReembolsoNFResponse {
   alvo_response?: unknown;
   master?: ConvertRascunhoResult;
   chave_docfin_alvo_orfa?: number;
+  pdf_status?: {
+    generated: boolean;
+    attached_alvo: boolean;
+    uploaded_storage: boolean;
+    storage_path: string | null;
+    alvo_upload_identify: string | null;
+    error: string | null;
+  };
 }
 
 // ═════════════════════════════════════════════════════════════
