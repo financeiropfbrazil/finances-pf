@@ -1,4 +1,5 @@
 import { Globe, LogOut } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -12,28 +13,30 @@ export function AppHeader() {
 
   const headerTitle = (() => {
     if (isAdmin) return "P&F Financial Controller";
-    const keys = Object.keys(permissions).filter(k => permissions[k]);
+    const keys = Object.keys(permissions).filter((k) => permissions[k]);
     if (keys.length === 0) return "P&F Financial Controller";
-    const financialPerms = keys.filter(p => !p.startsWith("suprimentos_"));
+    const financialPerms = keys.filter((p) => !p.startsWith("suprimentos_"));
     if (financialPerms.length === 0) return "P&F Suprimentos";
     return "P&F Financial Controller";
   })();
 
   const initials = profile?.full_name
-    ? profile.full_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()
+    ? profile.full_name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
     : "?";
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4">
       <div className="flex items-center gap-3">
         <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
-        <span className="hidden text-sm font-semibold text-foreground sm:block">
-          {headerTitle}
-        </span>
+        <span className="hidden text-sm font-semibold text-foreground sm:block">{headerTitle}</span>
       </div>
 
       <div className="flex items-center gap-2">
-
         {/* Language toggle */}
         <Button
           variant="ghost"
@@ -43,18 +46,15 @@ export function AppHeader() {
           title={language === "pt" ? "Switch to English" : "Mudar para Português"}
         >
           <Globe className="h-4 w-4" />
+          <ThemeToggle />
         </Button>
 
         {/* User info */}
         <div className="flex items-center gap-2">
           <Avatar className="h-7 w-7">
-            <AvatarFallback className="bg-primary text-xs text-primary-foreground">
-              {initials}
-            </AvatarFallback>
+            <AvatarFallback className="bg-primary text-xs text-primary-foreground">{initials}</AvatarFallback>
           </Avatar>
-          <span className="hidden text-xs text-muted-foreground lg:block">
-            {profile?.full_name}
-          </span>
+          <span className="hidden text-xs text-muted-foreground lg:block">{profile?.full_name}</span>
         </div>
 
         {/* Logout */}
