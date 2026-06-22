@@ -856,7 +856,7 @@ function BlocoCard({ bloco }: { bloco: MasterBlocoDetalhe }) {
   const classEmoji = classificationEmoji[bloco.classification_status];
 
   return (
-    <div className="rounded-md border border-border bg-background p-3 space-y-2">
+    <div className="rounded-md border border-border bg-surface-3 p-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
