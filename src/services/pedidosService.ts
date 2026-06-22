@@ -253,31 +253,19 @@ async function callGatewayGet(path: string): Promise<any> {
 // enviarPedido possa chamá-la.
 
 async function resolverCodigoComprador(input: NovoPedidoInput): Promise<string | null> {
-  // ── Caso 1: pedido COM vínculo a requisição → requisitante ──
-  if (input.origem_requisicao_id) {
-    const { data: req } = await (supabase as any)
-      .from("compras_requisicoes")
-      .select("codigo_funcionario")
-      .eq("id", input.origem_requisicao_id)
-      .maybeSingle();
-
-    const codFuncReq = req?.codigo_funcionario;
-    if (codFuncReq && String(codFuncReq).trim().length > 0) {
-      console.log(`[comprador] vínculo → requisitante (codigo_funcionario=${codFuncReq})`);
-      return String(codFuncReq).trim();
-    }
-    console.warn(`[comprador] req ${input.origem_requisicao_id} sem codigo_funcionario — usando operador`);
-  }
-
-  // ── Caso 2: pedido SEM vínculo → CodigoComprador null ──────────────
-  // O Alvo ACEITA CodigoComprador null (confirmado: pedidos do Pedro saem
-  // com comprador null e funcionam). O código de FUNCIONÁRIO (funcionario_
-  // alvo_codigo) NÃO serve como CodigoComprador — são cadastros distintos
-  // no Alvo (tabela COMPRADOR ≠ FUNCIONARIO), com códigos diferentes para a
-  // mesma pessoa (ex.: Elisangela = funcionário 0000112, comprador 0000013).
-  // Mandar o código de funcionário quebra a FK FK_PED_COMP_REF_5411_COMPRADO.
-  // Quem criou o pedido continua rastreável via CodigoUsuario.
-  console.log(`[comprador] sem vínculo → CodigoComprador=null (Alvo aplica default)`);
+  // CodigoComprador SEMPRE null. (Decisão 22/06/2026)
+  //
+  // No Alvo, "comprador" (tabela COMPRADOR) e "funcionário" (tabela
+  // FUNCIONARIO) são cadastros DISTINTOS, com códigos diferentes para a
+  // mesma pessoa — ex.: Elisangela = funcionário 0000112, comprador 0000013.
+  // O Hub só conhece o funcionario_alvo_codigo; mandá-lo como CodigoComprador
+  // quebra a FK FK_PED_COMP_REF_5411_COMPRADO quando o código não existe em
+  // COMPRADOR. O Alvo ACEITA CodigoComprador null (confirmado: pedidos do
+  // Pedro saem assim e funcionam) e aplica seu default. Quem criou o pedido
+  // continua rastreável via CodigoUsuario. Por isso: sempre null.
+  //
+  // O parâmetro `input` é mantido na assinatura para não alterar a chamada
+  // em enviarPedido (e permitir reintroduzir lógica no futuro, se preciso).
   return null;
 }
 
