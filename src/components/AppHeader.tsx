@@ -36,7 +36,7 @@ export function AppHeader() {
         <span className="hidden text-sm font-semibold text-foreground sm:block">{headerTitle}</span>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         {/* Language toggle */}
         <Button
           variant="ghost"
