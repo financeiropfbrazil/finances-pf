@@ -333,13 +333,29 @@ export default function SuprimentosPedidoNovo() {
   const { data: fornecedores = [] } = useQuery({
     queryKey: ["compras_entidades_cache_pedido_wizard"],
     queryFn: async (): Promise<Fornecedor[]> => {
-      const { data, error } = await (supabase as any)
-        .from("compras_entidades_cache")
-        .select("codigo_entidade, cnpj, nome, nome_fantasia, municipio, uf")
-        .eq("e_fornecedor", true)
-        .order("nome", { ascending: true });
-      if (error) throw error;
-      return (data || []) as Fornecedor[];
+      // Paginação manual: PostgREST do Supabase hospedado tem max-rows=1000.
+      // Há ~1610 fornecedores (e_fornecedor=true), então puxamos em batches
+      // até esgotar — senão entidades além da 1000ª posição alfabética (ex.:
+      // "PERFIL OFFICE...", ~1153ª) ficam de fora do dropdown. Mesmo padrão
+      // já usado na query de stock_products acima.
+      const PAGE_SIZE = 1000;
+      const todos: Fornecedor[] = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await (supabase as any)
+          .from("compras_entidades_cache")
+          .select("codigo_entidade, cnpj, nome, nome_fantasia, municipio, uf")
+          .eq("e_fornecedor", true)
+          .order("nome", { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        const batch = (data || []) as Fornecedor[];
+        if (batch.length === 0) break;
+        todos.push(...batch);
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      return todos;
     },
   });
 
