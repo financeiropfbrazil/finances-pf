@@ -62,22 +62,22 @@ const formatDate = (iso: string | null) => {
 };
 
 const statusColor: Record<MasterStatusUnificado, string> = {
-  rascunho: "bg-slate-500/15 text-slate-700 border-slate-300",
-  pendente_emissao: "bg-amber-500/15 text-amber-700 border-amber-300",
-  emitida: "bg-emerald-500/15 text-emerald-700 border-emerald-300",
-  erro: "bg-red-500/15 text-red-700 border-red-300",
-  sincronizada: "bg-blue-500/15 text-blue-700 border-blue-300",
-  classificada: "bg-violet-500/15 text-violet-700 border-violet-300",
-  pendente_eur: "bg-orange-500/15 text-orange-700 border-orange-300",
-  pendente_revisao: "bg-yellow-500/15 text-yellow-700 border-yellow-300",
-  validada: "bg-teal-500/15 text-teal-700 border-teal-300",
-  reconciliada: "bg-cyan-600/15 text-cyan-700 border-cyan-300",
+  rascunho: "bg-muted text-muted-foreground border-border",
+  pendente_emissao: "bg-warning/12 text-warning border-warning/30",
+  emitida: "bg-success/12 text-success border-success/30",
+  erro: "bg-danger/15 text-danger border-danger/40 font-medium",
+  sincronizada: "bg-info/12 text-info border-info/30",
+  classificada: "bg-violet/12 text-violet border-violet/30",
+  pendente_eur: "bg-warning/12 text-warning border-warning/30",
+  pendente_revisao: "bg-warning/12 text-warning border-warning/30",
+  validada: "bg-success/12 text-success border-success/30",
+  reconciliada: "bg-info/12 text-info border-info/30",
 };
 
 const classificationColor: Record<MasterClassificationStatus, string> = {
-  classified: "bg-emerald-500/15 text-emerald-700 border-emerald-300",
-  needs_konto_at: "bg-amber-500/15 text-amber-700 border-amber-300",
-  unclassified: "bg-red-500/15 text-red-700 border-red-300",
+  classified: "bg-success/12 text-success border-success/30",
+  needs_konto_at: "bg-warning/12 text-warning border-warning/30",
+  unclassified: "bg-danger/15 text-danger border-danger/40 font-medium",
 };
 
 const classificationLabel: Record<MasterClassificationStatus, string> = {
@@ -111,7 +111,6 @@ export default function IntercompanyMaster() {
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
-
 
   // ─── STATE: Modal câmbio ──────────────────────────────────────────────
   const [cambioModalOpen, setCambioModalOpen] = useState(false);
@@ -245,7 +244,6 @@ export default function IntercompanyMaster() {
     }
   };
 
-
   // ─── Render ───────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 p-6">
@@ -279,7 +277,6 @@ export default function IntercompanyMaster() {
           </Button>
         </div>
       </div>
-
 
       {/* Barra de Filtros */}
       <Card>
