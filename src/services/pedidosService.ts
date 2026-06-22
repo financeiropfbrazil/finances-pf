@@ -269,22 +269,15 @@ async function resolverCodigoComprador(input: NovoPedidoInput): Promise<string |
     console.warn(`[comprador] req ${input.origem_requisicao_id} sem codigo_funcionario — usando operador`);
   }
 
-  // ── Caso 2: pedido SEM vínculo (ou req sem código) → operador logado ──
-  const { data: profile } = await (supabase as any)
-    .from("profiles")
-    .select("funcionario_alvo_codigo")
-    .eq("user_id", input.user_id)
-    .maybeSingle();
-
-  const codOperador = profile?.funcionario_alvo_codigo;
-  if (codOperador && String(codOperador).trim().length > 0) {
-    console.log(`[comprador] sem vínculo → operador (funcionario_alvo_codigo=${codOperador})`);
-    return String(codOperador).trim();
-  }
-
-  console.warn(
-    `[comprador] nem requisitante nem operador resolveram (user_id=${input.user_id}). CodigoComprador=null.`,
-  );
+  // ── Caso 2: pedido SEM vínculo → CodigoComprador null ──────────────
+  // O Alvo ACEITA CodigoComprador null (confirmado: pedidos do Pedro saem
+  // com comprador null e funcionam). O código de FUNCIONÁRIO (funcionario_
+  // alvo_codigo) NÃO serve como CodigoComprador — são cadastros distintos
+  // no Alvo (tabela COMPRADOR ≠ FUNCIONARIO), com códigos diferentes para a
+  // mesma pessoa (ex.: Elisangela = funcionário 0000112, comprador 0000013).
+  // Mandar o código de funcionário quebra a FK FK_PED_COMP_REF_5411_COMPRADO.
+  // Quem criou o pedido continua rastreável via CodigoUsuario.
+  console.log(`[comprador] sem vínculo → CodigoComprador=null (Alvo aplica default)`);
   return null;
 }
 
