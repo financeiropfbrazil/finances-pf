@@ -692,7 +692,13 @@ function MasterRow({ item, expanded, onToggle, onEditCambio }: MasterRowProps) {
 
   return (
     <>
-      <tr className="border-b border-border/50 hover:bg-muted/20 transition-colors cursor-pointer" onClick={onToggle}>
+      <tr
+        className={cn(
+          "border-b border-border/50 transition-colors cursor-pointer",
+          expanded ? "bg-accent/60" : "hover:bg-muted/20",
+        )}
+        onClick={onToggle}
+      >
         <td className="px-3 py-2.5">
           {expanded ? (
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -784,58 +790,60 @@ function MasterRowDetails({ item }: { item: MasterItem }) {
   });
 
   return (
-    <tr className="bg-muted/10">
-      <td colSpan={15} className="px-6 py-4">
-        <div className="space-y-3">
-          {/* Header da invoice */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
-            <DetailField label="Espécie" value={item.especie} />
-            <DetailField
-              label="Câmbio"
-              value={item.cambio == null ? "—" : item.cambio.toLocaleString("pt-BR", { minimumFractionDigits: 4 })}
-            />
-            {item.chave_docfin_alvo && <DetailField label="Chave Alvo" value={String(item.chave_docfin_alvo)} mono />}
-            {item.origem_categoria && <DetailField label="Categoria" value={item.origem_categoria} />}
-            {item.emitida_em && (
-              <DetailField label="Emitida em" value={format(new Date(item.emitida_em), "dd/MM/yyyy HH:mm")} />
+    <tr>
+      <td colSpan={15} className="p-0">
+        <div className="border-l-[3px] border-primary bg-surface-2 px-6 py-4">
+          <div className="space-y-3">
+            {/* Header da invoice */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+              <DetailField label="Espécie" value={item.especie} />
+              <DetailField
+                label="Câmbio"
+                value={item.cambio == null ? "—" : item.cambio.toLocaleString("pt-BR", { minimumFractionDigits: 4 })}
+              />
+              {item.chave_docfin_alvo && <DetailField label="Chave Alvo" value={String(item.chave_docfin_alvo)} mono />}
+              {item.origem_categoria && <DetailField label="Categoria" value={item.origem_categoria} />}
+              {item.emitida_em && (
+                <DetailField label="Emitida em" value={format(new Date(item.emitida_em), "dd/MM/yyyy HH:mm")} />
+              )}
+            </div>
+
+            {item.descricao && (
+              <div className="text-xs">
+                <span className="text-muted-foreground uppercase tracking-wide">Descrição</span>
+                <p className="mt-0.5 italic">{item.descricao}</p>
+              </div>
+            )}
+
+            {item.status_motivo && (
+              <div className="text-xs rounded-md border border-amber-500/30 bg-amber-500/5 p-2">
+                <span className="text-amber-700 font-medium">Status:</span>{" "}
+                <span className="text-amber-700">{item.status_motivo}</span>
+              </div>
+            )}
+
+            {/* Blocos */}
+            {item.total_blocos > 0 && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1.5">
+                  Blocos ({item.total_blocos})
+                </p>
+                {blocosQuery.isLoading && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Carregando blocos...
+                  </div>
+                )}
+                {blocosQuery.data && blocosQuery.data.length > 0 && (
+                  <div className="space-y-2">
+                    {blocosQuery.data.map((bloco) => (
+                      <BlocoCard key={bloco.id} bloco={bloco} />
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-
-          {item.descricao && (
-            <div className="text-xs">
-              <span className="text-muted-foreground uppercase tracking-wide">Descrição</span>
-              <p className="mt-0.5 italic">{item.descricao}</p>
-            </div>
-          )}
-
-          {item.status_motivo && (
-            <div className="text-xs rounded-md border border-amber-500/30 bg-amber-500/5 p-2">
-              <span className="text-amber-700 font-medium">Status:</span>{" "}
-              <span className="text-amber-700">{item.status_motivo}</span>
-            </div>
-          )}
-
-          {/* Blocos */}
-          {item.total_blocos > 0 && (
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1.5">
-                Blocos ({item.total_blocos})
-              </p>
-              {blocosQuery.isLoading && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Carregando blocos...
-                </div>
-              )}
-              {blocosQuery.data && blocosQuery.data.length > 0 && (
-                <div className="space-y-2">
-                  {blocosQuery.data.map((bloco) => (
-                    <BlocoCard key={bloco.id} bloco={bloco} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </td>
     </tr>
