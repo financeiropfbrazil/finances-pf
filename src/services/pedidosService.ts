@@ -887,14 +887,56 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     }
   }
 
-  const pedCompClassesPayload = Array.from(rateioAgregado.entries()).map(([codigoClasse, ccMap]) => {
-    const linhasCC = Array.from(ccMap.entries()).map(([codigoCC, { valor, pct }]) => ({
+  // Monta as linhas planas (classe + CC) com valor e percentual.
+  const linhasFlat: Array<{
+    codigoClasse: string;
+    codigoCC: string;
+    valor: number;
+    pct: number;
+  }> = [];
+  for (const [codigoClasse, ccMap] of rateioAgregado.entries()) {
+    for (const [codigoCC, { valor, pct }] of ccMap.entries()) {
+      linhasFlat.push({ codigoClasse, codigoCC, valor: round2(valor), pct: round2(pct) });
+    }
+  }
+
+  // ── AJUSTE RESIDUAL (fecha a soma EXATA com o ValorTotal) ──────────
+  // O Alvo valida "soma das classes == Valor Total do Pedido". Como cada
+  // linha é arredondada a 2 casas, a soma de muitas linhas com percentuais
+  // quebrados (ex.: 64.6%, 7.85%) acumula uma diferença de centavos que faz
+  // o Alvo rejeitar ("Existe diferença entre a soma das classes e o Valor
+  // Total"). Aqui jogamos a diferença residual de VALOR (e de %) na última
+  // linha, garantindo fechamento exato. Mesmo padrão usado em calcularParcelas
+  // (última parcela = total - soma das anteriores).
+  if (linhasFlat.length > 0) {
+    const somaValor = round2(linhasFlat.reduce((s, l) => s + l.valor, 0));
+    const difValor = round2(valorTotal - somaValor);
+    if (Math.abs(difValor) >= 0.01) {
+      linhasFlat[linhasFlat.length - 1].valor = round2(linhasFlat[linhasFlat.length - 1].valor + difValor);
+    }
+
+    const somaPct = round2(linhasFlat.reduce((s, l) => s + l.pct, 0));
+    const difPct = round2(100 - somaPct);
+    if (Math.abs(difPct) >= 0.01) {
+      linhasFlat[linhasFlat.length - 1].pct = round2(linhasFlat[linhasFlat.length - 1].pct + difPct);
+    }
+  }
+
+  // Reagrupa as linhas (já ajustadas) por classe para o payload do Alvo.
+  const porClasseMap = new Map<string, Array<{ codigoCC: string; valor: number; pct: number }>>();
+  for (const l of linhasFlat) {
+    if (!porClasseMap.has(l.codigoClasse)) porClasseMap.set(l.codigoClasse, []);
+    porClasseMap.get(l.codigoClasse)!.push({ codigoCC: l.codigoCC, valor: l.valor, pct: l.pct });
+  }
+
+  const pedCompClassesPayload = Array.from(porClasseMap.entries()).map(([codigoClasse, linhas]) => {
+    const linhasCC = linhas.map(({ codigoCC, valor, pct }) => ({
       CodigoEmpresaFilial: "-1",
       NumeroPedComp: "-1",
       CodigoClasseRecDesp: "-1",
       CodigoCentroCtrl: codigoCC,
       Valor: valor,
-      Percentual: round2(pct),
+      Percentual: pct,
     }));
 
     const valorClasseTotal = round2(linhasCC.reduce((s, l) => s + l.Valor, 0));
