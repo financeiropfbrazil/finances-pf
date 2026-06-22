@@ -816,9 +816,9 @@ function MasterRowDetails({ item }: { item: MasterItem }) {
             )}
 
             {item.status_motivo && (
-              <div className="text-xs rounded-md border border-amber-500/30 bg-amber-500/5 p-2">
-                <span className="text-amber-700 font-medium">Status:</span>{" "}
-                <span className="text-amber-700">{item.status_motivo}</span>
+              <div className="text-xs rounded-md border border-warning/30 bg-warning/10 p-2">
+                <span className="text-warning font-medium">Status:</span>{" "}
+                <span className="text-warning">{item.status_motivo}</span>
               </div>
             )}
 
