@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFoo
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DataSection } from "@/components/DataSection";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -118,7 +119,7 @@ const formatCnpj = (cnpj: string | null) => {
 const situacaoBadge = (sit: string | null) => {
   const s = (sit || "").toLowerCase();
   if (s === "ativa" || s === "autorizada")
-    return <Badge className="bg-green-600 text-white hover:bg-green-700">Ativa</Badge>;
+    return <Badge className="bg-success text-success-foreground hover:bg-success/90">Ativa</Badge>;
   if (s === "cancelada") return <Badge variant="destructive">Cancelada</Badge>;
   return <Badge variant="outline">{sit || "—"}</Badge>;
 };
@@ -249,12 +250,12 @@ const ComprasNotasFiscais = () => {
     const st = r.status_lancamento || "pendente";
     if (st === "vinculada")
       return (
-        <Badge className="bg-blue-600 text-white hover:bg-blue-700 text-[10px]">
+        <Badge className="bg-info text-info-foreground hover:bg-info/90 text-[10px]">
           Vinculada (Ped. {r.pedido_compra_numero})
         </Badge>
       );
     if (st === "lancada")
-      return <Badge className="bg-green-600 text-white hover:bg-green-700 text-[10px]">Lançada</Badge>;
+      return <Badge className="bg-success text-success-foreground hover:bg-success/90 text-[10px]">Lançada</Badge>;
     return (
       <Badge variant="outline" className="text-[10px]">
         Pendente
@@ -359,7 +360,7 @@ const ComprasNotasFiscais = () => {
               <c.icon className="h-4 w-4 text-muted-foreground shrink-0" />
               <div>
                 <p className="text-xs text-muted-foreground">{c.label}</p>
-                <p className="text-sm font-semibold">{c.value}</p>
+                <p className="text-sm font-semibold tabular-nums">{c.value}</p>
               </div>
             </CardContent>
           </Card>
@@ -419,7 +420,12 @@ const ComprasNotasFiscais = () => {
                   return (
                     <TooltipProvider key={r.id}>
                       <>
-                        <TableRow className="cursor-pointer hover:bg-muted/50" onClick={() => toggleExpand(r)}>
+                        <TableRow
+                          className={
+                            expandedId === r.id ? "cursor-pointer bg-accent/60" : "cursor-pointer hover:bg-muted/50"
+                          }
+                          onClick={() => toggleExpand(r)}
+                        >
                           <TableCell className="px-1">
                             {expandedId === r.id ? (
                               <ChevronDown className="h-4 w-4" />
@@ -427,15 +433,17 @@ const ComprasNotasFiscais = () => {
                               <ChevronRight className="h-4 w-4" />
                             )}
                           </TableCell>
-                          <TableCell className="text-xs px-2">{r.numero || "—"}</TableCell>
+                          <TableCell className="text-xs px-2 tabular-nums">{r.numero || "—"}</TableCell>
                           <TableCell className="text-xs max-w-[180px] truncate px-2">
                             {r.emitente_nome || "—"}
                           </TableCell>
-                          <TableCell className="text-xs font-mono px-2">{formatCnpj(r.emitente_cnpj)}</TableCell>
-                          <TableCell className="text-xs text-right whitespace-nowrap font-medium px-2">
+                          <TableCell className="text-xs font-mono px-2 tabular-nums">
+                            {formatCnpj(r.emitente_cnpj)}
+                          </TableCell>
+                          <TableCell className="text-xs text-right whitespace-nowrap font-medium px-2 tabular-nums">
                             {formatCurrency(r.valor_total)}
                           </TableCell>
-                          <TableCell className="text-xs px-2">{formatDate(r.data_emissao)}</TableCell>
+                          <TableCell className="text-xs px-2 tabular-nums">{formatDate(r.data_emissao)}</TableCell>
                           <TableCell className="px-2">{situacaoBadge(r.situacao)}</TableCell>
                           <TableCell className="px-2">{statusLancBadge(r)}</TableCell>
                           <TableCell className="px-2" onClick={(e) => e.stopPropagation()}>
@@ -498,11 +506,10 @@ const ComprasNotasFiscais = () => {
 
                         {expandedId === r.id && (
                           <TableRow>
-                            <TableCell colSpan={9} className="bg-muted/30 p-4">
-                              <div className="space-y-4">
+                            <TableCell colSpan={9} className="bg-surface-1 p-4">
+                              <div className="space-y-3">
                                 {/* Dados da Nota */}
-                                <div>
-                                  <h4 className="text-xs font-semibold text-muted-foreground mb-2">Dados da Nota</h4>
+                                <DataSection title="Dados da Nota">
                                   <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
                                     <div>
                                       <span className="text-muted-foreground">Fornecedor:</span>{" "}
@@ -530,15 +537,18 @@ const ComprasNotasFiscais = () => {
                                       <span className="font-mono text-[10px]">{r.chave_acesso}</span>
                                     </div>
                                   </div>
-                                </div>
+                                </DataSection>
 
                                 {/* Itens da Nota (do dados_extraidos) */}
-                                <div>
-                                  <h4 className="text-xs font-semibold text-muted-foreground mb-2">Itens da Nota</h4>
+                                <DataSection
+                                  title="Itens da Nota"
+                                  subtitle={`${itens.length} ${itens.length === 1 ? "item" : "itens"}`}
+                                  flush
+                                >
                                   {itens.length === 0 ? (
-                                    <p className="text-xs text-muted-foreground italic">Sem itens detalhados.</p>
+                                    <p className="text-xs text-muted-foreground italic p-4">Sem itens detalhados.</p>
                                   ) : (
-                                    <div className="border rounded-md overflow-auto">
+                                    <div className="overflow-auto">
                                       <Table>
                                         <TableHeader>
                                           <TableRow>
@@ -556,7 +566,9 @@ const ComprasNotasFiscais = () => {
                                         <TableBody>
                                           {itens.map((it) => (
                                             <TableRow key={it.numero_item}>
-                                              <TableCell className="text-[10px]">{it.numero_item}</TableCell>
+                                              <TableCell className="text-[10px] tabular-nums">
+                                                {it.numero_item}
+                                              </TableCell>
                                               <TableCell className="text-[10px]">{it.codigo_produto}</TableCell>
                                               <TableCell className="text-[10px] max-w-[220px] truncate">
                                                 <Tooltip>
@@ -568,16 +580,20 @@ const ComprasNotasFiscais = () => {
                                                   </TooltipContent>
                                                 </Tooltip>
                                               </TableCell>
-                                              <TableCell className="text-[10px] font-mono">{it.ncm || "—"}</TableCell>
-                                              <TableCell className="text-[10px] font-mono">{it.cfop || "—"}</TableCell>
+                                              <TableCell className="text-[10px] font-mono tabular-nums">
+                                                {it.ncm || "—"}
+                                              </TableCell>
+                                              <TableCell className="text-[10px] font-mono tabular-nums">
+                                                {it.cfop || "—"}
+                                              </TableCell>
                                               <TableCell className="text-[10px]">{it.unidade || "—"}</TableCell>
-                                              <TableCell className="text-[10px] text-right">
+                                              <TableCell className="text-[10px] text-right tabular-nums">
                                                 {it.quantidade ?? "—"}
                                               </TableCell>
-                                              <TableCell className="text-[10px] text-right">
+                                              <TableCell className="text-[10px] text-right tabular-nums">
                                                 {formatCurrency(it.valor_unitario)}
                                               </TableCell>
-                                              <TableCell className="text-[10px] text-right">
+                                              <TableCell className="text-[10px] text-right tabular-nums">
                                                 {formatCurrency(it.valor_total)}
                                               </TableCell>
                                             </TableRow>
@@ -586,15 +602,14 @@ const ComprasNotasFiscais = () => {
                                       </Table>
                                     </div>
                                   )}
-                                </div>
+                                </DataSection>
 
                                 {/* Lotes gerados (só p/ lançadas — lidos do Alvo) */}
                                 {isLancada && (
-                                  <div>
-                                    <div className="flex items-center justify-between mb-2">
-                                      <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
-                                        <Boxes className="h-3.5 w-3.5" /> Lotes Gerados no Alvo
-                                      </h4>
+                                  <DataSection
+                                    title="Lotes Gerados no Alvo"
+                                    icon={<Boxes className="h-3.5 w-3.5" />}
+                                    action={
                                       <Button
                                         variant="ghost"
                                         size="sm"
@@ -609,17 +624,19 @@ const ComprasNotasFiscais = () => {
                                         )}{" "}
                                         Atualizar
                                       </Button>
-                                    </div>
+                                    }
+                                    flush
+                                  >
                                     {loadingLotes === r.id ? (
-                                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                      <div className="flex items-center gap-2 text-xs text-muted-foreground p-4">
                                         <Loader2 className="h-3 w-3 animate-spin" /> Carregando lotes do Alvo...
                                       </div>
                                     ) : lotes.length === 0 ? (
-                                      <p className="text-xs text-muted-foreground italic">
+                                      <p className="text-xs text-muted-foreground italic p-4">
                                         Nenhum lote gerado para esta nota (ou produto sem controle de lote).
                                       </p>
                                     ) : (
-                                      <div className="border rounded-md overflow-auto">
+                                      <div className="overflow-auto">
                                         <Table>
                                           <TableHeader>
                                             <TableRow>
@@ -633,15 +650,19 @@ const ComprasNotasFiscais = () => {
                                           <TableBody>
                                             {lotes.map((l, i) => (
                                               <TableRow key={`${l.numeroLote}-${i}`}>
-                                                <TableCell className="text-[10px] font-mono">{l.numeroLote}</TableCell>
+                                                <TableCell className="text-[10px] font-mono tabular-nums">
+                                                  {l.numeroLote}
+                                                </TableCell>
                                                 <TableCell className="text-[10px] max-w-[220px] truncate">
                                                   {l.produto}
                                                 </TableCell>
-                                                <TableCell className="text-[10px] text-right">{l.quantidade}</TableCell>
-                                                <TableCell className="text-[10px]">
+                                                <TableCell className="text-[10px] text-right tabular-nums">
+                                                  {l.quantidade}
+                                                </TableCell>
+                                                <TableCell className="text-[10px] tabular-nums">
                                                   {formatDate(l.dataFabricacao)}
                                                 </TableCell>
-                                                <TableCell className="text-[10px]">
+                                                <TableCell className="text-[10px] tabular-nums">
                                                   {formatDate(l.dataValidade)}
                                                 </TableCell>
                                               </TableRow>
@@ -650,14 +671,11 @@ const ComprasNotasFiscais = () => {
                                         </Table>
                                       </div>
                                     )}
-                                  </div>
+                                  </DataSection>
                                 )}
 
                                 {/* Valores e Impostos */}
-                                <div>
-                                  <h4 className="text-xs font-semibold text-muted-foreground mb-2">
-                                    Valores e Impostos
-                                  </h4>
+                                <DataSection title="Valores e Impostos">
                                   <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
                                     <div>
                                       <span className="text-muted-foreground">V. Produtos:</span>{" "}
@@ -683,10 +701,10 @@ const ComprasNotasFiscais = () => {
                                       <span className="font-semibold">{formatCurrency(r.valor_total)}</span>
                                     </div>
                                   </div>
-                                </div>
+                                </DataSection>
 
                                 {/* Ações de detalhe */}
-                                <div className="flex gap-2 pt-2">
+                                <div className="flex gap-2 pt-1">
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -718,7 +736,9 @@ const ComprasNotasFiscais = () => {
                   <TableCell colSpan={4} className="text-xs">
                     Total: {filtered.length} NF-e(s)
                   </TableCell>
-                  <TableCell className="text-xs text-right font-semibold">{formatCurrency(footerTotal)}</TableCell>
+                  <TableCell className="text-xs text-right font-semibold tabular-nums">
+                    {formatCurrency(footerTotal)}
+                  </TableCell>
                   <TableCell colSpan={4} />
                 </TableRow>
               </TableFooter>
