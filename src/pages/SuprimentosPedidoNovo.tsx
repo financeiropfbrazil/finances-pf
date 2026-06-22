@@ -2401,7 +2401,11 @@ export default function SuprimentosPedidoNovo() {
       {/* MODAL DE ITEM (2 sub-etapas: Dados + Rateio)       */}
       {/* ════════════════════════════════════════════════════ */}
       <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
+        <DialogContent
+          className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>
               {editingItemId ? "Editar item" : "Adicionar item"}
