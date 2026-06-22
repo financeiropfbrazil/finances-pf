@@ -2,55 +2,144 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   FINANCIAL HUB — Sistema de tema "institucional calmo" (Bloomberg-calm)
+   Light = :root  ·  Dark = .dark  (casados, mesmo produto nos dois modos)
+
+   Princípios:
+   - Escala de 3 superfícies (surface-1/2/3) — page < card/painel < aninhado/dialog
+   - UM accent azul institucional (primary). Cor forte só pra exceção.
+   - Semânticos de-saturados: success/warning/danger (+info/violet auxiliares)
+   - Sem glow, sem glassmorphism, sem gradiente decorativo
+   - Números em tabular-nums (coluna de valor alinha)
+
+   Os valores são "H S% L%" (canais, sem hsl()) para o Tailwind injetar alpha.
+   ========================================================================== */
+
 @layer base {
+  /* ───────────────────────── LIGHT (padrão :root) ───────────────────────── */
   :root {
-    --background: 232 36% 13%;
-    --foreground: 210 40% 92%;
+    /* Superfícies */
+    --surface-1: 220 16% 98%; /* fundo da página      #FAFBFC */
+    --surface-2: 0 0% 100%; /* cards / painel        #FFFFFF */
+    --surface-3: 220 16% 96%; /* aninhado / dialog     #F2F4F7 */
 
-    --card: 225 45% 15%;
-    --card-foreground: 210 40% 92%;
+    --background: 220 16% 98%;
+    --foreground: 222 30% 13%;
 
-    --popover: 225 45% 15%;
-    --popover-foreground: 210 40% 92%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 30% 13%;
 
-    --primary: 210 65% 45%;
-    --primary-foreground: 210 40% 98%;
+    /* Popover/Dialog flutuam no topo da escala */
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 30% 13%;
 
-    --secondary: 225 30% 20%;
-    --secondary-foreground: 210 40% 92%;
+    /* Accent institucional (mais escuro pra ler no branco) */
+    --primary: 214 58% 42%;
+    --primary-foreground: 0 0% 100%;
 
-    --muted: 225 25% 18%;
-    --muted-foreground: 215 20% 55%;
+    --secondary: 220 14% 95%;
+    --secondary-foreground: 222 25% 20%;
 
-    --accent: 210 55% 35%;
-    --accent-foreground: 210 40% 98%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 9% 46%;
 
-    --destructive: 3 80% 50%;
-    --destructive-foreground: 210 40% 98%;
+    --accent: 214 30% 92%; /* hover/estado ativo discreto */
+    --accent-foreground: 214 50% 30%;
 
-    --border: 225 20% 22%;
-    --input: 225 20% 22%;
-    --ring: 210 65% 45%;
+    --destructive: 2 62% 48%;
+    --destructive-foreground: 0 0% 100%;
 
+    --border: 220 13% 90%;
+    --input: 220 13% 88%;
+    --ring: 214 58% 42%;
     --radius: 0.5rem;
 
-    --sidebar-background: 232 40% 10%;
-    --sidebar-foreground: 210 30% 75%;
-    --sidebar-primary: 210 65% 50%;
+    /* Sidebar */
+    --sidebar-background: 220 18% 97%;
+    --sidebar-foreground: 220 12% 35%;
+    --sidebar-primary: 214 58% 42%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 225 30% 18%;
-    --sidebar-accent-foreground: 210 40% 92%;
-    --sidebar-border: 225 20% 18%;
-    --sidebar-ring: 210 65% 50%;
+    --sidebar-accent: 220 14% 93%;
+    --sidebar-accent-foreground: 222 25% 20%;
+    --sidebar-border: 220 13% 90%;
+    --sidebar-ring: 214 58% 42%;
 
-    --success: 168 80% 36%;
+    /* Semânticos — só pra exceção/dado financeiro */
+    --success: 152 46% 36%; /* crédito / classificado / sincronizado */
     --success-foreground: 0 0% 100%;
-    --warning: 45 98% 71%;
-    --warning-foreground: 232 36% 13%;
-    --danger: 3 80% 50%;
+    --warning: 35 72% 42%; /* pendente / atenção */
+    --warning-foreground: 0 0% 100%;
+    --danger: 2 62% 48%; /* erro / cancelado / débito / unclassified */
     --danger-foreground: 0 0% 100%;
+    --info: 214 40% 46%; /* informativo quieto (ex.: convertido) */
+    --info-foreground: 0 0% 100%;
+    --violet: 262 42% 48%; /* tag de tipo de doc (NFS-e / IA) */
+    --violet-foreground: 0 0% 100%;
 
-    --closed-glow: 168 80% 36%;
+    /* compat: alias antigo, sem glow */
+    --closed-glow: 152 46% 36%;
+  }
+
+  /* ───────────────────────────── DARK (.dark) ───────────────────────────── */
+  .dark {
+    /* Superfícies (page mais escuro < card < aninhado) */
+    --surface-1: 222 16% 9%; /* fundo da página      #13151A */
+    --surface-2: 222 14% 12%; /* cards / painel        #1B1D23 */
+    --surface-3: 220 13% 16%; /* aninhado / dialog     #23262D */
+
+    --background: 222 16% 9%;
+    --foreground: 213 14% 90%;
+
+    --card: 222 14% 12%;
+    --card-foreground: 213 14% 90%;
+
+    --popover: 220 13% 16%;
+    --popover-foreground: 213 14% 90%;
+
+    /* Accent institucional (mais claro pra ler no escuro) */
+    --primary: 212 48% 54%;
+    --primary-foreground: 210 20% 98%;
+
+    --secondary: 220 12% 17%;
+    --secondary-foreground: 213 14% 88%;
+
+    --muted: 220 12% 15%;
+    --muted-foreground: 218 10% 60%;
+
+    --accent: 214 28% 22%; /* hover/estado ativo discreto */
+    --accent-foreground: 213 14% 92%;
+
+    --destructive: 2 60% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 12% 19%;
+    --input: 220 12% 19%;
+    --ring: 212 48% 54%;
+
+    /* Sidebar (mais escuro que a página) */
+    --sidebar-background: 222 20% 7%;
+    --sidebar-foreground: 218 12% 68%;
+    --sidebar-primary: 212 48% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 12% 15%;
+    --sidebar-accent-foreground: 213 14% 88%;
+    --sidebar-border: 220 12% 14%;
+    --sidebar-ring: 212 48% 56%;
+
+    /* Semânticos */
+    --success: 152 40% 44%;
+    --success-foreground: 0 0% 100%;
+    --warning: 36 56% 52%;
+    --warning-foreground: 30 30% 10%;
+    --danger: 2 60% 56%;
+    --danger-foreground: 0 0% 100%;
+    --info: 212 36% 56%;
+    --info-foreground: 0 0% 100%;
+    --violet: 262 38% 64%;
+    --violet-foreground: 0 0% 100%;
+
+    --closed-glow: 152 40% 44%;
   }
 }
 
@@ -58,10 +147,20 @@
   * {
     @apply border-border;
   }
-
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      sans-serif;
+    font-variant-numeric: tabular-nums; /* coluna de valor alinha */
+  }
+  /* Números financeiros sempre tabulares mesmo se o body for sobrescrito */
+  table,
+  .tabular,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -80,14 +179,14 @@
   background: hsl(var(--muted-foreground));
 }
 
-/* Inventory calendar: dot indicator for dates with draft data */
-.inventory-draft-dot {
-  position: relative;
-}
-
 /* Compras / Notas Fiscais — aumentar itens de 10px para 12px */
 .text-\[10px\] {
   font-size: 12px;
+}
+
+/* Inventory calendar: dot indicator for dates with draft data (SEM glow) */
+.inventory-draft-dot {
+  position: relative;
 }
 .inventory-draft-dot::after {
   content: "";
@@ -99,9 +198,8 @@
   height: 5px;
   border-radius: 50%;
   background: hsl(var(--primary));
-  box-shadow: 0 0 4px hsl(var(--primary) / 0.6);
+  /* box-shadow removido — o glow era assinatura do tema antigo */
 }
 .inventory-draft-dot[aria-selected="true"]::after {
   background: hsl(var(--primary-foreground));
-  box-shadow: 0 0 4px hsl(var(--primary-foreground) / 0.6);
 }
