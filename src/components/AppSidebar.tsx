@@ -70,6 +70,7 @@ const navItems = [
   { titleKey: "nav.taxes", url: "/taxes", icon: Receipt },
 
   { titleKey: "nav.credit_cards", url: "/credit-cards", icon: CreditCard },
+  { titleKey: "nav.cartao_lancamento", url: "/cartao", icon: Receipt },
   { titleKey: "nav.projetos", url: "/projetos", icon: FolderKanban },
   { titleKey: "nav.closing", url: "/closing", icon: ClipboardCheck },
 ] as const;
@@ -87,6 +88,7 @@ const routePermMap: Record<string, string> = {
   "/taxes": "taxes",
 
   "/credit-cards": "credit_cards",
+  "/cartao": "cartao.access",
   "/contas-a-pagar": "contas_pagar",
   "/projetos": "projetos",
   "/closing": "closing",
