@@ -17,11 +17,13 @@ import {
   Send,
   FileSpreadsheet,
   Loader2,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -51,7 +53,6 @@ import {
   loadLotes,
   criarLoteComLinhas,
   excluirLote,
-  loadLote,
   loadItens,
   atualizarLinha,
   ignorarLinha,
@@ -66,7 +67,6 @@ import {
   type ParseResult,
 } from "@/services/cartaoImportService";
 
-/* helpers de formatação */
 const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtData = (iso: string | null) => (iso ? format(new Date(iso + "T00:00:00"), "dd/MM/yyyy") : "—");
 
@@ -89,8 +89,6 @@ export default function CartaoLancamentos() {
   const [lotes, setLotes] = useState<CartaoLote[]>([]);
   const [loading, setLoading] = useState(true);
   const [loteAberto, setLoteAberto] = useState<CartaoLote | null>(null);
-
-  // dropdowns (carregados uma vez)
   const [classes, setClasses] = useState<ClasseOption[]>([]);
   const [centros, setCentros] = useState<CentroCustoOption[]>([]);
 
@@ -106,8 +104,7 @@ export default function CartaoLancamentos() {
   const fetchLotes = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await loadLotes(competencia);
-      setLotes(data);
+      setLotes(await loadLotes(competencia));
     } catch (e: any) {
       toast({ title: "Erro ao carregar lotes", description: e.message, variant: "destructive" });
     }
@@ -119,15 +116,7 @@ export default function CartaoLancamentos() {
   }, [fetchLotes, loteAberto]);
 
   if (loteAberto) {
-    return (
-      <DetalheLote
-        lote={loteAberto}
-        classes={classes}
-        centros={centros}
-        onVoltar={() => setLoteAberto(null)}
-        userId={user?.id ?? null}
-      />
-    );
+    return <DetalheLote lote={loteAberto} classes={classes} centros={centros} onVoltar={() => setLoteAberto(null)} />;
   }
 
   return (
@@ -143,7 +132,7 @@ export default function CartaoLancamentos() {
   );
 }
 
-/* ════════════════════════ LISTA DE LOTES ════════════════════════ */
+/* ════════ LISTA DE LOTES ════════ */
 
 function ListaLotes({
   competencia,
@@ -190,8 +179,7 @@ function ListaLotes({
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={onRefresh} disabled={loading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Atualizar
           </Button>
           <Button onClick={() => setImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" /> Importar fatura
@@ -283,7 +271,6 @@ function ListaLotes({
       <ImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
-        competencia={competencia}
         userId={userId}
         onImported={() => {
           setImportOpen(false);
@@ -314,18 +301,16 @@ function ListaLotes({
   );
 }
 
-/* ════════════════════════ DIALOG DE IMPORTAÇÃO ════════════════════════ */
+/* ════════ DIALOG DE IMPORTAÇÃO ════════ */
 
 function ImportDialog({
   open,
   onOpenChange,
-  competencia,
   userId,
   onImported,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  competencia: string;
   userId: string | null;
   onImported: () => void;
 }) {
@@ -333,7 +318,6 @@ function ImportDialog({
   const [finalCartao, setFinalCartao] = useState("");
   const [tipoPagRec, setTipoPagRec] = useState("0000013");
   const [vencimento, setVencimento] = useState("");
-  const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ParseResult | null>(null);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -343,21 +327,17 @@ function ImportDialog({
     setFinalCartao("");
     setTipoPagRec("0000013");
     setVencimento("");
-    setFile(null);
     setPreview(null);
   };
 
   const handleFile = async (f: File | null) => {
-    setFile(f);
     setPreview(null);
     if (!f) return;
     setParsing(true);
     try {
       const result = await parsePlanilhaCartao(f);
       setPreview(result);
-      if (result.totalLinhas === 0) {
-        toast({ title: "Nenhuma linha encontrada na planilha.", variant: "destructive" });
-      }
+      if (result.totalLinhas === 0) toast({ title: "Nenhuma linha encontrada na planilha.", variant: "destructive" });
     } catch (e: any) {
       toast({ title: "Erro ao ler planilha", description: e.message, variant: "destructive" });
     }
@@ -370,8 +350,7 @@ function ImportDialog({
     if (!podeSalvar || !preview) return;
     setSaving(true);
     try {
-      // competência = 1º dia do mês do vencimento (regra confirmada)
-      const competenciaDerivada = `${vencimento.slice(0, 7)}-01`;
+      const competenciaDerivada = `${vencimento.slice(0, 7)}-01`; // 1º dia do mês do vencimento
       await criarLoteComLinhas({
         titular: titular.trim(),
         final_cartao: finalCartao.trim() || null,
@@ -432,7 +411,6 @@ function ImportDialog({
               <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
             </div>
           </div>
-
           <div className="space-y-2">
             <Label>Planilha (.xlsx) *</Label>
             <Input type="file" accept=".xlsx,.xls" onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
@@ -491,25 +469,27 @@ function ImportDialog({
   );
 }
 
-/* ════════════════════════ DETALHE DO LOTE (edição das linhas) ════════════════════════ */
+/* ════════ DETALHE DO LOTE ════════ */
 
 function DetalheLote({
   lote,
   classes,
   centros,
   onVoltar,
-  userId,
 }: {
   lote: CartaoLote;
   classes: ClasseOption[];
   centros: CentroCustoOption[];
   onVoltar: () => void;
-  userId: string | null;
 }) {
   const [itens, setItens] = useState<CartaoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [ignorarItem, setIgnorarItem] = useState<CartaoItem | null>(null);
   const [motivo, setMotivo] = useState("");
+  const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
+  const [massaClasse, setMassaClasse] = useState("");
+  const [massaCentro, setMassaCentro] = useState("");
+  const [aplicando, setAplicando] = useState(false);
 
   const fetchItens = useCallback(async () => {
     setLoading(true);
@@ -527,26 +507,68 @@ function DetalheLote({
 
   const totalValor = useMemo(() => itens.reduce((s, i) => s + i.valor, 0), [itens]);
 
-  // atualização otimista de um campo da linha
+  // editáveis = não emitidas e não ignoradas
+  const editaveis = itens.filter((i) => i.status_linha !== "emitido" && i.status_linha !== "ignorado");
+
+  // substitui apenas a linha alterada (sem reload da tabela inteira)
+  const aplicarLinhaLocal = (linha: CartaoItem) => {
+    setItens((prev) => prev.map((i) => (i.id === linha.id ? linha : i)));
+  };
+
   const patchCampo = async (
     item: CartaoItem,
     campo: "codigo_entidade" | "codigo_classe_rec_desp" | "codigo_centro_ctrl",
     valor: string | null,
   ) => {
-    const atualizado = { ...item, [campo]: valor };
-    setItens((prev) => prev.map((i) => (i.id === item.id ? atualizado : i)));
+    // otimista
+    const otim = { ...item, [campo]: valor };
+    aplicarLinhaLocal(otim);
     try {
-      await atualizarLinha(item.id, {
+      const atualizada = await atualizarLinha(item.id, {
         codigo_entidade: campo === "codigo_entidade" ? valor : item.codigo_entidade,
         codigo_classe_rec_desp: campo === "codigo_classe_rec_desp" ? valor : item.codigo_classe_rec_desp,
         codigo_centro_ctrl: campo === "codigo_centro_ctrl" ? valor : item.codigo_centro_ctrl,
       });
-      // recarrega só para pegar o status_linha recalculado pela trigger
-      fetchItens();
+      aplicarLinhaLocal(atualizada); // pega o status_linha recalculado pela trigger
     } catch (e: any) {
       toast({ title: "Erro ao salvar", description: e.message, variant: "destructive" });
-      fetchItens(); // reverte
+      aplicarLinhaLocal(item); // reverte
     }
+  };
+
+  // ── seleção em massa ──
+  const toggleMarcada = (id: string) => {
+    setMarcadas((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+  const todasMarcadas = editaveis.length > 0 && editaveis.every((i) => marcadas.has(i.id));
+  const toggleTodas = () => {
+    setMarcadas(todasMarcadas ? new Set() : new Set(editaveis.map((i) => i.id)));
+  };
+
+  const aplicarEmMassa = async (campo: "codigo_classe_rec_desp" | "codigo_centro_ctrl", valor: string) => {
+    if (!valor || marcadas.size === 0) return;
+    setAplicando(true);
+    const alvos = itens.filter(
+      (i) => marcadas.has(i.id) && i.status_linha !== "emitido" && i.status_linha !== "ignorado",
+    );
+    try {
+      for (const item of alvos) {
+        const atualizada = await atualizarLinha(item.id, {
+          codigo_entidade: item.codigo_entidade,
+          codigo_classe_rec_desp: campo === "codigo_classe_rec_desp" ? valor : item.codigo_classe_rec_desp,
+          codigo_centro_ctrl: campo === "codigo_centro_ctrl" ? valor : item.codigo_centro_ctrl,
+        });
+        aplicarLinhaLocal(atualizada);
+      }
+      toast({ title: `Aplicado a ${alvos.length} linha(s).` });
+    } catch (e: any) {
+      toast({ title: "Erro ao aplicar em massa", description: e.message, variant: "destructive" });
+    }
+    setAplicando(false);
   };
 
   const handleIgnorar = async () => {
@@ -576,7 +598,7 @@ function DetalheLote({
 
   return (
     <TooltipProvider>
-      <div className="space-y-6 p-6">
+      <div className="space-y-4 p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" onClick={onVoltar}>
@@ -602,30 +624,90 @@ function DetalheLote({
           </Tooltip>
         </div>
 
-        <div className="rounded-md border overflow-auto">
-          <Table>
+        {/* Barra de ações em massa — aparece quando há linhas marcadas */}
+        {marcadas.size > 0 && (
+          <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/30 p-3">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              <Layers className="h-4 w-4" /> {marcadas.size} selecionada(s)
+            </span>
+            <div className="flex items-center gap-2">
+              <Select value={massaClasse} onValueChange={setMassaClasse}>
+                <SelectTrigger className="h-8 w-[200px] text-xs">
+                  <SelectValue placeholder="Classe..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {classes.map((c) => (
+                    <SelectItem key={c.codigo} value={c.codigo} className="text-xs">
+                      {c.codigo} — {c.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!massaClasse || aplicando}
+                onClick={() => aplicarEmMassa("codigo_classe_rec_desp", massaClasse)}
+              >
+                Aplicar classe
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={massaCentro} onValueChange={setMassaCentro}>
+                <SelectTrigger className="h-8 w-[200px] text-xs">
+                  <SelectValue placeholder="Centro..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {centros.map((c) => (
+                    <SelectItem key={c.erp_code} value={c.erp_code} className="text-xs">
+                      {c.name} ({c.erp_code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!massaCentro || aplicando}
+                onClick={() => aplicarEmMassa("codigo_centro_ctrl", massaCentro)}
+              >
+                Aplicar centro
+              </Button>
+            </div>
+            <Button size="sm" variant="ghost" onClick={() => setMarcadas(new Set())}>
+              Limpar seleção
+            </Button>
+            {aplicando && <Loader2 className="h-4 w-4 animate-spin" />}
+          </div>
+        )}
+
+        <div className="rounded-md border overflow-x-auto">
+          <Table className="w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[90px]">Data</TableHead>
-                <TableHead>Estabelecimento</TableHead>
-                <TableHead className="w-[100px] text-right">Valor</TableHead>
-                <TableHead className="w-[260px]">Fornecedor</TableHead>
-                <TableHead className="w-[220px]">Classe</TableHead>
-                <TableHead className="w-[220px]">Centro de Controle</TableHead>
-                <TableHead className="w-[100px]">Status</TableHead>
-                <TableHead className="w-20" />
+                <TableHead className="w-[36px]">
+                  <Checkbox checked={todasMarcadas} onCheckedChange={toggleTodas} aria-label="Selecionar todas" />
+                </TableHead>
+                <TableHead className="w-[78px]">Data</TableHead>
+                <TableHead className="min-w-[160px]">Estabelecimento</TableHead>
+                <TableHead className="w-[90px] text-right">Valor</TableHead>
+                <TableHead className="w-[230px]">Fornecedor</TableHead>
+                <TableHead className="w-[170px]">Classe</TableHead>
+                <TableHead className="w-[170px]">Centro Ctrl</TableHead>
+                <TableHead className="w-[84px]">Status</TableHead>
+                <TableHead className="w-[44px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     Carregando...
                   </TableCell>
                 </TableRow>
               ) : itens.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     Lote sem linhas.
                   </TableCell>
                 </TableRow>
@@ -633,16 +715,26 @@ function DetalheLote({
                 itens.map((item) => {
                   const bloqueado = item.status_linha === "emitido";
                   const ignorado = item.status_linha === "ignorado";
+                  const editavel = !bloqueado && !ignorado;
                   return (
                     <TableRow key={item.id} className={ignorado ? "opacity-50" : ""}>
+                      <TableCell>
+                        {editavel && (
+                          <Checkbox
+                            checked={marcadas.has(item.id)}
+                            onCheckedChange={() => toggleMarcada(item.id)}
+                            aria-label="Selecionar linha"
+                          />
+                        )}
+                      </TableCell>
                       <TableCell className="text-xs">{fmtData(item.data_transacao)}</TableCell>
                       <TableCell>
-                        <div className="text-sm font-medium">{item.descricao_estabelecimento}</div>
+                        <div className="text-sm font-medium leading-tight">{item.descricao_estabelecimento}</div>
                         {item.justificativa && (
                           <div className="text-xs text-muted-foreground">{item.justificativa}</div>
                         )}
                         {item.cnpj_bruto && !item.cnpj_normalizado && (
-                          <div className="text-xs text-amber-600">CNPJ inválido na planilha: {item.cnpj_bruto}</div>
+                          <div className="text-xs text-amber-600">CNPJ inválido: {item.cnpj_bruto}</div>
                         )}
                       </TableCell>
                       <TableCell className="text-right text-sm tabular-nums">{fmtBRL(item.valor)}</TableCell>
@@ -650,14 +742,14 @@ function DetalheLote({
                         <EntidadeCombobox
                           value={item.codigo_entidade}
                           onChange={(cod) => patchCampo(item, "codigo_entidade", cod)}
-                          disabled={bloqueado || ignorado}
+                          disabled={!editavel}
                         />
                       </TableCell>
                       <TableCell>
                         <Select
                           value={item.codigo_classe_rec_desp ?? ""}
                           onValueChange={(v) => patchCampo(item, "codigo_classe_rec_desp", v || null)}
-                          disabled={bloqueado || ignorado}
+                          disabled={!editavel}
                         >
                           <SelectTrigger className="h-8 text-xs">
                             <SelectValue placeholder="Classe..." />
@@ -675,7 +767,7 @@ function DetalheLote({
                         <Select
                           value={item.codigo_centro_ctrl ?? ""}
                           onValueChange={(v) => patchCampo(item, "codigo_centro_ctrl", v || null)}
-                          disabled={bloqueado || ignorado}
+                          disabled={!editavel}
                         >
                           <SelectTrigger className="h-8 text-xs">
                             <SelectValue placeholder="Centro..." />
@@ -690,7 +782,7 @@ function DetalheLote({
                         </Select>
                       </TableCell>
                       <TableCell>{statusLinhaBadge(item.status_linha)}</TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
+                      <TableCell>
                         {bloqueado ? (
                           <span className="text-xs text-muted-foreground" title={`DocFin ${item.docfin_chave ?? ""}`}>
                             {item.docfin_numero ?? "—"}
