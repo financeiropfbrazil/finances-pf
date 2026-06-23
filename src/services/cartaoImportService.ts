@@ -342,14 +342,15 @@ export async function loadItens(loteId: string): Promise<CartaoItem[]> {
 export async function atualizarLinha(
   itemId: string,
   patch: { codigo_entidade: string | null; codigo_classe_rec_desp: string | null; codigo_centro_ctrl: string | null },
-): Promise<void> {
-  const { error } = await sb.rpc("fn_cartao_atualizar_linha", {
+): Promise<CartaoItem> {
+  const { data, error } = await sb.rpc("fn_cartao_atualizar_linha", {
     p_item_id: itemId,
     p_codigo_entidade: patch.codigo_entidade,
     p_codigo_classe_rec_desp: patch.codigo_classe_rec_desp,
     p_codigo_centro_ctrl: patch.codigo_centro_ctrl,
   });
   if (error) throw new Error(`Erro ao atualizar linha: ${error.message}`);
+  return data as CartaoItem;
 }
 
 export async function ignorarLinha(itemId: string, motivo: string): Promise<void> {
@@ -377,6 +378,7 @@ export async function loadClasses(): Promise<ClasseOption[]> {
     .from("classes_rec_desp")
     .select("codigo, nome, natureza, grupo, is_active")
     .eq("is_active", true)
+    .eq("natureza", "Débito")
     .order("codigo", { ascending: true });
   if (error) throw new Error(`Erro ao carregar classes: ${error.message}`);
   return (data || [])
