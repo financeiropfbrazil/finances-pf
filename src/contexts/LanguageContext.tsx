@@ -15,6 +15,7 @@ const translations = {
   "nav.taxes": { pt: "Impostos Parcelados", en: "Installment Taxes" },
   "nav.intercompany": { pt: "Intercompany", en: "Intercompany" },
   "nav.credit_cards": { pt: "Cartões de Crédito", en: "Credit Cards" },
+  "nav.cartao_lancamento": { pt: "Lançamento de Cartão", en: "Card Posting" },
   "nav.commodatum": { pt: "Bens em Comodato", en: "Commodatum Assets" },
   "nav.contas_pagar": { pt: "Contas a Pagar", en: "Accounts Payable" },
   "nav.projetos": { pt: "Projetos", en: "Projects" },
@@ -25,7 +26,10 @@ const translations = {
   "settings.cost_centers": { pt: "Centros de Custo", en: "Cost Centers" },
   "settings.classes_rec_desp": { pt: "Classes Rec/Desp", en: "Revenue/Expense Classes" },
   "settings.users": { pt: "Usuários", en: "Users" },
-  "settings.api_connection_desc": { pt: "Teste a conexão com o ERP Alvo para validar credenciais e acesso.", en: "Test connection with ERP Alvo to validate credentials and access." },
+  "settings.api_connection_desc": {
+    pt: "Teste a conexão com o ERP Alvo para validar credenciais e acesso.",
+    en: "Test connection with ERP Alvo to validate credentials and access.",
+  },
   "settings.test_connection": { pt: "Testar Conexão", en: "Test Connection" },
   "settings.testing": { pt: "Testando...", en: "Testing..." },
   "settings.connected": { pt: "Conectado", en: "Connected" },
@@ -44,14 +48,20 @@ const translations = {
   "auth.new_password": { pt: "Nova Senha", en: "New Password" },
   "auth.send_reset": { pt: "Enviar link de redefinição", en: "Send reset link" },
   "auth.back_to_login": { pt: "Voltar ao login", en: "Back to login" },
-  "auth.reset_sent": { pt: "Link de redefinição enviado! Verifique seu email.", en: "Reset link sent! Check your email." },
+  "auth.reset_sent": {
+    pt: "Link de redefinição enviado! Verifique seu email.",
+    en: "Reset link sent! Check your email.",
+  },
   "auth.password_updated": { pt: "Senha atualizada com sucesso!", en: "Password updated successfully!" },
   "auth.error": { pt: "Erro na autenticação", en: "Authentication error" },
   "auth.signing_in": { pt: "Entrando...", en: "Signing in..." },
 
   // Placeholder
   "placeholder.title": { pt: "Módulo em Construção", en: "Module Under Construction" },
-  "placeholder.message": { pt: "Este módulo está sendo desenvolvido e estará disponível em breve.", en: "This module is being developed and will be available soon." },
+  "placeholder.message": {
+    pt: "Este módulo está sendo desenvolvido e estará disponível em breve.",
+    en: "This module is being developed and will be available soon.",
+  },
 
   // Dashboard
   "dashboard.title": { pt: "Dashboard de Reconciliação", en: "Reconciliation Dashboard" },
@@ -79,7 +89,10 @@ const translations = {
   "dashboard.close_confirm": { pt: "Confirmar fechamento?", en: "Confirm closing?" },
   "dashboard.close_confirm_all": { pt: "Fechar todos os módulos elegíveis?", en: "Close all eligible modules?" },
   "dashboard.closed_at": { pt: "Fechado em", en: "Closed at" },
-  "dashboard.close_not_eligible": { pt: "Módulo deve estar conciliado ou justificado", en: "Module must be reconciled or justified" },
+  "dashboard.close_not_eligible": {
+    pt: "Módulo deve estar conciliado ou justificado",
+    en: "Module must be reconciled or justified",
+  },
   "dashboard.close_success": { pt: "Módulo fechado com sucesso!", en: "Module closed successfully!" },
   "dashboard.close_all_success": { pt: "Período fechado com sucesso!", en: "Period closed successfully!" },
 
@@ -171,7 +184,10 @@ const translations = {
   "fa.freq_daily": { pt: "Diária", en: "Daily" },
   "fa.freq_weekly": { pt: "Semanal", en: "Weekly" },
   "fa.freq_monthly": { pt: "Mensal", en: "Monthly" },
-  "fa.api_coming_soon": { pt: "Integração via API em desenvolvimento. Os dados são inseridos manualmente nesta versão.", en: "API integration under development. Data is entered manually in this version." },
+  "fa.api_coming_soon": {
+    pt: "Integração via API em desenvolvimento. Os dados são inseridos manualmente nesta versão.",
+    en: "API integration under development. Data is entered manually in this version.",
+  },
 
   // Inventory
   "inv.title": { pt: "Estoques", en: "Inventory" },
@@ -328,16 +344,9 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguage] = useState<Language>("pt");
 
-  const t = useCallback(
-    (key: TranslationKey) => translations[key]?.[language] ?? key,
-    [language]
-  );
+  const t = useCallback((key: TranslationKey) => translations[key]?.[language] ?? key, [language]);
 
-  return (
-    <LanguageContext.Provider value={{ language, setLanguage, t }}>
-      {children}
-    </LanguageContext.Provider>
-  );
+  return <LanguageContext.Provider value={{ language, setLanguage, t }}>{children}</LanguageContext.Provider>;
 };
 
 export const useLanguage = () => {
