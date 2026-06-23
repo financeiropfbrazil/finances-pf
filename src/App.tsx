@@ -69,6 +69,7 @@ import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
 import ReqBackfillDataAbertura from "./pages/ferramentas/ReqBackfillDataAbertura";
+import CartaoLancamentos from "./pages/CartaoLancamentos";
 
 import NotFound from "./pages/NotFound";
 
@@ -435,6 +436,14 @@ function AppRoutes() {
           }
         />
         <Route path="/despesas/realizado" element={<RealizadoDespesas />} />
+        <Route
+          path="/cartao"
+          element={
+            <PermissionRoute permKey="cartao.access">
+              <CartaoLancamentos />
+            </PermissionRoute>
+          }
+        />
         <Route
           path="/credit-cards"
           element={
