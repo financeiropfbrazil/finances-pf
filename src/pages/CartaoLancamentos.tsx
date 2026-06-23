@@ -370,11 +370,13 @@ function ImportDialog({
     if (!podeSalvar || !preview) return;
     setSaving(true);
     try {
+      // competência = 1º dia do mês do vencimento (regra confirmada)
+      const competenciaDerivada = `${vencimento.slice(0, 7)}-01`;
       await criarLoteComLinhas({
         titular: titular.trim(),
         final_cartao: finalCartao.trim() || null,
         codigo_tipo_pag_rec: tipoPagRec.trim(),
-        competencia: `${competencia}-01`,
+        competencia: competenciaDerivada,
         data_vencimento: vencimento,
         linhas: preview.linhas,
         created_by: userId,
@@ -402,8 +404,10 @@ function ImportDialog({
         <DialogHeader>
           <DialogTitle>Importar fatura de cartão</DialogTitle>
           <DialogDescription>
-            Competência {format(new Date(competencia + "-01T00:00:00"), "MMMM 'de' yyyy", { locale: ptBR })}. A planilha
-            deve seguir o layout padrão (aba "RELAÇÃO CNPJ").
+            {vencimento
+              ? `Competência ${format(new Date(vencimento.slice(0, 7) + "-01T00:00:00"), "MMMM 'de' yyyy", { locale: ptBR })} (derivada do vencimento). `
+              : "Informe o vencimento para definir a competência. "}
+            A planilha deve seguir o layout padrão (aba "RELAÇÃO CNPJ").
           </DialogDescription>
         </DialogHeader>
 
