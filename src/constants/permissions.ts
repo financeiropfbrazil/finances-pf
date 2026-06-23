@@ -75,6 +75,7 @@ export const ROLES = {
   RESPONSAVEL_PROJETO: "responsavel_projeto",
   APROVADOR_PROJETOS: "aprovador_projetos",
   CONTROLLER_INTERCOMPANY: "controller_intercompany",
+  FINANCEIRO: "financeiro",
 } as const;
 
 export type RoleCode = (typeof ROLES)[keyof typeof ROLES];
