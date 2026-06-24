@@ -60,6 +60,8 @@ import {
   loadClasses,
   loadCentrosCusto,
   parsePlanilhaCartao,
+  emitirLinhaNoAlvo,
+  marcarLinhaEmitida,
   type CartaoLote,
   type CartaoItem,
   type ClasseOption,
@@ -527,6 +529,8 @@ function DetalheLote({
   const [massaClasse, setMassaClasse] = useState("");
   const [massaCentro, setMassaCentro] = useState("");
   const [aplicando, setAplicando] = useState(false);
+  const [emitindo, setEmitindo] = useState(false);
+  const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null);
 
   const fetchItens = useCallback(async () => {
     setLoading(true);
@@ -627,6 +631,73 @@ function DetalheLote({
     }
   };
 
+  // Emite as linhas marcadas que estão "pronto" — sequencial, 1 por vez.
+  const emitirSelecionadas = async () => {
+    const alvos = itens.filter((i) => marcadas.has(i.id) && i.status_linha === "pronto");
+    if (alvos.length === 0) {
+      toast({ title: "Nenhuma linha pronta selecionada para emitir." });
+      return;
+    }
+
+    setEmitindo(true);
+    let sucesso = 0;
+    let falha = 0;
+
+    for (let idx = 0; idx < alvos.length; idx++) {
+      const item = alvos[idx];
+      setProgresso({ atual: idx + 1, total: alvos.length });
+
+      // 1. emite no Alvo via gateway
+      const resp = await emitirLinhaNoAlvo({ item, lote });
+
+      if (!resp.ok || !resp.chave) {
+        falha++;
+        toast({
+          title: `Falha na linha ${idx + 1}/${alvos.length}`,
+          description: `${item.descricao_estabelecimento}: ${resp.error || "sem chave retornada"}`,
+          variant: "destructive",
+        });
+        break; // para no primeiro erro; as já emitidas ficam gravadas
+      }
+
+      // 2. carimba como emitida (gate duplo + grava chave/numero)
+      try {
+        await marcarLinhaEmitida(item.id, resp.chave, resp.numero || lote.numero_onfly);
+        sucesso++;
+        // atualiza a linha local para refletir "emitido" sem reload
+        aplicarLinhaLocal({
+          ...item,
+          status_linha: "emitido",
+          docfin_chave: resp.chave,
+          docfin_numero: resp.numero || lote.numero_onfly,
+        });
+      } catch (e: any) {
+        falha++;
+        toast({
+          title: `Emitida no Alvo mas falha ao carimbar (linha ${idx + 1})`,
+          description: `Chave ${resp.chave} criada no Alvo, mas o Hub não registrou: ${e.message}. NÃO reemita esta linha.`,
+          variant: "destructive",
+        });
+        break;
+      }
+    }
+
+    setEmitindo(false);
+    setProgresso(null);
+    setMarcadas(new Set());
+    fetchItens(); // sincroniza estado final
+
+    if (falha === 0) {
+      toast({ title: `${sucesso} linha(s) emitida(s) com sucesso no Alvo.` });
+    } else {
+      toast({
+        title: `Emissão interrompida: ${sucesso} ok, parada no 1º erro.`,
+        description: "As linhas já emitidas estão gravadas. Corrija e reenvie as restantes.",
+      });
+    }
+  };
+
+  const marcadasProntas = itens.filter((i) => marcadas.has(i.id) && i.status_linha === "pronto").length;
   const prontas = itens.filter((i) => i.status_linha === "pronto").length;
 
   return (
@@ -646,16 +717,18 @@ function DetalheLote({
               </p>
             </div>
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <Button disabled className="opacity-60">
-                  <Send className="mr-2 h-4 w-4" /> Emitir prontas ({prontas})
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Emissão no Alvo — Frente C (em construção)</TooltipContent>
-          </Tooltip>
+          <Button onClick={emitirSelecionadas} disabled={emitindo || marcadasProntas === 0}>
+            {emitindo ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Emitindo {progresso ? `${progresso.atual}/${progresso.total}` : "..."}
+              </>
+            ) : (
+              <>
+                <Send className="mr-2 h-4 w-4" /> Enviar selecionados ({marcadasProntas})
+              </>
+            )}
+          </Button>
         </div>
 
         {marcadas.size > 0 && (
