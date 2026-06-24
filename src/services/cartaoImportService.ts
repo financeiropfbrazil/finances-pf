@@ -85,6 +85,13 @@ export interface ParseResult {
   totalSemEntidade: number;
 }
 
+export interface EmitCartaoGatewayResponse {
+  ok: boolean;
+  chave?: number;
+  numero?: string;
+  error?: string;
+}
+
 /* ───────────── HELPERS CNPJ ───────────── */
 
 export function normalizarCnpj(raw: unknown): string | null {
@@ -440,83 +447,70 @@ export async function loadEntidadePorCodigo(codigo: string): Promise<EntidadeOpt
   }
   if (!data) return null;
   return { codigo_entidade: data.codigo_entidade, cnpj: data.cnpj, nome: data.nome, nome_fantasia: data.nome_fantasia };
+}
 
-  /* ───────────── EMISSÃO (Frente C) ───────────── */
+/* ───────────── EMISSÃO (Frente C) ───────────── */
 
-  const GATEWAY_URL = "https://erp-proxy.onrender.com";
+const GATEWAY_URL = "https://erp-proxy.onrender.com";
 
-  function getAccessToken(): string | null {
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
-          const raw = localStorage.getItem(key);
-          if (!raw) continue;
-          const parsed = JSON.parse(raw);
-          return parsed?.access_token ?? null;
-        }
+function getAccessToken(): string | null {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        return parsed?.access_token ?? null;
       }
-    } catch (e) {
-      console.error("Erro lendo access token", e);
     }
-    return null;
+  } catch (e) {
+    console.error("Erro lendo access token", e);
   }
+  return null;
+}
 
-  export interface EmitCartaoGatewayResponse {
-    ok: boolean;
-    chave?: number;
-    numero?: string;
-    error?: string;
-  }
+export async function emitirLinhaNoAlvo(params: {
+  item: CartaoItem;
+  lote: CartaoLote;
+}): Promise<EmitCartaoGatewayResponse> {
+  const { item, lote } = params;
+  const token = getAccessToken();
 
-  /**
-   * Emite UMA linha como RDESP no Alvo via erp-proxy.
-   * Monta o request a partir do item + do lote (numero_onfly, cartão, vencimento).
-   */
-  export async function emitirLinhaNoAlvo(params: {
-    item: CartaoItem;
-    lote: CartaoLote;
-  }): Promise<EmitCartaoGatewayResponse> {
-    const { item, lote } = params;
-    const token = getAccessToken();
+  const body = {
+    item_id: item.id,
+    numero_onfly: lote.numero_onfly,
+    codigo_tipo_pag_rec: lote.codigo_tipo_pag_rec,
+    codigo_entidade: item.codigo_entidade,
+    codigo_classe_rec_desp: item.codigo_classe_rec_desp,
+    codigo_centro_ctrl: item.codigo_centro_ctrl,
+    valor: item.valor,
+    data_transacao: item.data_transacao,
+    data_vencimento: lote.data_vencimento,
+    titular: lote.titular,
+    estabelecimento: item.descricao_estabelecimento,
+  };
 
-    const body = {
-      item_id: item.id,
-      numero_onfly: lote.numero_onfly,
-      codigo_tipo_pag_rec: lote.codigo_tipo_pag_rec,
-      codigo_entidade: item.codigo_entidade,
-      codigo_classe_rec_desp: item.codigo_classe_rec_desp,
-      codigo_centro_ctrl: item.codigo_centro_ctrl,
-      valor: item.valor,
-      data_transacao: item.data_transacao,
-      data_vencimento: lote.data_vencimento,
-      titular: lote.titular,
-      estabelecimento: item.descricao_estabelecimento,
-    };
-
-    try {
-      const resp = await fetch(`${GATEWAY_URL}/cartao/emitir`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token ?? ""}`,
-        },
-        body: JSON.stringify(body),
-      });
-      const data = (await resp.json()) as EmitCartaoGatewayResponse;
-      return data;
-    } catch (e: any) {
-      return { ok: false, error: e?.message || "Erro de rede ao chamar o gateway" };
-    }
-  }
-
-  /** Carimba a linha como emitida (após o Alvo confirmar com a Chave). */
-  export async function marcarLinhaEmitida(itemId: string, docfinChave: number, docfinNumero: string): Promise<void> {
-    const { error } = await sb.rpc("fn_cartao_marcar_emitido", {
-      p_item_id: itemId,
-      p_docfin_chave: docfinChave,
-      p_docfin_numero: docfinNumero,
+  try {
+    const resp = await fetch(`${GATEWAY_URL}/cartao/emitir`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token ?? ""}`,
+      },
+      body: JSON.stringify(body),
     });
-    if (error) throw new Error(`Erro ao marcar emitido: ${error.message}`);
+    return (await resp.json()) as EmitCartaoGatewayResponse;
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "Erro de rede ao chamar o gateway" };
   }
+}
+
+export async function marcarLinhaEmitida(itemId: string, docfinChave: number, docfinNumero: string): Promise<void> {
+  const { error } = await sb.rpc("fn_cartao_marcar_emitido", {
+    p_item_id: itemId,
+    p_docfin_chave: docfinChave,
+    p_docfin_numero: docfinNumero,
+  });
+  if (error) throw new Error(`Erro ao marcar emitido: ${error.message}`);
 }
