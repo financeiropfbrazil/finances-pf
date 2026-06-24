@@ -67,6 +67,14 @@ import {
   type ParseResult,
 } from "@/services/cartaoImportService";
 
+// Cartões disponíveis (Tipo Contas Pagar/Receber no Alvo) — hardcoded
+const CARTOES_TIPO_PAGREC = [
+  { codigo: "0000013", label: "MasterCard - FINAL 2196 - FINANCEIRO" },
+  { codigo: "0000012", label: "MasterCard - FINAL 5401 - JORGE" },
+  { codigo: "0000016", label: "SANTANDER - PF" },
+  { codigo: "0000007", label: "BAIXA DE ADT DESPACHANTE ADUANEIROS" },
+];
+
 const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtData = (iso: string | null) => (iso ? format(new Date(iso + "T00:00:00"), "dd/MM/yyyy") : "—");
 
@@ -226,7 +234,6 @@ function ListaLotes({
                   </TableCell>
                   <TableCell className="font-mono text-xs">{l.numero_onfly ?? "—"}</TableCell>
                   <TableCell>{format(new Date(l.competencia + "T00:00:00"), "MMM/yyyy", { locale: ptBR })}</TableCell>
-
                   <TableCell>{fmtData(l.data_vencimento)}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1 text-xs">
@@ -408,6 +415,7 @@ function ImportDialog({
               <Input placeholder="ex: 2462" value={finalCartao} onChange={(e) => setFinalCartao(e.target.value)} />
             </div>
           </div>
+
           <div className="space-y-2">
             <Label>Número do lote (Onfly) *</Label>
             <Input
@@ -417,6 +425,7 @@ function ImportDialog({
               inputMode="numeric"
             />
           </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Cartão (Tipo Conta Pag/Rec) *</Label>
@@ -438,6 +447,7 @@ function ImportDialog({
               <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
             </div>
           </div>
+
           <div className="space-y-2">
             <Label>Planilha (.xlsx) *</Label>
             <Input type="file" accept=".xlsx,.xls" onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
@@ -534,10 +544,8 @@ function DetalheLote({
 
   const totalValor = useMemo(() => itens.reduce((s, i) => s + i.valor, 0), [itens]);
 
-  // editáveis = não emitidas e não ignoradas
   const editaveis = itens.filter((i) => i.status_linha !== "emitido" && i.status_linha !== "ignorado");
 
-  // substitui apenas a linha alterada (sem reload da tabela inteira)
   const aplicarLinhaLocal = (linha: CartaoItem) => {
     setItens((prev) => prev.map((i) => (i.id === linha.id ? linha : i)));
   };
@@ -547,7 +555,6 @@ function DetalheLote({
     campo: "codigo_entidade" | "codigo_classe_rec_desp" | "codigo_centro_ctrl",
     valor: string | null,
   ) => {
-    // otimista
     const otim = { ...item, [campo]: valor };
     aplicarLinhaLocal(otim);
     try {
@@ -556,14 +563,13 @@ function DetalheLote({
         codigo_classe_rec_desp: campo === "codigo_classe_rec_desp" ? valor : item.codigo_classe_rec_desp,
         codigo_centro_ctrl: campo === "codigo_centro_ctrl" ? valor : item.codigo_centro_ctrl,
       });
-      aplicarLinhaLocal(atualizada); // pega o status_linha recalculado pela trigger
+      aplicarLinhaLocal(atualizada);
     } catch (e: any) {
       toast({ title: "Erro ao salvar", description: e.message, variant: "destructive" });
-      aplicarLinhaLocal(item); // reverte
+      aplicarLinhaLocal(item);
     }
   };
 
-  // ── seleção em massa ──
   const toggleMarcada = (id: string) => {
     setMarcadas((prev) => {
       const n = new Set(prev);
@@ -635,7 +641,8 @@ function DetalheLote({
               <h1 className="text-xl font-bold text-foreground">{lote.titular}</h1>
               <p className="text-sm text-muted-foreground">
                 {lote.final_cartao ? `•••• ${lote.final_cartao} · ` : ""}
-                Venc. {fmtData(lote.data_vencimento)} · {itens.length} linhas · {fmtBRL(totalValor)}
+                Nº {lote.numero_onfly} · Venc. {fmtData(lote.data_vencimento)} · {itens.length} linhas ·{" "}
+                {fmtBRL(totalValor)}
               </p>
             </div>
           </div>
@@ -651,7 +658,6 @@ function DetalheLote({
           </Tooltip>
         </div>
 
-        {/* Barra de ações em massa — aparece quando há linhas marcadas */}
         {marcadas.size > 0 && (
           <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/30 p-3">
             <span className="flex items-center gap-1.5 text-sm font-medium">
