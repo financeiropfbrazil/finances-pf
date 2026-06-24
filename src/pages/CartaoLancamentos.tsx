@@ -316,6 +316,7 @@ function ImportDialog({
 }) {
   const [titular, setTitular] = useState("");
   const [finalCartao, setFinalCartao] = useState("");
+  const [numeroOnfly, setNumeroOnfly] = useState("");
   const [tipoPagRec, setTipoPagRec] = useState("0000013");
   const [vencimento, setVencimento] = useState("");
   const [preview, setPreview] = useState<ParseResult | null>(null);
@@ -325,6 +326,7 @@ function ImportDialog({
   const reset = () => {
     setTitular("");
     setFinalCartao("");
+    setNumeroOnfly("");
     setTipoPagRec("0000013");
     setVencimento("");
     setPreview(null);
@@ -344,7 +346,8 @@ function ImportDialog({
     setParsing(false);
   };
 
-  const podeSalvar = titular.trim() && tipoPagRec.trim() && vencimento && preview && preview.totalLinhas > 0;
+  const podeSalvar =
+    titular.trim() && numeroOnfly.trim() && tipoPagRec.trim() && vencimento && preview && preview.totalLinhas > 0;
 
   const handleSalvar = async () => {
     if (!podeSalvar || !preview) return;
