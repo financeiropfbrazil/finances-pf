@@ -330,7 +330,7 @@ function ImportDialog({
     setTitular("");
     setFinalCartao("");
     setNumeroOnfly("");
-    setTipoPagRec("0000013");
+    setTipoPagRec("");
     setVencimento("");
     setPreview(null);
   };
