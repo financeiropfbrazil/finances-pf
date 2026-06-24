@@ -265,6 +265,7 @@ export async function loadLotes(competenciaYYYYMM: string): Promise<CartaoLote[]
 export async function criarLoteComLinhas(params: {
   titular: string;
   final_cartao: string | null;
+  numero_onfly: string;
   codigo_tipo_pag_rec: string;
   competencia: string;
   data_vencimento: string;
@@ -276,6 +277,7 @@ export async function criarLoteComLinhas(params: {
     .insert({
       titular: params.titular,
       final_cartao: params.final_cartao,
+      numero_onfly: params.numero_onfly,
       codigo_tipo_pag_rec: params.codigo_tipo_pag_rec,
       competencia: params.competencia,
       data_vencimento: params.data_vencimento,
