@@ -357,6 +357,7 @@ function ImportDialog({
       await criarLoteComLinhas({
         titular: titular.trim(),
         final_cartao: finalCartao.trim() || null,
+        numero_onfly: numeroOnfly.trim(),
         codigo_tipo_pag_rec: tipoPagRec.trim(),
         competencia: competenciaDerivada,
         data_vencimento: vencimento,
@@ -403,6 +404,15 @@ function ImportDialog({
               <Label>Final do cartão</Label>
               <Input placeholder="ex: 2462" value={finalCartao} onChange={(e) => setFinalCartao(e.target.value)} />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Número do lote (Onfly) *</Label>
+            <Input
+              placeholder="ex: 20262185859"
+              value={numeroOnfly}
+              onChange={(e) => setNumeroOnfly(e.target.value.replace(/\D/g, ""))}
+              inputMode="numeric"
+            />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
