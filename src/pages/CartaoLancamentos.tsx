@@ -419,8 +419,19 @@ function ImportDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Tipo Conta Pag/Rec (Alvo) *</Label>
-              <Input placeholder="ex: 0000013" value={tipoPagRec} onChange={(e) => setTipoPagRec(e.target.value)} />
+              <Label>Cartão (Tipo Conta Pag/Rec) *</Label>
+              <Select value={tipoPagRec} onValueChange={setTipoPagRec}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o cartão..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {CARTOES_TIPO_PAGREC.map((c) => (
+                    <SelectItem key={c.codigo} value={c.codigo}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label>Vencimento da fatura *</Label>
