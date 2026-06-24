@@ -320,7 +320,7 @@ function ImportDialog({
   const [titular, setTitular] = useState("");
   const [finalCartao, setFinalCartao] = useState("");
   const [numeroOnfly, setNumeroOnfly] = useState("");
-  const [tipoPagRec, setTipoPagRec] = useState("0000013");
+  const [tipoPagRec, setTipoPagRec] = useState("");
   const [vencimento, setVencimento] = useState("");
   const [preview, setPreview] = useState<ParseResult | null>(null);
   const [parsing, setParsing] = useState(false);
