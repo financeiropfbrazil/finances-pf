@@ -13,6 +13,7 @@ export interface CartaoLote {
   id: string;
   titular: string;
   final_cartao: string | null;
+  numero_onfly: string;
   codigo_tipo_pag_rec: string;
   competencia: string;
   data_vencimento: string;
@@ -35,6 +36,7 @@ export interface CartaoItem {
   cnpj_bruto: string | null;
   cnpj_normalizado: string | null;
   valor: number;
+  valor_original: number | null;
   justificativa: string | null;
   codigo_entidade: string | null;
   codigo_classe_rec_desp: string | null;
