@@ -208,6 +208,7 @@ function ListaLotes({
               <TableRow>
                 <TableHead>Titular</TableHead>
                 <TableHead>Cartão</TableHead>
+                <TableHead>Nº Lote</TableHead>
                 <TableHead>Competência</TableHead>
                 <TableHead>Vencimento</TableHead>
                 <TableHead>Linhas</TableHead>
@@ -223,6 +224,8 @@ function ListaLotes({
                     {l.final_cartao ? `•••• ${l.final_cartao}` : "—"}
                     <span className="ml-1 text-muted-foreground">({l.codigo_tipo_pag_rec})</span>
                   </TableCell>
+                  <TableCell className="font-mono text-xs">{l.numero_onfly ?? "—"}</TableCell>
+                  <TableCell>{format(new Date(l.competencia + "T00:00:00"), "MMM/yyyy", { locale: ptBR })}</TableCell>
                   <TableCell>{format(new Date(l.competencia + "T00:00:00"), "MMM/yyyy", { locale: ptBR })}</TableCell>
                   <TableCell>{fmtData(l.data_vencimento)}</TableCell>
                   <TableCell>
