@@ -296,6 +296,7 @@ export async function criarLoteComLinhas(params: {
     cnpj_bruto: l.cnpj_bruto,
     cnpj_normalizado: l.cnpj_normalizado,
     valor: l.valor,
+    valor_original: l.valor,
     justificativa: l.justificativa,
     codigo_entidade: l.codigo_entidade,
   }));
