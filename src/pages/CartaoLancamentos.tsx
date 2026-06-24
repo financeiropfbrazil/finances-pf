@@ -226,7 +226,7 @@ function ListaLotes({
                   </TableCell>
                   <TableCell className="font-mono text-xs">{l.numero_onfly ?? "—"}</TableCell>
                   <TableCell>{format(new Date(l.competencia + "T00:00:00"), "MMM/yyyy", { locale: ptBR })}</TableCell>
-                  <TableCell>{format(new Date(l.competencia + "T00:00:00"), "MMM/yyyy", { locale: ptBR })}</TableCell>
+
                   <TableCell>{fmtData(l.data_vencimento)}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1 text-xs">
