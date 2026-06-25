@@ -473,12 +473,14 @@ function getAccessToken(): string | null {
 export async function emitirLinhaNoAlvo(params: {
   item: CartaoItem;
   lote: CartaoLote;
+  sequencia: number;
 }): Promise<EmitCartaoGatewayResponse> {
-  const { item, lote } = params;
+  const { item, lote, sequencia } = params;
   const token = getAccessToken();
 
   const body = {
     item_id: item.id,
+    sequencia,
     numero_onfly: lote.numero_onfly,
     codigo_tipo_pag_rec: lote.codigo_tipo_pag_rec,
     codigo_entidade: item.codigo_entidade,
