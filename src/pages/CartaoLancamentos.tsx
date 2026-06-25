@@ -623,7 +623,10 @@ function DetalheLote({
       const item = alvos[idx];
       setProgresso({ atual: idx + 1, total: alvos.length });
 
-      const resp = await emitirLinhaNoAlvo({ item, lote });
+      // sequência estável = posição da linha no lote completo (1-based),
+      // não na seleção — garante Numero único mesmo emitindo em tandas
+      const sequencia = itens.findIndex((i) => i.id === item.id) + 1;
+      const resp = await emitirLinhaNoAlvo({ item, lote, sequencia });
 
       if (!resp.ok || !resp.chave) {
         falha++;
