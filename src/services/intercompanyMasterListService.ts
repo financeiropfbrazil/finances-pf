@@ -170,3 +170,37 @@ export async function atualizarKontoBlocoInline(masterId: string, kontoNumero: s
   });
   if (error) throw new Error(error.message);
 }
+
+/**
+ * Detalhe leve do master para o painel lateral: origem (enum cru, define o bucket
+ * do PDF), flag de pago, e a lista de anexos (PDFs gerados pelo Hub).
+ */
+export async function buscarDetalheMaster(
+  masterId: string,
+): Promise<{ origem: string; pago: boolean; anexos: { filename: string; storage_path: string }[] }> {
+  const { data, error } = await (supabase as any)
+    .from("intercompany_invoices_master")
+    .select("origem, pago, anexos")
+    .eq("id", masterId)
+    .single();
+
+  if (error) throw new Error(error.message);
+  return {
+    origem: data?.origem,
+    pago: data?.pago ?? false,
+    anexos: Array.isArray(data?.anexos) ? data.anexos : [],
+  };
+}
+
+/**
+ * Liga/desliga a flag "Pago" de uma invoice. Chama a RPC definir_pago_master,
+ * gated por intercompany.classify. (Mais tarde o Alvo preenche essa mesma coluna.)
+ */
+export async function definirPagoMaster(masterId: string, pago: boolean): Promise<boolean> {
+  const { data, error } = await (supabase as any).rpc("definir_pago_master", {
+    p_master_id: masterId,
+    p_pago: pago,
+  });
+  if (error) throw new Error(error.message);
+  return data as boolean;
+}
