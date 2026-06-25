@@ -45,7 +45,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import MonthYearPicker from "@/components/MonthYearPicker";
 import { EntidadeCombobox } from "@/components/cartao/EntidadeCombobox";
@@ -365,7 +364,7 @@ function ImportDialog({
     if (!podeSalvar || !preview) return;
     setSaving(true);
     try {
-      const competenciaDerivada = `${vencimento.slice(0, 7)}-01`; // 1º dia do mês do vencimento
+      const competenciaDerivada = `${vencimento.slice(0, 7)}-01`;
       await criarLoteComLinhas({
         titular: titular.trim(),
         final_cartao: finalCartao.trim() || null,
@@ -608,6 +607,69 @@ function DetalheLote({
     setAplicando(false);
   };
 
+  // Emite as linhas marcadas que estão "pronto" — sequencial, 1 por vez.
+  const emitirSelecionadas = async () => {
+    const alvos = itens.filter((i) => marcadas.has(i.id) && i.status_linha === "pronto");
+    if (alvos.length === 0) {
+      toast({ title: "Nenhuma linha pronta selecionada para emitir." });
+      return;
+    }
+
+    setEmitindo(true);
+    let sucesso = 0;
+    let falha = 0;
+
+    for (let idx = 0; idx < alvos.length; idx++) {
+      const item = alvos[idx];
+      setProgresso({ atual: idx + 1, total: alvos.length });
+
+      const resp = await emitirLinhaNoAlvo({ item, lote });
+
+      if (!resp.ok || !resp.chave) {
+        falha++;
+        toast({
+          title: `Falha na linha ${idx + 1}/${alvos.length}`,
+          description: `${item.descricao_estabelecimento}: ${resp.error || "sem chave retornada"}`,
+          variant: "destructive",
+        });
+        break;
+      }
+
+      try {
+        await marcarLinhaEmitida(item.id, resp.chave, resp.numero || lote.numero_onfly);
+        sucesso++;
+        aplicarLinhaLocal({
+          ...item,
+          status_linha: "emitido",
+          docfin_chave: resp.chave,
+          docfin_numero: resp.numero || lote.numero_onfly,
+        });
+      } catch (e: any) {
+        falha++;
+        toast({
+          title: `Emitida no Alvo mas falha ao carimbar (linha ${idx + 1})`,
+          description: `Chave ${resp.chave} criada no Alvo, mas o Hub não registrou: ${e.message}. NÃO reemita esta linha.`,
+          variant: "destructive",
+        });
+        break;
+      }
+    }
+
+    setEmitindo(false);
+    setProgresso(null);
+    setMarcadas(new Set());
+    fetchItens();
+
+    if (falha === 0) {
+      toast({ title: `${sucesso} linha(s) emitida(s) com sucesso no Alvo.` });
+    } else {
+      toast({
+        title: `Emissão interrompida: ${sucesso} ok, parada no 1º erro.`,
+        description: "As linhas já emitidas estão gravadas. Corrija e reenvie as restantes.",
+      });
+    }
+  };
+
   const handleIgnorar = async () => {
     if (!ignorarItem) return;
     try {
@@ -631,338 +693,268 @@ function DetalheLote({
     }
   };
 
-  // Emite as linhas marcadas que estão "pronto" — sequencial, 1 por vez.
-  const emitirSelecionadas = async () => {
-    const alvos = itens.filter((i) => marcadas.has(i.id) && i.status_linha === "pronto");
-    if (alvos.length === 0) {
-      toast({ title: "Nenhuma linha pronta selecionada para emitir." });
-      return;
-    }
-
-    setEmitindo(true);
-    let sucesso = 0;
-    let falha = 0;
-
-    for (let idx = 0; idx < alvos.length; idx++) {
-      const item = alvos[idx];
-      setProgresso({ atual: idx + 1, total: alvos.length });
-
-      // 1. emite no Alvo via gateway
-      const resp = await emitirLinhaNoAlvo({ item, lote });
-
-      if (!resp.ok || !resp.chave) {
-        falha++;
-        toast({
-          title: `Falha na linha ${idx + 1}/${alvos.length}`,
-          description: `${item.descricao_estabelecimento}: ${resp.error || "sem chave retornada"}`,
-          variant: "destructive",
-        });
-        break; // para no primeiro erro; as já emitidas ficam gravadas
-      }
-
-      // 2. carimba como emitida (gate duplo + grava chave/numero)
-      try {
-        await marcarLinhaEmitida(item.id, resp.chave, resp.numero || lote.numero_onfly);
-        sucesso++;
-        // atualiza a linha local para refletir "emitido" sem reload
-        aplicarLinhaLocal({
-          ...item,
-          status_linha: "emitido",
-          docfin_chave: resp.chave,
-          docfin_numero: resp.numero || lote.numero_onfly,
-        });
-      } catch (e: any) {
-        falha++;
-        toast({
-          title: `Emitida no Alvo mas falha ao carimbar (linha ${idx + 1})`,
-          description: `Chave ${resp.chave} criada no Alvo, mas o Hub não registrou: ${e.message}. NÃO reemita esta linha.`,
-          variant: "destructive",
-        });
-        break;
-      }
-    }
-
-    setEmitindo(false);
-    setProgresso(null);
-    setMarcadas(new Set());
-    fetchItens(); // sincroniza estado final
-
-    if (falha === 0) {
-      toast({ title: `${sucesso} linha(s) emitida(s) com sucesso no Alvo.` });
-    } else {
-      toast({
-        title: `Emissão interrompida: ${sucesso} ok, parada no 1º erro.`,
-        description: "As linhas já emitidas estão gravadas. Corrija e reenvie as restantes.",
-      });
-    }
-  };
-
   const marcadasProntas = itens.filter((i) => marcadas.has(i.id) && i.status_linha === "pronto").length;
   const prontas = itens.filter((i) => i.status_linha === "pronto").length;
 
   return (
-    <TooltipProvider>
-      <div className="space-y-4 p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={onVoltar}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h1 className="text-xl font-bold text-foreground">{lote.titular}</h1>
-              <p className="text-sm text-muted-foreground">
-                {lote.final_cartao ? `•••• ${lote.final_cartao} · ` : ""}
-                Nº {lote.numero_onfly} · Venc. {fmtData(lote.data_vencimento)} · {itens.length} linhas ·{" "}
-                {fmtBRL(totalValor)}
-              </p>
-            </div>
-          </div>
-          <Button onClick={emitirSelecionadas} disabled={emitindo || marcadasProntas === 0}>
-            {emitindo ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Emitindo {progresso ? `${progresso.atual}/${progresso.total}` : "..."}
-              </>
-            ) : (
-              <>
-                <Send className="mr-2 h-4 w-4" /> Enviar selecionados ({marcadasProntas})
-              </>
-            )}
+    <div className="space-y-4 p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={onVoltar}>
+            <ArrowLeft className="h-5 w-5" />
           </Button>
-        </div>
-
-        {marcadas.size > 0 && (
-          <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/30 p-3">
-            <span className="flex items-center gap-1.5 text-sm font-medium">
-              <Layers className="h-4 w-4" /> {marcadas.size} selecionada(s)
-            </span>
-            <div className="flex items-center gap-2">
-              <Select value={massaClasse} onValueChange={setMassaClasse}>
-                <SelectTrigger className="h-8 w-[200px] text-xs">
-                  <SelectValue placeholder="Classe..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {classes.map((c) => (
-                    <SelectItem key={c.codigo} value={c.codigo} className="text-xs">
-                      {c.codigo} — {c.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={!massaClasse || aplicando}
-                onClick={() => aplicarEmMassa("codigo_classe_rec_desp", massaClasse)}
-              >
-                Aplicar classe
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <Select value={massaCentro} onValueChange={setMassaCentro}>
-                <SelectTrigger className="h-8 w-[200px] text-xs">
-                  <SelectValue placeholder="Centro..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {centros.map((c) => (
-                    <SelectItem key={c.erp_code} value={c.erp_code} className="text-xs">
-                      {c.name} ({c.erp_code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={!massaCentro || aplicando}
-                onClick={() => aplicarEmMassa("codigo_centro_ctrl", massaCentro)}
-              >
-                Aplicar centro
-              </Button>
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => setMarcadas(new Set())}>
-              Limpar seleção
-            </Button>
-            {aplicando && <Loader2 className="h-4 w-4 animate-spin" />}
+          <div>
+            <h1 className="text-xl font-bold text-foreground">{lote.titular}</h1>
+            <p className="text-sm text-muted-foreground">
+              {lote.final_cartao ? `•••• ${lote.final_cartao} · ` : ""}
+              Nº {lote.numero_onfly} · Venc. {fmtData(lote.data_vencimento)} · {itens.length} linhas ·{" "}
+              {fmtBRL(totalValor)}
+            </p>
           </div>
-        )}
-
-        <div className="rounded-md border overflow-x-auto">
-          <Table className="w-full">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[36px]">
-                  <Checkbox checked={todasMarcadas} onCheckedChange={toggleTodas} aria-label="Selecionar todas" />
-                </TableHead>
-                <TableHead className="w-[78px]">Data</TableHead>
-                <TableHead className="min-w-[160px]">Estabelecimento</TableHead>
-                <TableHead className="w-[90px] text-right">Valor</TableHead>
-                <TableHead className="w-[230px]">Fornecedor</TableHead>
-                <TableHead className="w-[170px]">Classe</TableHead>
-                <TableHead className="w-[170px]">Centro Ctrl</TableHead>
-                <TableHead className="w-[84px]">Status</TableHead>
-                <TableHead className="w-[44px]" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    Carregando...
-                  </TableCell>
-                </TableRow>
-              ) : itens.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    Lote sem linhas.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                itens.map((item) => {
-                  const bloqueado = item.status_linha === "emitido";
-                  const ignorado = item.status_linha === "ignorado";
-                  const editavel = !bloqueado && !ignorado;
-                  return (
-                    <TableRow key={item.id} className={ignorado ? "opacity-50" : ""}>
-                      <TableCell>
-                        {editavel && (
-                          <Checkbox
-                            checked={marcadas.has(item.id)}
-                            onCheckedChange={() => toggleMarcada(item.id)}
-                            aria-label="Selecionar linha"
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs">{fmtData(item.data_transacao)}</TableCell>
-                      <TableCell>
-                        <div className="text-sm font-medium leading-tight">{item.descricao_estabelecimento}</div>
-                        {item.justificativa && (
-                          <div className="text-xs text-muted-foreground">{item.justificativa}</div>
-                        )}
-                        {item.cnpj_bruto && !item.cnpj_normalizado && (
-                          <div className="text-xs text-amber-600">CNPJ inválido: {item.cnpj_bruto}</div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right text-sm tabular-nums">{fmtBRL(item.valor)}</TableCell>
-                      <TableCell>
-                        <EntidadeCombobox
-                          value={item.codigo_entidade}
-                          onChange={(cod) => patchCampo(item, "codigo_entidade", cod)}
-                          disabled={!editavel}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Select
-                          value={item.codigo_classe_rec_desp ?? ""}
-                          onValueChange={(v) => patchCampo(item, "codigo_classe_rec_desp", v || null)}
-                          disabled={!editavel}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="Classe..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {classes.map((c) => (
-                              <SelectItem key={c.codigo} value={c.codigo} className="text-xs">
-                                {c.codigo} — {c.nome}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell>
-                        <Select
-                          value={item.codigo_centro_ctrl ?? ""}
-                          onValueChange={(v) => patchCampo(item, "codigo_centro_ctrl", v || null)}
-                          disabled={!editavel}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="Centro..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {centros.map((c) => (
-                              <SelectItem key={c.erp_code} value={c.erp_code} className="text-xs">
-                                {c.name} ({c.erp_code})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell>{statusLinhaBadge(item.status_linha)}</TableCell>
-                      <TableCell>
-                        {bloqueado ? (
-                          <span className="text-xs text-muted-foreground" title={`DocFin ${item.docfin_chave ?? ""}`}>
-                            {item.docfin_numero ?? "—"}
-                          </span>
-                        ) : ignorado ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title="Reativar"
-                            onClick={() => handleReativar(item)}
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground"
-                            title="Ignorar"
-                            onClick={() => setIgnorarItem(item)}
-                          >
-                            <Ban className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
         </div>
-
-        <Dialog
-          open={!!ignorarItem}
-          onOpenChange={(o) => {
-            if (!o) {
-              setIgnorarItem(null);
-              setMotivo("");
-            }
-          }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Ignorar linha</DialogTitle>
-              <DialogDescription>
-                {ignorarItem?.descricao_estabelecimento} · {ignorarItem ? fmtBRL(ignorarItem.valor) : ""}. A linha sai
-                da fila de emissão, mas fica registrada para consulta.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2 py-2">
-              <Label>Motivo</Label>
-              <Textarea
-                placeholder="ex: gasto pessoal / não reembolsável"
-                value={motivo}
-                onChange={(e) => setMotivo(e.target.value)}
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIgnorarItem(null);
-                  setMotivo("");
-                }}
-              >
-                Cancelar
-              </Button>
-              <Button onClick={handleIgnorar}>Ignorar linha</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={emitirSelecionadas} disabled={emitindo || marcadasProntas === 0}>
+          {emitindo ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Emitindo {progresso ? `${progresso.atual}/${progresso.total}` : "..."}
+            </>
+          ) : (
+            <>
+              <Send className="mr-2 h-4 w-4" /> Enviar selecionados ({marcadasProntas})
+            </>
+          )}
+        </Button>
       </div>
-    </TooltipProvider>
+
+      {marcadas.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/30 p-3">
+          <span className="flex items-center gap-1.5 text-sm font-medium">
+            <Layers className="h-4 w-4" /> {marcadas.size} selecionada(s)
+          </span>
+          <div className="flex items-center gap-2">
+            <Select value={massaClasse} onValueChange={setMassaClasse}>
+              <SelectTrigger className="h-8 w-[200px] text-xs">
+                <SelectValue placeholder="Classe..." />
+              </SelectTrigger>
+              <SelectContent>
+                {classes.map((c) => (
+                  <SelectItem key={c.codigo} value={c.codigo} className="text-xs">
+                    {c.codigo} — {c.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!massaClasse || aplicando}
+              onClick={() => aplicarEmMassa("codigo_classe_rec_desp", massaClasse)}
+            >
+              Aplicar classe
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={massaCentro} onValueChange={setMassaCentro}>
+              <SelectTrigger className="h-8 w-[200px] text-xs">
+                <SelectValue placeholder="Centro..." />
+              </SelectTrigger>
+              <SelectContent>
+                {centros.map((c) => (
+                  <SelectItem key={c.erp_code} value={c.erp_code} className="text-xs">
+                    {c.name} ({c.erp_code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!massaCentro || aplicando}
+              onClick={() => aplicarEmMassa("codigo_centro_ctrl", massaCentro)}
+            >
+              Aplicar centro
+            </Button>
+          </div>
+          <Button size="sm" variant="ghost" onClick={() => setMarcadas(new Set())}>
+            Limpar seleção
+          </Button>
+          {aplicando && <Loader2 className="h-4 w-4 animate-spin" />}
+        </div>
+      )}
+
+      <div className="rounded-md border overflow-x-auto">
+        <Table className="w-full">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[36px]">
+                <Checkbox checked={todasMarcadas} onCheckedChange={toggleTodas} aria-label="Selecionar todas" />
+              </TableHead>
+              <TableHead className="w-[78px]">Data</TableHead>
+              <TableHead className="min-w-[160px]">Estabelecimento</TableHead>
+              <TableHead className="w-[90px] text-right">Valor</TableHead>
+              <TableHead className="w-[230px]">Fornecedor</TableHead>
+              <TableHead className="w-[170px]">Classe</TableHead>
+              <TableHead className="w-[170px]">Centro Ctrl</TableHead>
+              <TableHead className="w-[84px]">Status</TableHead>
+              <TableHead className="w-[44px]" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  Carregando...
+                </TableCell>
+              </TableRow>
+            ) : itens.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  Lote sem linhas.
+                </TableCell>
+              </TableRow>
+            ) : (
+              itens.map((item) => {
+                const bloqueado = item.status_linha === "emitido";
+                const ignorado = item.status_linha === "ignorado";
+                const editavel = !bloqueado && !ignorado;
+                return (
+                  <TableRow key={item.id} className={ignorado ? "opacity-50" : ""}>
+                    <TableCell>
+                      {editavel && (
+                        <Checkbox
+                          checked={marcadas.has(item.id)}
+                          onCheckedChange={() => toggleMarcada(item.id)}
+                          aria-label="Selecionar linha"
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">{fmtData(item.data_transacao)}</TableCell>
+                    <TableCell>
+                      <div className="text-sm font-medium leading-tight">{item.descricao_estabelecimento}</div>
+                      {item.justificativa && <div className="text-xs text-muted-foreground">{item.justificativa}</div>}
+                      {item.cnpj_bruto && !item.cnpj_normalizado && (
+                        <div className="text-xs text-amber-600">CNPJ inválido: {item.cnpj_bruto}</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{fmtBRL(item.valor)}</TableCell>
+                    <TableCell>
+                      <EntidadeCombobox
+                        value={item.codigo_entidade}
+                        onChange={(cod) => patchCampo(item, "codigo_entidade", cod)}
+                        disabled={!editavel}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={item.codigo_classe_rec_desp ?? ""}
+                        onValueChange={(v) => patchCampo(item, "codigo_classe_rec_desp", v || null)}
+                        disabled={!editavel}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Classe..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {classes.map((c) => (
+                            <SelectItem key={c.codigo} value={c.codigo} className="text-xs">
+                              {c.codigo} — {c.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={item.codigo_centro_ctrl ?? ""}
+                        onValueChange={(v) => patchCampo(item, "codigo_centro_ctrl", v || null)}
+                        disabled={!editavel}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Centro..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {centros.map((c) => (
+                            <SelectItem key={c.erp_code} value={c.erp_code} className="text-xs">
+                              {c.name} ({c.erp_code})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>{statusLinhaBadge(item.status_linha)}</TableCell>
+                    <TableCell>
+                      {bloqueado ? (
+                        <span className="text-xs text-muted-foreground" title={`DocFin ${item.docfin_chave ?? ""}`}>
+                          {item.docfin_numero ?? "—"}
+                        </span>
+                      ) : ignorado ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Reativar"
+                          onClick={() => handleReativar(item)}
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground"
+                          title="Ignorar"
+                          onClick={() => setIgnorarItem(item)}
+                        >
+                          <Ban className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <Dialog
+        open={!!ignorarItem}
+        onOpenChange={(o) => {
+          if (!o) {
+            setIgnorarItem(null);
+            setMotivo("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ignorar linha</DialogTitle>
+            <DialogDescription>
+              {ignorarItem?.descricao_estabelecimento} · {ignorarItem ? fmtBRL(ignorarItem.valor) : ""}. A linha sai da
+              fila de emissão, mas fica registrada para consulta.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label>Motivo</Label>
+            <Textarea
+              placeholder="ex: gasto pessoal / não reembolsável"
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIgnorarItem(null);
+                setMotivo("");
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleIgnorar}>Ignorar linha</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
