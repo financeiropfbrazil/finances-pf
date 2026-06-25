@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,9 +49,11 @@ import {
   buscarFiltrosDisponiveis,
   buscarTudoParaExportar,
   definirPagoMaster,
+  exportarBlocosIntercompany,
   importarPdfAnexo,
   listarKontosAtivos,
   listarMaster,
+  resumoConsolidadoIntercompany,
 } from "@/services/intercompanyMasterListService";
 import { MasterCambioModal } from "@/components/intercompany/MasterCambioModal";
 import { downloadIntercompanyPdf } from "@/utils/downloadIntercompanyPdf";
@@ -162,6 +164,293 @@ const classificationEmoji: Record<MasterClassificationStatus, string> = {
   unclassified: "?",
 };
 
+// ── Export Excel (xlsx-js-style) ────────────────────────────────────────────
+const XLS_EUR = '"€" #,##0.00';
+const XLS_BRL = '"R$" #,##0.00';
+const XLS_PCT = "0.0%";
+const XLS_INT = "#,##0";
+
+const xlsBorder = {
+  top: { style: "thin", color: { rgb: "FFBFBFBF" } },
+  bottom: { style: "thin", color: { rgb: "FFBFBFBF" } },
+  left: { style: "thin", color: { rgb: "FFBFBFBF" } },
+  right: { style: "thin", color: { rgb: "FFBFBFBF" } },
+};
+const styHeader = {
+  font: { bold: true, color: { rgb: "FFFFFFFF" } },
+  fill: { fgColor: { rgb: "FF1F4E79" } },
+  alignment: { horizontal: "center", vertical: "center", wrapText: true },
+  border: xlsBorder,
+};
+const styTitle = { font: { bold: true, sz: 14, color: { rgb: "FF1F4E79" } } };
+const stySection = {
+  font: { bold: true, sz: 11, color: { rgb: "FFFFFFFF" } },
+  fill: { fgColor: { rgb: "FF2F5496" } },
+};
+const styTotal = { font: { bold: true }, fill: { fgColor: { rgb: "FFDDEBF7" } }, border: xlsBorder };
+const styLabel = { font: { bold: true } };
+
+const cNum = (v: number | null | undefined, z: string, s: any = {}) => ({ v: Number(v ?? 0), t: "n", z, s });
+const cTxt = (v: any, s: any = {}) => ({ v: v == null ? "" : String(v), t: "s", s });
+const cBlank = () => null;
+
+function sheetFromMatrix(matrix: any[][]) {
+  const ws: any = {};
+  let maxC = 0;
+  matrix.forEach((row, r) => {
+    if (row.length - 1 > maxC) maxC = row.length - 1;
+    row.forEach((cell, c) => {
+      if (cell == null) return;
+      ws[XLSX.utils.encode_cell({ r, c })] = cell;
+    });
+  });
+  ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, matrix.length - 1), c: maxC } });
+  return ws;
+}
+
+const isEmitted = (s: string) => !["rascunho", "pendente_emissao", "erro"].includes(s);
+
+function buildIntercompanyWorkbook(items: any[], blocos: any, consolidado: any) {
+  const wb = XLSX.utils.book_new();
+  const sumEur = (arr: any[]) => arr.reduce((a, i) => a + (Number(i.valor_eur) || 0), 0);
+  const sumBrl = (arr: any[]) => arr.reduce((a, i) => a + (Number(i.valor_brl) || 0), 0);
+  const g = (o: any, k: string) => (o && o[k] != null ? Number(o[k]) : 0);
+
+  // ===== Aba 1: Reconciliation (BR side) =====
+  {
+    const emitted = items.filter((i) => isEmitted(i.status_unificado));
+    const paid = emitted.filter((i) => i.pago);
+    const open = emitted.filter((i) => !i.pago);
+    const emEur = sumEur(emitted);
+    const pctPaid = emEur ? sumEur(paid) / emEur : 0;
+    const c = consolidado || {};
+    const ag = c.aging || {};
+
+    const m: any[][] = [];
+    m.push([cTxt("INTERCOMPANY RECONCILIATION — BR SIDE", styTitle)]);
+    m.push([
+      cTxt(`Generated: ${format(new Date(), "dd/MM/yyyy HH:mm")}`, {
+        font: { italic: true, color: { rgb: "FF808080" } },
+      }),
+    ]);
+    m.push([]);
+    m.push([cTxt("PERIOD (respects active filter) — flow / movement", stySection)]);
+    m.push([
+      cTxt("Metric", styHeader),
+      cTxt("Invoices", styHeader),
+      cTxt("EUR", styHeader),
+      cTxt("BRL", styHeader),
+      cTxt("% Paid", styHeader),
+    ]);
+    m.push([
+      cTxt("Emitted", styLabel),
+      cNum(emitted.length, XLS_INT),
+      cNum(emEur, XLS_EUR),
+      cNum(sumBrl(emitted), XLS_BRL),
+      cBlank(),
+    ]);
+    m.push([
+      cTxt("Paid", styLabel),
+      cNum(paid.length, XLS_INT),
+      cNum(sumEur(paid), XLS_EUR),
+      cNum(sumBrl(paid), XLS_BRL),
+      cNum(pctPaid, XLS_PCT),
+    ]);
+    m.push([
+      cTxt("Open", styLabel),
+      cNum(open.length, XLS_INT),
+      cNum(sumEur(open), XLS_EUR),
+      cNum(sumBrl(open), XLS_BRL),
+      cBlank(),
+    ]);
+    m.push([]);
+    m.push([cTxt("CONSOLIDATED POSITION (all dates, ignores filter) — balance / stock", stySection)]);
+    m.push([cTxt("Metric", styHeader), cTxt("Invoices", styHeader), cTxt("EUR", styHeader), cTxt("BRL", styHeader)]);
+    m.push([
+      cTxt("Emitted", styLabel),
+      cNum(g(c.emitido, "qtd"), XLS_INT),
+      cNum(g(c.emitido, "eur"), XLS_EUR),
+      cNum(g(c.emitido, "brl"), XLS_BRL),
+    ]);
+    m.push([
+      cTxt("Paid", styLabel),
+      cNum(g(c.pago, "qtd"), XLS_INT),
+      cNum(g(c.pago, "eur"), XLS_EUR),
+      cNum(g(c.pago, "brl"), XLS_BRL),
+    ]);
+    m.push([
+      cTxt("Open", styLabel),
+      cNum(g(c.em_aberto, "qtd"), XLS_INT),
+      cNum(g(c.em_aberto, "eur"), XLS_EUR),
+      cNum(g(c.em_aberto, "brl"), XLS_BRL),
+    ]);
+    m.push([]);
+    m.push([cTxt("AGING — open invoices by days since issue", stySection)]);
+    m.push([cTxt("Bucket", styHeader), cTxt("Invoices", styHeader), cTxt("EUR", styHeader), cTxt("BRL", styHeader)]);
+    const agingRow = (label: string, key: string) =>
+      m.push([
+        cTxt(label),
+        cNum(g(ag[key], "qtd"), XLS_INT),
+        cNum(g(ag[key], "eur"), XLS_EUR),
+        cNum(g(ag[key], "brl"), XLS_BRL),
+      ]);
+    agingRow("0–30 days", "d0_30");
+    agingRow("31–60 days", "d31_60");
+    agingRow("61–90 days", "d61_90");
+    agingRow("90+ days", "d90_mais");
+    m.push([
+      cTxt("Total open", styTotal),
+      cNum(g(c.em_aberto, "qtd"), XLS_INT, styTotal),
+      cNum(g(c.em_aberto, "eur"), XLS_EUR, styTotal),
+      cNum(g(c.em_aberto, "brl"), XLS_BRL, styTotal),
+    ]);
+
+    const ws = sheetFromMatrix(m);
+    ws["!cols"] = [{ wch: 46 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, ws, "1. Reconciliation");
+  }
+
+  // ===== Abas 2 & 3: matrizes =====
+  const buildMatrix = (dimKey: "konto" | "classe", noLabel: string, sheetName: string) => {
+    const dimSet = new Set<string>();
+    blocos.alocacoes.forEach((a: any) => {
+      const code = dimKey === "konto" ? a.konto_numero : a.classe_codigo;
+      if (code) dimSet.add(String(code));
+    });
+    const dims = [...dimSet].sort((x, y) => {
+      const nx = parseInt(x),
+        ny = parseInt(y);
+      if (!isNaN(nx) && !isNaN(ny)) return nx - ny;
+      return x.localeCompare(y);
+    });
+    const allocMap = new Map<string, Map<string, number>>();
+    blocos.alocacoes.forEach((a: any) => {
+      const code = String((dimKey === "konto" ? a.konto_numero : a.classe_codigo) ?? noLabel);
+      if (!allocMap.has(a.numero_invoice)) allocMap.set(a.numero_invoice, new Map());
+      const mm = allocMap.get(a.numero_invoice)!;
+      mm.set(code, (mm.get(code) || 0) + (Number(a.valor_eur) || 0));
+    });
+
+    const m: any[][] = [];
+    m.push([cTxt(sheetName.toUpperCase(), styTitle)]);
+    m.push([]);
+    m.push([
+      cTxt("Invoice", styHeader),
+      cTxt("Date", styHeader),
+      ...dims.map((d) => cTxt(d, styHeader)),
+      cTxt(noLabel, styHeader),
+      cTxt("Total", styHeader),
+    ]);
+
+    const colTotals = new Array(dims.length).fill(0);
+    let noTotal = 0;
+    let grand = 0;
+
+    items.forEach((inv) => {
+      const am = allocMap.get(inv.numero_invoice) || new Map<string, number>();
+      const invTotal = Number(inv.valor_eur) || 0;
+      let sumAlloc = 0;
+      am.forEach((val) => (sumAlloc += val));
+      const noVal = (am.get(noLabel) || 0) + (invTotal - sumAlloc);
+      const row = [cTxt(inv.numero_invoice), cTxt(formatDate(inv.data_emissao))];
+      dims.forEach((d, idx) => {
+        const v = am.get(d) || 0;
+        colTotals[idx] += v;
+        row.push(v ? cNum(v, XLS_EUR) : cBlank());
+      });
+      noTotal += noVal;
+      row.push(Math.abs(noVal) > 0.005 ? cNum(noVal, XLS_EUR) : cBlank());
+      row.push(cNum(invTotal, XLS_EUR, styLabel));
+      grand += invTotal;
+      m.push(row);
+    });
+
+    m.push([
+      cTxt("TOTAL", styTotal),
+      cTxt("", styTotal),
+      ...dims.map((_d, idx) => cNum(colTotals[idx], XLS_EUR, styTotal)),
+      cNum(noTotal, XLS_EUR, styTotal),
+      cNum(grand, XLS_EUR, styTotal),
+    ]);
+
+    const ws = sheetFromMatrix(m);
+    ws["!cols"] = [{ wch: 12 }, { wch: 12 }, ...dims.map(() => ({ wch: 14 })), { wch: 14 }, { wch: 16 }];
+    const lastCol = 2 + dims.length + 1;
+    ws["!autofilter"] = {
+      ref: `${XLSX.utils.encode_cell({ r: 2, c: 0 })}:${XLSX.utils.encode_cell({ r: 2 + items.length, c: lastCol })}`,
+    };
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  };
+
+  buildMatrix("konto", "(no Konto)", "2. By Konto");
+  buildMatrix("classe", "(no Class)", "3. By Class");
+
+  // ===== Aba 4: Raw =====
+  {
+    const headers = [
+      "Invoice No",
+      "Date",
+      "Type",
+      "Specie",
+      "Class Code",
+      "Class Name",
+      "Konto AT",
+      "Konto Description",
+      "Amount EUR",
+      "Amount BRL",
+      "Exchange Rate",
+      "Paid",
+      "Paid At",
+      "Total Blocks",
+      "Total CCs",
+      "Cost Centers",
+      "Source",
+      "Status",
+      "Status Reason",
+      "Classification",
+      "Alvo Key",
+      "Alvo Document No",
+      "Description",
+      "Alvo Category",
+    ];
+    const m: any[][] = [headers.map((h) => cTxt(h, styHeader))];
+    items.forEach((i) => {
+      m.push([
+        cTxt(i.numero_invoice),
+        cTxt(formatDate(i.data_emissao)),
+        cTxt(i.tipo),
+        cTxt(i.especie),
+        cTxt(i.classe_codigo),
+        cTxt(i.classe_nome),
+        cTxt(i.konto_at_numero),
+        cTxt(i.konto_at_descricao),
+        cNum(i.valor_eur, XLS_EUR),
+        cNum(i.valor_brl, XLS_BRL),
+        cNum(i.cambio, "#,##0.0000"),
+        cTxt(i.pago ? "Yes" : "No"),
+        cTxt(i.pago_em ? format(new Date(i.pago_em), "dd/MM/yyyy") : ""),
+        cNum(i.total_blocos, XLS_INT),
+        cNum(i.total_ccs, XLS_INT),
+        cTxt((i.ccs_codigos || []).join(" | ")),
+        cTxt(i.origem),
+        cTxt(i.status_label),
+        cTxt(i.status_motivo),
+        cTxt(classificationLabel[i.classification_status_agregado] ?? i.classification_status_agregado),
+        cTxt(i.chave_docfin_alvo),
+        cTxt(i.numero_documento_alvo),
+        cTxt(i.descricao),
+        cTxt(i.origem_categoria),
+      ]);
+    });
+    const ws = sheetFromMatrix(m);
+    ws["!cols"] = headers.map((h) => ({ wch: Math.max(10, Math.min(30, h.length + 2)) }));
+    ws["!autofilter"] = { ref: `A1:${XLSX.utils.encode_cell({ r: items.length, c: headers.length - 1 })}` };
+    XLSX.utils.book_append_sheet(wb, ws, "4. Raw");
+  }
+
+  return wb;
+}
+
 export default function IntercompanyMaster() {
   const navigate = useNavigate();
 
@@ -247,69 +536,18 @@ export default function IntercompanyMaster() {
   const handleExportar = async () => {
     setExportando(true);
     try {
-      const todosItems = await buscarTudoParaExportar(filtros);
+      const [items, blocos, consolidado] = await Promise.all([
+        buscarTudoParaExportar(filtros),
+        exportarBlocosIntercompany(filtros),
+        resumoConsolidadoIntercompany(),
+      ]);
 
-      // Aba 1: Invoices (headers em inglês)
-      const lista = todosItems.map((i) => ({
-        "Invoice No": i.numero_invoice ?? "",
-        Date: i.data_emissao ?? "",
-        Type: i.tipo,
-        Specie: i.especie,
-        "Class Code": i.classe_codigo ?? "",
-        "Class Name": i.classe_nome ?? "",
-        "Konto AT": i.konto_at_numero ?? "",
-        "Konto Description": i.konto_at_descricao ?? "",
-        "Amount EUR": i.valor_eur,
-        "Amount BRL": i.valor_brl,
-        "Exchange Rate": i.cambio,
-        "Total Blocks": i.total_blocos,
-        "Total CCs": i.total_ccs,
-        "Cost Centers": i.ccs_codigos.join(" | "),
-        Source: i.origem,
-        Status: i.status_label,
-        "Status Reason": i.status_motivo ?? "",
-        Classification: classificationLabel[i.classification_status_agregado],
-        "Alvo Key": i.chave_docfin_alvo ?? "",
-        "Alvo Document No": i.numero_documento_alvo ?? "",
-        Description: i.descricao ?? "",
-        "Alvo Category": i.origem_categoria ?? "",
-        "Created At": i.created_at,
-        "Issued At": i.emitida_em ?? "",
-      }));
-
-      // Aba 2: Resumo
-      const resumo = [
-        { Metric: "Total invoices", Value: listQuery.data?.resumo.total_invoices ?? 0 },
-        { Metric: "Total EUR", Value: listQuery.data?.resumo.soma_eur ?? 0 },
-        { Metric: "Total BRL", Value: listQuery.data?.resumo.soma_brl ?? 0 },
-        { Metric: "Hub-created", Value: listQuery.data?.resumo.qtd_hub ?? 0 },
-        { Metric: "Alvo-synced", Value: listQuery.data?.resumo.qtd_alvo ?? 0 },
-        { Metric: "", Value: "" },
-        { Metric: "── Status Distribution ──", Value: "" },
-        ...(listQuery.data?.resumo.por_status ?? []).map((s) => ({
-          Metric: s.label,
-          Value: s.qtd,
-        })),
-      ];
-
-      // Aba 3: Filtros aplicados
-      const filtrosAplicados = Object.entries(filtros)
-        .filter(([_, v]) => v !== null && v !== "")
-        .map(([k, v]) => ({ Filter: k, Value: String(v) }));
-      if (filtrosAplicados.length === 0) {
-        filtrosAplicados.push({ Filter: "(none)", Value: "All invoices" });
-      }
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lista), "Invoices");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), "Summary");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filtrosAplicados), "Filters Applied");
-
+      const wb = buildIntercompanyWorkbook(items as any[], blocos, consolidado);
       const dataStr = format(new Date(), "yyyy-MM-dd_HH-mm");
-      XLSX.writeFile(wb, `intercompany_master_${dataStr}.xlsx`);
+      XLSX.writeFile(wb, `intercompany_report_${dataStr}.xlsx`, { cellStyles: true });
     } catch (err) {
       console.error("Erro ao exportar:", err);
-      alert(`Erro ao exportar: ${(err as Error).message}`);
+      toast.error(`Erro ao exportar: ${(err as Error).message}`);
     } finally {
       setExportando(false);
     }
