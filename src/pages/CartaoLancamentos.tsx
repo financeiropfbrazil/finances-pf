@@ -787,7 +787,7 @@ function DetalheLote({
       )}
 
       <div className="rounded-md border overflow-x-auto">
-        <Table className="w-full text-xs">
+        <Table className="w-full text-xs [&_th]:px-2 [&_td]:px-2 [&_th]:h-9 [&_td]:py-1.5">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[32px] px-1">
