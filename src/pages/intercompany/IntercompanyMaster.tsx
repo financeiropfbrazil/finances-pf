@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertCircle,
   ArrowDownToLine,
@@ -22,6 +24,10 @@ import {
   ChevronsUpDown,
   AlertTriangle,
   HelpCircle,
+  Banknote,
+  CheckCircle2,
+  Download,
+  ExternalLink,
   FileText,
   Filter,
   Loader2,
@@ -38,12 +44,16 @@ import { cn } from "@/lib/utils";
 import {
   atualizarKontoBlocoInline,
   buscarBlocosDetalhe,
+  buscarDetalheMaster,
   buscarFiltrosDisponiveis,
   buscarTudoParaExportar,
+  definirPagoMaster,
   listarKontosAtivos,
   listarMaster,
 } from "@/services/intercompanyMasterListService";
 import { MasterCambioModal } from "@/components/intercompany/MasterCambioModal";
+import { downloadIntercompanyPdf } from "@/utils/downloadIntercompanyPdf";
+import { toast } from "sonner";
 import type {
   MasterBlocoDetalhe,
   MasterClassificationStatus,
@@ -167,7 +177,8 @@ export default function IntercompanyMaster() {
   const [busca, setBusca] = useState<string>("");
   const [buscaDebounced, setBuscaDebounced] = useState<string>("");
   const [page, setPage] = useState(1);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailItem, setDetailItem] = useState<MasterItem | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [exportando, setExportando] = useState(false);
 
   // ─── STATE: Modal câmbio ──────────────────────────────────────────────
@@ -663,21 +674,13 @@ export default function IntercompanyMaster() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-surface-1 text-left text-[10px] uppercase tracking-widest text-muted-foreground">
-                  <th className="px-3 py-3 font-bold w-8" />
                   <th className="px-3 py-3 font-bold">Nº Invoice</th>
-                  <th className="px-3 py-3 font-bold">Nº NF/Doc</th>
                   <th className="px-3 py-3 font-bold">Data</th>
                   <th className="px-3 py-3 font-bold">Tipo</th>
-                  <th className="px-3 py-3 font-bold">Classe</th>
                   <th className="px-3 py-3 font-bold">Konto AT</th>
                   <th className="px-3 py-3 font-bold text-right">EUR</th>
-                  <th className="px-3 py-3 font-bold text-right">BRL</th>
-                  <th className="px-3 py-3 font-bold">Blocos</th>
-                  <th className="px-3 py-3 font-bold">CCs</th>
-                  <th className="px-3 py-3 font-bold">Origem</th>
-                  <th className="px-3 py-3 font-bold">Status</th>
                   <th className="px-3 py-3 font-bold">Classific.</th>
-                  <th className="px-3 py-3 font-bold w-12 text-center">Ações</th>
+                  <th className="px-3 py-3 font-bold w-8" />
                 </tr>
               </thead>
               <tbody>
@@ -686,15 +689,9 @@ export default function IntercompanyMaster() {
                     key={`${item.source_table}-${item.id}`}
                     item={item}
                     index={idx}
-                    expanded={expandedId === `${item.source_table}-${item.id}`}
-                    onToggle={() =>
-                      setExpandedId((prev) =>
-                        prev === `${item.source_table}-${item.id}` ? null : `${item.source_table}-${item.id}`,
-                      )
-                    }
-                    onEditCambio={() => {
-                      setCambioMasterItem(item);
-                      setCambioModalOpen(true);
+                    onOpen={() => {
+                      setDetailItem(item);
+                      setDetailOpen(true);
                     }}
                   />
                 ))}
@@ -732,6 +729,18 @@ export default function IntercompanyMaster() {
         </Card>
       )}
 
+      <InvoiceDetailSheet
+        item={detailItem}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        onEditCambio={() => {
+          if (detailItem) {
+            setCambioMasterItem(detailItem);
+            setCambioModalOpen(true);
+          }
+        }}
+      />
+
       <MasterCambioModal
         open={cambioModalOpen}
         onOpenChange={setCambioModalOpen}
@@ -751,101 +760,47 @@ export default function IntercompanyMaster() {
 interface MasterRowProps {
   item: MasterItem;
   index: number;
-  expanded: boolean;
-  onToggle: () => void;
-  onEditCambio: () => void;
+  onOpen: () => void;
 }
 
-function MasterRow({ item, index, expanded, onToggle, onEditCambio }: MasterRowProps) {
-  // zebra + estado aberto (aberto vence o zebra)
-  const rowBg = expanded ? "bg-accent/60" : index % 2 === 1 ? "bg-muted/15 hover:bg-muted/30" : "hover:bg-muted/20";
+function MasterRow({ item, index, onOpen }: MasterRowProps) {
+  const rowBg = index % 2 === 1 ? "bg-muted/15 hover:bg-muted/30" : "hover:bg-muted/20";
 
   return (
-    <>
-      <tr className={cn("cursor-pointer transition-colors", rowBg)} onClick={onToggle}>
-        <td className={cn("px-3 py-2.5", expanded && "border-l-[3px] border-l-primary")}>
-          {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          )}
-        </td>
-        <td className="px-3 py-2.5 font-mono text-xs tabular-nums">{item.numero_invoice ?? "—"}</td>
-        <td className="px-3 py-2.5 font-mono text-xs tabular-nums">
-          {item.numero_documento_alvo ?? <span className="text-muted-foreground">—</span>}
-        </td>
-        <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">{formatDate(item.data_emissao)}</td>
-        <td className="px-3 py-2.5">
-          <Badge variant="outline" className="text-[10px] capitalize">
-            {item.tipo}
-          </Badge>
-        </td>
-        <td className="px-3 py-2.5">
-          {item.classe_codigo ? (
-            <span className="font-mono text-xs tabular-nums">{item.classe_codigo}</span>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </td>
-        <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-          {item.total_blocos === 1 ? (
-            <KontoInlineEditor item={item} />
-          ) : item.total_blocos > 1 ? (
-            <span
-              className="inline-flex items-center gap-1 font-mono text-xs tabular-nums text-muted-foreground"
-              title="Invoice com vários blocos — classifique expandindo a linha (tela de blocos)"
-            >
-              {item.konto_at_numero ?? "—"}
-              <Lock className="h-3 w-3 opacity-40" />
-            </span>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </td>
-        <td className="px-3 py-2.5 text-right font-mono font-semibold tabular-nums">{formatEUR(item.valor_eur)}</td>
-        <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-          {formatBRL(item.valor_brl)}
-        </td>
-        <td className="px-3 py-2.5">
-          {item.total_blocos > 0 ? (
-            <Badge variant="secondary" className="text-[10px]">
-              {item.total_blocos}
-            </Badge>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </td>
-        <td className="px-3 py-2.5">
-          {item.total_ccs > 0 ? (
-            <Badge variant="secondary" className="text-[10px]">
-              {item.total_ccs}
-            </Badge>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </td>
-        <td className="px-3 py-2.5">
-          <Badge variant="outline" className="text-[10px]">
-            {item.origem}
-          </Badge>
-        </td>
-        <td className="px-3 py-2.5">
-          <StatusDot tone={statusTone[item.status_unificado] ?? "muted"} label={item.status_label} />
-        </td>
-        <td className="px-3 py-2.5">
-          <StatusDot
-            tone={classificationTone[item.classification_status_agregado]}
-            label={classificationLabel[item.classification_status_agregado]}
-          />
-        </td>
-        <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEditCambio} title="Editar câmbio">
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-        </td>
-      </tr>
-      {expanded && <MasterRowDetails item={item} />}
-    </>
+    <tr className={cn("group cursor-pointer transition-colors", rowBg)} onClick={onOpen}>
+      <td className="px-3 py-2.5 font-mono text-xs tabular-nums">{item.numero_invoice ?? "—"}</td>
+      <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">{formatDate(item.data_emissao)}</td>
+      <td className="px-3 py-2.5">
+        <Badge variant="outline" className="text-[10px] capitalize">
+          {item.tipo}
+        </Badge>
+      </td>
+      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+        {item.total_blocos === 1 ? (
+          <KontoInlineEditor item={item} />
+        ) : item.total_blocos > 1 ? (
+          <span
+            className="inline-flex items-center gap-1 font-mono text-xs tabular-nums text-muted-foreground"
+            title="Invoice com vários blocos — classifique pela tela de blocos (abra a invoice)"
+          >
+            {item.konto_at_numero ?? "—"}
+            <Lock className="h-3 w-3 opacity-40" />
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono font-semibold tabular-nums">{formatEUR(item.valor_eur)}</td>
+      <td className="px-3 py-2.5">
+        <StatusDot
+          tone={classificationTone[item.classification_status_agregado]}
+          label={classificationLabel[item.classification_status_agregado]}
+        />
+      </td>
+      <td className="px-3 py-2.5 text-right">
+        <ChevronRight className="inline-block h-4 w-4 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
+      </td>
+    </tr>
   );
 }
 
@@ -927,74 +882,231 @@ function KontoInlineEditor({ item }: { item: MasterItem }) {
   );
 }
 
-// ─── Detalhes expandidos ────────────────────────────────────────────────
+// ─── Painel lateral de detalhe da invoice ────────────────────────────────
 
-function MasterRowDetails({ item }: { item: MasterItem }) {
+interface InvoiceDetailSheetProps {
+  item: MasterItem | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onEditCambio: () => void;
+}
+
+// origem (enum cru do master) → bucket de Storage do PDF
+const ORIGEM_BUCKET: Record<string, string> = {
+  criada_hub: "intercompany-reembolso-nf",
+  criada_hub_manual: "intercompany-reembolso-manual",
+};
+
+function InvoiceDetailSheet({ item, open, onOpenChange, onEditCambio }: InvoiceDetailSheetProps) {
+  const queryClient = useQueryClient();
+
   const blocosQuery = useQuery({
-    queryKey: ["intercompany_master_blocos", item.id],
-    queryFn: () => buscarBlocosDetalhe(item.id),
-    enabled: item.total_blocos > 0,
+    queryKey: ["intercompany_master_blocos", item?.id],
+    queryFn: () => buscarBlocosDetalhe(item!.id),
+    enabled: open && !!item && item.total_blocos > 0,
   });
 
+  const detalheQuery = useQuery({
+    queryKey: ["intercompany_master_detalhe", item?.id],
+    queryFn: () => buscarDetalheMaster(item!.id),
+    enabled: open && !!item,
+  });
+
+  const pagoMutation = useMutation({
+    mutationFn: (pago: boolean) => definirPagoMaster(item!.id, pago),
+    onSuccess: (_data, pago) => {
+      queryClient.invalidateQueries({ queryKey: ["intercompany_master_detalhe", item?.id] });
+      toast.success(pago ? "Marcada como paga" : "Marcada como não paga");
+    },
+    onError: (err: any) => {
+      toast.error(`Não foi possível alterar Pago: ${err?.message ?? "erro desconhecido"}`);
+    },
+  });
+
+  if (!item) return null;
+
+  const detalhe = detalheQuery.data;
+  const pago = detalhe?.pago ?? false;
+  const anexo = detalhe?.anexos?.[0];
+  const bucket = detalhe ? ORIGEM_BUCKET[detalhe.origem] : undefined;
+  const podeBaixarPdf = !!anexo && !!bucket;
+  const isSavingPago = (pagoMutation as any).isPending ?? (pagoMutation as any).isLoading ?? false;
+
+  const handleBaixarPdf = async () => {
+    if (!anexo || !bucket) return;
+    const ok = await downloadIntercompanyPdf(bucket, anexo.storage_path, anexo.filename);
+    if (ok) toast.success("PDF baixado");
+    else toast.error("Não foi possível baixar o PDF");
+  };
+
   return (
-    <tr>
-      <td colSpan={15} className="p-0">
-        <div className="border-l-[3px] border-primary bg-surface-2 px-6 py-4">
-          <div className="space-y-3">
-            {/* Header da invoice */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-md">
+        {/* Cabeçalho herói */}
+        <SheetHeader className="space-y-2 border-b border-border bg-surface-1 px-6 py-5 text-left">
+          <div className="flex items-center justify-between gap-3">
+            <SheetTitle className="font-mono text-lg tabular-nums">{item.numero_invoice ?? "—"}</SheetTitle>
+            <StatusDot tone={statusTone[item.status_unificado] ?? "muted"} label={item.status_label} />
+          </div>
+          <p className="font-mono text-2xl font-bold tabular-nums">{formatEUR(item.valor_eur)}</p>
+        </SheetHeader>
+
+        <div className="space-y-5 px-6 py-5">
+          {/* RESUMO */}
+          <DetailSection title="Resumo">
+            <DetailGrid>
+              <DetailField label="Tipo" value={item.tipo} />
               <DetailField label="Espécie" value={item.especie} />
-              <DetailField
-                label="Câmbio"
-                value={item.cambio == null ? "—" : item.cambio.toLocaleString("pt-BR", { minimumFractionDigits: 4 })}
-              />
-              {item.chave_docfin_alvo && <DetailField label="Chave Alvo" value={String(item.chave_docfin_alvo)} mono />}
-              {item.origem_categoria && <DetailField label="Categoria" value={item.origem_categoria} />}
-              {item.emitida_em && (
-                <DetailField label="Emitida em" value={format(new Date(item.emitida_em), "dd/MM/yyyy HH:mm")} />
-              )}
-            </div>
-
-            {item.descricao && (
-              <div className="text-xs">
-                <span className="text-muted-foreground uppercase tracking-wide">Descrição</span>
-                <p className="mt-0.5 italic">{item.descricao}</p>
-              </div>
-            )}
-
+              <DetailField label="Data emissão" value={formatDate(item.data_emissao)} mono />
+              <DetailField label="Origem" value={item.origem} />
+            </DetailGrid>
             {item.status_motivo && (
-              <div className="text-xs rounded-md border border-warning/30 bg-warning/10 p-2">
-                <span className="text-warning font-medium">Status:</span>{" "}
+              <div className="mt-2 rounded-md border border-warning/30 bg-warning/10 p-2 text-xs">
+                <span className="font-medium text-warning">Status:</span>{" "}
                 <span className="text-warning">{item.status_motivo}</span>
               </div>
             )}
+          </DetailSection>
 
-            {/* Blocos */}
-            {item.total_blocos > 0 && (
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1.5">
-                  Blocos ({item.total_blocos})
-                </p>
-                {blocosQuery.isLoading && (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Carregando blocos...
-                  </div>
-                )}
-                {blocosQuery.data && blocosQuery.data.length > 0 && (
-                  <div className="space-y-2">
-                    {blocosQuery.data.map((bloco) => (
-                      <BlocoCard key={bloco.id} bloco={bloco} />
-                    ))}
-                  </div>
-                )}
+          {/* VALORES */}
+          <DetailSection title="Valores">
+            <DetailGrid>
+              <DetailField label="EUR" value={formatEUR(item.valor_eur)} mono />
+              <DetailField label="BRL" value={formatBRL(item.valor_brl)} mono />
+              <DetailField
+                label="Câmbio"
+                value={item.cambio == null ? "—" : item.cambio.toLocaleString("pt-BR", { minimumFractionDigits: 4 })}
+                mono
+              />
+            </DetailGrid>
+          </DetailSection>
+
+          {/* CLASSIFICAÇÃO */}
+          <DetailSection title="Classificação">
+            <DetailGrid>
+              <DetailField label="Classe BR" value={item.classe_codigo ?? "—"} mono />
+              <DetailField label="Classe nome" value={item.classe_nome ?? "—"} />
+              <DetailField label="Konto AT" value={item.konto_at_numero ?? "—"} mono />
+              <DetailField label="Konto desc." value={item.konto_at_descricao ?? "—"} />
+            </DetailGrid>
+            <div className="mt-2">
+              <StatusDot
+                tone={classificationTone[item.classification_status_agregado]}
+                label={classificationLabel[item.classification_status_agregado]}
+              />
+            </div>
+          </DetailSection>
+
+          {/* DOCUMENTO (ALVO) */}
+          <DetailSection title="Documento (Alvo)">
+            <DetailGrid>
+              <DetailField label="Nº NF/Doc" value={item.numero_documento_alvo ?? "—"} mono />
+              <DetailField
+                label="Chave Alvo"
+                value={item.chave_docfin_alvo ? String(item.chave_docfin_alvo) : "—"}
+                mono
+              />
+              <DetailField label="Categoria" value={item.origem_categoria ?? "—"} />
+            </DetailGrid>
+            {item.descricao && (
+              <div className="mt-2 text-xs">
+                <span className="uppercase tracking-wide text-muted-foreground">Descrição</span>
+                <p className="mt-0.5 italic">{item.descricao}</p>
               </div>
             )}
+          </DetailSection>
+
+          {/* BLOCOS & RATEIOS */}
+          {item.total_blocos > 0 && (
+            <DetailSection title={`Blocos & Rateios (${item.total_blocos})`}>
+              {blocosQuery.isLoading && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Carregando blocos...
+                </div>
+              )}
+              {blocosQuery.data && blocosQuery.data.length > 0 && (
+                <div className="space-y-2">
+                  {blocosQuery.data.map((bloco) => (
+                    <BlocoCard key={bloco.id} bloco={bloco} />
+                  ))}
+                </div>
+              )}
+            </DetailSection>
+          )}
+
+          {/* AÇÕES */}
+          <div className="space-y-2 border-t border-border pt-4">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Ações</p>
+
+            {/* Pago — liga/desliga */}
+            <div className="flex items-center justify-between rounded-md border border-border bg-surface-2 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Banknote className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm">Pago</span>
+                {isSavingPago && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+              </div>
+              <Switch
+                checked={pago}
+                disabled={isSavingPago || detalheQuery.isLoading}
+                onCheckedChange={(v) => pagoMutation.mutate(v)}
+              />
+            </div>
+
+            {/* Editar câmbio */}
+            <Button variant="outline" size="sm" className="w-full justify-start" onClick={onEditCambio}>
+              <Pencil className="mr-2 h-3.5 w-3.5" />
+              Editar câmbio
+            </Button>
+
+            {/* Baixar PDF */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full justify-start"
+              disabled={!podeBaixarPdf}
+              onClick={handleBaixarPdf}
+              title={podeBaixarPdf ? undefined : "Esta invoice não tem PDF próprio no Hub"}
+            >
+              <Download className="mr-2 h-3.5 w-3.5" />
+              Baixar PDF
+            </Button>
+
+            {/* Marcar reconciliado — em breve */}
+            <Button variant="outline" size="sm" className="w-full justify-start" disabled title="Em breve">
+              <CheckCircle2 className="mr-2 h-3.5 w-3.5" />
+              Marcar reconciliado
+              <Badge variant="secondary" className="ml-auto text-[9px]">
+                em breve
+              </Badge>
+            </Button>
+
+            {/* Ir para classificação — em breve */}
+            <Button variant="outline" size="sm" className="w-full justify-start" disabled title="Em breve">
+              <ExternalLink className="mr-2 h-3.5 w-3.5" />
+              Ir para classificação
+              <Badge variant="secondary" className="ml-auto text-[9px]">
+                em breve
+              </Badge>
+            </Button>
           </div>
         </div>
-      </td>
-    </tr>
+      </SheetContent>
+    </Sheet>
   );
+}
+
+function DetailSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function DetailGrid({ children }: { children: ReactNode }) {
+  return <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">{children}</div>;
 }
 
 // ─── Card de cada bloco ──────────────────────────────────────────────────
