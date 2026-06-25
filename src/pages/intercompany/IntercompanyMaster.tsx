@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   AlertCircle,
   ArrowDownToLine,
   Calendar as CalendarIcon,
+  Check,
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
@@ -24,6 +25,7 @@ import {
   FileText,
   Filter,
   Loader2,
+  Lock,
   Pencil,
   Plus,
   RefreshCw,
@@ -34,9 +36,11 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import {
+  atualizarKontoBlocoInline,
   buscarBlocosDetalhe,
   buscarFiltrosDisponiveis,
   buscarTudoParaExportar,
+  listarKontosAtivos,
   listarMaster,
 } from "@/services/intercompanyMasterListService";
 import { MasterCambioModal } from "@/components/intercompany/MasterCambioModal";
@@ -783,9 +787,17 @@ function MasterRow({ item, index, expanded, onToggle, onEditCambio }: MasterRowP
             <span className="text-muted-foreground">—</span>
           )}
         </td>
-        <td className="px-3 py-2.5">
-          {item.konto_at_numero ? (
-            <span className="font-mono text-xs tabular-nums">{item.konto_at_numero}</span>
+        <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+          {item.total_blocos === 1 ? (
+            <KontoInlineEditor item={item} />
+          ) : item.total_blocos > 1 ? (
+            <span
+              className="inline-flex items-center gap-1 font-mono text-xs tabular-nums text-muted-foreground"
+              title="Invoice com vários blocos — classifique expandindo a linha (tela de blocos)"
+            >
+              {item.konto_at_numero ?? "—"}
+              <Lock className="h-3 w-3 opacity-40" />
+            </span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
@@ -834,6 +846,84 @@ function MasterRow({ item, index, expanded, onToggle, onEditCambio }: MasterRowP
       </tr>
       {expanded && <MasterRowDetails item={item} />}
     </>
+  );
+}
+
+// ─── Editor inline do Konto (célula da listagem) ─────────────────────────
+
+function KontoInlineEditor({ item }: { item: MasterItem }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const kontosQuery = useQuery({
+    queryKey: ["intercompany_kontos_ativos"],
+    queryFn: listarKontosAtivos,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const mutation = useMutation({
+    mutationFn: (kontoNumero: string) => atualizarKontoBlocoInline(item.id, kontoNumero),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["intercompany_master_list"] });
+    },
+    onError: (err: any) => {
+      alert(`Não foi possível alterar o Konto: ${err?.message ?? "erro desconhecido"}`);
+    },
+  });
+
+  // compatível com react-query v4 (isLoading) e v5 (isPending)
+  const isSaving = (mutation as any).isPending ?? (mutation as any).isLoading ?? false;
+  const kontos = kontosQuery.data ?? [];
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={isSaving}
+          className={cn(
+            "group -mx-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs tabular-nums",
+            "hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60",
+          )}
+          title="Clique para alterar o Konto"
+        >
+          {isSaving ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : item.konto_at_numero ? (
+            <span>{item.konto_at_numero}</span>
+          ) : (
+            <span className="text-warning">definir</span>
+          )}
+          <ChevronsUpDown className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[260px] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Buscar Konto..." />
+          <CommandList>
+            <CommandEmpty>Nenhum Konto encontrado.</CommandEmpty>
+            <CommandGroup>
+              {kontos.map((k) => (
+                <CommandItem
+                  key={k.numero}
+                  value={`${k.numero} ${k.descricao}`}
+                  onSelect={() => {
+                    setOpen(false);
+                    if (k.numero !== item.konto_at_numero) {
+                      mutation.mutate(k.numero);
+                    }
+                  }}
+                >
+                  <span className="mr-2 font-mono text-xs tabular-nums">{k.numero}</span>
+                  <span className="text-xs text-muted-foreground">{k.descricao}</span>
+                  {k.numero === item.konto_at_numero && <Check className="ml-auto h-3.5 w-3.5 opacity-70" />}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 
