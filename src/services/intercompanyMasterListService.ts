@@ -178,11 +178,12 @@ export async function atualizarKontoBlocoInline(masterId: string, kontoNumero: s
 export async function buscarDetalheMaster(masterId: string): Promise<{
   origem: string;
   pago: boolean;
+  pago_em: string | null;
   anexos: { filename: string; storage_path: string; bucket?: string; origem?: string }[];
 }> {
   const { data, error } = await (supabase as any)
     .from("intercompany_invoices_master")
-    .select("origem, pago, anexos")
+    .select("origem, pago, pago_em, anexos")
     .eq("id", masterId)
     .single();
 
@@ -190,6 +191,7 @@ export async function buscarDetalheMaster(masterId: string): Promise<{
   return {
     origem: data?.origem,
     pago: data?.pago ?? false,
+    pago_em: data?.pago_em ?? null,
     anexos: Array.isArray(data?.anexos) ? data.anexos : [],
   };
 }
