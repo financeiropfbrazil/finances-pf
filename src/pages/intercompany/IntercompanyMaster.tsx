@@ -349,7 +349,7 @@ function buildIntercompanyWorkbook(items: any[], blocos: any, consolidado: any) 
       let sumAlloc = 0;
       am.forEach((val) => (sumAlloc += val));
       const noVal = (am.get(noLabel) || 0) + (invTotal - sumAlloc);
-      const row = [cTxt(inv.numero_invoice), cTxt(formatDate(inv.data_emissao))];
+      const row: any[] = [cTxt(inv.numero_invoice), cTxt(formatDate(inv.data_emissao))];
       dims.forEach((d, idx) => {
         const v = am.get(d) || 0;
         colTotals[idx] += v;
