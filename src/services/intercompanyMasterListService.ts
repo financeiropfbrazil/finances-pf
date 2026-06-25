@@ -175,9 +175,11 @@ export async function atualizarKontoBlocoInline(masterId: string, kontoNumero: s
  * Detalhe leve do master para o painel lateral: origem (enum cru, define o bucket
  * do PDF), flag de pago, e a lista de anexos (PDFs gerados pelo Hub).
  */
-export async function buscarDetalheMaster(
-  masterId: string,
-): Promise<{ origem: string; pago: boolean; anexos: { filename: string; storage_path: string }[] }> {
+export async function buscarDetalheMaster(masterId: string): Promise<{
+  origem: string;
+  pago: boolean;
+  anexos: { filename: string; storage_path: string; bucket?: string; origem?: string }[];
+}> {
   const { data, error } = await (supabase as any)
     .from("intercompany_invoices_master")
     .select("origem, pago, anexos")
@@ -203,4 +205,30 @@ export async function definirPagoMaster(masterId: string, pago: boolean): Promis
   });
   if (error) throw new Error(error.message);
   return data as boolean;
+}
+
+/**
+ * Importa um PDF (manual) para uma invoice que não tem PDF gerado pelo Hub.
+ * Sobe o arquivo no bucket privado 'intercompany-importado' e registra o anexo
+ * no master via RPC anexar_pdf_importado (gated por intercompany.access).
+ * O anexo passa a ser o da invoice, habilitando o Baixar PDF para todos.
+ */
+export async function importarPdfAnexo(masterId: string, file: File): Promise<void> {
+  const bucket = "intercompany-importado";
+  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+  const path = `${masterId}/${Date.now()}_${safeName}`;
+
+  const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, {
+    contentType: file.type || "application/pdf",
+    upsert: false,
+  });
+  if (upErr) throw new Error(upErr.message);
+
+  const { error: rpcErr } = await (supabase as any).rpc("anexar_pdf_importado", {
+    p_master_id: masterId,
+    p_filename: file.name,
+    p_storage_path: path,
+    p_bucket: bucket,
+  });
+  if (rpcErr) throw new Error(rpcErr.message);
 }
