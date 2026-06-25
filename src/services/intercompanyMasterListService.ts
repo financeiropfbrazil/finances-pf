@@ -140,3 +140,33 @@ export async function buscarTudoParaExportar(filtros: MasterFiltros = {}): Promi
 
   return allItems;
 }
+
+/**
+ * Lista os Kontos ativos selecionáveis para o editor inline da listagem.
+ * Exclui o 77930 (destino do markup automático, não é Konto de classificação direta).
+ */
+export async function listarKontosAtivos(): Promise<{ numero: string; descricao: string }[]> {
+  const { data, error } = await (supabase as any)
+    .from("intercompany_kontos")
+    .select("numero, descricao_pt")
+    .eq("ativo", true)
+    .neq("numero", "77930")
+    .order("numero", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((k: any) => ({ numero: String(k.numero), descricao: k.descricao_pt }));
+}
+
+/**
+ * Altera inline o Konto AT de uma invoice MONO-BLOCO.
+ * Chama a RPC atualizar_konto_bloco_inline, que aplica todas as travas no servidor:
+ * exige permissão intercompany.classify, só aceita invoice de 1 bloco, recusa o 77930.
+ * A RPC devolve mensagens de erro claras em português, repassadas aqui.
+ */
+export async function atualizarKontoBlocoInline(masterId: string, kontoNumero: string): Promise<void> {
+  const { error } = await (supabase as any).rpc("atualizar_konto_bloco_inline", {
+    p_master_id: masterId,
+    p_konto_at_numero: kontoNumero,
+  });
+  if (error) throw new Error(error.message);
+}
