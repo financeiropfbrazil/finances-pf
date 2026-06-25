@@ -942,6 +942,7 @@ function InvoiceDetailSheet({ item, open, onOpenChange, onEditCambio }: InvoiceD
 
   const detalhe = detalheQuery.data;
   const pago = detalhe?.pago ?? false;
+  const pagoEm = detalhe?.pago_em ?? null;
   const anexo = detalhe?.anexos?.[0];
   const bucket = anexo?.bucket ?? (detalhe ? ORIGEM_BUCKET[detalhe.origem] : undefined);
   const isSavingPago = (pagoMutation as any).isPending ?? (pagoMutation as any).isLoading ?? false;
@@ -1060,7 +1061,14 @@ function InvoiceDetailSheet({ item, open, onOpenChange, onEditCambio }: InvoiceD
             <div className="flex items-center justify-between rounded-md border border-border bg-surface-2 px-3 py-2">
               <div className="flex items-center gap-2">
                 <Banknote className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm">Pago</span>
+                <div className="flex flex-col">
+                  <span className="text-sm">Pago</span>
+                  {pago && pagoEm && (
+                    <span className="text-[10px] tabular-nums text-muted-foreground">
+                      em {format(new Date(pagoEm), "dd/MM/yyyy")}
+                    </span>
+                  )}
+                </div>
                 {isSavingPago && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
               </div>
               <Switch
