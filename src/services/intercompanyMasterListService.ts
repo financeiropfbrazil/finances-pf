@@ -234,3 +234,45 @@ export async function importarPdfAnexo(masterId: string, file: File): Promise<vo
   });
   if (rpcErr) throw new Error(rpcErr.message);
 }
+
+/**
+ * Dataset de blocos do conjunto filtrado (Abas 2 e 3 do export).
+ * Une blocos normais + manuais. Retorna { invoices, alocacoes }.
+ */
+export async function exportarBlocosIntercompany(filtros: MasterFiltros = {}): Promise<{
+  invoices: {
+    numero_invoice: string;
+    data_emissao: string | null;
+    valor_eur: number | null;
+    pago: boolean;
+    pago_em: string | null;
+  }[];
+  alocacoes: {
+    numero_invoice: string;
+    classe_codigo: string | null;
+    classe_nome: string | null;
+    konto_numero: string | null;
+    konto_descricao: string | null;
+    valor_eur: number | null;
+  }[];
+}> {
+  const filtrosLimpos: Record<string, any> = {};
+  Object.entries(filtros).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && v !== "") filtrosLimpos[k] = v;
+  });
+  const { data, error } = await (supabase as any).rpc("exportar_blocos_intercompany", {
+    p_filtros: filtrosLimpos,
+  });
+  if (error) throw new Error(error.message);
+  return { invoices: data?.invoices ?? [], alocacoes: data?.alocacoes ?? [] };
+}
+
+/**
+ * Posição consolidada (Aba 1 do export): emitido/pago/em-aberto + aging,
+ * todas as datas, ignorando o filtro. Sempre "até hoje".
+ */
+export async function resumoConsolidadoIntercompany(): Promise<any> {
+  const { data, error } = await (supabase as any).rpc("resumo_consolidado_intercompany");
+  if (error) throw new Error(error.message);
+  return data;
+}
