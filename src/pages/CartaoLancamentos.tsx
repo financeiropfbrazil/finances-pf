@@ -176,7 +176,7 @@ function ListaLotes({
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 p-6 max-w-full overflow-hidden">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
@@ -712,7 +712,11 @@ function DetalheLote({
             </p>
           </div>
         </div>
-        <Button onClick={emitirSelecionadas} disabled={emitindo || marcadasProntas === 0}>
+        <Button
+          onClick={emitirSelecionadas}
+          disabled={emitindo || marcadasProntas === 0}
+          className="shrink-0 whitespace-nowrap"
+        >
           {emitindo ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -783,20 +787,20 @@ function DetalheLote({
       )}
 
       <div className="rounded-md border overflow-x-auto">
-        <Table className="w-full">
+        <Table className="w-full text-xs">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[36px]">
+              <TableHead className="w-[32px] px-1">
                 <Checkbox checked={todasMarcadas} onCheckedChange={toggleTodas} aria-label="Selecionar todas" />
               </TableHead>
-              <TableHead className="w-[78px]">Data</TableHead>
-              <TableHead className="min-w-[160px]">Estabelecimento</TableHead>
-              <TableHead className="w-[90px] text-right">Valor</TableHead>
-              <TableHead className="w-[230px]">Fornecedor</TableHead>
-              <TableHead className="w-[170px]">Classe</TableHead>
-              <TableHead className="w-[170px]">Centro Ctrl</TableHead>
-              <TableHead className="w-[84px]">Status</TableHead>
-              <TableHead className="w-[44px]" />
+              <TableHead className="w-[72px]">Data</TableHead>
+              <TableHead>Estabelecimento</TableHead>
+              <TableHead className="w-[80px] text-right">Valor</TableHead>
+              <TableHead className="w-[180px]">Fornecedor</TableHead>
+              <TableHead className="w-[140px]">Classe</TableHead>
+              <TableHead className="w-[140px]">Centro</TableHead>
+              <TableHead className="w-[72px]">Status</TableHead>
+              <TableHead className="w-[40px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
