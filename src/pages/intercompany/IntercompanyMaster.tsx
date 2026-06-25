@@ -61,17 +61,71 @@ const formatDate = (iso: string | null) => {
   return `${d}/${m}/${y}`;
 };
 
+// ── Tom semântico (rotina = quieto, exceção = salta) ───────────────────────
+type Tone = "danger" | "warning" | "success" | "info" | "muted";
+
+const TONE_TEXT: Record<Tone, string> = {
+  danger: "text-danger",
+  warning: "text-warning",
+  success: "text-success",
+  info: "text-info",
+  muted: "text-muted-foreground",
+};
+const TONE_DOT: Record<Tone, string> = {
+  danger: "bg-danger",
+  warning: "bg-warning",
+  success: "bg-success",
+  info: "bg-info",
+  muted: "bg-muted-foreground",
+};
+
+// Status na LINHA: dot + texto em caixa alta (estilo ledger das imagens)
+function StatusDot({ tone, label }: { tone: Tone; label: string }) {
+  return (
+    <span
+      className={cn(
+        "flex items-center gap-1.5 whitespace-nowrap text-[10px] font-bold uppercase tracking-wide",
+        TONE_TEXT[tone],
+      )}
+    >
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", TONE_DOT[tone])} />
+      {label}
+    </span>
+  );
+}
+
+// status_unificado → tom (emitida é rotina → muted; exceções saltam)
+const statusTone: Record<MasterStatusUnificado, Tone> = {
+  rascunho: "muted",
+  pendente_emissao: "warning",
+  emitida: "muted",
+  erro: "danger",
+  sincronizada: "info",
+  classificada: "success",
+  pendente_eur: "warning",
+  pendente_revisao: "warning",
+  validada: "success",
+  reconciliada: "info",
+};
+
+// Para os badges de contagem do resumo (tokenizados)
 const statusColor: Record<MasterStatusUnificado, string> = {
   rascunho: "bg-muted text-muted-foreground border-border",
   pendente_emissao: "bg-warning/12 text-warning border-warning/30",
-  emitida: "bg-success/12 text-success border-success/30",
-  erro: "bg-danger/15 text-danger border-danger/40 font-medium",
+  emitida: "bg-muted text-muted-foreground border-border",
+  erro: "bg-danger/15 text-danger border-danger/40",
   sincronizada: "bg-info/12 text-info border-info/30",
-  classificada: "bg-violet/12 text-violet border-violet/30",
+  classificada: "bg-success/12 text-success border-success/30",
   pendente_eur: "bg-warning/12 text-warning border-warning/30",
   pendente_revisao: "bg-warning/12 text-warning border-warning/30",
   validada: "bg-success/12 text-success border-success/30",
   reconciliada: "bg-info/12 text-info border-info/30",
+};
+
+const classificationTone: Record<MasterClassificationStatus, Tone> = {
+  classified: "success",
+  needs_konto_at: "warning",
+  unclassified: "danger",
 };
 
 const classificationColor: Record<MasterClassificationStatus, string> = {
@@ -509,31 +563,40 @@ export default function IntercompanyMaster() {
         </CardContent>
       </Card>
 
-      {/* Resumo */}
+      {/* Resumo — EUR herói */}
       {listQuery.data?.resumo && (
-        <Card className="border-muted">
-          <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-2 p-4 text-sm">
-            <div>
-              <span className="text-xs text-muted-foreground">Total: </span>
-              <span className="font-semibold">{listQuery.data.resumo.total_invoices} invoices</span>
+        <Card>
+          <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-3 p-4">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Total EUR</span>
+              <span className="font-mono text-2xl font-bold leading-none tabular-nums">
+                {formatEUR(listQuery.data.resumo.soma_eur)}
+              </span>
             </div>
-            <div className="h-4 w-px bg-border" />
-            <div>
-              <span className="text-xs text-muted-foreground">EUR: </span>
-              <span className="font-mono font-semibold">{formatEUR(listQuery.data.resumo.soma_eur)}</span>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Total BRL</span>
+              <span className="mt-1 font-mono text-base font-semibold leading-none tabular-nums text-muted-foreground">
+                {formatBRL(listQuery.data.resumo.soma_brl)}
+              </span>
             </div>
-            <div>
-              <span className="text-xs text-muted-foreground">BRL: </span>
-              <span className="font-mono font-semibold">{formatBRL(listQuery.data.resumo.soma_brl)}</span>
+
+            <div className="h-8 w-px bg-border" />
+
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Invoices</span>
+              <span className="mt-1 text-base font-bold leading-none tabular-nums">
+                {listQuery.data.resumo.total_invoices}
+              </span>
             </div>
-            <div className="h-4 w-px bg-border" />
             <Badge variant="outline" className="text-[10px]">
               Hub: {listQuery.data.resumo.qtd_hub}
             </Badge>
             <Badge variant="outline" className="text-[10px]">
               Alvo: {listQuery.data.resumo.qtd_alvo}
             </Badge>
-            <div className="h-4 w-px bg-border hidden md:block" />
+
+            <div className="h-8 w-px bg-border hidden md:block" />
+
             <div className="flex flex-wrap items-center gap-1.5">
               {listQuery.data.resumo.por_status.map((s) => (
                 <Badge
@@ -591,33 +654,34 @@ export default function IntercompanyMaster() {
 
       {/* Tabela */}
       {!listQuery.isLoading && !listQuery.error && listQuery.data?.items && listQuery.data.items.length > 0 && (
-        <Card>
+        <Card className="overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-3 font-medium w-8" />
-                  <th className="px-3 py-3 font-medium">Nº Invoice</th>
-                  <th className="px-3 py-3 font-medium">Nº NF/Doc</th>
-                  <th className="px-3 py-3 font-medium">Data</th>
-                  <th className="px-3 py-3 font-medium">Tipo</th>
-                  <th className="px-3 py-3 font-medium">Classe</th>
-                  <th className="px-3 py-3 font-medium">Konto AT</th>
-                  <th className="px-3 py-3 font-medium text-right">EUR</th>
-                  <th className="px-3 py-3 font-medium text-right">BRL</th>
-                  <th className="px-3 py-3 font-medium">Blocos</th>
-                  <th className="px-3 py-3 font-medium">CCs</th>
-                  <th className="px-3 py-3 font-medium">Origem</th>
-                  <th className="px-3 py-3 font-medium">Status</th>
-                  <th className="px-3 py-3 font-medium">Classific.</th>
-                  <th className="px-3 py-3 font-medium w-12 text-center">Ações</th>
+                <tr className="border-b border-border bg-surface-1 text-left text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <th className="px-3 py-3 font-bold w-8" />
+                  <th className="px-3 py-3 font-bold">Nº Invoice</th>
+                  <th className="px-3 py-3 font-bold">Nº NF/Doc</th>
+                  <th className="px-3 py-3 font-bold">Data</th>
+                  <th className="px-3 py-3 font-bold">Tipo</th>
+                  <th className="px-3 py-3 font-bold">Classe</th>
+                  <th className="px-3 py-3 font-bold">Konto AT</th>
+                  <th className="px-3 py-3 font-bold text-right">EUR</th>
+                  <th className="px-3 py-3 font-bold text-right">BRL</th>
+                  <th className="px-3 py-3 font-bold">Blocos</th>
+                  <th className="px-3 py-3 font-bold">CCs</th>
+                  <th className="px-3 py-3 font-bold">Origem</th>
+                  <th className="px-3 py-3 font-bold">Status</th>
+                  <th className="px-3 py-3 font-bold">Classific.</th>
+                  <th className="px-3 py-3 font-bold w-12 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {listQuery.data.items.map((item) => (
+                {listQuery.data.items.map((item, idx) => (
                   <MasterRow
                     key={`${item.source_table}-${item.id}`}
                     item={item}
+                    index={idx}
                     expanded={expandedId === `${item.source_table}-${item.id}`}
                     onToggle={() =>
                       setExpandedId((prev) =>
@@ -635,7 +699,7 @@ export default function IntercompanyMaster() {
           </div>
 
           {/* Paginação */}
-          <div className="flex items-center justify-between border-t border-border bg-muted/30 px-4 py-2.5 text-xs">
+          <div className="flex items-center justify-between border-t border-border bg-surface-1 px-4 py-2.5 text-xs">
             <span className="text-muted-foreground">
               Mostrando {listQuery.data.items.length} de {listQuery.data.pagination.total} · Página{" "}
               {listQuery.data.pagination.page} de {listQuery.data.pagination.total_pages}
@@ -682,35 +746,31 @@ export default function IntercompanyMaster() {
 
 interface MasterRowProps {
   item: MasterItem;
+  index: number;
   expanded: boolean;
   onToggle: () => void;
   onEditCambio: () => void;
 }
 
-function MasterRow({ item, expanded, onToggle, onEditCambio }: MasterRowProps) {
-  const classEmoji = classificationEmoji[item.classification_status_agregado];
+function MasterRow({ item, index, expanded, onToggle, onEditCambio }: MasterRowProps) {
+  // zebra + estado aberto (aberto vence o zebra)
+  const rowBg = expanded ? "bg-accent/60" : index % 2 === 1 ? "bg-muted/15 hover:bg-muted/30" : "hover:bg-muted/20";
 
   return (
     <>
-      <tr
-        className={cn(
-          "border-b border-border/50 transition-colors cursor-pointer",
-          expanded ? "bg-accent/60" : "hover:bg-muted/20",
-        )}
-        onClick={onToggle}
-      >
-        <td className="px-3 py-2.5">
+      <tr className={cn("cursor-pointer transition-colors", rowBg)} onClick={onToggle}>
+        <td className={cn("px-3 py-2.5", expanded && "border-l-[3px] border-l-primary")}>
           {expanded ? (
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
           ) : (
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           )}
         </td>
-        <td className="px-3 py-2.5 font-mono text-xs">{item.numero_invoice ?? "—"}</td>
-        <td className="px-3 py-2.5 font-mono text-xs">
+        <td className="px-3 py-2.5 font-mono text-xs tabular-nums">{item.numero_invoice ?? "—"}</td>
+        <td className="px-3 py-2.5 font-mono text-xs tabular-nums">
           {item.numero_documento_alvo ?? <span className="text-muted-foreground">—</span>}
         </td>
-        <td className="px-3 py-2.5 whitespace-nowrap">{formatDate(item.data_emissao)}</td>
+        <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">{formatDate(item.data_emissao)}</td>
         <td className="px-3 py-2.5">
           <Badge variant="outline" className="text-[10px] capitalize">
             {item.tipo}
@@ -718,20 +778,22 @@ function MasterRow({ item, expanded, onToggle, onEditCambio }: MasterRowProps) {
         </td>
         <td className="px-3 py-2.5">
           {item.classe_codigo ? (
-            <span className="font-mono text-xs">{item.classe_codigo}</span>
+            <span className="font-mono text-xs tabular-nums">{item.classe_codigo}</span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
         </td>
         <td className="px-3 py-2.5">
           {item.konto_at_numero ? (
-            <span className="font-mono text-xs">{item.konto_at_numero}</span>
+            <span className="font-mono text-xs tabular-nums">{item.konto_at_numero}</span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
         </td>
-        <td className="px-3 py-2.5 text-right font-mono">{formatEUR(item.valor_eur)}</td>
-        <td className="px-3 py-2.5 text-right font-mono">{formatBRL(item.valor_brl)}</td>
+        <td className="px-3 py-2.5 text-right font-mono font-semibold tabular-nums">{formatEUR(item.valor_eur)}</td>
+        <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+          {formatBRL(item.valor_brl)}
+        </td>
         <td className="px-3 py-2.5">
           {item.total_blocos > 0 ? (
             <Badge variant="secondary" className="text-[10px]">
@@ -756,18 +818,13 @@ function MasterRow({ item, expanded, onToggle, onEditCambio }: MasterRowProps) {
           </Badge>
         </td>
         <td className="px-3 py-2.5">
-          <Badge variant="outline" className={`text-[10px] border ${statusColor[item.status_unificado] ?? ""}`}>
-            {item.status_label}
-          </Badge>
+          <StatusDot tone={statusTone[item.status_unificado] ?? "muted"} label={item.status_label} />
         </td>
         <td className="px-3 py-2.5">
-          <Badge
-            variant="outline"
-            className={`text-[10px] border ${classificationColor[item.classification_status_agregado]}`}
-          >
-            <span className="mr-1 font-bold">{classEmoji}</span>
-            {classificationLabel[item.classification_status_agregado]}
-          </Badge>
+          <StatusDot
+            tone={classificationTone[item.classification_status_agregado]}
+            label={classificationLabel[item.classification_status_agregado]}
+          />
         </td>
         <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEditCambio} title="Editar câmbio">
@@ -877,18 +934,18 @@ function BlocoCard({ bloco }: { bloco: MasterBlocoDetalhe }) {
           <p className="text-xs text-muted-foreground mt-1">{bloco.descricao}</p>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-sm font-mono font-semibold">{formatEUR(bloco.valor_eur)}</p>
+          <p className="text-sm font-mono font-semibold tabular-nums">{formatEUR(bloco.valor_eur)}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-[10px] pt-2 border-t border-border/50">
         <div>
           <span className="text-muted-foreground uppercase tracking-wide">Classe BR</span>
-          <p className="font-mono">{bloco.classe_codigo ?? "—"}</p>
+          <p className="font-mono tabular-nums">{bloco.classe_codigo ?? "—"}</p>
         </div>
         <div>
           <span className="text-muted-foreground uppercase tracking-wide">Konto AT</span>
-          <p className="font-mono">{bloco.konto_at_numero ?? "—"}</p>
+          <p className="font-mono tabular-nums">{bloco.konto_at_numero ?? "—"}</p>
         </div>
         {bloco.konto_at_descricao && (
           <div>
@@ -916,10 +973,10 @@ function BlocoCard({ bloco }: { bloco: MasterBlocoDetalhe }) {
             <tbody>
               {bloco.rateios.map((r) => (
                 <tr key={r.centro_custo_erp_code}>
-                  <td className="font-mono py-0.5">{r.centro_custo_erp_code}</td>
+                  <td className="font-mono py-0.5 tabular-nums">{r.centro_custo_erp_code}</td>
                   <td>{r.centro_custo_nome ?? "—"}</td>
-                  <td className="text-right font-mono">{r.percentual.toFixed(2)}%</td>
-                  <td className="text-right font-mono">{formatEUR(r.valor_eur)}</td>
+                  <td className="text-right font-mono tabular-nums">{r.percentual.toFixed(2)}%</td>
+                  <td className="text-right font-mono tabular-nums">{formatEUR(r.valor_eur)}</td>
                 </tr>
               ))}
             </tbody>
@@ -934,7 +991,7 @@ function DetailField({ label, value, mono }: { label: string; value: string; mon
   return (
     <div>
       <span className="text-muted-foreground uppercase tracking-wide block">{label}</span>
-      <span className={cn("text-foreground", mono && "font-mono")}>{value}</span>
+      <span className={cn("text-foreground", mono && "font-mono tabular-nums")}>{value}</span>
     </div>
   );
 }
