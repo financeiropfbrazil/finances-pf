@@ -698,14 +698,14 @@ function DetalheLote({
 
   return (
     <div className="space-y-4 p-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={onVoltar}>
+      <div className="flex flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <Button variant="ghost" size="icon" className="shrink-0" onClick={onVoltar}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <h1 className="text-xl font-bold text-foreground">{lote.titular}</h1>
-            <p className="text-sm text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-foreground truncate">{lote.titular}</h1>
+            <p className="text-sm text-muted-foreground truncate">
               {lote.final_cartao ? `•••• ${lote.final_cartao} · ` : ""}
               Nº {lote.numero_onfly} · Venc. {fmtData(lote.data_vencimento)} · {itens.length} linhas ·{" "}
               {fmtBRL(totalValor)}
