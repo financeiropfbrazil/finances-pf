@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, type ReactNode } from "react";
+import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
@@ -36,6 +36,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Upload,
   X,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -48,6 +49,7 @@ import {
   buscarFiltrosDisponiveis,
   buscarTudoParaExportar,
   definirPagoMaster,
+  importarPdfAnexo,
   listarKontosAtivos,
   listarMaster,
 } from "@/services/intercompanyMasterListService";
@@ -923,14 +925,27 @@ function InvoiceDetailSheet({ item, open, onOpenChange, onEditCambio }: InvoiceD
     },
   });
 
+  const importMutation = useMutation({
+    mutationFn: (file: File) => importarPdfAnexo(item!.id, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["intercompany_master_detalhe", item?.id] });
+      toast.success("PDF importado");
+    },
+    onError: (err: any) => {
+      toast.error(`Não foi possível importar o PDF: ${err?.message ?? "erro desconhecido"}`);
+    },
+  });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!item) return null;
 
   const detalhe = detalheQuery.data;
   const pago = detalhe?.pago ?? false;
   const anexo = detalhe?.anexos?.[0];
-  const bucket = detalhe ? ORIGEM_BUCKET[detalhe.origem] : undefined;
-  const podeBaixarPdf = !!anexo && !!bucket;
+  const bucket = anexo?.bucket ?? (detalhe ? ORIGEM_BUCKET[detalhe.origem] : undefined);
   const isSavingPago = (pagoMutation as any).isPending ?? (pagoMutation as any).isLoading ?? false;
+  const isImporting = (importMutation as any).isPending ?? (importMutation as any).isLoading ?? false;
 
   const handleBaixarPdf = async () => {
     if (!anexo || !bucket) return;
@@ -938,6 +953,8 @@ function InvoiceDetailSheet({ item, open, onOpenChange, onEditCambio }: InvoiceD
     if (ok) toast.success("PDF baixado");
     else toast.error("Não foi possível baixar o PDF");
   };
+
+  const handlePickFile = () => fileInputRef.current?.click();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1059,18 +1076,63 @@ function InvoiceDetailSheet({ item, open, onOpenChange, onEditCambio }: InvoiceD
               Editar câmbio
             </Button>
 
-            {/* Baixar PDF */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full justify-start"
-              disabled={!podeBaixarPdf}
-              onClick={handleBaixarPdf}
-              title={podeBaixarPdf ? undefined : "Esta invoice não tem PDF próprio no Hub"}
-            >
-              <Download className="mr-2 h-3.5 w-3.5" />
-              Baixar PDF
-            </Button>
+            {/* PDF: baixar / importar / substituir */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) importMutation.mutate(f);
+              }}
+            />
+            {anexo ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  disabled={!bucket}
+                  onClick={handleBaixarPdf}
+                >
+                  <Download className="mr-2 h-3.5 w-3.5" />
+                  Baixar PDF
+                </Button>
+                {anexo.origem === "importado" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-muted-foreground"
+                    disabled={isImporting}
+                    onClick={handlePickFile}
+                  >
+                    {isImporting ? (
+                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="mr-2 h-3.5 w-3.5" />
+                    )}
+                    Substituir PDF
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start"
+                disabled={isImporting || detalheQuery.isLoading}
+                onClick={handlePickFile}
+              >
+                {isImporting ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Upload className="mr-2 h-3.5 w-3.5" />
+                )}
+                Importar PDF
+              </Button>
+            )}
 
             {/* Marcar reconciliado — em breve */}
             <Button variant="outline" size="sm" className="w-full justify-start" disabled title="Em breve">
