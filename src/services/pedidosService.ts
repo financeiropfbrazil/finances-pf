@@ -237,7 +237,32 @@ async function callGatewayGet(path: string): Promise<any> {
   }
   return data;
 }
+// ═══════════════════════════════════════════════════════════════════
+// RESOLVER USUARIO ALVO (CodigoUsuario = login Alvo do operador)
+// ═══════════════════════════════════════════════════════════════════
+//
+// O dashboard mostra na coluna "Comprador" o compras_pedidos.codigo_usuario,
+// alimentado pelo CodigoUsuario do payload. O Alvo respeita esse campo
+// (confirmado: a sessão erp-proxy é conta de serviço única, e os pedidos
+// saíam carimbados conforme o payload, não conforme o token). Resolve o
+// login Alvo do operador (profiles.alvo_usuario) a partir do user_id logado.
+//
+// Robusto a esquema: tenta profiles.id = auth uid (padrão canônico); se não
+// achar, cai pra email; só então usa o fallback da conta de serviço.
+async function resolverUsuarioAlvo(userId: string, email?: string | null): Promise<string> {
+  const porId = await (supabase as any).from("profiles").select("alvo_usuario").eq("id", userId).maybeSingle();
+  if (porId?.data?.alvo_usuario) return porId.data.alvo_usuario;
 
+  if (email) {
+    const porEmail = await (supabase as any).from("profiles").select("alvo_usuario").eq("email", email).maybeSingle();
+    if (porEmail?.data?.alvo_usuario) return porEmail.data.alvo_usuario;
+  }
+
+  console.error(
+    `[resolverUsuarioAlvo] profile sem alvo_usuario (user=${userId} email=${email ?? "?"}) — fallback ${USUARIO_LOGADO}`,
+  );
+  return USUARIO_LOGADO;
+}
 // ═══════════════════════════════════════════════════════════════════
 // RESOLVER CODIGO COMPRADOR (requisitante se vínculo; senão operador)
 // ═══════════════════════════════════════════════════════════════════
@@ -740,10 +765,19 @@ interface MontarPayloadParams {
   arquivos_guids?: string[];
   itens_enriquecidos: ItemEnriquecido[]; // 1 por item, na mesma ordem que input.itens
   codigo_comprador: string | null;
+  codigo_usuario_alvo: string;
 }
 
 function montarPayloadPedComp(p: MontarPayloadParams): any {
-  const { input, texto_completo, texto_historico_completo, arquivos_guids, itens_enriquecidos, codigo_comprador } = p;
+  const {
+    input,
+    texto_completo,
+    texto_historico_completo,
+    arquivos_guids,
+    itens_enriquecidos,
+    codigo_comprador,
+    codigo_usuario_alvo,
+  } = p;
 
   if (itens_enriquecidos.length !== input.itens.length) {
     throw new Error(`Inconsistência: ${input.itens.length} itens vs ${itens_enriquecidos.length} enriquecimentos`);
@@ -980,7 +1014,7 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     PercentualAcrescimoFinanceiroServico: null,
     PercentualDescontoEspecialServico: null,
     ValorCambio: 1,
-    CodigoUsuario: USUARIO_LOGADO,
+    CodigoUsuario: codigo_usuario_alvo,
     CodigoComprador: codigo_comprador,
     Texto: texto_completo,
     Origem: origem,
@@ -1004,7 +1038,7 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     NomeComprador: null,
     EmailComprador: null,
     ImpostoZerado: "Não",
-    UsuarioLogado: USUARIO_LOGADO,
+    UsuarioLogado: codigo_usuario_alvo,
     UploadIdentify: "",
     filesToUpload,
   };
@@ -1114,6 +1148,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
   const modoEdicao = !!pedidoIdExistente;
 
   try {
+    const codigoUsuarioAlvo = await resolverUsuarioAlvo(input.user_id, input.analista_email);
     const valorTotal = input.itens.reduce((acc, it) => acc + it.quantidade * it.valor_unitario, 0);
 
     if (modoEdicao) {
@@ -1147,7 +1182,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
           cnpj_entidade: input.cnpj_entidade || null,
           codigo_cond_pag: input.codigo_cond_pag,
           nome_cond_pag: input.nome_cond_pag,
-          codigo_usuario: USUARIO_LOGADO,
+          codigo_usuario: codigoUsuarioAlvo,
           texto: textoCompleto,
           texto_historico: textoHistoricoCompleto,
           valor_mercadoria: round2(valorTotal),
@@ -1183,7 +1218,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
           cnpj_entidade: input.cnpj_entidade || null,
           codigo_cond_pag: input.codigo_cond_pag,
           nome_cond_pag: input.nome_cond_pag,
-          codigo_usuario: USUARIO_LOGADO,
+          codigo_usuario: codigoUsuarioAlvo,
           texto: textoCompleto,
           texto_historico: textoHistoricoCompleto,
           valor_mercadoria: round2(valorTotal),
@@ -1320,7 +1355,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         data_competencia: input.data_competencia,
         data_base_vencimento: input.data_pedido,
         codigo_tipo_pag_rec: "0000016",
-        codigo_usuario: USUARIO_LOGADO,
+        codigo_usuario: codigoUsuarioAlvo,
       });
       itensEnriquecidos.push(enriq);
     }
@@ -1335,6 +1370,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       arquivos_guids: guids.length > 0 ? guids : undefined,
       itens_enriquecidos: itensEnriquecidos,
       codigo_comprador: codigoComprador,
+      codigo_usuario_alvo: codigoUsuarioAlvo,
     });
 
     await (supabase as any).from("compras_pedidos_auditoria").insert({
