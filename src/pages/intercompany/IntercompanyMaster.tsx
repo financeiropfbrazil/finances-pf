@@ -190,6 +190,15 @@ const styLabel = { font: { bold: true } };
 const cNum = (v: number | null | undefined, z: string, s: any = {}) => ({ v: Number(v ?? 0), t: "n", z, s });
 const cTxt = (v: any, s: any = {}) => ({ v: v == null ? "" : String(v), t: "s", s });
 const cBlank = () => null;
+// célula de fórmula viva (com valor em cache pra aparecer antes do recálculo)
+const cFormula = (formula: string, cached: number, z: string, s: any = {}) => ({
+  t: "n",
+  f: formula,
+  v: Number(cached ?? 0),
+  z,
+  s,
+});
+const colL = (c: number) => XLSX.utils.encode_col(c);
 
 function sheetFromMatrix(matrix: any[][]) {
   const ws: any = {};
@@ -291,15 +300,17 @@ function buildIntercompanyWorkbook(items: any[], blocos: any, consolidado: any) 
         cNum(g(ag[key], "eur"), XLS_EUR),
         cNum(g(ag[key], "brl"), XLS_BRL),
       ]);
+    const agFirst = m.length + 1; // Excel row do primeiro balde
     agingRow("0–30 days", "d0_30");
     agingRow("31–60 days", "d31_60");
     agingRow("61–90 days", "d61_90");
     agingRow("90+ days", "d90_mais");
+    const agLast = agFirst + 3;
     m.push([
       cTxt("Total open", styTotal),
-      cNum(g(c.em_aberto, "qtd"), XLS_INT, styTotal),
-      cNum(g(c.em_aberto, "eur"), XLS_EUR, styTotal),
-      cNum(g(c.em_aberto, "brl"), XLS_BRL, styTotal),
+      cFormula(`SUM(B${agFirst}:B${agLast})`, g(c.em_aberto, "qtd"), XLS_INT, styTotal),
+      cFormula(`SUM(C${agFirst}:C${agLast})`, g(c.em_aberto, "eur"), XLS_EUR, styTotal),
+      cFormula(`SUM(D${agFirst}:D${agLast})`, g(c.em_aberto, "brl"), XLS_BRL, styTotal),
     ]);
 
     const ws = sheetFromMatrix(m);
@@ -342,6 +353,8 @@ function buildIntercompanyWorkbook(items: any[], blocos: any, consolidado: any) 
     const colTotals = new Array(dims.length).fill(0);
     let noTotal = 0;
     let grand = 0;
+    const noColIdx = 2 + dims.length;
+    const totalColIdx = 2 + dims.length + 1;
 
     items.forEach((inv) => {
       const am = allocMap.get(inv.numero_invoice) || new Map<string, number>();
@@ -349,7 +362,8 @@ function buildIntercompanyWorkbook(items: any[], blocos: any, consolidado: any) 
       let sumAlloc = 0;
       am.forEach((val) => (sumAlloc += val));
       const noVal = (am.get(noLabel) || 0) + (invTotal - sumAlloc);
-      const row: any[] = [cTxt(inv.numero_invoice), cTxt(formatDate(inv.data_emissao))];
+      const R = m.length + 1; // Excel row desta invoice
+      const row = [cTxt(inv.numero_invoice), cTxt(formatDate(inv.data_emissao))];
       dims.forEach((d, idx) => {
         const v = am.get(d) || 0;
         colTotals[idx] += v;
@@ -357,17 +371,26 @@ function buildIntercompanyWorkbook(items: any[], blocos: any, consolidado: any) 
       });
       noTotal += noVal;
       row.push(Math.abs(noVal) > 0.005 ? cNum(noVal, XLS_EUR) : cBlank());
-      row.push(cNum(invTotal, XLS_EUR, styLabel));
+      // Total da linha = soma viva das colunas de valor (Konto/Classe + (no ...))
+      row.push(cFormula(`SUM(${colL(2)}${R}:${colL(noColIdx)}${R})`, invTotal, XLS_EUR, styLabel));
       grand += invTotal;
       m.push(row);
     });
 
+    const firstDataRow = 4;
+    const lastDataRow = 3 + items.length;
+    const hasRows = items.length > 0;
+    const sumColCell = (cidx: number, cached: number) =>
+      hasRows
+        ? cFormula(`SUM(${colL(cidx)}${firstDataRow}:${colL(cidx)}${lastDataRow})`, cached, XLS_EUR, styTotal)
+        : cNum(cached, XLS_EUR, styTotal);
+
     m.push([
       cTxt("TOTAL", styTotal),
       cTxt("", styTotal),
-      ...dims.map((_d, idx) => cNum(colTotals[idx], XLS_EUR, styTotal)),
-      cNum(noTotal, XLS_EUR, styTotal),
-      cNum(grand, XLS_EUR, styTotal),
+      ...dims.map((_d, idx) => sumColCell(2 + idx, colTotals[idx])),
+      sumColCell(noColIdx, noTotal),
+      sumColCell(totalColIdx, grand),
     ]);
 
     const ws = sheetFromMatrix(m);
