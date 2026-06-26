@@ -329,6 +329,134 @@ const translations = {
   "month.10": { pt: "Outubro", en: "October" },
   "month.11": { pt: "Novembro", en: "November" },
   "month.12": { pt: "Dezembro", en: "December" },
+  // ─── Intercompany Master (icm.*) ───────────────────────────────────────────
+  // Cabeçalho
+  "icm.title": { pt: "Intercompany Master", en: "Intercompany Master" },
+  "icm.subtitle": {
+    pt: "Invoices intercompany P&F ↔ PEF Áustria",
+    en: "Intercompany invoices P&F ↔ PEF Austria",
+  },
+  "icm.btn.refresh": { pt: "Atualizar", en: "Refresh" },
+  "icm.btn.export": { pt: "Exportar Excel", en: "Export Excel" },
+  "icm.btn.exporting": { pt: "Exportando...", en: "Exporting..." },
+  "icm.btn.new_reembolso": { pt: "Novo Reembolso", en: "New Reimbursement" },
+
+  // Filtros
+  "icm.filters.title": { pt: "Filtros", en: "Filters" },
+  "icm.filters.active": { pt: "ativo(s)", en: "active" },
+  "icm.filters.clear": { pt: "Limpar", en: "Clear" },
+  "icm.filters.date_from": { pt: "Data de", en: "Date from" },
+  "icm.filters.date_to": { pt: "Data até", en: "Date to" },
+  "icm.filters.type": { pt: "Tipo", en: "Type" },
+  "icm.filters.status": { pt: "Status", en: "Status" },
+  "icm.filters.origin": { pt: "Origem", en: "Source" },
+  "icm.filters.class": { pt: "Classe", en: "Class" },
+  "icm.filters.konto": { pt: "Konto AT", en: "Konto AT" },
+  "icm.filters.cost_center": { pt: "Centro de Custo", en: "Cost Center" },
+  "icm.filters.search": { pt: "Buscar", en: "Search" },
+  "icm.filters.search_cc": { pt: "Buscar CC...", en: "Search CC..." },
+  "icm.filters.no_cc": { pt: "Nenhum CC encontrado.", en: "No cost center found." },
+  "icm.filters.search_ph": { pt: "Nº invoice ou descrição...", en: "Invoice # or description..." },
+  "icm.opt.all_m": { pt: "Todos", en: "All" },
+  "icm.opt.all_f": { pt: "Todas", en: "All" },
+
+  // Resumo
+  "icm.sum.total_eur": { pt: "Total EUR", en: "Total EUR" },
+  "icm.sum.total_brl": { pt: "Total BRL", en: "Total BRL" },
+  "icm.sum.invoices": { pt: "Invoices", en: "Invoices" },
+
+  // Estados (erro / vazio)
+  "icm.error.title": { pt: "Erro ao carregar invoices", en: "Failed to load invoices" },
+  "icm.error.unknown": { pt: "Erro desconhecido", en: "Unknown error" },
+  "icm.error.retry": { pt: "Tentar novamente", en: "Try again" },
+  "icm.empty.none": {
+    pt: "Nenhum invoice encontrado com os filtros atuais.",
+    en: "No invoices found with the current filters.",
+  },
+  "icm.empty.clear": { pt: "Limpar filtros", en: "Clear filters" },
+
+  // Cabeçalhos da tabela
+  "icm.col.invoice": { pt: "Nº Invoice", en: "Invoice #" },
+  "icm.col.date": { pt: "Data", en: "Date" },
+  "icm.col.type": { pt: "Tipo", en: "Type" },
+  "icm.col.konto": { pt: "Konto AT", en: "Konto AT" },
+  "icm.col.eur": { pt: "EUR", en: "EUR" },
+  "icm.col.classif": { pt: "Classific.", en: "Classific." },
+
+  // Editor inline de Konto
+  "icm.konto.set": { pt: "definir", en: "set" },
+  "icm.konto.multibloco": {
+    pt: "Invoice com vários blocos — classifique pela tela de blocos (abra a invoice)",
+    en: "Invoice with multiple blocks — classify via the blocks panel (open the invoice)",
+  },
+  "icm.konto.edit_title": { pt: "Clique para alterar o Konto", en: "Click to change the Konto" },
+  "icm.konto.search": { pt: "Buscar Konto...", en: "Search Konto..." },
+  "icm.konto.none": { pt: "Nenhum Konto encontrado.", en: "No Konto found." },
+
+  // Paginação
+  "icm.pag.showing": { pt: "Mostrando", en: "Showing" },
+  "icm.pag.of": { pt: "de", en: "of" },
+  "icm.pag.page": { pt: "Página", en: "Page" },
+  "icm.pag.prev": { pt: "Anterior", en: "Previous" },
+  "icm.pag.next": { pt: "Próximo", en: "Next" },
+
+  // Painel lateral — seções
+  "icm.panel.summary": { pt: "Resumo", en: "Summary" },
+  "icm.panel.values": { pt: "Valores", en: "Values" },
+  "icm.panel.classification": { pt: "Classificação", en: "Classification" },
+  "icm.panel.document": { pt: "Documento (Alvo)", en: "Document (Alvo)" },
+  "icm.panel.blocks": { pt: "Blocos & Rateios", en: "Blocks & Allocations" },
+  "icm.panel.actions": { pt: "Ações", en: "Actions" },
+  "icm.panel.description": { pt: "Descrição", en: "Description" },
+  "icm.panel.loading_blocks": { pt: "Carregando blocos...", en: "Loading blocks..." },
+
+  // Painel lateral — campos
+  "icm.f.type": { pt: "Tipo", en: "Type" },
+  "icm.f.specie": { pt: "Espécie", en: "Specie" },
+  "icm.f.issue_date": { pt: "Data emissão", en: "Issue date" },
+  "icm.f.origin": { pt: "Origem", en: "Source" },
+  "icm.f.eur": { pt: "EUR", en: "EUR" },
+  "icm.f.brl": { pt: "BRL", en: "BRL" },
+  "icm.f.exchange": { pt: "Câmbio", en: "Exchange rate" },
+  "icm.f.class_br": { pt: "Classe BR", en: "Class BR" },
+  "icm.f.class_name": { pt: "Classe nome", en: "Class name" },
+  "icm.f.konto": { pt: "Konto AT", en: "Konto AT" },
+  "icm.f.konto_desc": { pt: "Konto desc.", en: "Konto desc." },
+  "icm.f.doc_number": { pt: "Nº NF/Doc", en: "NF/Doc #" },
+  "icm.f.alvo_key": { pt: "Chave Alvo", en: "Alvo key" },
+  "icm.f.category": { pt: "Categoria", en: "Category" },
+
+  // Card de bloco
+  "icm.bloco.block": { pt: "Bloco", en: "Block" },
+  "icm.bloco.class_br": { pt: "Classe BR", en: "Class BR" },
+  "icm.bloco.konto": { pt: "Konto AT", en: "Konto AT" },
+  "icm.bloco.konto_desc": { pt: "Konto Desc.", en: "Konto desc." },
+  "icm.bloco.cost_centers": { pt: "Centros de Custo", en: "Cost Centers" },
+  "icm.bloco.cc": { pt: "CC", en: "CC" },
+  "icm.bloco.name": { pt: "Nome", en: "Name" },
+
+  // Ações do painel
+  "icm.act.paid": { pt: "Pago", en: "Paid" },
+  "icm.act.paid_on": { pt: "em", en: "on" },
+  "icm.act.edit_exchange": { pt: "Editar câmbio", en: "Edit exchange rate" },
+  "icm.act.download_pdf": { pt: "Baixar PDF", en: "Download PDF" },
+  "icm.act.replace_pdf": { pt: "Substituir PDF", en: "Replace PDF" },
+  "icm.act.import_pdf": { pt: "Importar PDF", en: "Import PDF" },
+  "icm.act.mark_reconciled": { pt: "Marcar reconciliado", en: "Mark reconciled" },
+  "icm.act.go_classify": { pt: "Ir para classificação", en: "Go to classification" },
+  "icm.act.soon": { pt: "em breve", en: "soon" },
+
+  // Toasts / alertas
+  "icm.toast.konto_fail": { pt: "Não foi possível alterar o Konto", en: "Could not change the Konto" },
+  "icm.toast.paid_yes": { pt: "Marcada como paga", en: "Marked as paid" },
+  "icm.toast.paid_no": { pt: "Marcada como não paga", en: "Marked as unpaid" },
+  "icm.toast.paid_fail": { pt: "Não foi possível alterar Pago", en: "Could not change Paid" },
+  "icm.toast.pdf_imported": { pt: "PDF importado", en: "PDF imported" },
+  "icm.toast.pdf_import_fail": { pt: "Não foi possível importar o PDF", en: "Could not import the PDF" },
+  "icm.toast.pdf_downloaded": { pt: "PDF baixado", en: "PDF downloaded" },
+  "icm.toast.pdf_download_fail": { pt: "Não foi possível baixar o PDF", en: "Could not download the PDF" },
+  "icm.toast.export_fail": { pt: "Erro ao exportar", en: "Export failed" },
+  "icm.toast.error_unknown": { pt: "erro desconhecido", en: "unknown error" },
 } as const;
 
 type TranslationKey = keyof typeof translations;
