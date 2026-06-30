@@ -81,6 +81,11 @@ export default function InventoryImport() {
   const [filterTipo, setFilterTipo] = useState("all");
   const [syncingERP, setSyncingERP] = useState(false);
 
+  // "Atualizado em" — última sync de produtos que completou SEM erros.
+  // Reflete tanto o cron (job 'produtos') quanto os botões manuais desta tela,
+  // pois ambos gravam em sync_runs com job_type='produtos'.
+  const [ultimaSync, setUltimaSync] = useState<string | null>(null);
+
   // Unit enrichment state
   const [unitEnrichOpen, setUnitEnrichOpen] = useState(false);
   const [unitEnriching, setUnitEnriching] = useState(false);
@@ -152,6 +157,42 @@ export default function InventoryImport() {
     fetchProducts();
   }, []);
 
+  // Busca a data da última sincronização de produtos bem-sucedida.
+  // Regra: terminou (finished_at), zero erros, e não parou no meio (watchdog).
+  // Se a última execução falhou, cai automaticamente na anterior que deu certo.
+  const fetchUltimaSync = async () => {
+    const { data } = await supabase
+      .from("sync_runs")
+      .select("finished_at, observacao")
+      .eq("job_type", "produtos")
+      .not("finished_at", "is", null)
+      .eq("total_erros", 0)
+      .order("finished_at", { ascending: false })
+      .limit(5);
+
+    if (data && data.length > 0) {
+      // Descarta execuções que pararam por watchdog (incompletas)
+      const valida = data.find((r: any) => !r.observacao || !/watchdog/i.test(r.observacao));
+      setUltimaSync(valida?.finished_at ?? null);
+    }
+  };
+
+  useEffect(() => {
+    fetchUltimaSync();
+  }, []);
+
+  // Formata "DD/MM/AAAA às HH:MM" no fuso de São Paulo.
+  const formatarUltimaSync = (iso: string): string => {
+    const d = new Date(iso);
+    const data = d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    const hora = d.toLocaleTimeString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return `${data} às ${hora}`;
+  };
+
   const tipoOptions = useMemo(() => {
     const tipos = new Set<string>();
     products.forEach((p) => {
@@ -217,6 +258,7 @@ export default function InventoryImport() {
       });
       console.log("=== SYNC RESULT ===", result);
       fetchProducts();
+      fetchUltimaSync();
     } catch (err: any) {
       toast({ title: "❌ Erro na sincronização", description: err.message, variant: "destructive" });
     } finally {
@@ -464,10 +506,17 @@ export default function InventoryImport() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h1 className="text-2xl font-bold text-foreground">Importação de Produtos</h1>
         <div className="flex items-center gap-3">
-          <Badge variant="secondary" className="gap-1.5 text-sm">
-            <Package className="h-3.5 w-3.5" />
-            {products.length} produtos
-          </Badge>
+          <div className="flex flex-col items-end">
+            <Badge variant="secondary" className="gap-1.5 text-sm">
+              <Package className="h-3.5 w-3.5" />
+              {products.length} produtos
+            </Badge>
+            {ultimaSync && (
+              <span className="text-[11px] text-muted-foreground mt-1">
+                Atualizado em {formatarUltimaSync(ultimaSync)}
+              </span>
+            )}
+          </div>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
           <Button onClick={() => fileInputRef.current?.click()} disabled={importing} size="sm" className="gap-2">
             {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
