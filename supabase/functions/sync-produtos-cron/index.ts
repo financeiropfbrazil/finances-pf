@@ -1,38 +1,39 @@
 // =====================================================================
-// Edge Function: sync-produtos-cron
+// Edge Function: sync-produtos-cron  (v2 — background task)
 // =====================================================================
 // Sincroniza o CADASTRO de produtos (stock_products) a partir do ERP Alvo,
-// server-side, sem usuário logado. Replica o que o botão "Sincronizar"
-// do /inventory/import faz no browser (alvoEstoqueService.ts), mas em cron.
+// server-side, 1x/dia em dia útil. Replica o que o botão "Sincronizar"
+// do /inventory/import faz no browser (alvoEstoqueService.ts).
 //
-// O QUE FAZ (e o que NÃO faz):
-//   - FAZ: pagina produto/GetListForComponents via proxy /estoque/produto-sync,
-//          mapeia os campos e chama a RPC sync_stock_products_from_erp em lotes.
-//          Insere produtos novos e atualiza nome/tipo/família/ativo/etc.
-//   - NÃO FAZ: a flag controla_lote — isso é do sync-lote-cron (jobid 16),
-//          que roda DEPOIS (06:00 UTC). Produto novo entra com
-//          lote_verificado_em=null e o lote-cron o pega no mesmo ciclo.
+// POR QUE BACKGROUND TASK:
+//   O Alvo é lento (~27s/página). Varrer o catálogo (~2700 produtos,
+//   ~6 páginas) leva mais que os 150s do limite de RESPOSTA da Edge
+//   Function. Solução (padrão Supabase Pro): responder 202 na hora e
+//   seguir processando em background via EdgeRuntime.waitUntil(), que
+//   permite rodar até o teto de wall-clock de 400s. O cron dispara via
+//   pg_net (não espera resposta), então o 202 imediato é suficiente.
 //
-// PRESERVAÇÃO (garantida dentro da RPC sync_stock_products_from_erp):
-//   - codigo_alternativo: preservado se já tem valor
-//   - unidade_medida: preservada se já tem valor
-//   - controla_lote: COALESCE — sync de lista nunca sobrescreve o enriquecimento
+// SEM CHECKPOINT: como roda 1x/dia, varre o catálogo inteiro numa
+//   execução. Gravação é incremental (página a página via RPC), então
+//   se cortar no meio, o que entrou fica (upsert idempotente) e a
+//   execução do dia seguinte completa.
 //
-// FLUXO:
-//   1. Valida CRON_SECRET (auth de invocação do cron).
-//   2. Lê sync_settings (job_name='sync-produtos-cron') → para se enabled=false.
-//   3. Cria linha de auditoria em sync_runs (job_type='produtos').
-//   4. Pagina /estoque/produto-sync (X-System-Secret) até esgotar.
-//   5. Mapeia e envia em lotes de 200 pra RPC sync_stock_products_from_erp.
-//   6. Persiste resultado em sync_runs.
+// O QUE FAZ vs NÃO FAZ:
+//   - FAZ: pagina produto/GetListForComponents via /estoque/produto-sync,
+//          mapeia e grava via RPC sync_stock_products_from_erp.
+//   - NÃO FAZ: controla_lote — isso é do sync-lote-cron (jobid 16),
+//          que roda às 06:00 e pega produtos novos (lote_verificado_em=null).
 //
-// SECRETS NECESSÁRIOS (já existem, reusados dos outros crons):
-//   - CRON_SECRET, ERP_PROXY_URL, ERP_PROXY_SYSTEM_SECRET
-//   - SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (automáticos)
+// PRESERVAÇÃO (dentro da RPC): codigo_alternativo e unidade_medida
+//   preservados se já têm valor; controla_lote via COALESCE.
 //
-// MOLDE: sync-lote-cron (mesmo padrão de auth/settings/runs/watchdog).
-// DEPLOY: supabase functions deploy sync-produtos-cron \
-//           --no-verify-jwt --project-ref hbtggrbauguukewiknew
+// SECRETS (reusados dos outros crons):
+//   CRON_SECRET, ERP_PROXY_URL, ERP_PROXY_SYSTEM_SECRET,
+//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+//
+// DEPLOY:
+//   supabase functions deploy sync-produtos-cron \
+//     --no-verify-jwt --project-ref hbtggrbauguukewiknew
 // =====================================================================
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
@@ -41,16 +42,15 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 // Configuração
 // ─────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 500; // produtos por página do /produto-sync (proxy aceita até 1000)
+const PAGE_SIZE = 500; // produtos por página (proxy aceita até 1000)
 const RPC_CHUNK = 200; // produtos por chamada à RPC (igual ao browser)
-const MAX_PAGINAS = 50; // teto de segurança (50 × 500 = 25k produtos)
+const MAX_PAGINAS = 50; // teto de segurança (50 × 500 = 25k)
 const DELAY_MS = 120; // pausa entre páginas (gentileza com o Alvo)
-const WATCHDOG_MS = 110_000; // aborta antes do timeout da Edge Function
+const WATCHDOG_MS = 360_000; // 360s — margem antes do teto de 400s da Edge Function
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Mapa de tipo de produto (espelha TIPO_LABELS do alvoEstoqueService.ts).
-// Se um código novo aparecer, cai no fallback (o próprio código ou "Outros").
+// Espelha TIPO_LABELS do alvoEstoqueService.ts.
 const TIPO_LABELS: Record<string, string> = {
   "01": "Acabado",
   "02": "Semi-Acabado",
@@ -64,8 +64,8 @@ const TIPO_LABELS: Record<string, string> = {
 // ─────────────────────────────────────────────────────────────
 
 interface ProdutoCron {
-  totalERP: number; // total mapeado (candidatos)
-  enviadosRPC: number; // total efetivamente enviado à RPC (consultados)
+  totalERP: number;
+  enviadosRPC: number;
   novos: number;
   atualizados: number;
   erros: number;
@@ -75,7 +75,7 @@ interface ProdutoCron {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Chamada ao proxy /estoque/produto-sync com X-System-Secret
+// Proxy /estoque/produto-sync com X-System-Secret
 // ─────────────────────────────────────────────────────────────
 
 async function buscarPaginaProdutos(
@@ -90,10 +90,7 @@ async function buscarPaginaProdutos(
   try {
     resp = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-System-Secret": systemSecret,
-      },
+      headers: { "Content-Type": "application/json", "X-System-Secret": systemSecret },
       body: JSON.stringify({ pageIndex, pageSize }),
     });
   } catch (e: any) {
@@ -115,24 +112,19 @@ async function buscarPaginaProdutos(
     return { ok: false, status: resp.status, items: [], error: msg };
   }
 
-  // O Alvo (via proxy) pode devolver array direto ou { lista } / { Registros }
   const items: any[] = Array.isArray(data) ? data : (data?.lista ?? data?.Registros ?? []);
   return { ok: true, status: resp.status, items };
 }
 
 // ─────────────────────────────────────────────────────────────
-// Mapeia um item do Alvo → linha de stock_products
-// (espelha exatamente o map do alvoEstoqueService.ts)
+// Mapeia item do Alvo → linha de stock_products (espelha o browser)
 // ─────────────────────────────────────────────────────────────
 
 function mapearProduto(item: any): any | null {
   const codigo = item.Codigo ?? "";
   const nivel = item.Nivel ?? "";
 
-  // Filtro idêntico ao browser: pula grupos/níveis (não são produtos folha)
-  if (!nivel || nivel === "" || codigo === nivel || item.Grupo === "T") {
-    return null;
-  }
+  if (!nivel || nivel === "" || codigo === nivel || item.Grupo === "T") return null;
 
   const tipoCodigo = item.CodigoTipoProduto ?? "";
 
@@ -154,7 +146,34 @@ function mapearProduto(item: any): any | null {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Job principal
+// Envia um conjunto de produtos pra RPC em sub-lotes de RPC_CHUNK
+// ─────────────────────────────────────────────────────────────
+
+async function gravarViaRPC(supabase: SupabaseClient, produtos: any[], result: ProdutoCron): Promise<void> {
+  for (let i = 0; i < produtos.length; i += RPC_CHUNK) {
+    const chunk = produtos.slice(i, i + RPC_CHUNK);
+
+    const { data, error } = await (supabase as any).rpc("sync_stock_products_from_erp", {
+      produtos: chunk,
+    });
+
+    if (error) {
+      result.erros += chunk.length;
+      result.detalhes.push({ etapa: "rpc", erro: error.message });
+      continue;
+    }
+
+    result.enviadosRPC += chunk.length;
+    if (data && typeof data === "object") {
+      result.novos += Number(data.novos ?? 0);
+      result.atualizados += Number(data.atualizados ?? 0);
+      result.erros += Number(data.erros ?? 0);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Job principal — GRAVAÇÃO INCREMENTAL (página a página)
 // ─────────────────────────────────────────────────────────────
 
 async function syncProdutos(
@@ -174,15 +193,13 @@ async function syncProdutos(
     detalhes: [],
   };
 
-  // ── 1. Pagina o catálogo inteiro do Alvo ───────────────────────────
-  const allProducts: any[] = [];
   let pageIndex = 1;
   let hasMore = true;
 
   while (hasMore && pageIndex <= MAX_PAGINAS) {
     if (Date.now() - t0 > WATCHDOG_MS) {
       result.parado_por_watchdog = true;
-      result.detalhes.push({ etapa: "listagem", erro: `Watchdog na página ${pageIndex}` });
+      result.detalhes.push({ etapa: "watchdog", erro: `Parou na página ${pageIndex} após ${Date.now() - t0}ms` });
       break;
     }
 
@@ -191,7 +208,6 @@ async function syncProdutos(
     if (!page.ok) {
       result.erros++;
       result.detalhes.push({ etapa: "listagem", erro: `Página ${pageIndex}: ${page.error}` });
-      hasMore = false;
       break;
     }
 
@@ -199,58 +215,27 @@ async function syncProdutos(
 
     if (page.items.length === 0) {
       hasMore = false;
-    } else {
-      for (const item of page.items) {
-        const row = mapearProduto(item);
-        if (row) allProducts.push(row);
-      }
-      if (page.items.length < PAGE_SIZE) {
-        hasMore = false;
-      } else {
-        pageIndex++;
-        await sleep(DELAY_MS);
-      }
-    }
-  }
-
-  result.totalERP = allProducts.length;
-
-  if (allProducts.length === 0) {
-    result.detalhes.push({ etapa: "listagem", info: "Nenhum produto retornado do Alvo." });
-    return result;
-  }
-
-  // ── 2. Envia em lotes de RPC_CHUNK pra RPC ─────────────────────────
-  for (let i = 0; i < allProducts.length; i += RPC_CHUNK) {
-    if (Date.now() - t0 > WATCHDOG_MS) {
-      result.parado_por_watchdog = true;
-      result.detalhes.push({
-        etapa: "rpc",
-        erro: `Watchdog após enviar ${result.enviadosRPC}/${allProducts.length}`,
-      });
       break;
     }
 
-    const chunk = allProducts.slice(i, i + RPC_CHUNK);
-    const loteAtual = Math.floor(i / RPC_CHUNK) + 1;
+    // Mapeia esta página
+    const mapeados: any[] = [];
+    for (const item of page.items) {
+      const row = mapearProduto(item);
+      if (row) mapeados.push(row);
+    }
+    result.totalERP += mapeados.length;
 
-    const { data, error } = await (supabase as any).rpc("sync_stock_products_from_erp", {
-      produtos: chunk,
-    });
-
-    if (error) {
-      result.erros += chunk.length;
-      result.detalhes.push({ etapa: "rpc", erro: `Lote ${loteAtual}: ${error.message}` });
-      continue;
+    // GRAVA JÁ — não acumula pro fim. Se cortar depois, isto fica.
+    if (mapeados.length > 0) {
+      await gravarViaRPC(supabase, mapeados, result);
     }
 
-    result.enviadosRPC += chunk.length;
-
-    // RPC retorna { total, novos, atualizados, erros }
-    if (data && typeof data === "object") {
-      result.novos += Number(data.novos ?? 0);
-      result.atualizados += Number(data.atualizados ?? 0);
-      result.erros += Number(data.erros ?? 0);
+    if (page.items.length < PAGE_SIZE) {
+      hasMore = false;
+    } else {
+      pageIndex++;
+      await sleep(DELAY_MS);
     }
   }
 
@@ -258,7 +243,62 @@ async function syncProdutos(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Handler principal
+// Executa o job e persiste auditoria (roda em background)
+// ─────────────────────────────────────────────────────────────
+
+async function executarEPersistir(
+  supabase: SupabaseClient,
+  runId: string,
+  erpUrl: string,
+  systemSecret: string,
+  startTime: number,
+): Promise<void> {
+  let result: ProdutoCron;
+  let observacao: string | null = null;
+
+  try {
+    result = await syncProdutos(supabase, erpUrl, systemSecret, startTime);
+  } catch (err: any) {
+    console.error("[produtos-cron] exception:", err);
+    result = {
+      totalERP: 0,
+      enviadosRPC: 0,
+      novos: 0,
+      atualizados: 0,
+      erros: 1,
+      paginas: 0,
+      parado_por_watchdog: false,
+      detalhes: [{ etapa: "exception", erro: err?.message || String(err) }],
+    };
+    observacao = `Exception inesperada: ${err?.message || String(err)}`;
+  }
+
+  if (!observacao) {
+    observacao =
+      `novos=${result.novos} atualizados=${result.atualizados} ` +
+      `erros=${result.erros} paginas=${result.paginas}` +
+      (result.parado_por_watchdog ? " | PAROU POR WATCHDOG: completa amanhã" : " | catálogo completo");
+  }
+
+  await supabase
+    .from("sync_runs")
+    .update({
+      finished_at: new Date().toISOString(),
+      duracao_ms: Date.now() - startTime,
+      total_candidatos: result.totalERP,
+      total_consultados: result.enviadosRPC,
+      total_mudaram: result.novos + result.atualizados,
+      total_erros: result.erros,
+      detalhes: result.detalhes,
+      observacao,
+    })
+    .eq("id", runId);
+
+  console.log(`[produtos-cron] fim: ${observacao} duracao=${Date.now() - startTime}ms`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Handler — responde rápido, processa em background
 // ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -274,7 +314,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── Auth do cron (CRON_SECRET) ──────────────────────────────────────
+  // ── Auth do cron (CRON_SECRET) ──
   const expectedSecret = Deno.env.get("CRON_SECRET");
   if (!expectedSecret) {
     console.error("[produtos-cron] CRON_SECRET não configurado");
@@ -304,7 +344,7 @@ Deno.serve(async (req: Request) => {
   const supabaseServiceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseServiceRole);
 
-  // ── Liga/desliga via sync_settings ──────────────────────────────────
+  // ── Liga/desliga via sync_settings ──
   const { data: settings } = await supabase
     .from("sync_settings")
     .select("enabled, paused_reason")
@@ -330,7 +370,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── Cria a linha de auditoria (started) ─────────────────────────────
+  // ── Cria a linha de auditoria (started) ──
   const { data: runRow, error: errRun } = await supabase
     .from("sync_runs")
     .insert({ triggered_by: safeTrigger, job_type: "produtos" })
@@ -347,7 +387,7 @@ Deno.serve(async (req: Request) => {
 
   const runId = runRow.id;
 
-  // ── Secrets do proxy ────────────────────────────────────────────────
+  // ── Secrets do proxy ──
   const erpUrl = Deno.env.get("ERP_PROXY_URL")!;
   const systemSecret = Deno.env.get("ERP_PROXY_SYSTEM_SECRET")!;
 
@@ -368,72 +408,19 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── Roda o job ──────────────────────────────────────────────────────
-  let result: ProdutoCron;
-  let observacao: string | null = null;
+  // ── Dispara o processamento em BACKGROUND e responde já ──
+  // EdgeRuntime.waitUntil mantém o worker vivo até a tarefa terminar
+  // (até o teto de 400s), mesmo depois de retornarmos a resposta.
+  // @ts-ignore — EdgeRuntime é global no runtime do Supabase
+  EdgeRuntime.waitUntil(executarEPersistir(supabase, runId, erpUrl, systemSecret, startTime));
 
-  try {
-    result = await syncProdutos(supabase, erpUrl, systemSecret, startTime);
-  } catch (err: any) {
-    console.error("[produtos-cron] exception:", err);
-    result = {
-      totalERP: 0,
-      enviadosRPC: 0,
-      novos: 0,
-      atualizados: 0,
-      erros: 1,
-      paginas: 0,
-      parado_por_watchdog: false,
-      detalhes: [{ etapa: "exception", erro: err?.message || String(err) }],
-    };
-    observacao = `Exception inesperada: ${err?.message || String(err)}`;
-  }
-
-  if (!observacao) {
-    observacao =
-      `novos=${result.novos} atualizados=${result.atualizados} ` +
-      `erros=${result.erros} paginas=${result.paginas}` +
-      (result.parado_por_watchdog ? " | PAROU POR WATCHDOG: rode de novo" : " | catálogo completo");
-  }
-
-  // ── Persiste auditoria ──────────────────────────────────────────────
-  // Mapeamento semântico nas colunas existentes de sync_runs:
-  //   total_candidatos  = produtos mapeados do ERP
-  //   total_consultados = produtos enviados à RPC
-  //   total_mudaram     = novos + atualizados
-  //   total_erros       = erros
-  await supabase
-    .from("sync_runs")
-    .update({
-      finished_at: new Date().toISOString(),
-      duracao_ms: Date.now() - startTime,
-      total_candidatos: result.totalERP,
-      total_consultados: result.enviadosRPC,
-      total_mudaram: result.novos + result.atualizados,
-      total_erros: result.erros,
-      detalhes: result.detalhes,
-      observacao,
-    })
-    .eq("id", runId);
-
+  // Resposta imediata pro pg_net (que não espera o fim de qualquer forma).
   return new Response(
     JSON.stringify({
+      accepted: true,
       run_id: runId,
-      duracao_ms: Date.now() - startTime,
-      total_erp: result.totalERP,
-      enviados_rpc: result.enviadosRPC,
-      novos: result.novos,
-      atualizados: result.atualizados,
-      erros: result.erros,
-      paginas: result.paginas,
-      parado_por_watchdog: result.parado_por_watchdog,
+      message: "Sync de produtos iniciado em background. Acompanhe em sync_runs (job_type='produtos').",
     }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
-    },
+    { status: 202, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } },
   );
 });
