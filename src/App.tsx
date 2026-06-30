@@ -16,12 +16,7 @@ import ResetPassword from "./pages/ResetPassword";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import CashBanks from "./pages/CashBanks";
 import Receivables from "./pages/Receivables";
-import Inventory from "./pages/Inventory";
 import InventoryImport from "./pages/InventoryImport";
-
-import InventoryReports from "./pages/InventoryReports";
-import InventoryClosings from "./pages/InventoryClosings";
-import InventoryCounting from "./pages/InventoryCounting";
 import FixedAssetsDashboard from "./pages/FixedAssetsDashboard";
 import FixedAssetsReconciliation from "./pages/FixedAssetsReconciliation";
 import FixedAssetsItems from "./pages/FixedAssetsItems";
@@ -186,42 +181,10 @@ function AppRoutes() {
           }
         />
         <Route
-          path="/inventory"
-          element={
-            <PermissionRoute permKey="inventory">
-              <Inventory />
-            </PermissionRoute>
-          }
-        />
-        <Route
           path="/inventory/import"
           element={
             <PermissionRoute permKey="inventory">
               <InventoryImport />
-            </PermissionRoute>
-          }
-        />
-        <Route
-          path="/inventory/closings"
-          element={
-            <PermissionRoute permKey="inventory">
-              <InventoryClosings />
-            </PermissionRoute>
-          }
-        />
-        <Route
-          path="/inventory/counting"
-          element={
-            <PermissionRoute permKey="inventory">
-              <InventoryCounting />
-            </PermissionRoute>
-          }
-        />
-        <Route
-          path="/inventory/reports"
-          element={
-            <PermissionRoute permKey="inventory">
-              <InventoryReports />
             </PermissionRoute>
           }
         />

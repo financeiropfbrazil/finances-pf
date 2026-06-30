@@ -97,11 +97,7 @@ const routePermMap: Record<string, string> = {
 };
 
 const inventorySubItems = [
-  { label: "Posição de Estoque", url: "/inventory", icon: Package },
-  { label: "Fechamentos", url: "/inventory/closings", icon: ClipboardCheck },
-  { label: "Contagem", url: "/inventory/counting", icon: ClipboardList },
   { label: "Importação de Produtos", url: "/inventory/import", icon: Upload },
-  { label: "Relatórios", url: "/inventory/reports", icon: FileBarChart },
 ];
 
 const comprasSubItems = [
