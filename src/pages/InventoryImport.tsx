@@ -161,7 +161,7 @@ export default function InventoryImport() {
   // Regra: terminou (finished_at), zero erros, e não parou no meio (watchdog).
   // Se a última execução falhou, cai automaticamente na anterior que deu certo.
   const fetchUltimaSync = async () => {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from("sync_runs")
       .select("finished_at, observacao")
       .eq("job_type", "produtos")
