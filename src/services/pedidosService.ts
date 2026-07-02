@@ -247,10 +247,10 @@ async function callGatewayGet(path: string): Promise<any> {
 // saíam carimbados conforme o payload, não conforme o token). Resolve o
 // login Alvo do operador (profiles.alvo_usuario) a partir do user_id logado.
 //
-// Robusto a esquema: tenta profiles.id = auth uid (padrão canônico); se não
-// achar, cai pra email; só então usa o fallback da conta de serviço.
+// Robusto a esquema: tenta profiles.user_id = auth uid (chave canônica; NÃO é
+// profiles.id); se não achar, cai pra email; só então usa o fallback da conta de serviço.
 async function resolverUsuarioAlvo(userId: string, email?: string | null): Promise<string> {
-  const porId = await (supabase as any).from("profiles").select("alvo_usuario").eq("id", userId).maybeSingle();
+  const porId = await (supabase as any).from("profiles").select("alvo_usuario").eq("user_id", userId).maybeSingle();
   if (porId?.data?.alvo_usuario) return porId.data.alvo_usuario;
 
   if (email) {
