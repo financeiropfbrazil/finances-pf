@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.receber-chaves-nfe]
 verify_jwt = false
+
+[functions.sync-intercompany-cron]
+verify_jwt = false
