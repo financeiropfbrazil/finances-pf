@@ -55,6 +55,7 @@ Responda sempre em português brasileiro.
 - Cache do Vite após instalar dependência pode dar tela branca fantasma (`useLocation` fora de Router) — hard refresh antes de caçar bug de código.
 - Padrão de serviço frontend: `(supabase as any).rpc("nome", {params})` via `@/integrations/supabase/client`; todo acesso a dados passa pelos services em `src/services/`.
 - `payload_alvo` na bruta **NÃO é o DocFin/Load direto** — é um wrapper `{docfin, nfe, nfse}`; todos os campos (UserInvoice, CotacaoIndice, ParcDocFinChildList...) vivem sob `payload_alvo->'docfin'`.
+- Existem DOIS formatos de `payload_alvo` no banco: na bruta intercompany é wrapper `{docfin, nfe, nfse}` (campos sob `payload_alvo->'docfin'`); em `desp_docfin_doc` o DocFin está direto na raiz (`ParcDocFinChildList` na raiz).
 - `sync_runs` tem colunas em inglês (`started_at`, `job_type='intercompany'`, `total_*`).
 - Códigos de situação do Alvo vistos até hoje: `01.001` (aberta) e `01.002` (paga); código desconhecido = tratar conservadoramente, **nunca** marcar pago automaticamente, apenas logar.
 
