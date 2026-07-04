@@ -28,6 +28,7 @@ Responda sempre em português brasileiro.
 - `npm run build` (ou bun, conforme lockfile) DEVE passar limpo antes de todo push. O projeto usa TS estrito (`noUnusedLocals`) — import órfão quebra o build.
 - Commits pequenos e descritivos. **Nunca** push forçado. Rollback = `git revert` + push.
 - Push no `main` atualiza o preview do Lovable; o app **publicado** só muda com Publish manual no Lovable.
+- Package manager deste repo: **bun** (`bun.lock` é o lockfile vigente; `package-lock.json` está obsoleto). Nesta máquina, `bun install` exige `--backend=copyfile` (antivírus bloqueia o padrão com EPERM).
 
 ## Supabase (banco)
 
@@ -53,6 +54,9 @@ Responda sempre em português brasileiro.
 - Falhas de sync podem ser **silenciosas** (`persistence?.updated ?? 0`) — sempre conferir `sync_runs` após mexer no sync.
 - Cache do Vite após instalar dependência pode dar tela branca fantasma (`useLocation` fora de Router) — hard refresh antes de caçar bug de código.
 - Padrão de serviço frontend: `(supabase as any).rpc("nome", {params})` via `@/integrations/supabase/client`; todo acesso a dados passa pelos services em `src/services/`.
+- `payload_alvo` na bruta **NÃO é o DocFin/Load direto** — é um wrapper `{docfin, nfe, nfse}`; todos os campos (UserInvoice, CotacaoIndice, ParcDocFinChildList...) vivem sob `payload_alvo->'docfin'`.
+- `sync_runs` tem colunas em inglês (`started_at`, `job_type='intercompany'`, `total_*`).
+- Códigos de situação do Alvo vistos até hoje: `01.001` (aberta) e `01.002` (paga); código desconhecido = tratar conservadoramente, **nunca** marcar pago automaticamente, apenas logar.
 
 ## Constantes rápidas
 
