@@ -1,0 +1,14 @@
+# Dependências e build
+node_modules/
+dist/
+
+# Supabase CLI
+supabase/.temp/
+
+# Ambiente e locais
+.env*
+*.local
+
+# Planilhas contábeis nunca entram no repo (43.0-C)
+*.xlsx
+*.xls
