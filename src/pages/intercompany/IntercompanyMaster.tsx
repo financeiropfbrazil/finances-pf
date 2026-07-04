@@ -615,7 +615,9 @@ export default function IntercompanyMaster() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{t("icm.title")}</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            {t("icm.title")} <span className="text-xs text-muted-foreground">pipeline-test 43.0B</span>
+          </h1>
           <p className="text-sm text-muted-foreground">{t("icm.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
