@@ -1225,7 +1225,7 @@ export default function ProjetoRequisicoes() {
                 <h3 className="font-semibold text-sm sm:text-base">Actual (Realizado)</h3>
                 <p className="text-xs text-muted-foreground">Pedidos de compra em execução</p>
               </div>
-              {faseAtual === "actual" && isAdmin && (
+              {faseAtual === "actual" && (isAdmin || (canPedidosCreate && isResponsavel)) && (
                 <Button size="sm" className="h-8 text-xs sm:text-sm w-fit" onClick={() => openCreate("actual")}>
                   <Plus className="mr-1 h-3 w-3" /> Novo
                 </Button>
