@@ -66,7 +66,7 @@ export interface RecarimboLinha {
 
 export async function getClassesDePara(): Promise<ClasseDePara[]> {
   // 1. Classes no controle
-  const { data: classes, error: errC } = await supabase
+  const { data: classes, error: errC } = await (supabase as any)
     .from("desp_classe_config")
     .select("codigo, nome, grupo, categoria")
     .eq("incluir_controle", true)
@@ -78,7 +78,7 @@ export async function getClassesDePara(): Promise<ClasseDePara[]> {
   }
 
   // 2. De-para vigente (todas as linhas; resolvemos padrão/desempate em JS)
-  const { data: mapRows, error: errM } = await supabase
+  const { data: mapRows, error: errM } = await (supabase as any)
     .from("desp_classe_conta")
     .select("codigo_classe, conta_hierarquica, is_padrao, requer_desempate_manual");
 
@@ -91,7 +91,7 @@ export async function getClassesDePara(): Promise<ClasseDePara[]> {
 
   const nomePorConta = new Map<string, string>();
   if (contasPadrao.length > 0) {
-    const { data: planoRows } = await supabase
+    const { data: planoRows } = await (supabase as any)
       .from("desp_plano_contas")
       .select("conta_hierarquica, nome")
       .in("conta_hierarquica", contasPadrao);
@@ -135,7 +135,7 @@ export async function getClassesDePara(): Promise<ClasseDePara[]> {
 // ════════════════════════════════════════════════════════════
 
 export async function getPlanoContasResultado(): Promise<ContaPlano[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("desp_plano_contas")
     .select("conta_hierarquica, conta_reduzida, nome, ramo")
     .eq("analitica", true)
@@ -154,7 +154,7 @@ export async function getPlanoContasResultado(): Promise<ContaPlano[]> {
 // ════════════════════════════════════════════════════════════
 
 export async function getContasCandidatas(codigoClasse: string): Promise<ContaCandidata[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("desp_classe_conta")
     .select("conta_hierarquica, is_padrao, requer_desempate_manual")
     .eq("codigo_classe", codigoClasse);
@@ -168,7 +168,7 @@ export async function getContasCandidatas(codigoClasse: string): Promise<ContaCa
   const contas = data.map((r: any) => r.conta_hierarquica);
   const nomePorConta = new Map<string, string>();
   if (contas.length > 0) {
-    const { data: planoRows } = await supabase
+    const { data: planoRows } = await (supabase as any)
       .from("desp_plano_contas")
       .select("conta_hierarquica, nome")
       .in("conta_hierarquica", contas);
@@ -188,7 +188,7 @@ export async function getContasCandidatas(codigoClasse: string): Promise<ContaCa
 // ════════════════════════════════════════════════════════════
 
 export async function getCompetencias(): Promise<Competencia[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("desp_competencia_status")
     .select("ano, mes, status, fechada_em, fechada_por")
     .order("ano", { ascending: true })
