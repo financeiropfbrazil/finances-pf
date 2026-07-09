@@ -1,17 +1,15 @@
 // src/services/deparaContabilService.ts
 //
 // Camada de serviço do De-Para Contábil de Despesas.
-// Todas as chamadas ao Supabase (queries + RPCs) do módulo de configuração
-// de contas contábeis vivem aqui. Componentes não chamam supabase direto.
+// LEITURAS via RPCs SECURITY DEFINER (as tabelas têm RLS sem policy de
+// SELECT; leitura direta .from() retorna vazio). Espelha o padrão do
+// resto do módulo de despesas (RealizadoDespesas lê tudo por RPC).
 //
 // Backend já existente (NÃO criar):
-//   Tabelas: desp_classe_config, desp_plano_contas, desp_classe_conta,
-//            desp_competencia_status
-//   RPCs:    desp_set_conta_classe, desp_recarimbar,
-//            desp_fechar_competencia, desp_reabrir_competencia
-//
-// Espelha o estilo de dashboardSuprimentosService.ts (cast (supabase as any)
-// nas RPCs novas, tratamento de erro com console.error).
+//   RPCs leitura: desp_listar_depara, desp_listar_plano_resultado,
+//                 desp_listar_competencias
+//   RPCs escrita: desp_set_conta_classe, desp_recarimbar,
+//                 desp_fechar_competencia, desp_reabrir_competencia
 
 import { supabase } from "@/integrations/supabase/client";
 
@@ -26,8 +24,8 @@ export interface ClasseDePara {
   nome: string;
   grupo: string | null;
   categoria: string | null;
-  contaPadrao: string | null; // conta_hierarquica com is_padrao=true
-  contaPadraoNome: string | null; // nome da conta padrão (join no plano)
+  contaPadrao: string | null;
+  contaPadraoNome: string | null;
   requerDesempate: boolean;
   status: StatusDePara;
 }
@@ -37,13 +35,6 @@ export interface ContaPlano {
   conta_reduzida: string | null;
   nome: string;
   ramo: string | null;
-}
-
-export interface ContaCandidata {
-  conta_hierarquica: string;
-  nome: string | null;
-  is_padrao: boolean;
-  requer_desempate_manual: boolean;
 }
 
 export interface Competencia {
@@ -61,87 +52,29 @@ export interface RecarimboLinha {
 }
 
 // ════════════════════════════════════════════════════════════
-// LEITURA — De-Para (classes + conta padrão vigente)
+// LEITURA — via RPC (contorna RLS)
 // ════════════════════════════════════════════════════════════
 
 export async function getClassesDePara(): Promise<ClasseDePara[]> {
-  // 1. Classes no controle
-  const { data: classes, error: errC } = await (supabase as any)
-    .from("desp_classe_config")
-    .select("codigo, nome, grupo, categoria")
-    .eq("incluir_controle", true)
-    .order("codigo");
-
-  if (errC || !classes) {
-    if (errC) console.error("[depara] getClassesDePara classes:", errC);
+  const { data, error } = await (supabase as any).rpc("desp_listar_depara");
+  if (error || !data) {
+    if (error) console.error("[depara] getClassesDePara:", error);
     return [];
   }
-
-  // 2. De-para vigente (todas as linhas; resolvemos padrão/desempate em JS)
-  const { data: mapRows, error: errM } = await (supabase as any)
-    .from("desp_classe_conta")
-    .select("codigo_classe, conta_hierarquica, is_padrao, requer_desempate_manual");
-
-  if (errM) {
-    console.error("[depara] getClassesDePara map:", errM);
-  }
-
-  // 3. Nomes das contas (para exibir a conta padrão com nome)
-  const contasPadrao = (mapRows || []).filter((r: any) => r.is_padrao).map((r: any) => r.conta_hierarquica);
-
-  const nomePorConta = new Map<string, string>();
-  if (contasPadrao.length > 0) {
-    const { data: planoRows } = await (supabase as any)
-      .from("desp_plano_contas")
-      .select("conta_hierarquica, nome")
-      .in("conta_hierarquica", contasPadrao);
-    (planoRows || []).forEach((p: any) => nomePorConta.set(p.conta_hierarquica, p.nome));
-  }
-
-  // 4. Indexar de-para por classe
-  const porClasse = new Map<string, any[]>();
-  (mapRows || []).forEach((r: any) => {
-    const arr = porClasse.get(r.codigo_classe) || [];
-    arr.push(r);
-    porClasse.set(r.codigo_classe, arr);
-  });
-
-  // 5. Montar resultado + status
-  return classes.map((c: any) => {
-    const linhas = porClasse.get(c.codigo) || [];
-    const padrao = linhas.find((l) => l.is_padrao);
-    const temDesempate = linhas.some((l) => l.requer_desempate_manual);
-
-    let status: StatusDePara;
-    if (linhas.length === 0) status = "SEM_CONTA";
-    else if (temDesempate && !padrao) status = "DESEMPATE";
-    else status = "MAPEADA";
-
-    return {
-      codigo: c.codigo,
-      nome: c.nome,
-      grupo: c.grupo ?? null,
-      categoria: c.categoria ?? null,
-      contaPadrao: padrao ? padrao.conta_hierarquica : null,
-      contaPadraoNome: padrao ? (nomePorConta.get(padrao.conta_hierarquica) ?? null) : null,
-      requerDesempate: temDesempate,
-      status,
-    };
-  });
+  return data.map((r: any) => ({
+    codigo: r.codigo,
+    nome: r.nome,
+    grupo: r.grupo ?? null,
+    categoria: r.categoria ?? null,
+    contaPadrao: r.conta_padrao ?? null,
+    contaPadraoNome: r.conta_padrao_nome ?? null,
+    requerDesempate: !!r.requer_desempate,
+    status: r.status as StatusDePara,
+  }));
 }
 
-// ════════════════════════════════════════════════════════════
-// LEITURA — Plano de contas de resultado (dropdown)
-// ════════════════════════════════════════════════════════════
-
 export async function getPlanoContasResultado(): Promise<ContaPlano[]> {
-  const { data, error } = await (supabase as any)
-    .from("desp_plano_contas")
-    .select("conta_hierarquica, conta_reduzida, nome, ramo")
-    .eq("analitica", true)
-    .in("ramo", ["4", "5", "6"])
-    .order("conta_hierarquica");
-
+  const { data, error } = await (supabase as any).rpc("desp_listar_plano_resultado");
   if (error || !data) {
     if (error) console.error("[depara] getPlanoContasResultado:", error);
     return [];
@@ -149,51 +82,8 @@ export async function getPlanoContasResultado(): Promise<ContaPlano[]> {
   return data as ContaPlano[];
 }
 
-// ════════════════════════════════════════════════════════════
-// LEITURA — Contas candidatas de uma classe (casos 1:N)
-// ════════════════════════════════════════════════════════════
-
-export async function getContasCandidatas(codigoClasse: string): Promise<ContaCandidata[]> {
-  const { data, error } = await (supabase as any)
-    .from("desp_classe_conta")
-    .select("conta_hierarquica, is_padrao, requer_desempate_manual")
-    .eq("codigo_classe", codigoClasse);
-
-  if (error || !data) {
-    if (error) console.error("[depara] getContasCandidatas:", error);
-    return [];
-  }
-
-  // Enriquecer com nome do plano
-  const contas = data.map((r: any) => r.conta_hierarquica);
-  const nomePorConta = new Map<string, string>();
-  if (contas.length > 0) {
-    const { data: planoRows } = await (supabase as any)
-      .from("desp_plano_contas")
-      .select("conta_hierarquica, nome")
-      .in("conta_hierarquica", contas);
-    (planoRows || []).forEach((p: any) => nomePorConta.set(p.conta_hierarquica, p.nome));
-  }
-
-  return data.map((r: any) => ({
-    conta_hierarquica: r.conta_hierarquica,
-    nome: nomePorConta.get(r.conta_hierarquica) ?? null,
-    is_padrao: r.is_padrao,
-    requer_desempate_manual: r.requer_desempate_manual,
-  }));
-}
-
-// ════════════════════════════════════════════════════════════
-// LEITURA — Competências
-// ════════════════════════════════════════════════════════════
-
 export async function getCompetencias(): Promise<Competencia[]> {
-  const { data, error } = await (supabase as any)
-    .from("desp_competencia_status")
-    .select("ano, mes, status, fechada_em, fechada_por")
-    .order("ano", { ascending: true })
-    .order("mes", { ascending: true });
-
+  const { data, error } = await (supabase as any).rpc("desp_listar_competencias");
   if (error || !data) {
     if (error) console.error("[depara] getCompetencias:", error);
     return [];
@@ -202,11 +92,9 @@ export async function getCompetencias(): Promise<Competencia[]> {
 }
 
 // ════════════════════════════════════════════════════════════
-// ESCRITA — RPCs (cast (supabase as any) — não estão nos tipos gerados)
+// ESCRITA — RPCs (propaga error.message para toast)
 // ════════════════════════════════════════════════════════════
 
-// Define/troca a conta padrão da classe e, se ano+meses, re-carimba.
-// Propaga error.message para o chamador tratar em toast.
 export async function setContaClasse(
   codigo: string,
   conta: string,
