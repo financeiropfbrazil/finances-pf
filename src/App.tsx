@@ -63,6 +63,7 @@ import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
 import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
+import ConfigContasDespesas from "@/pages/despesas/ConfigContasDespesas";
 import ReqBackfillDataAbertura from "./pages/ferramentas/ReqBackfillDataAbertura";
 import CartaoLancamentos from "./pages/CartaoLancamentos";
 
@@ -399,6 +400,8 @@ function AppRoutes() {
           }
         />
         <Route path="/despesas/realizado" element={<RealizadoDespesas />} />
+        <Route path="/despesas/config-contas" element={<ConfigContasDespesas />} />
+
         <Route
           path="/cartao"
           element={
