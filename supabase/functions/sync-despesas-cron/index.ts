@@ -6,6 +6,13 @@
 // (/despesas/sync-batch). Aqui só orquestramos as fatias de dias.
 //
 // FLUXO:
+//   0. AUTO-SEMEADURA (janela rolante por dia): garante que todos os dias
+//      de (último capturado + 1) até ONTEM (D-1) existam como PENDENTE.
+//      Espelha a filosofia da janela rolante do DocFin, adaptada ao
+//      fatiamento por DIA: em vez de reabrir dias antigos, apenas SEMEIA
+//      os dias novos que ainda não existem. Assim o cron nunca fica órfão
+//      de dias na virada de mês. NÃO toca dias já existentes (OK,
+//      SEM_MOVIMENTO, FALHA_PERMANENTE, PENDENTE) — só cria os ausentes.
 //   1. Valida CRON_SECRET (auth de invocação)
 //   2. Lê sync_settings (job_name='sync-despesas') → para se enabled=false
 //   3. Pega os próximos N dias PENDENTE/EM_PROGRESSO mais antigos
@@ -65,6 +72,27 @@ function agruparContiguos(dias: string[]): Array<{ ini: string; fim: string }> {
   }
   faixas.push({ ini, fim: prev });
   return faixas;
+}
+
+// Retorna 'YYYY-MM-DD' (UTC) de hoje menos N dias.
+function ymdOffset(diasAtras: number): string {
+  const dt = new Date();
+  dt.setUTCDate(dt.getUTCDate() - diasAtras);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Enumera todos os YMD de dataIni (exclusivo) até dataFim (inclusivo).
+function diasEntreExclusivoInclusivo(dataIniExcl: string, dataFimIncl: string): string[] {
+  const out: string[] = [];
+  const [y, m, d] = dataIniExcl.split("-").map(Number);
+  const cur = new Date(Date.UTC(y, m - 1, d));
+  cur.setUTCDate(cur.getUTCDate() + 1); // começa no dia seguinte ao último capturado
+  const fim = new Date(`${dataFimIncl}T00:00:00.000Z`);
+  while (cur <= fim) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return out;
 }
 
 Deno.serve(async (req: Request) => {
@@ -128,6 +156,42 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // ── 0. AUTO-SEMEADURA (janela rolante por dia) ───────────────────
+  // Garante que todos os dias de (último capturado + 1) até ONTEM (D-1)
+  // existam como PENDENTE. Usa D-1 porque o dia corrente ainda não fechou
+  // no Alvo (movimento parcial). Idempotente: só cria dias ausentes, nunca
+  // toca dias já existentes (preserva OK/SEM_MOVIMENTO/FALHA_PERMANENTE).
+  let semeados: string[] = [];
+  try {
+    const { data: maxRow } = await supabase
+      .from("desp_dias_capturados")
+      .select("data_movimento")
+      .order("data_movimento", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const ontem = ymdOffset(1); // D-1
+    if (maxRow?.data_movimento) {
+      const novosDias = diasEntreExclusivoInclusivo(maxRow.data_movimento, ontem);
+      if (novosDias.length > 0) {
+        // Insere só status default PENDENTE (demais colunas têm default).
+        // onConflict em data_movimento garante idempotência caso corra 2x.
+        const rows = novosDias.map((d) => ({ data_movimento: d, status: "PENDENTE" }));
+        const { error: errSeed } = await supabase
+          .from("desp_dias_capturados")
+          .upsert(rows, { onConflict: "data_movimento", ignoreDuplicates: true });
+        if (errSeed) {
+          console.error("[auto-seed] erro semeando dias:", errSeed.message);
+        } else {
+          semeados = novosDias;
+        }
+      }
+    }
+  } catch (err: any) {
+    // Auto-semeadura é best-effort: se falhar, o cron segue com o que houver.
+    console.error("[auto-seed] exceção:", err?.message || String(err));
+  }
+
   // ── 3. Próximos N dias pendentes (cursor = desp_dias_capturados) ──
   const { data: diasRows, error: errDias } = await supabase
     .from("desp_dias_capturados")
@@ -167,10 +231,11 @@ Deno.serve(async (req: Request) => {
       .update({
         finished_at: new Date().toISOString(),
         duracao_ms: Date.now() - startTime,
-        observacao: "Sem dias pendentes — backfill em dia.",
+        observacao: `Sem dias pendentes — backfill em dia.${semeados.length ? ` Semeados: ${semeados.length}.` : ""}`,
+        detalhes: { semeados },
       })
       .eq("id", runId);
-    return new Response(JSON.stringify({ run_id: runId, skipped: true, reason: "sem dias pendentes" }), {
+    return new Response(JSON.stringify({ run_id: runId, skipped: true, reason: "sem dias pendentes", semeados }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -263,7 +328,7 @@ Deno.serve(async (req: Request) => {
       total_consultados: acc.docs_com_despesa,
       total_mudaram: acc.rateios_gravados,
       total_erros: acc.erros,
-      detalhes,
+      detalhes: { faixas: detalhes, semeados },
       observacao,
     })
     .eq("id", runId);
@@ -271,6 +336,7 @@ Deno.serve(async (req: Request) => {
   return new Response(
     JSON.stringify({
       run_id: runId,
+      semeados,
       dias_processados: dias,
       faixas,
       dias_ok: acc.dias_ok,
