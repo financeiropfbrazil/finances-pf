@@ -96,9 +96,7 @@ const routePermMap: Record<string, string> = {
   "/intercompany/reembolsos/novo": "intercompany",
 };
 
-const inventorySubItems = [
-  { label: "Importação de Produtos", url: "/inventory/import", icon: Upload },
-];
+const inventorySubItems = [{ label: "Importação de Produtos", url: "/inventory/import", icon: Upload }];
 
 const comprasSubItems = [
   { label: "Pedidos de Compra", url: "/compras/pedidos-compra", icon: ClipboardList },
@@ -117,6 +115,12 @@ const intercompanySubItems = [
   { label: "Master", url: "/intercompany/master", icon: ClipboardList },
   { label: "Novo Reembolso", url: "/intercompany/reembolsos/novo", icon: FileText },
   { label: "Novo Reembolso NF", url: "/intercompany/reembolsos-nf/novo", icon: FileText },
+];
+
+// Despesas (admin-only) — realizado + de-para contábil
+const despesasSubItems = [
+  { label: "Realizado de Despesas", url: "/despesas/realizado", icon: Coins },
+  { label: "De-Para Contábil", url: "/despesas/config-contas", icon: Landmark },
 ];
 
 const ferramentasSubItems = [
@@ -165,6 +169,7 @@ export function AppSidebar() {
   const isContasPagarActive = location.pathname.startsWith("/contas-a-pagar");
   const isSuprimentosActive = location.pathname.startsWith("/suprimentos");
   const isIntercompanyActive = location.pathname.startsWith("/intercompany");
+  const isDespesasActive = location.pathname.startsWith("/despesas");
   const isFerramentasActive = location.pathname.startsWith("/ferramentas");
 
   return (
@@ -202,13 +207,15 @@ export function AppSidebar() {
                       !hasAccess("compras") &&
                       !hasAccess("entidades") &&
                       !hasAccess("suprimentos_requisicoes") &&
-                      !hasAccess("intercompany")
+                      !hasAccess("intercompany") &&
+                      !isAdmin
                     )
                       return null;
                     return (
                       <div key="nf-entrada-and-compras-group">
                         {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
                         {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
+                        {isAdmin && renderDespesasGroup(t, isDespesasActive)}
                         {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
                         {hasAccess("entidades") && renderEntidadesGroup(t, isEntidadesActive)}
                       </div>
@@ -282,21 +289,10 @@ export function AppSidebar() {
 
                       {/* Intercompany expandable */}
                       {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
-                      {/* Realizado de Despesas (admin-only) */}
-                      {isAdmin && (
-                        <SidebarMenuItem>
-                          <SidebarMenuButton asChild>
-                            <NavLink
-                              to="/despesas/realizado"
-                              className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                              activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                            >
-                              <Coins className="h-4 w-4 shrink-0" />
-                              <span>Realizado de Despesas</span>
-                            </NavLink>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      )}
+
+                      {/* Despesas expandable (admin-only): Realizado + De-Para */}
+                      {isAdmin && renderDespesasGroup(t, isDespesasActive)}
+
                       {/* Compras expandable */}
                       {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
 
@@ -673,6 +669,45 @@ function renderIntercompanyGroup(t: any, isActive: boolean) {
     </Collapsible>
   );
 }
+
+function renderDespesasGroup(_t: any, isActive: boolean) {
+  return (
+    <Collapsible defaultOpen={isActive} className="group/collapsible-despesas">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
+            }`}
+          >
+            <Coins className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Despesas</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-despesas:rotate-[-90deg]" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {despesasSubItems.map((sub) => (
+              <SidebarMenuSubItem key={sub.url}>
+                <SidebarMenuSubButton asChild>
+                  <NavLink
+                    to={sub.url}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                  >
+                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+
 function renderFerramentasGroup(_t: any, isActive: boolean) {
   return (
     <Collapsible defaultOpen={isActive} className="group/collapsible-ferramentas">
