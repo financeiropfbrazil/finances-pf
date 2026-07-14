@@ -183,7 +183,7 @@ Após a limpeza do D-006, o rateio de abril (**R$ 1.152.546,84**) ficou R$ 300,4
 
 ### D-008 — Levantar as classes dos 371 do vazamento (pré-requisito da classificação)
 
-**Status:** ⬜ não iniciado · **Origem:** smoke test de maio (14/07/2026) · **Bloqueia** a decisão de quais classes o Pedro inclui em controle (e, portanto, o valor real da despesa recuperável — armadilha 22).
+**Status:** ✅ resolvido pela **via (b)** (Pedro escolheu 14/07) → spec entregue em `SPEC-D010-persistir-nao-controlados.md`, implementação no card **D-010**. A via (a) censo-one-shot foi descartada: sem (b), toda competência futura repete a cegueira. · **Origem:** smoke test de maio (14/07/2026).
 
 O smoke test de maio provou que **as classes dos 371 docs do vazamento NÃO estão no banco**: o motor descarta o doc inteiro quando a classe não está em `incluir_controle` (não persiste). Confirmado: dos docs de espécie-alvo de maio, só os 9 com classe já controlada (14.04, 09.04, 25.02) sobraram; os 49 sem classe controlada sumiram sem rastro. Logo a lista que o Pedro vai classificar na tela precisa ser obtida via **Load** (não RetrievePage — o censo atual não traz classe). Duas vias:
 
@@ -201,9 +201,19 @@ Recomendação: **(a) para a lista imediata; (b) como correção estrutural** (s
 * **21 docs / R$ 239,60** têm gêmeo recém-capturado de mesmo valor → provável **duplicata** (mas micro-valor; `numero`=data em RDESP pode gerar falso-positivo).
 * **27 docs / R$ 12.147,80** sem gêmeo → docs distintos que a versão atual não re-lista (inclui DIV R$ 5.773,30 de 27/05 e PC "SANTANDER-PF" R$ 4.966,33 — parecem pagamentos reais).
 
-**Recomendação: NÃO remover agora.** Decidir a política de órfãos junto com o go-live do D-001: entender **por que a lógica atual não os re-lista** (se é filtro correto → saem; se é falha de listagem/paginação → o motor corrige). Remover no escuro o bloco sem gêmeo subestimaria a despesa. A trava não-apagar é o comportamento certo.
+**Recomendação: NÃO remover agora** (Pedro concordou 14/07). Decidir a política de órfãos junto com o go-live do D-001: entender **por que a lógica atual não os re-lista** (se é filtro correto → saem; se é falha de listagem/paginação → o motor corrige). Remover no escuro o bloco sem gêmeo subestimaria a despesa. A trava não-apagar é o comportamento certo. · **Nota do Pedro (14/07):** RDESP e PC são **exatamente as espécies do bug D-006** (duplicação intra-rodada) — provavelmente não é coincidência; a mesma fragilidade de paginação/concorrência que duplica pode ser a que deixa órfãos. Card fica **aberto para depois do go-live**.
 
-*(novos cards entram aqui: D-010, D-011, ...)*
+### D-010 — Persistir despesa de classe não-controlada (visível, fora do total)
+
+**Status:** ⬜ spec entregue 14/07/2026 (`SPEC-D010-persistir-nao-controlados.md`), implementação aguardando priorização do Pedro. · **Origem:** via (b) do D-008. · **Buraco estrutural de controle** — não é só do D-001: hoje o Hub descarta despesa de classe não-controlada em qualquer espécie, sem deixar rastro.
+
+**Requisito inegociável:** persistir ≠ contar. Rateio de classe não-controlada é gravado **visível e auditável**, mas **fora de todo `sum(valor_brl)` por padrão**. Fonte única da verdade = `desp_classe_config.incluir_controle` (default `false`); o total nunca inclui classe fora de controle, mesmo com flag divergente (defesa em profundidade).
+
+**Cadeia de agregação mapeada (14/07, verificada no banco + `src/`):** só a view `v_despesa_realizada_unificada_base` (`sum(valor_brl)`) → RPC `listar_despesa_realizada_unificada` (`soma_brl`) → tela `RealizadoDespesas.tsx` somam. `get_despesa_realizada_rateios` só detalha; `desp_recarimbar` só escreve `conta_hierarquica`. Nenhum outro consumidor.
+
+Etapas (ordem obrigatória 2→4 para nunca haver janela de inflação): (1) schema — coluna `em_controle` em `desp_docfin_rateio`+`desp_realizado_rateio` (**default `false`** — o esquecimento do proxy erra para o lado seguro; backfill seta `true` explícito nas linhas existentes) + trigger que sincroniza com `incluir_controle` pulando meses FECHADOS; (2) view+RPCs filtram por `em_controle`+`incluir_controle`, expõem `valor_fora_controle`; (3) front — indicador "fora do controle" + aba "A Classificar" em `/despesas/config-contas` (absorve o D-008); (4) proxy — "persistir sempre" + `em_controle` snapshot + upsert (junto com o passo 3 do D-006). Detalhes na spec.
+
+*(novos cards entram aqui: D-011, D-012, ...)*
 
 \---
 
@@ -292,6 +302,7 @@ Recomendação: **(a) para a lista imediata; (b) como correção estrutural** (s
 |14/07/2026|**D-006 executado e fechado** (limpeza 16 grãos / R$ 22.203,47 + `uq_desp_docfin_rateio_grao`); delta bateu ao centavo; ALTER na tabela inteira provou que abril era a única com duplicação. Diagnóstico de causa raiz: concorrência sem atomicidade no delete→insert + enfileiramento múltiplo (paginação). Passo 3 (upsert no proxy) fica pendente não-urgente|Pedro + Claude|
 |14/07/2026|Card **D-007** (resíduo R$ 300,45 rateio<doc em abril, não-bloqueante); **armadilha 21** (kill-switch de cron em `sync_settings` — mecânica + query); higiene do `paused_at` órfão de `sync-compras-status-cron`|Pedro + Claude|
 |14/07/2026|**Smoke test de maio** (Pedro): anti-join validado (59 admitidos=previsto), mas só 10 rateios (R$6.362/3,7%) — classes fora de controle e motor descarta sem persistir. **Armadilha 22** (valor vazamento≠despesa); cards **D-008** (censo-com-classe p/ levantar as classes dos 371) e **D-009** (48 órfãos de captura antiga)|Pedro + Claude|
+|14/07/2026|D-008 resolvido pela **via (b)** (Pedro): **spec D-010** entregue (`SPEC-D010`) — persistir classe não-controlada visível mas fora do total; fonte única `incluir_controle`; cadeia de agregação (`v_despesa_realizada_unificada_base`→`listar_despesa_realizada_unificada`→tela) mapeada. D-009: nota que RDESP/PC = espécies do D-006|Pedro + Claude|
 
 \---
 
