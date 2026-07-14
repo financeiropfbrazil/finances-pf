@@ -205,7 +205,7 @@ Recomendação: **(a) para a lista imediata; (b) como correção estrutural** (s
 
 ### D-010 — Persistir despesa de classe não-controlada (visível, fora do total)
 
-**Status:** ⬜ spec entregue 14/07/2026 (`SPEC-D010-persistir-nao-controlados.md`), implementação aguardando priorização do Pedro. · **Origem:** via (b) do D-008. · **Buraco estrutural de controle** — não é só do D-001: hoje o Hub descarta despesa de classe não-controlada em qualquer espécie, sem deixar rastro.
+**Status:** 🔧 em implementação. **Etapa 1 (schema) ✅ APLICADA 14/07/2026** — coluna `em_controle boolean NOT NULL DEFAULT false` nos dois rateios + backfill + trigger `desp_sync_em_controle`; verificação bateu com o dry-run (docfin **1070/1070**, realizado **5940/5940** em_controle=true), **migração neutra** (total inalterado **R$ 31.831.095,41**). Etapa 2 (view+RPCs) em curso. · **Origem:** via (b) do D-008. · **Buraco estrutural de controle** — não é só do D-001: hoje o Hub descarta despesa de classe não-controlada em qualquer espécie, sem deixar rastro.
 
 **Requisito inegociável:** persistir ≠ contar. Rateio de classe não-controlada é gravado **visível e auditável**, mas **fora de todo `sum(valor_brl)` por padrão**. Fonte única da verdade = `desp_classe_config.incluir_controle` (default `false`); o total nunca inclui classe fora de controle, mesmo com flag divergente (defesa em profundidade).
 
