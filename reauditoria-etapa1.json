@@ -1,0 +1,142 @@
+{
+  "gerado_em": "2026-07-14",
+  "metodo": "anti-join real chave(especie_lower+entidade+ltrim numero-base)+valor, tolerancia OK<=R$1 / PROX<=R$50 / DIVERGE>R$50, MovEstq all-dates 5122 docs",
+  "chave": {
+    "match_rate_pct": 80.6,
+    "colisoes": 4,
+    "chaves_movestq": 5117
+  },
+  "total_descartado": {
+    "docs": 2384,
+    "valor": 15422358.04
+  },
+  "legitimo_ja_no_movestq": {
+    "docs": 1905,
+    "valor": 11903577.92
+  },
+  "legitimo_descarte_por_natureza": {
+    "docs": 91,
+    "valor": 1921919.02
+  },
+  "revisao_manual_valor_diverge": {
+    "docs": 17,
+    "valor": 121224.55
+  },
+  "vazamento_real": {
+    "docs": 371,
+    "valor": 1475636.55
+  },
+  "vazamento_por_especie": {
+    "ct-e": {
+      "docs": 28,
+      "valor": 18494.58
+    },
+    "div": {
+      "docs": 25,
+      "valor": 155944.85
+    },
+    "nf-e": {
+      "docs": 198,
+      "valor": 592155.49
+    },
+    "nf3e": {
+      "docs": 2,
+      "valor": 1593.62
+    },
+    "nfcom": {
+      "docs": 7,
+      "valor": 38711.11
+    },
+    "nfs-e": {
+      "docs": 111,
+      "valor": 668736.9
+    }
+  },
+  "vazamento_servico": {
+    "docs": 148,
+    "valor": 727536.21
+  },
+  "vazamento_mercadoria_nfe": {
+    "docs": 198,
+    "valor": 592155.49
+  },
+  "vazamento_div": {
+    "docs": 25,
+    "valor": 155944.85
+  },
+  "os_13_nfe_espécie": {
+    "presente_movestq": 11,
+    "vazamento_genuino": 2,
+    "valor_dupla_contagem_evitada": 612770.92,
+    "valor_genuino": 40453.47
+  },
+  "delta_esperado_por_competencia": {
+    "2026-01": {
+      "docs": 49,
+      "valor": 171397.49
+    },
+    "2026-02": {
+      "docs": 67,
+      "valor": 237243.44
+    },
+    "2026-03": {
+      "docs": 58,
+      "valor": 195575.26
+    },
+    "2026-04": {
+      "docs": 66,
+      "valor": 385703.43
+    },
+    "2026-05": {
+      "docs": 59,
+      "valor": 171281.25
+    },
+    "2026-06": {
+      "docs": 72,
+      "valor": 314435.68
+    }
+  },
+  "delta_total": {
+    "docs": 371,
+    "valor": 1475636.55
+  },
+  "colisoes_detalhe": [
+    {
+      "chave": "div|0001387|10117",
+      "docs": [
+        "10117=9855.36",
+        "10117/A=242.99"
+      ],
+      "especie": "div",
+      "risco": "nula: unico descartado casou PRESENTE; nao e candidato"
+    },
+    {
+      "chave": "fat|0000040|AFMTZ-2449",
+      "valores": [
+        3386,
+        12796.94
+      ],
+      "especie": "fat",
+      "risco": "nula: FAT nunca admitido"
+    },
+    {
+      "chave": "fat|0000132|FRCIR02234",
+      "valores": [
+        119.67,
+        1175.86
+      ],
+      "especie": "fat",
+      "risco": "nula: FAT nunca admitido"
+    },
+    {
+      "chave": "fat|0000132|FRCIR0225",
+      "valores": [
+        481.35,
+        1894.77
+      ],
+      "especie": "fat",
+      "risco": "nula: FAT nunca admitido"
+    }
+  ],
+  "colisoes_candidatos_admissao": 0
+}

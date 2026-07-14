@@ -1,0 +1,57 @@
+{
+  "gerado_em": "2026-07-14",
+  "proposito": "Baseline pré-re-sync do D-004 (13 NF-e Origem!=Estoque). Comparar delta após qualquer re-sync: só pode variar exatamente o previsto. Se variar mais, entrou dupla contagem.",
+  "fonte": "censo-jan-jun.json (censo /docfin-despesas/censo, gerado 2026-07-13T18:46Z) + estado atual de desp_docfin_* e desp_realizado_* em 2026-07-14",
+  "filial": "1.01",
+
+  "baseline_docfin_doc_por_competencia": [
+    { "comp": "2026-01", "docs": 52,  "valor_documento": 710941.62 },
+    { "comp": "2026-02", "docs": 266, "valor_documento": 1100899.69 },
+    { "comp": "2026-03", "docs": 134, "valor_documento": 1085443.94 },
+    { "comp": "2026-04", "docs": 159, "valor_documento": 1152847.29 },
+    { "comp": "2026-05", "docs": 136, "valor_documento": 1076761.52 },
+    { "comp": "2026-06", "docs": 242, "valor_documento": 1067732.23 }
+  ],
+
+  "baseline_docfin_rateio_por_competencia": [
+    { "ano": 2026, "mes": 1, "rateios": 56,  "valor_brl": 710941.62 },
+    { "ano": 2026, "mes": 2, "rateios": 276, "valor_brl": 1100936.01 },
+    { "ano": 2026, "mes": 3, "rateios": 138, "valor_brl": 1085443.94 },
+    { "ano": 2026, "mes": 4, "rateios": 181, "valor_brl": 1174750.31 },
+    { "ano": 2026, "mes": 5, "rateios": 140, "valor_brl": 1076876.05 },
+    { "ano": 2026, "mes": 6, "rateios": 246, "valor_brl": 1068762.99 }
+  ],
+
+  "os_13_nfe_origem_diff_estoque": {
+    "total_docs": 13,
+    "valor_censo_total": 653224.39,
+    "ACHADO_CRITICO": "11 dos 13 JA ESTAO no MovEstq (desp_realizado_doc) e ja contam na despesa realizada (desp_realizado_rateio). Apenas 2 sao vazamento genuino. A premissa 'Origem!=Estoque no DocFin => ausente do MovEstq' e FALSA: origem_alvo (modulo do lancamento financeiro DocFin) != origem (origem do movimento de estoque). Sao NF-e de importacao: DocFin marca modulo 'Vendas', mas a entrada gera MovEstq com origem 'Estoque'.",
+
+    "ja_capturados_no_movestq_NAO_reprocessar": [
+      { "ent": "0000330", "nome": "BALLY RIBBON MILLS",  "num": "4345", "comp_censo": "2026-01", "valor_censo": 294451.59, "chave_movestq": 13717, "origem_movestq": "Estoque", "valor_rateio_realizado": 294297.35, "comp_rateio": "2026-02" },
+      { "ent": "0000182", "nome": "MICROLUMEN INC",      "num": "4737", "comp_censo": "2026-06", "valor_censo": 117174.34, "chave_movestq": 17598, "origem_movestq": "Estoque", "valor_rateio_realizado": 117020.12, "comp_rateio": "2026-06" },
+      { "ent": "0000182", "nome": "MICROLUMEN INC",      "num": "4394", "comp_censo": "2026-02", "valor_censo": 72800.63,  "chave_movestq": 13935, "origem_movestq": "Estoque", "valor_rateio_realizado": 72646.40,  "comp_rateio": "2026-02" },
+      { "ent": "0000740", "nome": "R. S. Hugues CO INC", "num": "4792", "comp_censo": "2026-06", "valor_censo": 27914.73,  "chave_movestq": 18003, "origem_movestq": "Estoque", "valor_rateio_realizado": 27914.72,  "comp_rateio": "2026-06" },
+      { "ent": "0000182", "nome": "MICROLUMEN INC",      "num": "4393", "comp_censo": "2026-02", "valor_censo": 26011.09,  "chave_movestq": 13934, "origem_movestq": "Estoque", "valor_rateio_realizado": 25856.86,  "comp_rateio": "2026-02" },
+      { "ent": "0000153", "nome": "ZEUS INDUSTRIAL",     "num": "4398", "comp_censo": "2026-02", "valor_censo": 22301.30,  "chave_movestq": 13860, "origem_movestq": "Estoque", "valor_rateio_realizado": 22301.30,  "comp_rateio": "2026-02" },
+      { "ent": "0000153", "nome": "ZEUS INDUSTRIAL",     "num": "4770", "comp_censo": "2026-06", "valor_censo": 19537.91,  "chave_movestq": 17759, "origem_movestq": "Estoque", "valor_rateio_realizado": 19537.90,  "comp_rateio": "2026-06" },
+      { "ent": "0000153", "nome": "ZEUS INDUSTRIAL",     "num": "4566", "comp_censo": "2026-04", "valor_censo": 17352.60,  "chave_movestq": 15740, "origem_movestq": "Estoque", "valor_rateio_realizado": 17352.60,  "comp_rateio": "2026-04" },
+      { "ent": "0000153", "nome": "ZEUS INDUSTRIAL",     "num": "4431", "comp_censo": "2026-02", "valor_censo": 13007.04,  "chave_movestq": 14113, "origem_movestq": "Estoque", "valor_rateio_realizado": 13007.04,  "comp_rateio": "2026-02" },
+      { "ent": "0000303", "nome": "QOSINA MEDICAL",      "num": "4613", "comp_censo": "2026-04", "valor_censo": 1573.69,   "chave_movestq": 16269, "origem_movestq": "Estoque", "valor_rateio_realizado": 1573.69,   "comp_rateio": "2026-04" },
+      { "ent": "0000522", "nome": "ALEGRIA COM MAQUINAS","num": "12545","comp_censo": "2026-04", "valor_censo": 646.00,    "chave_movestq": 14125, "origem_movestq": "Importacao Arquivo", "valor_rateio_realizado": 646.00, "comp_rateio": "2026-02" }
+    ],
+    "soma_ja_capturados_valor_censo": 612770.92,
+
+    "vazamento_genuino_ausente_das_duas_rotas": [
+      { "ent": "0000378", "nome": "Shanghai Eco Polymer Science", "num": "4562", "comp_censo": "2026-04", "valor_censo": 28710.01 },
+      { "ent": "0001449", "nome": "TAIWAN YUN LIN APPLIED MATER", "num": "4803", "comp_censo": "2026-06", "valor_censo": 11743.46 }
+    ],
+    "soma_vazamento_genuino": 40453.47
+  },
+
+  "delta_esperado": {
+    "ingenuo_do_censo_ERRADO": { "docs": 13, "valor": 653224.39, "obs": "assumia que os 13 nao estavam no MovEstq — falso" },
+    "revisado_pos_antijoin_SEGURO": { "docs": 2, "valor": 40453.47, "por_competencia": { "2026-04": 28710.01, "2026-06": 11743.46 } },
+    "dupla_contagem_evitada": { "docs": 11, "valor": 612770.92 }
+  }
+}
