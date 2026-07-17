@@ -117,6 +117,7 @@ interface PedidoHub {
   valor_total: number | null;
   numero_req_comp: string | null;
   vinculo_requisicao: string | null;
+  detalhes_carregados: boolean | null;
 }
 
 interface DetalheMudanca {
@@ -142,6 +143,7 @@ interface JobResult {
   total_mudaram: number;
   total_erros: number;
   detalhes: DetalheMudanca[];
+  elegiveis_sem_limit?: number; // diagnóstico L1.3 (só no Job 2)
 }
 
 // Cabeçalho leve do PedComp retornado por /ped-comp/list
@@ -1098,6 +1100,56 @@ async function syncDescobrirPedidos(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Persistência de itens (correção L1.4)
+// ─────────────────────────────────────────────────────────────────────
+// Grava ItemPedCompChildList do detalhe completo em compras_pedidos_itens
+// na 1ª vez que o Job 2 carrega o pedido (detalhes_carregados != true).
+// Upsert idempotente por (pedido_id, sequencia). Domínio real de Cancelado
+// = {Não, Parcial, Total} ('Sim' não existe): PULA 'Total' (cancelado
+// integral = item-fantasma), grava 'Não' (ativo) e 'Parcial' (remanescente
+// vivo). NÃO reconcilia valor_total do cabeçalho (a soma dos itens pode
+// divergir por cancelamento parcial; o cabeçalho é a fonte da verdade).
+async function persistirItensPedido(
+  supabase: SupabaseClient,
+  pedidoId: string,
+  alvo: any,
+): Promise<number> {
+  const itensAlvo = (alvo?.ItemPedCompChildList || []) as any[];
+  const rows = itensAlvo
+    .filter((it) => it?.Cancelado !== "Total")
+    .map((it) => ({
+      pedido_id: pedidoId,
+      sequencia: Number(it?.Sequencia),
+      item_servico: it?.ItemServico === "Sim",
+      codigo_produto: it?.CodigoProduto,
+      codigo_alternativo_produto: it?.CodigoAlternativoProduto ?? null,
+      codigo_prod_unid_med: it?.CodigoProdUnidMed,
+      produto_nome: it?.NomeProduto ?? it?.DescricaoAlternativaProduto ?? null,
+      produto_unidade: it?.CodigoProdUnidMed ?? null,
+      quantidade: Number(it?.QuantidadeProdUnidMedPrincipal) || 0,
+      valor_unitario: Number(it?.ValorUnitario) || 0,
+      valor_total_item: Number(it?.ValorTotal) || 0,
+      observacao: it?.Observacao ?? null,
+      updated_at: new Date().toISOString(),
+    }));
+
+  if (rows.length > 0) {
+    const { error: errItens } = await supabase
+      .from("compras_pedidos_itens")
+      .upsert(rows, { onConflict: "pedido_id,sequencia" });
+    if (errItens) throw new Error(`upsert itens: ${errItens.message}`);
+  }
+
+  const { error: errFlag } = await supabase
+    .from("compras_pedidos")
+    .update({ detalhes_carregados: true, detalhes_carregados_em: new Date().toISOString() })
+    .eq("id", pedidoId);
+  if (errFlag) throw new Error(`update detalhes_carregados: ${errFlag.message}`);
+
+  return rows.length;
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // JOB 2: Sincronizar Pedidos (mudanças)
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1113,13 +1165,26 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - 180);
 
+  // ── DIAGNÓSTICO (correção L1.3): total de elegíveis SEM limit ─────
+  // Query separada, head:true, MESMA regra do SELECT de candidatos.
+  // Não altera comportamento — instrumenta o veredito do corte de 180d:
+  //   379 = ramo data+aprovação ativo (aspas duplas OK);
+  //   377 = ramo status_aprovacao.in inerte (só data importa).
+  const { count: elegiveisSemLimit } = await supabase
+    .from("compras_pedidos")
+    .select("id", { count: "exact", head: true })
+    .not("status", "in", '("Encerrado","Cancelado","Cancelado Parcial")')
+    .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.("Em Andamento","Reavaliar")`);
+  result.elegiveis_sem_limit = elegiveisSemLimit ?? 0;
+  console.log(`[sync-ped] elegíveis SEM limit: ${elegiveisSemLimit} (limit aplicado: ${PED_BATCH_SIZE})`);
+
   const { data: candidatos, error: errSelect } = await supabase
     .from("compras_pedidos")
     .select(
-      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, numero_req_comp, vinculo_requisicao",
+      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, numero_req_comp, vinculo_requisicao, detalhes_carregados",
     )
     .not("status", "in", '("Encerrado","Cancelado","Cancelado Parcial")')
-    .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.(Em Andamento,Reavaliar)`)
+    .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.("Em Andamento","Reavaliar")`)
     .order("synced_at", { ascending: true, nullsFirst: true })
     .limit(PED_BATCH_SIZE);
 
@@ -1150,6 +1215,10 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
 
       if (!resp.ok) {
         if (notFound) {
+          // 404 no Alvo: NÃO marcar excluído aqui — o 404 do proxy não é
+          // sinal confiável de exclusão (pode ser falso; ver L3.1). A ação
+          // 404→excluido_alvo foi movida para depois do L3, com cross-check
+          // (404 confiável + ausência na lista de descoberta). Por ora, no-op.
           console.warn(`[sync-ped] ${ped.numero} retornou 404 no Alvo`);
           return;
         }
@@ -1164,7 +1233,38 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
       }
 
       const alvo = resp.data;
+
+      // ── ANTI-WIPE (correção L1.1) ──────────────────────────────────
+      // Load 200 mas payload vazio / não-objeto / sem Numero: NÃO fazer
+      // upsert — gravaria status/aprovado/etc. como null e apagaria o
+      // estado do pedido. Pula, registra payload_invalido e conta erro.
+      if (!alvo || typeof alvo !== "object" || !alvo.Numero) {
+        result.total_erros++;
+        result.detalhes.push({
+          tipo: "ped",
+          id: ped.id,
+          numero_alvo: ped.numero,
+          erro: "payload_invalido",
+        });
+        console.warn(`[sync-ped] ${ped.numero}: payload inválido (Load 200 sem Numero) — pulado`);
+        return;
+      }
+
       const userFields = alvo?.PedCompUserFieldsObject || {};
+
+      // ── Persistir itens na 1ª carga do detalhe (correção L1.4) ─────
+      // Roda ANTES de decidir "mudou" — é o que drena a fila de
+      // detalhes_carregados=false mesmo em pedido sem mudança de status.
+      // Falha em itens NÃO aborta o sync de status (itens são secundários):
+      // loga, flag fica false, retenta no próximo ciclo.
+      if (ped.detalhes_carregados !== true) {
+        try {
+          const n = await persistirItensPedido(supabase, ped.id, alvo);
+          console.log(`[sync-ped] ${ped.numero}: ${n} itens persistidos (detalhes_carregados=true)`);
+        } catch (itErr: any) {
+          console.error(`[sync-ped] ${ped.numero}: persistir itens falhou:`, itErr?.message || itErr);
+        }
+      }
 
       const tsToMs = (v: string | null | undefined): number | null => {
         if (!v) return null;
@@ -1562,6 +1662,12 @@ Deno.serve(async (req: Request) => {
   };
 
   const todosDetalhes = [...job4.detalhes, ...job3.detalhes, ...job1.detalhes, ...job2.detalhes];
+
+  // Diagnóstico L1.3 no sync_runs (preserva msg de exceção se houver).
+  if (typeof job2.elegiveis_sem_limit === "number") {
+    const diagPed = `Job2 elegíveis(sem limit)=${job2.elegiveis_sem_limit}, limit=${PED_BATCH_SIZE}`;
+    observacao = observacao ? `${observacao} | ${diagPed}` : diagPed;
+  }
 
   await supabase
     .from("sync_runs")
