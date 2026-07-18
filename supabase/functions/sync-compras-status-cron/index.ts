@@ -115,6 +115,7 @@ interface PedidoHub {
   enviou_aprovacao: string | null;
   data_notificacao_aprovador: string | null;
   valor_total: number | null;
+  data_pedido: string | null;
   numero_req_comp: string | null;
   vinculo_requisicao: string | null;
   detalhes_carregados: boolean | null;
@@ -144,6 +145,18 @@ interface JobResult {
   total_erros: number;
   detalhes: DetalheMudanca[];
   elegiveis_sem_limit?: number; // diagnóstico L1.3 (só no Job 2)
+}
+
+// Cross-check de exclusão (L3 Missão 2): o que o Job 3 exporta para o Job 2.
+// numerosVistos = conjunto `${filial}|${Numero}` de TUDO que o Alvo listou na
+// janela; janela[Inicio/Fim] = período efetivamente varrido (30d normal ou o
+// override manual); listaOk = a lista é confiável? (false se o /list falhou OU
+// se pode ter truncado — nesse caso o Job 2 faz no-op nos 404, nunca marca).
+interface CrossCheckPedidos {
+  listaOk: boolean;
+  janelaInicio: string; // YYYY-MM-DD
+  janelaFim: string; // YYYY-MM-DD
+  numerosVistos: Set<string>;
 }
 
 // Cabeçalho leve do PedComp retornado por /ped-comp/list
@@ -825,7 +838,7 @@ async function syncDescobrirPedidos(
   systemSecret: string,
   runId: string,
   windowDaysOverride?: number,
-): Promise<JobResult> {
+): Promise<{ result: JobResult; crossCheck: CrossCheckPedidos }> {
   const result: JobResult = {
     total_candidatos: 0,
     total_consultados: 0,
@@ -834,11 +847,28 @@ async function syncDescobrirPedidos(
     detalhes: [],
   };
 
+  // Cross-check para o Job 2 (L3 Missão 2). Default = listaOk:false: se qualquer
+  // coisa aqui falhar/truncar, o Job 2 faz no-op nos 404 e NÃO marca exclusão.
+  const crossCheck: CrossCheckPedidos = {
+    listaOk: false,
+    janelaInicio: "",
+    janelaFim: "",
+    numerosVistos: new Set<string>(),
+  };
+
   const CURSOR_NAME = "ped-comp-last-numero-1.01";
   const FILIAL = "1.01";
   // Janela normal de 30 dias (alinhada ao Job 4). Override permite recuperação
   // de histórico (ex.: 180) num disparo manual, sem alterar o regime normal.
   const WINDOW_DAYS = windowDaysOverride && windowDaysOverride > 0 ? windowDaysOverride : 30;
+  // Paginação da /ped-comp/list. LIST_MAX_PAGES ESPELHA o MAX_PAGES do erp-proxy
+  // (rota /ped-comp/list) — manter em sync. Se a lista atingir o teto
+  // (pageSize × MAX_PAGES) pode ter truncado silenciosamente → set incompleto →
+  // desligamos o cross-check (listaOk=false) para NUNCA marcar pedido vivo como
+  // excluído. Perder um ciclo de marcação é aceitável; falso-positivo não.
+  const LIST_PAGE_SIZE = 200; // máx aceito pelo proxy
+  const LIST_MAX_PAGES = 50; // ESPELHA erp-proxy /ped-comp/list MAX_PAGES
+  const LIST_CAP = LIST_PAGE_SIZE * LIST_MAX_PAGES;
 
   const { data: cursorRow, error: errCursor } = await supabase
     .from("sync_cursors")
@@ -849,7 +879,7 @@ async function syncDescobrirPedidos(
   if (errCursor) {
     console.error("[descobrir-ped] erro ao ler cursor:", errCursor);
     result.total_erros = 1;
-    return result;
+    return { result, crossCheck };
   }
 
   const lastKnownNumero = cursorRow?.cursor_value || "0000000";
@@ -862,9 +892,13 @@ async function syncDescobrirPedidos(
   const dataFim = hoje.toISOString().slice(0, 10);
   const dataInicio = inicio.toISOString().slice(0, 10);
 
+  // Registra a janela efetivamente varrida — é o alcance do cross-check do Job 2.
+  crossCheck.janelaInicio = dataInicio;
+  crossCheck.janelaFim = dataFim;
+
   console.log(`[descobrir-ped] janela: ${dataInicio} → ${dataFim}`);
 
-  const path = `/ped-comp/list?dataInicio=${dataInicio}&dataFim=${dataFim}`;
+  const path = `/ped-comp/list?dataInicio=${dataInicio}&dataFim=${dataFim}&pageSize=${LIST_PAGE_SIZE}`;
   const resp = await callErpProxy(erpUrl, systemSecret, path);
 
   if (!resp.ok) {
@@ -876,7 +910,7 @@ async function syncDescobrirPedidos(
       numero_alvo: "",
       erro: `GET /ped-comp/list falhou: HTTP ${resp.status} - ${resp.data?.error || "desconhecido"}`,
     });
-    return result;
+    return { result, crossCheck };
   }
 
   const todosPedidos = (resp.data || []) as PedidoLeve[];
@@ -884,6 +918,22 @@ async function syncDescobrirPedidos(
   result.total_candidatos = todosPedidos.length;
 
   console.log(`[descobrir-ped] Alvo retornou ${todosPedidos.length} pedidos na janela`);
+
+  // ── CROSS-CHECK (L3 Missão 2): monta o conjunto do que o Alvo lista + trava
+  // de truncação. Se a lista atingiu o teto de paginação, pode estar truncada
+  // → set incompleto → desliga o cross-check (listaOk=false) para não marcar
+  // pedido vivo como excluído.
+  const possibleTruncation = todosPedidos.length >= LIST_CAP;
+  if (possibleTruncation) {
+    console.warn(
+      `[descobrir-ped] POSSÍVEL TRUNCAÇÃO: /list retornou ${todosPedidos.length} >= teto ${LIST_CAP} ` +
+        `(pageSize ${LIST_PAGE_SIZE} × MAX_PAGES ${LIST_MAX_PAGES}). Cross-check DESLIGADO neste ciclo (listaOk=false).`,
+    );
+  }
+  crossCheck.listaOk = !possibleTruncation;
+  crossCheck.numerosVistos = new Set(
+    todosPedidos.filter((p) => p.Numero).map((p) => `${p.CodigoEmpresaFilial}|${p.Numero}`),
+  );
 
   // ── RECONCILIAÇÃO NA JANELA (correção do buraco de descoberta) ──────
   // Antes: filtrava só Numero > cursor, então pedidos que ficaram abaixo do
@@ -895,7 +945,7 @@ async function syncDescobrirPedidos(
   console.log(`[descobrir-ped] ${novos.length} pedidos na janela (reconciliação completa, cursor=${lastKnownNumero})`);
 
   if (novos.length === 0) {
-    return result;
+    return { result, crossCheck };
   }
 
   let maiorNumeroVisto = lastKnownNumero;
@@ -1096,7 +1146,7 @@ async function syncDescobrirPedidos(
     }
   }
 
-  return result;
+  return { result, crossCheck };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1150,10 +1200,107 @@ async function persistirItensPedido(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Cross-check de exclusão (L3 Missão 2)
+// ─────────────────────────────────────────────────────────────────────
+// Decide se um 404 no Load significa exclusão REAL no Alvo. Marca
+// status_local='excluido_alvo' SÓ quando: (a) o Job 3 produziu uma lista
+// confiável neste ciclo (listaOk); (b) a data_pedido está DENTRO da janela
+// que o Job 3 varreu — fora dela o silêncio da lista não prova nada; e (c) o
+// número está AUSENTE do conjunto que o Alvo listou. 404 + presença na lista =
+// soluço/estrutural → no-op (re-tenta). Ação de marcação idêntica ao spec:
+// só status_local + synced_at (+ updated_at, metadado) + auditoria — preserva
+// status/aprovado/etc. (o último estado de negócio).
+async function avaliarExclusaoPedido(
+  supabase: SupabaseClient,
+  ped: PedidoHub,
+  crossCheck: CrossCheckPedidos,
+  result: JobResult,
+): Promise<void> {
+  // (a) sem lista confiável (falha do Job 3 OU possível truncação) → no-op
+  if (!crossCheck.listaOk) {
+    console.warn(`[sync-ped] ${ped.numero}: 404, mas cross-check indisponível (listaOk=false) — no-op`);
+    return;
+  }
+
+  // (b) guarda de janela: só conclui exclusão se a data_pedido cair na janela varrida
+  const dp = ped.data_pedido; // 'YYYY-MM-DD'
+  const dentroDaJanela = !!dp && dp >= crossCheck.janelaInicio && dp <= crossCheck.janelaFim;
+  if (!dentroDaJanela) {
+    console.warn(
+      `[sync-ped] ${ped.numero}: 404, mas data_pedido=${dp ?? "null"} fora da janela varrida ` +
+        `[${crossCheck.janelaInicio}..${crossCheck.janelaFim}] — inconclusivo, no-op`,
+    );
+    return;
+  }
+
+  // (c) presente na lista apesar do 404 = soluço/estrutural → no-op
+  const chave = `${ped.codigo_empresa_filial}|${ped.numero}`;
+  if (crossCheck.numerosVistos.has(chave)) {
+    console.warn(`[sync-ped] ${ped.numero}: 404 no Load mas PRESENTE na lista da janela — soluço, no-op`);
+    return;
+  }
+
+  // ★ 404 real + ausente da lista na MESMA janela = exclusão real.
+  const { error: errMark } = await supabase
+    .from("compras_pedidos")
+    .update({
+      status_local: "excluido_alvo",
+      synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ped.id);
+
+  if (errMark) {
+    result.total_erros++;
+    result.detalhes.push({
+      tipo: "ped",
+      id: ped.id,
+      numero_alvo: ped.numero,
+      erro: `UPDATE excluido_alvo falhou: ${errMark.message}`,
+    });
+    console.error(`[sync-ped] ${ped.numero}: marcar excluido_alvo falhou:`, errMark);
+    return;
+  }
+
+  await supabase.from("compras_pedidos_auditoria").insert({
+    pedido_id: ped.id,
+    evento: "excluido_alvo",
+    user_id: null,
+    user_nome: "Job 2 — cross-check exclusão",
+    sucesso: true,
+    resposta_alvo: {
+      not_found: true,
+      cross_check: {
+        janela_inicio: crossCheck.janelaInicio,
+        janela_fim: crossCheck.janelaFim,
+        ausente_da_lista: true,
+      },
+    },
+  });
+
+  result.total_mudaram++;
+  result.detalhes.push({
+    tipo: "ped",
+    id: ped.id,
+    numero_alvo: ped.numero,
+    status_anterior: ped.status || undefined,
+    status_novo: "excluido_alvo",
+  });
+  console.log(
+    `[sync-ped] ${ped.numero}: MARCADO excluido_alvo (404 real + ausente da lista [${crossCheck.janelaInicio}..${crossCheck.janelaFim}])`,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // JOB 2: Sincronizar Pedidos (mudanças)
 // ─────────────────────────────────────────────────────────────────────
 
-async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecret: string): Promise<JobResult> {
+async function syncPedidos(
+  supabase: SupabaseClient,
+  erpUrl: string,
+  systemSecret: string,
+  crossCheck: CrossCheckPedidos,
+): Promise<JobResult> {
   const result: JobResult = {
     total_candidatos: 0,
     total_consultados: 0,
@@ -1174,6 +1321,7 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
     .from("compras_pedidos")
     .select("id", { count: "exact", head: true })
     .not("status", "in", '("Encerrado","Cancelado","Cancelado Parcial")')
+    .or("status_local.is.null,status_local.neq.excluido_alvo")
     .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.("Em Andamento","Reavaliar")`);
   result.elegiveis_sem_limit = elegiveisSemLimit ?? 0;
   console.log(`[sync-ped] elegíveis SEM limit: ${elegiveisSemLimit} (limit aplicado: ${PED_BATCH_SIZE})`);
@@ -1181,9 +1329,10 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
   const { data: candidatos, error: errSelect } = await supabase
     .from("compras_pedidos")
     .select(
-      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, numero_req_comp, vinculo_requisicao, detalhes_carregados",
+      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, data_pedido, numero_req_comp, vinculo_requisicao, detalhes_carregados",
     )
     .not("status", "in", '("Encerrado","Cancelado","Cancelado Parcial")')
+    .or("status_local.is.null,status_local.neq.excluido_alvo")
     .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.("Em Andamento","Reavaliar")`)
     .order("synced_at", { ascending: true, nullsFirst: true })
     .limit(PED_BATCH_SIZE);
@@ -1215,11 +1364,10 @@ async function syncPedidos(supabase: SupabaseClient, erpUrl: string, systemSecre
 
       if (!resp.ok) {
         if (notFound) {
-          // 404 no Alvo: NÃO marcar excluído aqui — o 404 do proxy não é
-          // sinal confiável de exclusão (pode ser falso; ver L3.1). A ação
-          // 404→excluido_alvo foi movida para depois do L3, com cross-check
-          // (404 confiável + ausência na lista de descoberta). Por ora, no-op.
-          console.warn(`[sync-ped] ${ped.numero} retornou 404 no Alvo`);
+          // 404 real (pós-L3.1: o proxy já não devolve 200-null mascarado).
+          // Marca excluido_alvo SÓ com cross-check contra o que o Job 3 viu,
+          // e apenas dentro da janela varrida. Toda a regra vive no helper.
+          await avaliarExclusaoPedido(supabase, ped, crossCheck, result);
           return;
         }
         result.total_erros++;
@@ -1636,6 +1784,10 @@ Deno.serve(async (req: Request) => {
   let job2: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
   let job3: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
   let job4: JobResult = { total_candidatos: 0, total_consultados: 0, total_mudaram: 0, total_erros: 0, detalhes: [] };
+  // Cross-check do Job 3 → Job 2 (L3 Missão 2). Default seguro: listaOk:false →
+  // se o Job 3 não rodar/preencher (ex.: exceção antes do Job 2), o Job 2 faz
+  // no-op nos 404 e não marca nada.
+  let crossCheck: CrossCheckPedidos = { listaOk: false, janelaInicio: "", janelaFim: "", numerosVistos: new Set<string>() };
   let observacao: string | null = null;
 
   try {
@@ -1645,9 +1797,11 @@ Deno.serve(async (req: Request) => {
     // 3. Job 1 — sync mudanças em reqs já no Hub
     // 4. Job 2 — sync mudanças em pedidos já no Hub
     job4 = await syncDescobrirRequisicoes(supabase, erpUrl, systemSecret, runId);
-    job3 = await syncDescobrirPedidos(supabase, erpUrl, systemSecret, runId, pedWindowDays);
+    const job3out = await syncDescobrirPedidos(supabase, erpUrl, systemSecret, runId, pedWindowDays);
+    job3 = job3out.result;
+    crossCheck = job3out.crossCheck;
     job1 = await syncRequisicoes(supabase, erpUrl, systemSecret);
-    job2 = await syncPedidos(supabase, erpUrl, systemSecret);
+    job2 = await syncPedidos(supabase, erpUrl, systemSecret, crossCheck);
   } catch (err: any) {
     console.error("[cron] exception:", err);
     observacao = `Exception inesperada: ${err?.message || String(err)}`;
