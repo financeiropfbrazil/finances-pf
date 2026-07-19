@@ -57,7 +57,7 @@ import {
 } from "@/services/pedidosService";
 import VincularRequisicaoCard from "@/components/VincularRequisicaoCard";
 import { getStatusPedido } from "@/lib/statusPedido";
-import { carregarDetalhesPedido } from "@/services/alvoPedCompLoadService";
+import { carregarDetalhesPedido, isPedidoInexistenteNoAlvo } from "@/services/alvoPedCompLoadService";
 
 // ════════════════════════════════════════════════════════════
 // CONFIG DE EVENTOS DA AUDITORIA (mantido — usado no histórico)
@@ -226,22 +226,49 @@ export default function SuprimentosPedidoDetalhe() {
         }
       }
 
-      // ⭐ NOVO: se pedido veio do Alvo sem detalhes carregados,
-      // faz Load no Alvo agora e recarrega
+      // ── OPEN-LOAD (L4) ────────────────────────────────────────────────
+      // Load do ERP a CADA abertura (não só na primeira): o cron de status
+      // roda de hora em hora, então quem abre o card precisa ver o estado de
+      // agora — status, aprovação, valores e itens. Pedido que ainda não
+      // existe no ERP (rascunho/enviando/erro de envio) é pulado.
       const { data: pedRaw } = await (supabase as any)
         .from("compras_pedidos")
-        .select("detalhes_carregados, numero")
+        .select("numero, status_local")
         .eq("id", id)
         .single();
 
-      if (pedRaw && pedRaw.detalhes_carregados === false && pedRaw.numero) {
+      const existeNoAlvo =
+        pedRaw?.numero && !["rascunho", "enviando", "erro_envio"].includes(pedRaw?.status_local ?? "");
+
+      if (existeNoAlvo) {
         try {
-          await carregarDetalhesPedido(pedRaw.numero);
-          // Recarrega pedido com os detalhes agora populados
+          const r = await carregarDetalhesPedido(pedRaw.numero);
           result = await carregarPedidoParaDetalhe(id);
+          if (r.mudancas.length > 0) {
+            toast({
+              title: "Pedido atualizado do ERP",
+              description: `Mudou: ${r.mudancas.join(", ")}.`,
+            });
+          }
         } catch (err: any) {
-          // Não fatal — mostra o que tem (cabeçalho + valor_total) e segue
-          console.error("[pedido-detalhe] Falha ao carregar detalhes do Alvo:", err);
+          // Falha NÃO é fatal: mostra o que está no Hub e avisa que pode estar
+          // desatualizado. No 404 não marcamos 'excluido_alvo' — um 404 isolado
+          // não prova exclusão (regra de cross-check do L3); quem marca é o cron.
+          console.error("[pedido-detalhe] Falha no open-load:", err);
+          if (isPedidoInexistenteNoAlvo(err)) {
+            toast({
+              title: "Pedido não encontrado no ERP",
+              description:
+                "Ele pode ter sido excluído no Alvo. Os dados abaixo são o último estado conhecido; a sincronização confirmará.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Não foi possível atualizar do ERP",
+              description: "Exibindo o último estado sincronizado. Tente recarregar em instantes.",
+              variant: "destructive",
+            });
+          }
         }
       }
       return result;

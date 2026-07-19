@@ -5,12 +5,44 @@ const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
 const MAX_RETRIES = 3;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Erro do Load com o status HTTP preservado — a página precisa distinguir
+ * 404 (pedido não existe mais no ERP) de falha de rede/sessão.
+ */
+export class PedCompLoadError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PedCompLoadError";
+    this.status = status;
+  }
+}
+
+/**
+ * O pedido não existe (mais) no ERP?
+ *
+ * O Alvo NÃO usa 404 para isso: no Load direto ele responde **412 Precondition
+ * Failed** quando o registro foi excluído (descoberto em 19/07/2026 testando a
+ * exclusão do pedido 0004455 — o log mostrou 409/409/409 de sessão e então 412).
+ * O erp-proxy mascara essa diferença: ele converte a resposta do Alvo em 404 por
+ * regex na Message. Ou seja, quem fala pelo gateway (o cron) vê 404 e quem fala
+ * direto com o Alvo (esta página) vê 412. Aceitamos os dois.
+ */
+export function isPedidoInexistenteNoAlvo(err: unknown): boolean {
+  return err instanceof PedCompLoadError && (err.status === 404 || err.status === 412);
+}
+
 async function fetchLoadWithRetry(numero: string): Promise<any> {
   let token = (await authenticateAlvo()).token;
-  if (!token) throw new Error("Falha na autenticação ERP");
+  if (!token) throw new PedCompLoadError("Falha na autenticação ERP", 0);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const url = `${ERP_BASE_URL}/PedComp/Load?codigoEmpresaFilial=1.01&numero=${encodeURIComponent(numero)}&loadChild=All`;
+    // loadParent/loadChild/loadOneToOne = All (mesmo contrato do erp-proxy):
+    // sem loadOneToOne o PedCompUserFieldsObject (UserProximoAprovador,
+    // UserEnviouAprovacao) pode não vir — e são campos que o badge usa.
+    const url =
+      `${ERP_BASE_URL}/PedComp/Load?codigoEmpresaFilial=1.01&numero=${encodeURIComponent(numero)}` +
+      `&loadParent=All&loadChild=All&loadOneToOne=All`;
     const resp = await fetch(url, {
       method: "GET",
       headers: { "riosoft-token": token },
@@ -18,16 +50,16 @@ async function fetchLoadWithRetry(numero: string): Promise<any> {
 
     if (resp.status === 409) {
       console.warn(`[PedCompLoad] 409 tentativa ${attempt}/${MAX_RETRIES}`);
-      if (attempt === MAX_RETRIES) throw new Error("Conflito de sessão persistente (409)");
+      if (attempt === MAX_RETRIES) throw new PedCompLoadError("Conflito de sessão persistente (409)", 409);
       clearAlvoToken();
       await delay(1000 * attempt);
       const reAuth = await authenticateAlvo();
-      if (!reAuth.token) throw new Error("Re-autenticação falhou");
+      if (!reAuth.token) throw new PedCompLoadError("Re-autenticação falhou", 0);
       token = reAuth.token;
       continue;
     }
 
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) throw new PedCompLoadError(`HTTP ${resp.status}`, resp.status);
     return await resp.json();
   }
 }
@@ -82,6 +114,19 @@ function calcularPrimeiroVencimento(parcelas: any[]): string | null {
   return vencs.reduce((menor, atual) => (atual < menor ? atual : menor));
 }
 
+/**
+ * Data de aprovação final do pedido. Fica no ITEM (ItemPedCompChildList), não no
+ * cabeçalho; itens aprovados juntos compartilham a mesma data. Null se não aprovado.
+ * (Mesma regra do sync-compras-status-cron.)
+ */
+function extrairDataAprovacao(data: any): string | null {
+  const itens = (data?.ItemPedCompChildList || []) as any[];
+  for (const it of itens) {
+    if (it?.DataAprovacao && it?.Cancelado !== "Total") return it.DataAprovacao;
+  }
+  return null;
+}
+
 function extrairClasseRateio(data: any): any[] {
   let list = data?.PedCompClasseRecDespChildList || [];
   if (list.length === 0) {
@@ -122,10 +167,13 @@ function extrairAnexos(data: any): any[] {
 /**
  * Soma o valorTotal dos itens NÃO cancelados.
  * Usado como fallback quando o cabeçalho do Alvo (ValorTotal) vier null/undefined.
+ * Domínio real de Cancelado = {Não, Parcial, Total} — 'Sim' NÃO existe (validado
+ * em 4.535 itens da auditoria). Exclui só os cancelados INTEGRALMENTE ('Total');
+ * 'Parcial' tem remanescente ativo e entra na soma.
  */
 function somarItensNaoCancelados(itens: any[]): number {
   return (itens || [])
-    .filter((it: any) => it?.cancelado !== "Sim")
+    .filter((it: any) => it?.cancelado !== "Total")
     .reduce((acc: number, it: any) => acc + (Number(it?.valorTotal) || 0), 0);
 }
 
@@ -243,8 +291,56 @@ export async function baixarAnexoPedido(
   URL.revokeObjectURL(url);
 }
 
-export async function carregarDetalhesPedido(numero: string): Promise<void> {
+/** Resultado do open-load, para a página informar o usuário. */
+export interface ResultadoLoadPedido {
+  /** Campos de status que mudaram nesta carga (vazio = nada mudou). */
+  mudancas: string[];
+  /** Quantidade de itens trazidos do ERP. */
+  totalItens: number;
+  statusAnterior: string | null;
+  statusNovo: string | null;
+}
+
+/**
+ * OPEN-LOAD (L4) — carrega o pedido do ERP e atualiza o Hub.
+ *
+ * Chamada a CADA abertura do card (não só na primeira): o cron de status roda
+ * de hora em hora, então quem abre o pedido precisa ver o estado de AGORA.
+ *
+ * O que grava:
+ *  · STATUS do workflow (status, aprovado, status_aprovacao, comprado,
+ *    proximo_aprovador, enviou_aprovacao) — NOVO no L4; antes esta função só
+ *    trazia itens/valores, e o badge continuava defasado até o cron passar;
+ *  · itens, parcelas, rateio, anexos, valores, vínculo req↔ped (como antes).
+ *
+ * O que NÃO faz:
+ *  · NÃO marca `excluido_alvo` no 404. Um 404 isolado não é prova de exclusão
+ *    (foi o erro da Correção 2 do L1, revertida): a regra exige cross-check
+ *    (404 + ausência da lista de descoberta), e essa lista o cron tem, a
+ *    página não. Aqui o 404 vira aviso; a marcação fica com o cron.
+ *
+ * ⚠️ Esta função fala com o Alvo DIRETO (não pelo erp-proxy), então a guarda
+ * 502 do proxy (L3.1) não a protege — por isso a guarda anti-wipe abaixo é
+ * obrigatória: sem ela, um Load 200 com corpo vazio zeraria itens e valores
+ * (o mesmo wipe corrigido no cron em L1.1).
+ */
+export async function carregarDetalhesPedido(numero: string): Promise<ResultadoLoadPedido> {
   const data = await fetchLoadWithRetry(numero);
+
+  // ── GUARDA ANTI-WIPE ────────────────────────────────────────────────────
+  // Load 200 com payload vazio/não-objeto/sem Numero: NÃO gravar. Sem isso o
+  // upsert abaixo gravaria itens=[] e valor_total=0, apagando o pedido.
+  if (!data || typeof data !== "object" || !data.Numero) {
+    throw new PedCompLoadError("Resposta inválida do ERP (payload sem Numero) — nada foi alterado", 502);
+  }
+
+  // Estado anterior, para reportar o que mudou (o usuário vê "status atualizado")
+  const { data: antes } = await supabase
+    .from("compras_pedidos")
+    .select("status, aprovado, status_aprovacao, comprado, proximo_aprovador")
+    .eq("codigo_empresa_filial", "1.01")
+    .eq("numero", numero)
+    .maybeSingle();
 
   const condPagObj = data?.CondPagPedCompObject;
   const nomeCondPag = condPagObj?.Nome || null;
@@ -252,8 +348,23 @@ export async function carregarDetalhesPedido(numero: string): Promise<void> {
   const itens = extrairItens(data);
   const parcelas = extrairParcelas(data);
   const vinculo = extrairVinculoRequisicao(data);
+  const userFields = data?.PedCompUserFieldsObject || {};
+
+  // ── Campos de STATUS do Alvo (NOVO no L4) ───────────────────────────────
+  const statusNovo = {
+    status: data?.Status ?? null,
+    aprovado: data?.Aprovado ?? null,
+    status_aprovacao: data?.StatusAprovacao ?? null,
+    comprado: data?.Comprado ?? null,
+    proximo_aprovador: userFields?.UserProximoAprovador ?? null,
+    enviou_aprovacao: userFields?.UserEnviouAprovacao ?? null,
+    data_notificacao_aprovador: userFields?.UserDataNotificao ?? null,
+    data_digitacao_alvo: data?.DataHoraDigitacao ?? null,
+    data_aprovacao_alvo: extrairDataAprovacao(data),
+  };
 
   const update: Record<string, any> = {
+    ...statusNovo,
     itens,
     parcelas,
     classe_rateio: extrairClasseRateio(data),
@@ -274,6 +385,7 @@ export async function carregarDetalhesPedido(numero: string): Promise<void> {
     primeiro_vencimento: calcularPrimeiroVencimento(parcelas),
     detalhes_carregados: true,
     detalhes_carregados_em: new Date().toISOString(),
+    synced_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     // ── Vínculo com requisição (cabeçalho + itens) ───────────────────────
     // O Load completo é fonte autorizada: pode afirmar tanto presença quanto
@@ -305,4 +417,28 @@ export async function carregarDetalhesPedido(numero: string): Promise<void> {
     .upsert({ ...update, numero, codigo_empresa_filial: "1.01" }, { onConflict: "codigo_empresa_filial,numero" });
 
   if (error) throw new Error(`Erro ao salvar detalhes: ${error.message}`);
+
+  // ── O que mudou? (para a página avisar o usuário) ───────────────────────
+  const rotulos: Record<string, string> = {
+    status: "situação",
+    aprovado: "aprovação",
+    status_aprovacao: "workflow de aprovação",
+    comprado: "compra",
+    proximo_aprovador: "próximo aprovador",
+  };
+  const mudancas: string[] = [];
+  if (antes) {
+    for (const campo of Object.keys(rotulos)) {
+      const anterior = (antes as any)[campo] ?? null;
+      const novo = (statusNovo as any)[campo] ?? null;
+      if (anterior !== novo) mudancas.push(rotulos[campo]);
+    }
+  }
+
+  return {
+    mudancas,
+    totalItens: itens.length,
+    statusAnterior: (antes as any)?.status ?? null,
+    statusNovo: statusNovo.status,
+  };
 }
