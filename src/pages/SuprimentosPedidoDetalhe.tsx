@@ -57,7 +57,7 @@ import {
 } from "@/services/pedidosService";
 import VincularRequisicaoCard from "@/components/VincularRequisicaoCard";
 import { getStatusPedido } from "@/lib/statusPedido";
-import { carregarDetalhesPedido, PedCompLoadError } from "@/services/alvoPedCompLoadService";
+import { carregarDetalhesPedido, isPedidoInexistenteNoAlvo } from "@/services/alvoPedCompLoadService";
 
 // ════════════════════════════════════════════════════════════
 // CONFIG DE EVENTOS DA AUDITORIA (mantido — usado no histórico)
@@ -255,7 +255,7 @@ export default function SuprimentosPedidoDetalhe() {
           // desatualizado. No 404 não marcamos 'excluido_alvo' — um 404 isolado
           // não prova exclusão (regra de cross-check do L3); quem marca é o cron.
           console.error("[pedido-detalhe] Falha no open-load:", err);
-          if (err instanceof PedCompLoadError && err.status === 404) {
+          if (isPedidoInexistenteNoAlvo(err)) {
             toast({
               title: "Pedido não encontrado no ERP",
               description:
