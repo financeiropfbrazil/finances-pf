@@ -10,10 +10,16 @@
 //                                       É o modo do cron.
 //   - Single(body { pedido_id }): processa 1 pedido. force_test / override_email p/ teste manual.
 //
-// Dedup + anti-duplo: compras_pedidos_emails_log.
+// SEGURANÇA (L2 Entrega 1): exige x-cron-secret (header) OU cron_secret (body) == CRON_SECRET.
+//   Sem match → 401, antes de qualquer modo. Fecha a exposição pública do override_email
+//   (exfiltração de valor/fornecedor/aprovador para e-mail arbitrário).
+//
+// Dedup: compras_pedidos_emails_log.
 //   - tipo próprio:  'aprovacao_criador'
-//   - anti-duplo:    se JÁ existe email de sucesso p/ esse pedido no MESMO endereço
-//                    (qualquer tipo, inclui 'aprovacao_finalizada' do requisitante) → pula.
+//   - regra:         por (pedido_id, tipo) — NÃO cruza endereço/tipo. Cruzar bloquearia o e-mail
+//                    de aprovação ao CRIADOR quando o de conclusão ao REQUISITANTE
+//                    (notify-pedido-concluido) já tivesse ido ao MESMO endereço na mesma janela
+//                    (criador==requisitante).
 //   - backlog:       linhas 'backlog-neutralizado' (tipo 'aprovacao_criador') fazem o scan pular
 //                    os pedidos já aprovados antes do go-live.
 
@@ -261,7 +267,8 @@ async function resolverCriador(
   return { email: userInfo.user.email, nome };
 }
 
-// ── Dedup + anti-duplo (mesmo endereço, qualquer tipo; ou já processado nesse tipo) ──
+// ── Dedup por (pedido_id, tipo) — NÃO cruza endereço (ver cabeçalho): senão o e-mail de conclusão
+//    ao requisitante bloquearia o de aprovação ao criador quando criador==requisitante. ──
 async function jaProcessado(supabase: any, pedidoId: string, email: string): Promise<boolean> {
   const { data, error } = await supabase
     .from("compras_pedidos_emails_log")
@@ -272,7 +279,9 @@ async function jaProcessado(supabase: any, pedidoId: string, email: string): Pro
     console.error("[jaProcessado] erro ao consultar log:", error);
     return false; // em caso de erro, tenta enviar
   }
-  return (data || []).some((l: any) => l.tipo === TIPO || l.destinatario === email);
+  // Dedup por (pedido_id, tipo) — NÃO cruza endereço (ver cabeçalho): senão o e-mail de conclusão
+  // ao requisitante bloquearia o de aprovação ao criador quando criador==requisitante.
+  return (data || []).some((l: any) => l.tipo === TIPO);
 }
 
 // ── Registra envio no log ──
@@ -410,6 +419,25 @@ serve(async (req: Request) => {
       body = await req.json();
     } catch {
       body = {};
+    }
+
+    // ── Gate CRON_SECRET (L2 Entrega 1) — antes de QUALQUER modo (scan/single/force_test) ──
+    // Fecha a exposição pública: sem secret válido → 401. O cron (jobid 21) e os testes manuais
+    // do Pedro passam a enviar x-cron-secret; o valor é o mesmo do sync (Vault sync_compras_cron_secret).
+    const expectedSecret = Deno.env.get("CRON_SECRET");
+    if (!expectedSecret) {
+      return new Response(JSON.stringify({ success: false, error: "CRON_SECRET não configurado" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const headerSecret = req.headers.get("x-cron-secret");
+    const bodySecret = body?.cron_secret;
+    if (headerSecret !== expectedSecret && bodySecret !== expectedSecret) {
+      return new Response(JSON.stringify({ success: false, error: "Não autorizado" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {

@@ -38,3 +38,9 @@ verify_jwt = false
 
 [functions.sync-intercompany-cron]
 verify_jwt = false
+
+# notify-pedido-criador: reachable sem JWT (o cron/pg_net não manda JWT). A auth
+# real é o gate CRON_SECRET dentro da função (L2 Entrega 1). Declarado aqui para
+# o deploy NÃO flipar verify_jwt=true e quebrar o cron jobid 21.
+[functions.notify-pedido-criador]
+verify_jwt = false
