@@ -36,7 +36,7 @@ import {
   ArrowDown,
   Search,
 } from "lucide-react";
-import { getStatusPedido } from "@/lib/statusPedido";
+import { getStatusPedido, STATUS_PEDIDO_FILTER_OPTIONS, aplicarFiltroStatusPedido } from "@/lib/statusPedido";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Home } from "lucide-react";
 import { format } from "date-fns";
@@ -363,22 +363,12 @@ export default function SuprimentosPedidos() {
         query = query.in("numero_req_comp", numerosReqs);
       }
 
-      // ── Filtro de Status ──────────────────────────────────────────────
-      // "aprovados" replica EXATAMENTE a regra do badge "Aprovado" verdinho
-      // do getStatusPedido: status='Aberto' + status_aprovacao='Finalizada'
-      // + aprovado='Total' + comprado != 'Sim'. As condições de status e
-      // comprado são essenciais: sem elas, entram os "Concluído"
-      // (Encerrado ou comprado='Sim') e "Pendente no ERP" (status='Pendente'),
-      // que também têm Finalizada+Total mas NÃO são "Aprovado".
-      if (filtroStatusLocal === "aprovados") {
-        query = query
-          .eq("status", "Aberto")
-          .eq("status_aprovacao", "Finalizada")
-          .eq("aprovado", "Total")
-          .neq("comprado", "Sim");
-      } else if (filtroStatusLocal && filtroStatusLocal !== "todos") {
-        query = query.eq("status_local", filtroStatusLocal);
-      }
+      // ── Filtro de Status efetivo (L4) ─────────────────────────────────
+      // Espelha a precedência do getStatusPedido() no servidor — a listagem
+      // pagina no banco, então filtrar client-side pegaria só a página atual.
+      // A tradução estado → PostgREST vive em statusPedido.ts, ao lado do
+      // badge, para as duas lógicas nunca divergirem.
+      query = aplicarFiltroStatusPedido(query, filtroStatusLocal);
 
       if (filtroOrigem === "hub") {
         query = query.eq("criado_no_hub", true);
@@ -556,12 +546,11 @@ export default function SuprimentosPedidos() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="aprovados">Aprovados</SelectItem>
-                <SelectItem value="rascunho">Rascunho</SelectItem>
-                <SelectItem value="enviando">Enviando</SelectItem>
-                <SelectItem value="enviado_alvo">Enviado ao ERP</SelectItem>
-                <SelectItem value="erro_envio">Erro no envio</SelectItem>
-                <SelectItem value="sincronizado">Sincronizado</SelectItem>
+                {STATUS_PEDIDO_FILTER_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
