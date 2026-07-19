@@ -1,6 +1,8 @@
 # PLANO-PEDIDOS.md — Módulo Suprimentos (Requisições e Pedidos) — v3
 
 > **Documento vivo.** Claude Code: leia no início de toda sessão de Suprimentos; atualize status (seção 2) e diário (seção 8) ao concluir cada item. **Nunca alterar item registrado** — mudanças viram itens novos (Ajuste/Correção). Sessão FH46. v3 de 17/07/2026 (v1 prompts, v2 lotes — histórico no diário). Pré-diagnóstico completo: código lido (cron, notify, pedidosService, erp-proxy pedComp/client/auth, InventoryImport, alvoEstoqueService) + censo de status Hub×Alvo.
+>
+> **ESTADO EM 19/07/2026:** **L0, L1 (parcial), L3 e L2 CONCLUÍDOS e em produção.** Em produção hoje: anti-wipe · filtro/count instrumentado · persistência de itens · guarda 502 no proxy · cross-check de exclusão (`excluido_alvo`) · gate `CRON_SECRET` nas duas funções de e-mail · e-mail ao CRIADOR na aprovação (jobid 21) · e-mail ao REQUISITANTE na conclusão (jobid 22) · backlog de 1.161 neutralizado. **RESTAM: LD · L4 · L5 · L6.** Decisões abertas: só **P-2** e **P-4**.
 
 ---
 
@@ -31,7 +33,7 @@ Eixos observados — **vocabulário completo**, validado nas duas fontes:
 |---|---|---|
 | 1 | Rascunho | `status_local='rascunho'` |
 | 2 | Erro no envio | `status_local='erro_envio'` |
-| 3 | Excluído no Alvo | `status_local='excluido_alvo'` (404 no Load — **pendente L3**, só com cross-check; ver L3 item 4) |
+| 3 | Excluído no Alvo | `status_local='excluido_alvo'` (404 no Load + ausência da lista — **EM PRODUÇÃO desde 18/07** via cross-check do L3.2; ver L3 item 4) |
 | 4 | Cancelado | `status='Cancelado'` |
 | 5 | Cancelado Parcial | `status='Cancelado Parcial'` |
 | 6 | Concluído | `status='Encerrado'` |
@@ -41,7 +43,7 @@ Eixos observados — **vocabulário completo**, validado nas duas fontes:
 | 10 | Aprovado — aguardando compra | `aprovado='Total'` e `comprado='Não'` |
 | 11 | Aguardando envio p/ aprovação | `aprovado='Não'` e `status_aprovacao='Nenhum'` |
 
-Filtro do dropdown = essa lista (Enviando fica como estado transitório do card; "Enviado ao ERP"/"Sincronizado" saem — cobertos pelo filtro Origem). Cancelado prevalece sobre aprovação (`Cancelado|Total|Finalizada|Sim` exibe Cancelado). Censo de referência: Encerrado 1.159 no Hub / 1.243 no Alvo (defasagem ~150 = Frente B quantificada); ~90 pedidos ausentes do Hub (buracos de descoberta). Os 7 `status NULL` são `RASCUNHO-*` (não vítimas de wipe — confirmar no L1.0).
+Filtro do dropdown = essa lista (Enviando fica como estado transitório do card; "Enviado ao ERP"/"Sincronizado" saem — cobertos pelo filtro Origem). Cancelado prevalece sobre aprovação (`Cancelado|Total|Finalizada|Sim` exibe Cancelado). Censo de referência: Encerrado 1.159 no Hub / 1.243 no Alvo (defasagem ~150 = Frente B quantificada); ~90 pedidos ausentes do Hub (buracos de descoberta). Os 7 `status NULL` são `status_local='erro_envio'` (**corrigido no L0** — NÃO são `'rascunho'`, que não existe na base; e não são vítimas de wipe: zero wipes reais em 2.256 eventos).
 
 **Gatilhos de e-mail (Resend `notificapfbr.com.br`, verificado sa-east-1):**
 - **Criador (role Operador de Compras):** pedido 100% aprovado = `aprovado='Total' AND status_aprovacao='Finalizada'`.
@@ -53,16 +55,18 @@ Filtro do dropdown = essa lista (Enviando fica como estado transitório do card;
 
 | Lote | Conteúdo | Repo | Status |
 |---|---|---|---|
-| L0 | Herança FH41 + verificações de schema do L1 | SQL/MCP | ⬜ |
+| L0 | Herança FH41 + verificações de schema do L1 | SQL/MCP | ✅ **concluído** 17/07 — 6 achados; Ryan `alvo_usuario='RYAN.PAGANOTTO'` resolvido 19/07 |
 | L1 | Cron de status: anti-wipe, filtro/count, persistir itens (404→excluido_alvo **movido p/ L3**) | finances-pf (Edge) | ✅ **parcial** — 1/3/4 em produção, smoke OK 17/07; Correção 2 relocada ao L3 |
-| L3 | erp-proxy: 502 no Load sem Numero; ler contrato produto-sync e sync de entidades | erp-proxy | ⬜ |
-| L2 | E-mails estado+scan: gate secret no criador; requisitante→Concluído (novo scan + neutralização) | finances-pf (Edge) | 🟡 **parcial** — Entrega 1 (gate `CRON_SECRET` + dedup fix) em produção 18/07; Entregas 2/3 pendentes |
+| L3 | erp-proxy 502 + cross-check de exclusão (Edge) + contratos p/ o LD | erp-proxy + finances-pf | ✅ **concluído** 18/07 — M1 (502) · M2 (cross-check, 4 fantasmas marcados) · M3 (contratos lidos) |
+| L2 | E-mails estado+scan: gate secret no criador; requisitante→Concluído (novo scan + neutralização) | finances-pf (Edge) | ✅ **concluído** 19/07 — E1 (gate+dedup) · E2 (revisão) · E3 (`notify-pedido-concluido` jobid 22 + neutralização 1.161 + remoção do inline) |
 | L4 | Frontend: statusPedido.ts+filtro+badges; open-load ped/req; botão Atualizar Cadastros; .range() combobox | finances-pf (src) | ⬜ |
 | LD | Edge sync-cadastros-delta (produtos + entidades) reutilizando RPC existente | finances-pf (Edge) | ⬜ |
 | L5 | Data-fix: backfill de itens órfãos (0004441 etc.); recuperação de wipados SE existirem | SQL/disparo manual | ⬜ |
 | L6 | Validação fim-a-fim com operação real | — | ⬜ |
 
 Ordem: **L0 → L1 → L3 → L2 → LD → L4 → L5 → L6** (L4 consome statusPedido + delta + open-load de uma vez).
+
+**RESTAM (19/07): LD → L4 → L5 → L6.** L0/L1/L3/L2 estão em produção. Próximo lote = **LD** (delta de cadastros — atenção: cruza os dois repos, ver aviso no detalhe do LD) ou **L4** (frontend, o maior) — a critério do Pedro. O L4 depende do LD apenas para o item 4 (botão Atualizar Cadastros); os itens 1/2/3/5 são independentes.
 
 ---
 
@@ -76,7 +80,7 @@ Ordem: **L0 → L1 → L3 → L2 → LD → L4 → L5 → L6** (L4 consome statu
 1. **Anti-wipe (prevenção):** Job 2 — Load sem objeto com `Numero` → pula, loga `payload_invalido` em `detalhes`, conta erro. Nunca upsert de resposta vazia. (Mesma guarda leve no Job 1/reqs se aplicável.)
 2. **404 → fora da fila:** `status_local='excluido_alvo'` + `synced_at` carimbado + auditoria `evento='excluido_alvo'`. NÃO tocar status/aprovado (preserva último estado). Filtro passa a excluir `excluido_alvo`.
 3. **Filtro de candidatos:** excluir explicitamente `status_local in ('rascunho','erro_envio','excluido_alvo')` (rascunho não existe no Alvo — NÃO incluir status NULL na varredura); aspas duplas em `in.("Em Andamento","Reavaliar")`; validar a query REST antes/depois (contagem vs SELECT SQL).
-4. **Persistir itens:** quando `detalhes_carregados=false`, gravar `ItemPedCompChildList` em `compras_pedidos_itens` (upsert na chave confirmada no L0; itens `Cancelado='Sim'`: decidir gravar-marcado vs pular olhando o schema) e virar a flag. Zero chamadas extras — o detalhe já está na mão.
+4. **Persistir itens:** quando `detalhes_carregados=false`, gravar `ItemPedCompChildList` em `compras_pedidos_itens` (upsert em `(pedido_id, sequencia)` — UNIQUE já existia) e virar a flag. Zero chamadas extras — o detalhe já está na mão. **Cancelados (decidido no L1.4):** domínio real = `{Não, Parcial, Total}` (`'Sim'` não existe) → **pula `Cancelado='Total'`**, grava `Não` + `Parcial`. `quantidade ← QuantidadeProdUnidMedPrincipal`.
 5. Smoke: disparo `manual_admin`, conferir `sync_runs` + amostra de pedidos; rollback = redeploy da versão anterior (guardar cópia antes).
 
 ### L3 — erp-proxy (GitHub Web)
@@ -85,7 +89,7 @@ Ordem: **L0 → L1 → L3 → L2 → LD → L4 → L5 → L6** (L4 consome statu
 3. Deploy fora das janelas de cron.
 4. **404→`excluido_alvo` — RELOCADO do L1 (ver diário 17/07 "L1 ROLLBACK").** A Correção 2 do L1 marcava excluído em qualquer 404 do Load — no smoke marcou **7 pedidos vivos** (6/7 eram 404 crônico; 0004441 estava na lista do Alvo e fora descoberto no dia anterior). **O 404 do proxy NÃO é sinal confiável de exclusão** (L3.1). **REGRA para reintroduzir:** só marcar `excluido_alvo` com **CROSS-CHECK**, nunca por um único 404 — exige **(a)** 404 confiável no Load (só após o L3.1: proxy retorna 502 em payload inválido e 404 apenas para not-found genuíno) **E (b)** ausência do pedido na lista `/ped-comp/list` na janela do pedido. Um 404 isolado COM presença na lista = **404 falso → no-op**. A guarda anti-wipe (L1.1, já em produção) cobre o 200-null; esta regra cobre o 404-falso. Só depois disso o filtro de candidatos volta a excluir `status_local='excluido_alvo'`.
 
-### L2 — E-mails, arquitetura ESTADO+SCAN (P-1)
+### L2 — E-mails, arquitetura ESTADO+SCAN (P-1) — ✅ CONCLUÍDO 19/07 (as 3 entregas em produção; ver diário)
 Filosofia: e-mail não nasce de transição detectada (o open-load do L4 mataria as transições) e sim de **estado + dedup**: scan periódico pergunta "existe pedido neste estado sem este e-mail no log?". Vale para os dois e-mails; quem atualizou o status (cron, open-load, data-fix) é irrelevante.
 1. **`notify-pedido-criador`:** gate de `CRON_SECRET` (padrão do sync; preservar scan/single/force_test) + atualizar chamada do cron jobid 21. Elegibilidade inalterada. Fecha a exposição pública do `override_email`.
 2. **Requisitante → Concluído:** scan novo (na mesma função ou irmã), elegibilidade `status='Encerrado' AND aprovado='Total'` + resolução do requisitante (via req vinculada), `tipo='pedido_concluido'`, template "seu pedido foi concluído". **Neutralização ANTES do go-live:** `backlog-neutralizado` para os ~1.150+ já-encerrados (dry-run com contagem; P-3).
@@ -122,13 +126,16 @@ Objetivo: operadora cadastra produto/entidade no Alvo → botão no Hub importa 
 ## 4. Pendências de decisão do Pedro
 | # | Decisão | Status | Bloqueia |
 |---|---|---|---|
-| P-1 | Arquitetura estado+scan para os DOIS e-mails | **proposta, aguarda ok** | L2 |
-| P-2 | "Pendente" do Alvo: significado operacional (status próprio no filtro ou agrupado?) | aberta | L4.1 (não trava resto) |
-| P-3 | Neutralizar TODOS os ~1.150 concluídos históricos (zero e-mail retroativo) | aguarda confirmação | L2.2 |
-| P-4 | Gate do botão = role Operador de Compras (Elisangela, Mirlene, Ryan) | aguarda confirmação | LD/L4.4 |
-| P-5 | E-mail de Concluído exige `aprovado='Total'` junto (exclui 5 anomalias legadas)? | proposta | L2.2 |
-| P-6 | Cancelamento notifica alguém? (sugestão: não, por ora) | aberta | — |
+| ~~P-1~~ | Arquitetura estado+scan para os DOIS e-mails | ✅ **SIM** (17/07) — implementada e em produção | — |
+| P-2 | "Pendente" do Alvo: significado operacional (status próprio no filtro ou agrupado?) | **ABERTA** | L4.1 (não trava resto) |
+| ~~P-3~~ | Neutralizar TODOS os concluídos históricos (zero e-mail retroativo) | ✅ **SIM** (17/07) — 1.161 linhas inseridas 19/07, scan provou 0 enviados | — |
+| P-4 | Gate do botão = role Operador de Compras (Elisangela, Mirlene, Ryan) | **aguarda confirmação** (Ryan já tem a role desde 19/07) | LD/L4.4 |
+| ~~P-5~~ | E-mail de Concluído exige `aprovado='Total'` junto (exclui 5 anomalias legadas) | ✅ **SIM** (17/07) — elegibilidade `Encerrado + Total` em produção | — |
+| ~~P-6~~ | Cancelamento notifica alguém? | ✅ **NÃO notifica** (19/07) — só 2 e-mails no módulo | — |
 | ~~D-1/D-2~~ | Concluído=`Encerrado`; requisitante SÓ na conclusão; criador na aprovação 100% | **decididas 17/07** | — |
+| ~~Ryan~~ | `profiles.alvo_usuario` do Ryan (fallback PEDRO no `codigo_usuario`) | ✅ **RESOLVIDO 19/07** — `RYAN.PAGANOTTO` gravado (confirmado por SELECT) | — |
+
+**Só duas decisões seguem abertas: P-2 (significado do "Pendente") e P-4 (gate do botão).** Nenhuma bloqueia o início do LD ou do L4.
 
 ---
 
@@ -138,10 +145,25 @@ Objetivo: operadora cadastra produto/entidade no Alvo → botão no Hub importa 
 Supabase `hbtggrbauguukewiknew` · Hub `finance-pf.lovable.app` · Gateway `https://erp-proxy.onrender.com` · Alvo `pef.it4you.inf.br/api` filial `1.01` · Remetente Resend `noreply@notificapfbr.com.br` (domínio verificado sa-east-1) · MCP read-only `...project_ref=hbtggrbauguukewiknew&read_only=true&features=database` · Caso-referência itens: pedido **0004441** · Operadoras com `alvo_usuario`: PEDRO.SCRIGNOLI, ELISANGELA.SILVA, MIRLENE.OLIVEIRA (Ryan pendente L0) · Identidade: `criado_por_user_id=profiles.user_id=auth.uid` (≠`profiles.id`).
 
 ### Sync de status (`sync-compras-status-cron`)
-4 jobs: J4 descoberta reqs → J3 descoberta peds → J1 mudanças reqs → J2 mudanças peds. Auth `CRON_SECRET`; kill-switch `sync_settings` (`job_name='sync-compras-status-cron'`); `sync_runs.job_type='bicephalous'`; schedule ~1x/hora (confirmar jobid no L0 — não é o 14/intercompany). J2: Load individual, chunks 5, LIMIT 100, rodízio `synced_at ASC NULLS FIRST`; e-mails: inline `aprovouAgora`→notify-pedido-aprovado (SERÁ REMOVIDO, L2.3). J3/J4: janela 30d, reconciliação na janela, cursores `ped/req-comp-last-numero-1.01`, override `ped_window_days` em disparo manual. Descoberta insere SÓ cabeçalho (`detalhes_carregados=false`, flag hoje órfã — vira gatilho do L1.4).
+4 jobs: J4 descoberta reqs → J3 descoberta peds → J1 mudanças reqs → J2 mudanças peds. Auth `CRON_SECRET`; kill-switch `sync_settings` (`job_name='sync-compras-status-cron'`); `sync_runs.job_type='bicephalous'`; schedule ~1x/hora (confirmar jobid no L0 — não é o 14/intercompany). J2: Load individual, chunks 5, LIMIT 100, rodízio `synced_at ASC NULLS FIRST`; **e-mails: NENHUM disparo inline** (o `aprovouAgora`→notify-pedido-aprovado foi REMOVIDO em 19/07, L2.3 — hoje há só um comentário no lugar explicando a arquitetura estado+scan). J3/J4: janela 30d, reconciliação na janela, cursores `ped/req-comp-last-numero-1.01`, override `ped_window_days` em disparo manual. Descoberta insere SÓ cabeçalho (`detalhes_carregados=false`, flag hoje órfã — vira gatilho do L1.4).
 
-### E-mails
-`notify-pedido-criador`: `--no-verify-jwt`, HOJE SEM AUTH (L2.1), cron jobid 21 `*/15 * * * *`, dedup `compras_pedidos_emails_log` `tipo='aprovacao_criador'` + anti-duplo por endereço, elegibilidade `criado_no_hub=true AND aprovado='Total' AND status_aprovacao='Finalizada' AND criado_por_user_id NOT NULL`, modos scan/single(force_test/override_email), linhas `backlog-neutralizado`. `notify-pedido-aprovado` (requisitante): hoje na aprovação via inline; migra para Concluído (L2.2). **⚠️ Cobertura do e-mail de conclusão (pre-flight L2, 18/07):** dos **1.161** `Encerrado+Total`, só **118** têm `numero_req_comp` vinculada → o e-mail ao requisitante cobre **~10%** dos pedidos concluídos; os outros ~90% são **compra direta sem requisitante** (esperado — NÃO é bug; documentado para não confundir "sem e-mail" com "e-mail quebrado").
+### E-mails — ESTADO FINAL (L2 concluído 19/07)
+
+| Quem | Quando (elegibilidade) | Função | Cron | `tipo` no log |
+|---|---|---|---|---|
+| **CRIADOR** (operador que lançou) | aprovação 100%: `criado_no_hub=true AND aprovado='Total' AND status_aprovacao='Finalizada' AND criado_por_user_id NOT NULL` | `notify-pedido-criador` | **jobid 21** `*/15 * * * *` | `aprovacao_criador` |
+| **REQUISITANTE** | conclusão: `status='Encerrado' AND aprovado='Total'` (P-5) | `notify-pedido-concluido` | **jobid 22** `*/15 10-21 * * 1-5` (07:00–18:45 BRT, seg–sex) | `pedido_concluido` |
+| — | — | `notify-pedido-aprovado` | **DORMENTE** (sem cron, sem caller — deletar é passo futuro opcional) | `aprovacao_finalizada` (histórico, 63 linhas, congelado em 18/07 11:38) |
+
+**Comum às duas funções:** gate `CRON_SECRET` (header `x-cron-secret` OU body `cron_secret`, antes de qualquer modo; sem match → 401) · `verify_jwt=false` no `config.toml` (o cron/pg_net não manda JWT) · modos **scan** (cron) e **single** (`pedido_id`, com `force_test`/`override_email` p/ teste) · **dedup por `(pedido_id, tipo)`** — nunca cruzar endereço (cruzar bloquearia o 2º e-mail quando criador==requisitante) · linhas `backlog-neutralizado` no log fazem o scan pular · remetente `noreply@notificapfbr.com.br`.
+
+**Arquitetura estado+scan (P-1):** nenhum e-mail nasce de transição detectada — o scan pergunta "existe pedido NESTE estado sem ESTE e-mail no log?". Por isso **não importa quem atualizou o status** (cron, open-load do L4, data-fix): o e-mail sai no scan seguinte, uma única vez. O disparo inline `aprovouAgora` foi **removido** do `sync-compras-status-cron` em 19/07.
+
+**Neutralização (P-3):** 1.161 linhas `backlog-neutralizado` (`tipo='pedido_concluido'`) inseridas em 19/07 **antes** de agendar o jobid 22. SQL idempotente (`NOT EXISTS`), dry-run 1161 → INSERT → conferência 1161. Scan completo confirmou `{candidatos:118, enviados:0, pulados:118}` = **zero e-mail retroativo**.
+
+**⚠️ Cobertura do e-mail de conclusão:** dos **1.161** `Encerrado+Total`, só **118** têm `numero_req_comp` vinculada → o e-mail ao requisitante cobre **~10%** dos pedidos concluídos; os outros ~90% são **compra direta sem requisitante** (esperado — NÃO é bug; documentado para não confundir "sem e-mail" com "e-mail quebrado"). O scan filtra `numero_req_comp not null` no banco, então varre 118 e não 1.161.
+
+**Onde depurar:** `compras_pedidos_emails_log` (por `pedido_id`/`tipo`) · `net._http_response` (resposta do cron) · `cron.job_run_details` (jobids 21/22) · Resend dashboard (entregas/bounces).
 
 ### erp-proxy
 Detalhe: `PedComp/Load?...loadParent=All&loadChild=All&loadOneToOne=All` (traz ItemPedCompChildList; 404 por regex na Message; **repassa 200-null — L3.1**). `/ped-comp/list`: janela ≤31d imposta pelo proxy, paginação interna MAX_PAGES=50 com truncamento silencioso. Auth global JWT OU `X-System-Secret`. Escrita: `/insert-multipart` (SaveMultiPart, 3×5MB, truncamento Texto 4000/Hist 2000), `/update` (SavePartial, objeto completo), `/atualiza-item-pedido` (enriquecimento fiscal pré-insert obrigatório). Token: Login+SelectCompany, cache 25min, retry 401/403/409.
@@ -175,6 +197,8 @@ Frontend nunca `.update()` (CORS bloqueia PATCH) → upsert/RPC POST · `CREATE 
 | 2026-07-18 | L2 pre-flight + Entrega 1 (segurança) CODADA | **Pre-flight L2 OK** (fingerprint 1649). Decisões **P-1/P-3/P-5/P-6 confirmadas**; desenho aprovado. Números: backlog concluído (P-3)=**1.161** `Encerrado+Total`; anomalias (P-5)=**5** exatos (`aprovado='Não', status_aprovacao='Nenhum'`); scan do criador **drenado 8/8**, jobid 21 `*/15` ativo (posta anônimo hoje). **RESOLVIBILIDADE: só 118/1.161 concluídos têm req vinculada → e-mail de conclusão cobre ~10% dos pedidos** (resto = compra direta sem requisitante; esperado, NÃO é bug). Vault: `service_role_key`, `sync_compras_cron_secret` (reuso p/ o gate; `CRON_SECRET` env do sync = esse valor). **Entrega 1 (código no working tree, aguarda deploy):** (a) **gate `CRON_SECRET`** em `notify-pedido-criador` (x-cron-secret header OU cron_secret body, antes de todo modo; sem match→401) — fecha a exfiltração via `override_email`; (b) **correção da dedup** (furo achado pelo Pedro): `jaProcessado` de `(tipo OR destinatario)` → `(pedido_id, tipo)` só — a cláusula de endereço faria o e-mail de conclusão ao requisitante **bloquear** o de aprovação ao criador quando criador==requisitante na mesma janela. **Ordem crítica de deploy:** jobid 21 enviando o secret **ANTES** do deploy gated (senão o cron toma 401 e os e-mails do criador param em silêncio). Entregas 2/3 **não** tocadas. Deploy + commit pendentes. |
 | 2026-07-18 | **L2 Entrega 1 (segurança) VALIDADA — EM PRODUÇÃO** | **Gate + dedup fix no ar.** Comentário órfão da linha 270 corrigido (doc alinhada à lógica nova; param `email` mantido p/ não ampliar diff). **Verificação pré-deploy obrigatória:** `CRON_SECRET` presente no `secrets list` (secret de PROJETO → injetado em TODAS as funções); equivalência `Vault(sync_compras_cron_secret) == env CRON_SECRET` **provada empiricamente** pelo sync — jobid 1 (`pg_cron`) + `manual_admin` rodando sem 401 (ex.: run 18/07 12:12 UTC, 429 consultados, 0 erros = trabalho real ⇒ passou do gate). Digest via MCP bloqueado (role read-only não decifra Vault: `permission denied _crypto_aead_det_decrypt`). **Padrão do gate copiado do wrapper `call_sync_compras_status_cron`** (lê Vault → header `x-cron-secret`) + inline do Vault dos jobs 15/17. **Runbook executado (ordem crítica: secret no cron ANTES do deploy):** 1️⃣ `cron.alter_job(21)` — command inline lendo `vault.decrypted_secrets('sync_compras_cron_secret')` → header `x-cron-secret` (conferido no `cron.job`); 2️⃣ `supabase functions deploy notify-pedido-criador`; 3️⃣ curl anônimo → **401** `{"success":false,"error":"Não autorizado"}` (gate respondeu, CORS presente, `verify_jwt=false` OK). **Validação pós-deploy:** run das **02:30 UTC** (`net._http_response` id 17324 / `job_run_details` runid 17195), inequivocamente pós-deploy (deploy < 02:18) → `status_code=200`, `{"success":true,"ok":true,"candidatos":8,"enviados":0,"pulados":8}`, `succeeded`. Cron autentica no gate vivo; scan inalterado (baseline pré-gate idêntica: ids 17322/17323). **`config.toml`:** `[functions.notify-pedido-criador] verify_jwt=false` declarado (impede o deploy de flipar p/ true e derrubar o cron). **Correção da dedup em produção:** `jaProcessado` por `(pedido_id, tipo)`, sem cruzar endereço (furo que bloquearia o e-mail de aprovação ao criador quando criador==requisitante). **Entregas 2/3 do L2 pendentes** (requisitante→Concluído + remoção do inline `aprovouAgora`→notify-pedido-aprovado). Deploy veio ANTES do commit (padrão L1/L3). |
 | 2026-07-18 | **PARADA FH46 (fim de sábado) — retomada L2** | **Ponto de parada.** **Entrega 1 concluída e validada** (commit `1b5cc61`: curl anônimo→**401** + run do cron **02:30 UTC→200**, 8/8 drenado). **Retomada:** **Entrega 2 = só revisão** — o pre-flight já mostrou o criador **drenado 8/8** e a elegibilidade **inalterada**; confirmar e seguir. **Entrega 3 = a mais delicada, NÃO tocada:** função nova `notify-pedido-concluido` (requisitante→Concluído: `status='Encerrado' AND aprovado='Total'`, `tipo='pedido_concluido'`, template "seu pedido foi concluído") + **neutralização dos 1.161** `Encerrado+Total` (dry-run com contagem, `backlog-neutralizado`) + remoção do gatilho inline `aprovouAgora`→`notify-pedido-aprovado` no `sync-compras-status-cron`. **⚠️ ORDEM OBRIGATÓRIA:** (1) **neutralizar os 1.161 ANTES** de agendar/ligar o cron do concluído — invertido, **1.161 e-mails vão para a operação**; (2) a remoção do `aprovouAgora` é **deploy SEPARADO** (finances-pf Edge, coordenado, fora de janela de cron); `notify-pedido-aprovado` fica dormente. **NÃO iniciar a E3 no fim de um dia longo.** |
+
+| 2026-07-19 | **L2 ENTREGA 3 + L2 FECHADO — EM PRODUÇÃO** | **As 3 entregas do L2 no ar; e-mails do módulo redesenhados.** Sessão conduzida sem agente (Pedro colando SQL/código; Claude web gerando). **(1) Neutralização (P-3) — FEITA ANTES de tudo:** INSERT idempotente (`NOT EXISTS`) de **1.161** linhas `backlog-neutralizado` (`tipo='pedido_concluido'`, `destinatario='backlog-neutralizado'`, `sucesso=true`) para todos os `Encerrado+Total`. Dry-run 1161 → INSERT → conferência 1161. **(2) `notify-pedido-concluido` criada e deployada:** elegibilidade `status='Encerrado' AND aprovado='Total'` (P-5); destinatário = requisitante via `numero_req_comp`+`codigo_empresa_filial_req_comp` → `compras_requisicoes.requisitante_user_id` → `auth.users.email` + `profiles.full_name`; **dedup por `(pedido_id, tipo)`**; **gate `CRON_SECRET`**; scan com **paginação `.range()`** e `.in()` em lotes de 500 (max-rows=1000 não trunca); filtra `numero_req_comp not null` (varre **118**, não 1.161); template novo ("✓ PEDIDO CONCLUÍDO", valor/fornecedor/nº da requisição, CTA). `config.toml`: `[functions.notify-pedido-concluido] verify_jwt=false`. **Validações:** curl anônimo → **401** (gate respondeu, mensagem da função); single com `force_test`+`override_email` no pedido **0004438** → **200**, e-mail real recebido e **visual aprovado pelo Pedro** (o "Olá, Teste!" é o override, não bug); **scan completo → `{candidatos:118, enviados:0, pulados:118}` = ZERO e-mail retroativo** (neutralização provada). **Cron: jobid 22 `notify-pedido-concluido-scan`, `*/15 10-21 * * 1-5`** = 07:00–18:45 BRT, **seg–sex** (decisão do Pedro: sem fins de semana, alinhado ao jobid 1 que é quem muda o status). **(3) Remoção do gatilho inline (L2.3):** bloco `aprovouAgora`→`notify-pedido-aprovado` **removido** do `sync-compras-status-cron` (substituído por comentário documentando a arquitetura); deploy feito. **Validação:** run `manual_admin` 03:40 UTC → **`total_erros=0`**, canário `elegiveis_sem_limit`=**367** (era 370; queda de 3 = natural, pedidos virando terminais/cruzando 180d — o alarme seria <350), e **`aprovacao_finalizada` sem linha nova** (`max` congelado em 18/07 11:38) ⇒ **gatilho morto, requisitante não recebe mais na aprovação**. `notify-pedido-aprovado` fica **dormente**. **Observação:** `pedido_concluido` tem **1.162** linhas (1.161 neutralizadas + 1 do teste do 0004438 com destinatário do Pedro — inofensiva; remover exige filtrar por `resend_email_id='24f1929a-…'`). **Ryan resolvido:** `profiles.alvo_usuario='RYAN.PAGANOTTO'` (role de Operador dada pelo Pedro; campos distintos — role=permissão no Hub, `alvo_usuario`=login no ERP; `funcionario_alvo_codigo=0000063` já existia). Deploys via CLI vieram ANTES do commit (padrão L1/L3); código versionado pelo Lovable (Pedro cola → publish → `git pull` → deploy). **→ RESTAM: LD, L4, L5, L6.** |
 
 ## 9. Fora do escopo (não perder)
 `alvo_comprador_codigo` (Pedro/Mirlene) · backfill `data_abertura_alvo` ~141 reqs + reqs históricas ausentes · elo perdido req↔ped (mitigado pela reconciliação) · paginação Inventory geral · cadastro de produto NO Alvo via Hub (descartado pela simplificação do delta; retomar se necessário) · validação funcional FH41 (absorvida no L6).
