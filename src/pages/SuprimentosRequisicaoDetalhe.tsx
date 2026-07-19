@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { applyCnpjMask } from "@/lib/cnpj";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
@@ -73,6 +73,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const podeVerTodas = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_VIEW_ALL);
   const [isReenviando, setIsReenviando] = useState(false);
   const [isExcluindo, setIsExcluindo] = useState(false);
@@ -167,6 +168,11 @@ export default function SuprimentosRequisicaoDetalhe() {
       } else if (!silencioso) {
         toast({ title: "Nenhuma mudança", description: "Status já estava atualizado." });
       }
+      // Itens podem ter sido persistidos AGORA: requisição descoberta no Alvo
+      // (Job 4) vinha só com o cabeçalho, e o sync passou a gravar o
+      // ItemReqCompChildList que já vinha no mesmo Load. Recarrega a lista para
+      // os itens aparecerem sem precisar de F5.
+      queryClient.invalidateQueries({ queryKey: ["requisicao_itens", id] });
     } catch (err: any) {
       if (!silencioso) {
         toast({ title: "Erro ao sincronizar status", description: err.message, variant: "destructive" });
@@ -178,8 +184,13 @@ export default function SuprimentosRequisicaoDetalhe() {
     }
   };
 
+  // ── OPEN-LOAD (L4/requisições) ──────────────────────────────────────────
+  // Sincroniza ao ABRIR o card, para qualquer requisição que exista no ERP —
+  // não só as 'sincronizada' (antes era essa a única condição, então requisição
+  // JÁ CONVERTIDA em pedido nunca era carregada, e é justamente onde faltavam
+  // itens). Rascunho e pendente de envio não existem no Alvo: pulados.
   useEffect(() => {
-    if (req && req.status === "sincronizada") {
+    if (req?.numero_alvo && req.status !== "rascunho" && req.status !== "pendente_envio") {
       handleSyncStatus(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
