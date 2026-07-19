@@ -104,11 +104,15 @@ const comprasSubItems = [
   { label: "Certificado Digital", url: "/compras/certificado", icon: ShieldCheck },
 ];
 
-const suprimentosSubItems = [
+// `perm` opcional: item só aparece para quem tem a permissão (o grupo
+// Suprimentos inteiro é liberado por suprimentos_requisicoes, mas nem todo
+// mundo que vê o módulo pode sincronizar cadastros).
+const suprimentosSubItems: { label: string; url: string; icon: any; perm?: string }[] = [
   { label: "Dashboard", url: "/suprimentos/dashboard", icon: BarChart3 },
   { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
   { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
   { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
+  { label: "Atualizar Cadastros", url: "/suprimentos/cadastros", icon: RefreshCw, perm: "compras.cadastros.sync" },
 ];
 
 const intercompanySubItems = [
@@ -213,7 +217,8 @@ export function AppSidebar() {
                       return null;
                     return (
                       <div key="nf-entrada-and-compras-group">
-                        {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
+                        {hasAccess("suprimentos_requisicoes") &&
+                          renderSuprimentosGroup(t, isSuprimentosActive, hasAccess)}
                         {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
                         {isAdmin && renderDespesasGroup(t, isDespesasActive)}
                         {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
@@ -285,7 +290,8 @@ export function AppSidebar() {
                       </SidebarMenuItem>
 
                       {/* Suprimentos expandable */}
-                      {hasAccess("suprimentos_requisicoes") && renderSuprimentosGroup(t, isSuprimentosActive)}
+                      {hasAccess("suprimentos_requisicoes") &&
+                        renderSuprimentosGroup(t, isSuprimentosActive, hasAccess)}
 
                       {/* Intercompany expandable */}
                       {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
@@ -594,7 +600,7 @@ function renderContasPagarGroup(t: any, isActive: boolean) {
   );
 }
 
-function renderSuprimentosGroup(t: any, isActive: boolean) {
+function renderSuprimentosGroup(t: any, isActive: boolean, hasAccess: (perm: string) => boolean) {
   return (
     <Collapsible defaultOpen={isActive} className="group/collapsible-suprimentos">
       <SidebarMenuItem>
@@ -611,20 +617,22 @@ function renderSuprimentosGroup(t: any, isActive: boolean) {
         </CollapsibleTrigger>
         <CollapsibleContent>
           <SidebarMenuSub>
-            {suprimentosSubItems.map((sub) => (
-              <SidebarMenuSubItem key={sub.url}>
-                <SidebarMenuSubButton asChild>
-                  <NavLink
-                    to={sub.url}
-                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                  >
-                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
-                    <span>{sub.label}</span>
-                  </NavLink>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ))}
+            {suprimentosSubItems
+              .filter((sub) => !sub.perm || hasAccess(sub.perm))
+              .map((sub) => (
+                <SidebarMenuSubItem key={sub.url}>
+                  <SidebarMenuSubButton asChild>
+                    <NavLink
+                      to={sub.url}
+                      className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                    >
+                      <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                      <span>{sub.label}</span>
+                    </NavLink>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              ))}
           </SidebarMenuSub>
         </CollapsibleContent>
       </SidebarMenuItem>
