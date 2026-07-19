@@ -49,3 +49,8 @@ verify_jwt = false
 # A auth real é o gate CRON_SECRET dentro da função (L2 Entrega 3).
 [functions.notify-pedido-concluido]
 verify_jwt = false
+
+# rastro-nfe-feed: consumido pelo projeto irmão Rastro P&F, que não tem JWT do Hub.
+# A auth real é o gate RASTRO_FEED_KEY (header x-rastro-key) dentro da função.
+[functions.rastro-nfe-feed]
+verify_jwt = false
