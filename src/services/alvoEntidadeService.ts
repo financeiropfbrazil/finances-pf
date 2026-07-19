@@ -165,9 +165,14 @@ async function fetchPageEntidades(page: number, pageSize: number, filter: string
  */
 async function carregarCidadesSeNecessario(onProgress?: (msg: string) => void): Promise<CidadeMap | null> {
   // Verifica se há entidades sem uf/municipio
+  // Só vale carregar o catálogo se houver entidade RESOLÚVEL: tem
+  // codigo_cidade_alvo mas está sem uf/municipio. Entidade sem código de
+  // cidade no ERP (76 casos em 19/07/2026) nunca será enriquecida — sem este
+  // filtro, a Fase 0 baixaria o catálogo inteiro em toda sincronização à toa.
   const { count, error } = await supabase
     .from("compras_entidades_cache")
     .select("codigo_entidade", { count: "exact", head: true })
+    .not("codigo_cidade_alvo", "is", null)
     .or("uf.is.null,municipio.is.null");
 
   if (error) {
