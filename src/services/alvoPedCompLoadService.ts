@@ -18,6 +18,20 @@ export class PedCompLoadError extends Error {
   }
 }
 
+/**
+ * O pedido não existe (mais) no ERP?
+ *
+ * O Alvo NÃO usa 404 para isso: no Load direto ele responde **412 Precondition
+ * Failed** quando o registro foi excluído (descoberto em 19/07/2026 testando a
+ * exclusão do pedido 0004455 — o log mostrou 409/409/409 de sessão e então 412).
+ * O erp-proxy mascara essa diferença: ele converte a resposta do Alvo em 404 por
+ * regex na Message. Ou seja, quem fala pelo gateway (o cron) vê 404 e quem fala
+ * direto com o Alvo (esta página) vê 412. Aceitamos os dois.
+ */
+export function isPedidoInexistenteNoAlvo(err: unknown): boolean {
+  return err instanceof PedCompLoadError && (err.status === 404 || err.status === 412);
+}
+
 async function fetchLoadWithRetry(numero: string): Promise<any> {
   let token = (await authenticateAlvo()).token;
   if (!token) throw new PedCompLoadError("Falha na autenticação ERP", 0);
