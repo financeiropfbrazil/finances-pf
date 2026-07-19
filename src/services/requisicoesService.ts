@@ -1001,7 +1001,87 @@ export async function excluirRequisicao(requisicaoId: string): Promise<void> {
 
   if (error) throw new Error(`Erro ao excluir: ${error.message}`);
 }
+/**
+ * Persiste os itens da requisição vindos do Load do Alvo (L4/requisições).
+ *
+ * Contexto: o Job 4 (descoberta) insere só o CABEÇALHO — 107 das 111 requisições
+ * descobertas no Alvo ficaram sem itens, e a tela exibia "Itens (0)" em silêncio.
+ * O detalhe já vem no mesmo Load que o sync de status faz: aqui apenas paramos
+ * de descartá-lo. Zero chamadas extras ao ERP.
+ *
+ * ⚠️ SÓ INSERE QUANDO NÃO HÁ NENHUM ITEM. Não existe UNIQUE (requisicao_id,
+ * sequencia) nesta tabela, então não dá para fazer upsert; e apagar/reinserir
+ * seria destrutivo — os itens criados pelo Hub têm rateio em
+ * compras_requisicoes_itens_classe_rec_desp (FK por item_id), que ficaria órfão.
+ * Requisição que já tem itens é deixada intacta.
+ *
+ * Nome do produto: o ItemReqCompChildList NÃO traz nome (só CodigoProduto), e a
+ * tela usa produto_nome como título do item — por isso enriquecemos pelo
+ * catálogo local (stock_products). Sem correspondência, fica null e a tela cai
+ * no código.
+ */
+async function persistirItensRequisicao(requisicaoId: string, respData: any): Promise<number> {
+  const { count, error: errCount } = await (supabase as any)
+    .from("compras_requisicoes_itens")
+    .select("id", { count: "exact", head: true })
+    .eq("requisicao_id", requisicaoId);
 
+  if (errCount) {
+    console.error("[persistirItensRequisicao] erro ao contar itens:", errCount);
+    return 0;
+  }
+  if ((count ?? 0) > 0) return 0; // já tem itens — não mexe
+
+  const lista = (respData?.ItemReqCompChildList || []) as any[];
+  if (lista.length === 0) return 0;
+
+  // Enriquecimento de nome pelo catálogo local
+  const codigos = Array.from(new Set(lista.map((it) => it?.CodigoProduto).filter(Boolean)));
+  const nomePorCodigo = new Map<string, string>();
+  if (codigos.length > 0) {
+    const { data: prods } = await (supabase as any)
+      .from("stock_products")
+      .select("codigo_produto, nome_produto")
+      .in("codigo_produto", codigos);
+    for (const p of prods || []) nomePorCodigo.set(p.codigo_produto, p.nome_produto);
+  }
+
+  const rows = lista.map((it: any, idx: number) => ({
+    requisicao_id: requisicaoId,
+    sequencia: Number(it?.Sequencia) || idx + 1,
+    item_servico: it?.ItemServico === "Sim",
+    codigo_produto: it?.CodigoProduto,
+    codigo_alternativo_produto: it?.CodigoAlternativoProduto ?? null,
+    codigo_prod_unid_med: it?.CodigoProdUnidMed,
+    // Mesma lição dos pedidos: a quantidade canônica é a da unidade PRINCIPAL
+    // (Quantidade2 diverge em parte dos itens).
+    quantidade: Number(it?.QuantidadeProdUnidMedPrincipal) || 0,
+    data_necessidade: it?.DataNecessidade ?? null,
+    codigo_centro_ctrl: it?.CodigoCentroCtrl ?? null,
+    observacao: it?.Observacao ?? null,
+    produto_nome: nomePorCodigo.get(it?.CodigoProduto) ?? null,
+    produto_unidade: it?.CodigoProdUnidMed ?? null,
+  }));
+
+  // Colunas NOT NULL sem default: descartar linha incompleta em vez de derrubar
+  // o insert inteiro (e registrar, para não sumir em silêncio).
+  const validas = rows.filter(
+    (r) => r.codigo_produto && r.codigo_prod_unid_med && r.data_necessidade && r.codigo_centro_ctrl,
+  );
+  if (validas.length < rows.length) {
+    console.warn(
+      `[persistirItensRequisicao] ${rows.length - validas.length} item(ns) descartado(s) por campo obrigatório ausente`,
+    );
+  }
+  if (validas.length === 0) return 0;
+
+  const { error } = await (supabase as any).from("compras_requisicoes_itens").insert(validas);
+  if (error) {
+    console.error("[persistirItensRequisicao] erro ao inserir itens:", error);
+    return 0;
+  }
+  return validas.length;
+}
 export async function sincronizarStatusRequisicao(
   requisicaoId: string,
   userId: string,
