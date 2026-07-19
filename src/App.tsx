@@ -52,6 +52,7 @@ import SuprimentosPedidos from "./pages/SuprimentosPedidos";
 import SuprimentosPedidoNovo from "./pages/SuprimentosPedidoNovo";
 import SuprimentosPedidoDetalhe from "./pages/SuprimentosPedidoDetalhe";
 import SuprimentosDashboard from "./pages/SuprimentosDashboard";
+import SuprimentosCadastros from "./pages/SuprimentosCadastros";
 import ReembolsoNovo from "./pages/intercompany/ReembolsoNovo";
 import IntercompanyMaster from "./pages/intercompany/IntercompanyMaster";
 import NovoReembolsoNF from "./pages/intercompany/NovoReembolsoNF";
@@ -291,6 +292,14 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="compras.pedidos.access">
               <SuprimentosPedidoDetalhe />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/suprimentos/cadastros"
+          element={
+            <PermissionRoute permKey="compras.cadastros.sync">
+              <SuprimentosCadastros />
             </PermissionRoute>
           }
         />
