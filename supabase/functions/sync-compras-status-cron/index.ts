@@ -1159,11 +1159,7 @@ async function syncDescobrirPedidos(
 // integral = item-fantasma), grava 'Não' (ativo) e 'Parcial' (remanescente
 // vivo). NÃO reconcilia valor_total do cabeçalho (a soma dos itens pode
 // divergir por cancelamento parcial; o cabeçalho é a fonte da verdade).
-async function persistirItensPedido(
-  supabase: SupabaseClient,
-  pedidoId: string,
-  alvo: any,
-): Promise<number> {
+async function persistirItensPedido(supabase: SupabaseClient, pedidoId: string, alvo: any): Promise<number> {
   const itensAlvo = (alvo?.ItemPedCompChildList || []) as any[];
   const rows = itensAlvo
     .filter((it) => it?.Cancelado !== "Total")
@@ -1560,40 +1556,18 @@ async function syncPedidos(
         proximo_aprovador_novo: novoProximoAprovador,
       });
 
-      // ⭐ NOVO: dispara email se aprovação acabou de finalizar
-      // Transição: (antigo != Finalizada/Total) → (novo == Finalizada/Total)
-      const aprovouAgora =
-        novoStatusAprovacao === "Finalizada" &&
-        novoAprovado === "Total" &&
-        !(ped.status_aprovacao === "Finalizada" && ped.aprovado === "Total");
-
-      if (aprovouAgora) {
-        try {
-          const emailResp = await fetch(`${Deno.env.get("SUPABASE_URL")!}/functions/v1/notify-pedido-aprovado`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
-            },
-            body: JSON.stringify({ pedido_id: ped.id }),
-          });
-          const emailData = await emailResp.json();
-          if (!emailResp.ok) {
-            console.error(`[cron] notify-pedido-aprovado falhou pra ${ped.numero}:`, emailData);
-          } else {
-            console.log(
-              `[cron] Email de aprovação ${ped.numero}:`,
-              emailData?.skipped ? `skipped (${emailData.reason})` : `sent → ${emailData.sent_to}`,
-            );
-          }
-        } catch (emailErr: any) {
-          // Falha de email não deve quebrar o cron — apenas log
-          console.error(
-            `[cron] Erro ao chamar notify-pedido-aprovado pra ${ped.numero}:`,
-            emailErr?.message || emailErr,
-          );
-        }
-      }
+      // ── E-MAILS (L2, 19/07/2026): SEM disparo inline aqui ──────────
+      // O gatilho inline que avisava o REQUISITANTE na aprovação foi
+      // removido. Arquitetura estado+scan: cada e-mail tem sua própria
+      // Edge Function com cron de 15 min, que varre por ESTADO e usa
+      // compras_pedidos_emails_log como dedup:
+      //   - notify-pedido-criador   (jobid 21): CRIADOR, na aprovação 100%
+      //     (aprovado='Total' + status_aprovacao='Finalizada')
+      //   - notify-pedido-concluido (jobid 22): REQUISITANTE, na CONCLUSÃO
+      //     (status='Encerrado' + aprovado='Total')
+      // Assim não importa QUEM atualizou o status (este cron, o open-load
+      // do frontend, um data-fix): o e-mail sai no scan seguinte, uma vez.
+      // notify-pedido-aprovado ficou dormente (sem cron, sem caller).
       const numeroReqComp = alvo?.NumeroReqComp;
       const codigoFilialReqComp = alvo?.CodigoEmpresaFilialReqComp;
       if (numeroReqComp && codigoFilialReqComp) {
@@ -1787,7 +1761,12 @@ Deno.serve(async (req: Request) => {
   // Cross-check do Job 3 → Job 2 (L3 Missão 2). Default seguro: listaOk:false →
   // se o Job 3 não rodar/preencher (ex.: exceção antes do Job 2), o Job 2 faz
   // no-op nos 404 e não marca nada.
-  let crossCheck: CrossCheckPedidos = { listaOk: false, janelaInicio: "", janelaFim: "", numerosVistos: new Set<string>() };
+  let crossCheck: CrossCheckPedidos = {
+    listaOk: false,
+    janelaInicio: "",
+    janelaFim: "",
+    numerosVistos: new Set<string>(),
+  };
   let observacao: string | null = null;
 
   try {
