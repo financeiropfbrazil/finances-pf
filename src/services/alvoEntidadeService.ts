@@ -1,14 +1,78 @@
-import { authenticateAlvo, clearAlvoToken } from "./alvoService";
 import { supabase } from "@/integrations/supabase/client";
 
-const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
+/**
+ * SYNC DE ENTIDADES (fornecedores/clientes) — via GATEWAY.
+ *
+ * ── Mudança de 19/07/2026: saiu do Alvo direto, entrou no erp-proxy ─────────
+ * Antes, este service chamava `Entidade/GetListForComponents` DIRETO do
+ * navegador, autenticando com `alvo_username`/`alvo_password` lidos do
+ * localStorage. Isso significava que só quem tinha as credenciais configuradas
+ * (o admin) conseguia sincronizar — as operadoras de compras recebiam
+ * "Credenciais não configuradas" e ficavam dependendo de alguém do financeiro.
+ * Resultado prático: o cache de entidades ficou 18 dias sem atualizar
+ * (01/07 → 19/07) e 43 fornecedores novos ficaram invisíveis no Hub.
+ *
+ * Agora usa o gateway (`erp-proxy`), igual ao sync de produtos: o servidor
+ * autentica com as credenciais do Render e qualquer usuário logado no Hub
+ * consegue sincronizar. Efeito colateral bem-vindo: a senha do ERP sai do
+ * navegador.
+ *
+ * Rotas usadas (ver erp-proxy/src/routes/entidade.ts):
+ *   POST /entidade/list         { pageIndex, pageSize, filter }
+ *   POST /entidade/cidade-list  { pageIndex, pageSize }
+ *
+ * O retry de 409 (conflito de sessão do Alvo) não é mais necessário aqui — o
+ * `callAlvo` do gateway já reautentica e repete internamente.
+ */
+
+const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 const PAGE_SIZE = 500;
-const MAX_RETRIES = 3;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Filtro de fornecedor (mesma regra usada na tela do Alvo)
 const FILTRO_FORNECEDOR =
   "( CodigoStatEnt IN ('01','02','11','03','09','04','05','10','06','07','08') &&  Entidade1Query[ EntCategQuery [ CodigoCategoria like '002%'] ])";
+
+// ─── Comunicação com o gateway ───
+
+async function getSupabaseJWT(): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Sessão do Supabase inválida. Faça login novamente.");
+  }
+  return session.access_token;
+}
+
+async function callGatewayEntidade(path: string, body: unknown): Promise<any> {
+  const jwt = await getSupabaseJWT();
+  const resp = await fetch(`${ERP_PROXY_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  let data: any = null;
+  try {
+    data = await resp.json();
+  } catch {
+    // resposta sem body ou inválida
+  }
+
+  if (!resp.ok) {
+    const msg = data?.error || `HTTP ${resp.status}`;
+    const err = new Error(msg) as Error & { status?: number; details?: any };
+    err.status = resp.status;
+    err.details = data?.details;
+    throw err;
+  }
+
+  return data;
+}
 
 /**
  * Mapa de cidades Alvo: codigoCidade → { nome, uf }.
@@ -82,51 +146,15 @@ function mapEntidadeToRecord(e: any, cidadeMap?: CidadeMap) {
 }
 
 /**
- * Faz uma chamada paginada ao GetListForComponents com retry de auth (409).
+ * Busca uma página de entidades via gateway.
+ * (O retry de 409 vive no gateway — `callAlvo` reautentica e repete.)
  */
-async function fetchPageEntidades(
-  page: number,
-  pageSize: number,
-  filter: string,
-  tokenRef: { token: string },
-): Promise<any[]> {
-  let resp: Response | null = null;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    resp = await fetch(`${ERP_BASE_URL}/Entidade/GetListForComponents`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "riosoft-token": tokenRef.token,
-      },
-      body: JSON.stringify({
-        FormName: "entidade",
-        ClassInput: "Entidade",
-        ControllerForm: "entidade",
-        TypeObject: "tabForm",
-        Filter: filter,
-        Input: "gridTableEntidade",
-        IsGroupBy: false,
-        Order: "Nome ASC",
-        PageIndex: page,
-        PageSize: pageSize,
-        Shortcut: "entidade",
-        Type: "GridTable",
-      }),
-    });
-
-    if (resp && resp.status === 409) {
-      clearAlvoToken();
-      await delay(1000 * attempt);
-      const auth = await authenticateAlvo();
-      if (auth.token) tokenRef.token = auth.token;
-      continue;
-    }
-    break;
-  }
-
-  if (!resp || !resp.ok) throw new Error(`HTTP ${resp?.status}`);
-  const data = await resp.json();
+async function fetchPageEntidades(page: number, pageSize: number, filter: string): Promise<any[]> {
+  const data = await callGatewayEntidade("/entidade/list", {
+    pageIndex: page,
+    pageSize,
+    filter,
+  });
   return Array.isArray(data) ? data : [];
 }
 
@@ -135,10 +163,7 @@ async function fetchPageEntidades(
  * Detecta o cenário primeiro e só busca o catálogo se for útil.
  * Retorna o mapa codigoCidade → { nome, uf }, ou null se não houver entidades a enriquecer.
  */
-async function carregarCidadesSeNecessario(
-  tokenRef: { token: string },
-  onProgress?: (msg: string) => void,
-): Promise<CidadeMap | null> {
+async function carregarCidadesSeNecessario(onProgress?: (msg: string) => void): Promise<CidadeMap | null> {
   // Verifica se há entidades sem uf/municipio
   const { count, error } = await supabase
     .from("compras_entidades_cache")
@@ -155,53 +180,25 @@ async function carregarCidadesSeNecessario(
     return null;
   }
 
-  onProgress?.(`Carregando catálogo de cidades do Alvo (${count} entidades sem cidade)...`);
+  onProgress?.(`Carregando catálogo de cidades do ERP (${count} entidades sem cidade)...`);
   const cidadeMap: CidadeMap = {};
   let page = 1;
   let hasMore = true;
 
   while (hasMore) {
-    let resp: Response | null = null;
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      resp = await fetch(`${ERP_BASE_URL}/Cidade/GetListForComponents`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "riosoft-token": tokenRef.token,
-        },
-        body: JSON.stringify({
-          FormName: "cidade",
-          ClassInput: "Cidade",
-          ControllerForm: "cidade",
-          TypeObject: "tabForm",
-          Filter: "",
-          Input: "gridTableCidade",
-          IsGroupBy: false,
-          Order: "Codigo ASC",
-          PageIndex: page,
-          PageSize: PAGE_SIZE,
-          Shortcut: "cidade",
-          Type: "GridTable",
-        }),
+    let data: any[] = [];
+    try {
+      data = await callGatewayEntidade("/entidade/cidade-list", {
+        pageIndex: page,
+        pageSize: PAGE_SIZE,
       });
-
-      if (resp && resp.status === 409) {
-        clearAlvoToken();
-        await delay(1000 * attempt);
-        const auth = await authenticateAlvo();
-        if (auth.token) tokenRef.token = auth.token;
-        continue;
-      }
-      break;
-    }
-
-    if (!resp || !resp.ok) {
-      console.warn(`[Cidades] Erro HTTP ${resp?.status} na página ${page}, abortando enriquecimento.`);
+    } catch (err: any) {
+      // Falha aqui NÃO aborta o sync: sem o mapa, a Fase 1 apenas não enriquece
+      // uf/municipio (e preserva o que já está no banco, ver regra anti-perda).
+      console.warn(`[Cidades] Erro na página ${page}: ${err?.message}. Abortando enriquecimento.`);
       return Object.keys(cidadeMap).length > 0 ? cidadeMap : null;
     }
 
-    const data = await resp.json();
     if (!Array.isArray(data) || data.length === 0) {
       hasMore = false;
       break;
@@ -232,11 +229,7 @@ async function carregarCidadesSeNecessario(
  * uf/municipio do payload pra preservar o que já está no banco. Isso vale
  * tanto pra entidades novas quanto pras que já tinham cidade.
  */
-async function syncEntidadesAmplo(
-  tokenRef: { token: string },
-  cidadeMap: CidadeMap | null,
-  onProgress?: (msg: string) => void,
-): Promise<number> {
+async function syncEntidadesAmplo(cidadeMap: CidadeMap | null, onProgress?: (msg: string) => void): Promise<number> {
   let page = 1;
   let totalSaved = 0;
   let totalEnriquecidas = 0;
@@ -244,7 +237,7 @@ async function syncEntidadesAmplo(
 
   while (hasMore) {
     onProgress?.(`Buscando entidades... página ${page}`);
-    const data = await fetchPageEntidades(page, PAGE_SIZE, "", tokenRef);
+    const data = await fetchPageEntidades(page, PAGE_SIZE, "");
 
     if (data.length === 0) {
       hasMore = false;
@@ -295,14 +288,14 @@ async function syncEntidadesAmplo(
  * FASE 2 — Marca fornecedores: roda com filtro CodigoCategoria=002%
  * e atualiza e_fornecedor=true via RPC SECURITY DEFINER (CORS PATCH).
  */
-async function marcarFornecedores(tokenRef: { token: string }, onProgress?: (msg: string) => void): Promise<number> {
+async function marcarFornecedores(onProgress?: (msg: string) => void): Promise<number> {
   let page = 1;
   const codigosFornecedores: string[] = [];
   let hasMore = true;
 
   while (hasMore) {
     onProgress?.(`Identificando fornecedores... página ${page}`);
-    const data = await fetchPageEntidades(page, PAGE_SIZE, FILTRO_FORNECEDOR, tokenRef);
+    const data = await fetchPageEntidades(page, PAGE_SIZE, FILTRO_FORNECEDOR);
 
     if (data.length === 0) {
       hasMore = false;
@@ -339,25 +332,23 @@ async function marcarFornecedores(tokenRef: { token: string }, onProgress?: (msg
 
 /**
  * Sync principal: roda Fase 0 (cidades, se necessário) + Fase 1 (amplo) + Fase 2 (fornecedores).
+ *
+ * Não exige credencial do Alvo no navegador — a autenticação acontece no
+ * gateway. Qualquer usuário logado no Hub (com permissão na tela que chama)
+ * consegue executar.
  */
 export async function syncEntidades(onProgress?: (msg: string) => void): Promise<number> {
-  clearAlvoToken();
-  const auth = await authenticateAlvo();
-  if (!auth.token) throw new Error("Falha na autenticação ERP");
-
-  const tokenRef = { token: auth.token };
-
   // FASE 0 — cidades (só se houver entidades sem uf/municipio)
   onProgress?.("Fase 0/3: verificando cidades...");
-  const cidadeMap = await carregarCidadesSeNecessario(tokenRef, onProgress);
+  const cidadeMap = await carregarCidadesSeNecessario(onProgress);
 
   // FASE 1 — sync amplo
   onProgress?.("Fase 1/3: sincronizando entidades...");
-  const totalAmplo = await syncEntidadesAmplo(tokenRef, cidadeMap, onProgress);
+  const totalAmplo = await syncEntidadesAmplo(cidadeMap, onProgress);
 
   // FASE 2 — marcar fornecedores
   onProgress?.("Fase 2/3: marcando fornecedores...");
-  const totalFornecedores = await marcarFornecedores(tokenRef, onProgress);
+  const totalFornecedores = await marcarFornecedores(onProgress);
 
   // Salvar metadata
   await supabase
