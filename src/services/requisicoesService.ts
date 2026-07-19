@@ -1154,6 +1154,14 @@ export async function sincronizarStatusRequisicao(
     };
   }
 
+  // ── Itens (L4/requisições) ────────────────────────────────────────────
+  // Antes do cálculo de status: a maioria das requisições NÃO muda de status,
+  // e o early return abaixo pularia a persistência.
+  const itensPersistidos = await persistirItensRequisicao(requisicaoId, respData);
+  if (itensPersistidos > 0) {
+    console.log(`[sincronizarStatusRequisicao] ${itensPersistidos} itens persistidos para req ${req.numero_alvo}`);
+  }
+
   const statusAlvo = String(respData?.Status || "").toLowerCase();
   const gerouPedComp = String(respData?.GerouPedComp || "").toLowerCase() === "sim";
 
