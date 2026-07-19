@@ -44,3 +44,8 @@ verify_jwt = false
 # o deploy NÃO flipar verify_jwt=true e quebrar o cron jobid 21.
 [functions.notify-pedido-criador]
 verify_jwt = false
+
+# notify-pedido-concluido: reachable sem JWT (o cron/pg_net não manda JWT).
+# A auth real é o gate CRON_SECRET dentro da função (L2 Entrega 3).
+[functions.notify-pedido-concluido]
+verify_jwt = false
