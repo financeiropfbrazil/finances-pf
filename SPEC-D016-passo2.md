@@ -118,20 +118,18 @@ async function processarOrfaos(
 
   r.detectados = linhas.length;
 
-  // ---------- 2. UPSERT na quarentena ----------
-  // ignoreDuplicates:false => refresca snapshot e ultima_deteccao_em.
-  // OBS: este upsert NÃO incrementa n_deteccoes nem preserva status —
-  // ver "Ajuste do upsert" abaixo. Use a RPC de upsert se quiser as duas coisas.
-  const { error: eUp } = await supabase
-    .from('desp_docfin_orfaos')
-    .upsert(linhas, {
-      onConflict: 'codigo_empresa_filial,chave_docfin',
-      ignoreDuplicates: false,
-    });
+  // ---------- 2. REGISTRO na quarentena (via RPC, NÃO .upsert()) ----------
+  // O .upsert() do cliente JS sobrescreve as colunas enviadas e APAGARIA
+  // DECISÃO HUMANA: um órfão marcado como IGNORADO voltaria a DETECTADO na
+  // rodada seguinte, em silêncio. A RPC faz ON CONFLICT DO UPDATE explícito,
+  // preservando status / primeira_deteccao_em / campos de gêmeo / observacao.
+  const { data: reg, error: eUp } = await supabase
+    .rpc('desp_registrar_orfaos', { p_linhas: linhas });
   if (eUp) throw new Error(`[D016] falha ao gravar quarentena: ${eUp.message}`);
 
   console.log(
     `[D016] ORFAO_DETECTADO comp=${competencia} n=${r.detectados} ` +
+    `(novos=${reg?.inseridos ?? '?'} re-detectados=${reg?.atualizados ?? '?'}) ` +
     `rateio=${r.valorRateioDetectado.toFixed(2)} origem=${policy.origemRodada}`,
   );
 
@@ -213,7 +211,29 @@ Hoje o resultado da limpeza **não é auditável** em `sync_runs` — foi por is
 
 ---
 
-## Ajuste do upsert (opcional, recomendado)
+## Decisão pendente — retenção do `doc_json` (não bloqueia)
+
+`doc_json` carrega o `payload_alvo` inteiro (o `Load` completo do Alvo): **~15–16 KB por documento**. Com o `ON CONFLICT DO UPDATE` atualizando in-place, **re-detecção não faz a tabela crescer** — cada órfão ocupa uma linha só, para sempre. O crescimento vem de **órfãos novos**.
+
+Ordem de grandeza com o observado até aqui (junho: 31 órfãos ≈ 0,5 MB): algo como **poucos MB por ano**. Irrelevante para o banco, mas a política precisa ser decidida em vez de acontecer por omissão:
+
+* **Órfãos `REMOVIDO` de competências FECHADAS ainda precisam do snapshot?** Depois que o mês fecha e a conciliação passou, a chance de restaurar cai a ~zero — mas o valor de auditoria permanece (é o registro do que o motor apagou).
+* **Opções:** (a) reter para sempre — simples, defensável, custo baixo; (b) após N meses do fechamento, esvaziar só o `doc_json`/`rateios_json` e **manter a linha** com os campos desnormalizados (perde a restauração, preserva a auditoria); (c) expurgo total após N meses — **não recomendado**, reintroduz a cegueira que o card combate.
+* **Recomendação:** **(a) até haver evidência de volume**, revisitando se a tabela passar de ~100 MB. A decisão é do Pedro; enquanto não for tomada, vale (a) por omissão — e essa omissão é a segura.
+
+Registrado como **D-017** no `PLANO-DESPESAS.md`.
+
+---
+
+## Ajuste do upsert — HISTÓRICO (decisão tomada: usar a RPC)
+
+> **Decisão do Pedro (20/07):** ir de RPC, não do `.upsert()` simples.
+> Motivo — o `n_deteccoes` travado é o menor problema; **o grave é o `status` voltando para `DETECTADO`, porque isso apaga decisão humana**: um órfão marcado como `IGNORADO` seria revertido em silêncio e o mesmo caso reanalisado para sempre, sem sinal de que já havia sido decidido. Mesma família do problema que o D-016 existe para resolver.
+> E a urgência caiu: com "nunca apagar por padrão", o passo 2 **já estanca a sangria assim que subir** — não há pressa que justifique a versão simplificada, e fazer simples agora significaria **mexer no proxy duas vezes**.
+>
+> **DDL da RPC:** `SPEC-D016-passo2-rpc.sql` (3 partes separadas — armadilha 34 — com `GRANT ... TO service_role` — armadilha 35 — e teste V3 que prova a preservação do `IGNORADO`).
+
+Registro do que o `.upsert()` faria de errado, para não ser reintroduzido por engano:
 
 O `.upsert()` do cliente JS **sobrescreve** as colunas enviadas. Consequências:
 
