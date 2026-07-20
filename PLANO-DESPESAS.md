@@ -273,6 +273,43 @@ As classes **`13.x` — Produção, outros** (EPI/paramentação, material da qu
 > Maiores esconderijos: **NF-e ACURATE R$ 83.783,54** (entrou pela 25.02; o resto do documento é invisível) · **DIV ALSCO R$ 26.114,37** · série **DHL/FEDEX** (R$ 9.591 + 9.335,83 + 8.516,02 + 6.630,11 + …, todos entrando só pela 09.04 multas/juros) — **frete internacional, classe 12.x**, o mesmo tema da nota de frete no Backlog da Fase 2.
 >
 > **Limite do instrumento (declarado):** mede apenas documentos que **entraram** com classes mistas. Não enxerga o doc descartado por inteiro (nenhuma classe controlada) — esse não persiste. Portanto é **piso**, não total.
+>
+> ---
+>
+> ### 🔎 QUEBRA POR CLASSE (20/07/2026) — a pergunta decisiva respondida
+>
+> Método: extrair as classes de `payload_alvo->'DocFinClasseRecDespChildList'` (DocFin) e `payload_alvo->'MovEstqClasseRecDespChildList'` (MovEstq), e listar as que **não viraram rateio**. Recorte 2026, as duas rotas.
+>
+> |classe|nome|classificação|inc.ctrl|docs|oculto|mai|jun|
+> |-|-|-|-|-|-|-|-|
+> |**24.01**|COMPRA DE MÁQUINAS/EQUIPAMENTOS|**ativo**|false|2|**85.851,81**|—|83.297,06|
+> |**12.01**|FRETE DE MATÉRIAS PRIMAS|custo|false|9|**42.063,90**|21.322,66|19.985,86|
+> |**13.01**|COMPRA DE VESTUÁRIO/PARAMENTAÇÃO/EPI|custo|false|4|**33.231,37**|26.404,77|—|
+> |20.05|SERVIÇOS - LIMPEZA PRODUÇÃO|custo|false|1|6.547,06|—|—|
+> |06.08|DESCONTOS OBTIDOS|**receita**|false|1|6.358,37|—|6.358,37|
+> |20.04|SERVIÇOS - CONTROLE DE QUALIDADE|custo|false|4|6.204,00|5.352,00|852,00|
+> |13.04|PRODUTO DE LIMPEZA (PRODUÇÃO)|custo|false|4|2.930,00|—|—|
+> |13.05|BONIFICAÇÃO/AMOSTRAS RECEBIDAS|custo|false|1|2.766,84|—|2.766,84|
+> |13.03|INSTRUMENTAL/FERRAMENTAS/UTENSÍLIOS|custo|false|6|2.641,88|460,00|217,83|
+> |20.03|SERVIÇOS - COLETA/DESCARTE DE RESÍDUOS|custo|false|2|2.416,84|792,00|1.624,84|
+> |13.07|MATERIAL DE CONSUMO NA PRODUÇÃO|custo|false|5|835,22|—|604,65|
+> |24.05|SOFTWARE|**ativo**|false|2|545,41|225,43|—|
+> |12.03|FRETE DE INSUMOS DE PRODUÇÃO|custo|false|1|205,50|—|—|
+> |25.05|P&D - RETORNO DE REMESSA P/ INDUSTRIALIZAÇÃO|outros|false|1|10,95|—|10,95|
+> |**total**| | | |**43**|**R$ 192.609,15**| | |
+>
+> **✅ RESPOSTA À PERGUNTA DE ESCOPO: NENHUMA classe com `classificacao='despesa'`. Zero.** Não existe despesa fora do controle por erro de configuração — **não há urgência técnica**. Composição: **custo 51,8% (R$ 99.842,61) · ativo 44,9% (R$ 86.397,22) · receita 3,3% · outros 0,006%**. É **integralmente a fronteira do D-011** — decisão de escopo do Pedro, não bug.
+>
+> **Três leituras que orientam a decisão:**
+> 1. **O maior item é ATIVO, não custo.** A 24.01 (R$ 85.851,81) é a NF-e ACURATE — máquinas/equipamentos. Não é candidata a despesa em hipótese alguma: vai ao balanço. **Isso responde, com número, o item 3 do D-001-A1** ("decidir se imobilizado entra em despesa realizada"), aberto desde 13/07: **não entra**.
+> 2. **A 13.01 é literalmente o exemplo escrito neste card** ("vários desses itens são consumidos, não estocados"): EPI/paramentação, R$ 33.231,37, dos quais R$ 26.404,77 é ALSCO (toalheiro/uniforme). É o caso mais forte a favor de mover a fronteira.
+> 3. **A 20.02 NÃO aparece — porque o Pedro a ligou hoje.** As irmãs **20.03 (resíduos) + 20.04 (qualidade) + 20.05 (limpeza) somam R$ 15.167,90** e continuam ocultas. Se o raciocínio que justificou a 20.02 vale para elas, são as próximas candidatas naturais.
+>
+> **Reconciliação declarada:** esta soma (R$ 192.609,15) difere do corolário agregado (R$ 183.987,77). Diferença explicada: **06.08 DESCONTOS OBTIDOS R$ 6.358,37** é *receita* dentro de doc de despesa (reduz, não soma) e ~R$ 2,2 mil de docs onde `sum(rateio) > valor_documento`, que o corolário zera via `greatest(...,0)` e este recorte não. As duas medições estão corretas; medem coisas ligeiramente diferentes.
+>
+> **⚠️ Observação sobre extrapolação anual — NÃO é estimativa.** A média de ~R$ 79 mil/mês (mai+jun) projetaria ~R$ 1M/ano, **mas esse número não deve ser usado**: são apenas **duas competências**, ambas com o anti-join recém-aplicado, e a previsão registrada é de que **jan–abr aumente a base** quando o backfill rodar. Qualquer anualização hoje seria a armadilha 20 (dedução no lugar de medição) aplicada a uma série de 2 pontos. **O número anual só existe depois do backfill completo.**
+>
+> **🔗 Amarração com o Backlog da Fase 2 (frete):** a **12.01 (R$ 42.063,90) + 12.03 (R$ 205,50)** são a face medida da pendência de frete já registrada no Backlog e na nota do D-004-A1. A série **DHL/FEDEX** entra no Hub **só pela 09.04 (multas/juros)** — centavos — enquanto o corpo do documento (frete internacional de matéria-prima) fica na 12.01, invisível. Isso confirma, por um segundo caminho independente, o que os 14 CT-e da transportadora ent 0000132 (armadilha 18) já indicavam: **frete não existe como linha de despesa própria no Hub**. Para o **orçamento por setor** da Fase 2 isso é bloqueante — e agora tem valor: **R$ 42,3 mil em 2026 só nos docs de classe mista já capturados.**
 
 > **✅ RESOLVIDO 20/07/2026 para ESTERILIZAÇÃO — com número MEDIDO, não estimado (nota, o card fica aberto para o resto de 13.x/20.x).**
 > A pergunta do card ("*se alguém perguntar quanto a P&F gastou com esterilização em 2026, o Hub não sabe responder*") foi respondida com medição direta no Alvo. **Método:** `/alvo/passthrough` do erp-proxy — `DocFin/RetrievePage` para listar + `DocFin/Load` de **cada** documento, agregando doc a doc a partir dos Loads (**não** de relatório do Alvo). Entidade **OXIMED (0000143)**, 12 meses (jul/2025–jun/2026), **84 documentos, 0 erros, 0 pulados**. Detalhe em `oximed-12m.csv`.
@@ -412,6 +449,7 @@ Custos assimétricos ⇒ **o default seguro é o que erra na direção visível*
 
 * Telas por setor (de-para CC → Setor pronto, Seção 4 do report).
 * Conciliação automática mensal razão × captura (metodologia validada: FI por número+fornecedor; FP/IP por conta contábil; CB fora do perímetro).
+* **Frete — MEDIDO em 20/07/2026 (era só qualitativo até aqui):** a quebra por classe do D-011 mostra **12.01 FRETE DE MATÉRIAS PRIMAS = R$ 42.063,90** + **12.03 FRETE DE INSUMOS = R$ 205,50** ocultos em 2026, só nos docs de classe mista já capturados. A série **DHL/FEDEX** entra no Hub **apenas pela 09.04 (multas/juros)** — centavos — com o corpo do frete internacional invisível na 12.01. **Segundo caminho independente** confirmando os 14 CT-e da ent 0000132 (armadilha 18). Bloqueante para o orçamento por setor: **frete não existe como linha de despesa própria**, e agora se sabe quanto.
 * Orçamento por setor (objetivo final). **Nota (14/07):** em CT-e de transporte vinculados a compra (ex.: transportadora ent 0000132), o **frete compõe o custo da mercadoria no MovEstq** e não aparece como linha de despesa própria — o valor no MovEstq fica maior que o do DocFin (14 casos, os "17 de revisão" do D-004-A1). Ao ratear despesa por setor, não dá para tratar esse frete como despesa autônoma sob risco de dupla contagem contra o custo da mercadoria.
 * Rateio de pessoal por setor de destino (precisa base de headcount; hoje Administrativo = 62,8% por concentrar folha).
 * Higiene: 6 dias `FALHA\_PERMANENTE` em 2025; contadores de `desp\_docfin\_competencias` só guardam última execução.
@@ -517,6 +555,7 @@ Custos assimétricos ⇒ **o default seguro é o que erra na direção visível*
 |15/07/2026|**D-010 etapa 3 APLICADA** — `despesas.ts` e `docfin-despesas.ts` passam a setar `em_controle: true` explícito no insert. Smoke das duas rotas com movimento real (MovEstq 17/07: 17 docs/19 rateios; DocFin maio: 97 docs/102 rateios). Invariante `fora=R$ 0,00`. **Crons reativados** após 2 dias pausados|Pedro + Claude|
 |15/07/2026|**Auditoria das 144 classes fora do controle (Pedro):** nenhuma é despesa que deveria ser controlada (receita, NF sem valor financeiro, devolução, reembolso, adiantamento, sintéticos, custo de produção, ativo). **O filtro atual está CORRETO — não havia cegueira, havia filtro.** → **D-008 FECHADO**, **D-010 etapa 3b CANCELADA**, criado card **D-011** (fronteira despesa × custo de produção: 13.x e 20.x são consumidos, não estocados)|Pedro + Claude|
 |15/07/2026|**Armadilha 24** (`data_competencia` é NULL na maior parte da base — recorte temporal usa `ano`/`mes` do rateio; uma query filtrando por ela mostrou R$ 10,7M de R$ 31,8M reais) e **armadilha 25** (`DEFAULT false` em flag de inclusão financeira, validada empiricamente pelo incidente dos R$ 648k)|Pedro + Claude|
+|20/07/2026|**Quebra por CLASSE do oculto (D-011) — a pergunta de escopo respondida:** extraído de `DocFinClasseRecDespChildList` / `MovEstqClasseRecDespChildList`, as classes que não viraram rateio. **NENHUMA com `classificacao='despesa'` — zero. Não há bug de configuração, não há urgência técnica.** Composição: custo 51,8% · **ativo 44,9%** · receita 3,3%. Maiores: **24.01 máquinas/equipamentos R$ 85.851,81** (ACURATE — responde com número o item 3 do D-001-A1: imobilizado **não** entra em despesa) · **12.01 frete de MP R$ 42.063,90** (amarrado ao Backlog Fase 2) · **13.01 EPI/paramentação R$ 33.231,37** (o exemplo escrito no próprio D-011). **20.02 não aparece porque o Pedro a ligou hoje**; as irmãs 20.03/20.04/20.05 somam R$ 15.167,90 e seguem ocultas. Extrapolação anual **registrada como observação com ressalva, não como estimativa** (2 competências, ambas com anti-join recente)|Pedro + Claude|
 |20/07/2026|**D-016 APROVADO — código entregue** (`SPEC-D016-codigo.md`): DDL de `desp_docfin_orfaos` + RPC `desp_remover_orfaos_verificado` (atomicidade no banco, guarda que aborta se qualquer chave estiver sem snapshot) + TypeScript do proxy + RPC de restauração + queries de conferência. **Implantar ANTES do backfill de abril** — argumento do Pedro: sem a limpeza, o delta de abril vira **puramente positivo** e o critério cai de 3 para 2 parcelas|Pedro + Claude|
 |20/07/2026|**Corolário do D-007 rodado — piso da despesa invisível (insumo do D-011):** DocFin **R$ 158.780,83** + MovEstq **R$ 25.206,94** em 2026. **Padrão revelador: gap do DocFin é ZERO em jan–abr e explode em mai (R$ 52.651,66) e jun (R$ 105.828,72)** — as competências com anti-join; docs de classe mista só existem no banco depois do D-001. **Previsão registrada: o backfill de jan–abr vai aumentar esse número.** Maiores: NF-e ACURATE R$ 83.783,54 · DIV ALSCO R$ 26.114,37 · série DHL/FEDEX (frete internacional, entra só pela 09.04). Instrumento é **piso**: não vê o doc descartado por inteiro|Pedro + Claude|
 |20/07/2026|**D-015 revisado — a fatia "sem substituto" caiu 60%** (R$ 39.599,06 → **R$ 15.879,91**) após o Pedro apontar que a busca parou cedo. O PC de R$ 19.800 era **BIOCOLLAGEN** (NF-e 1563 no MovEstq); mais 7 substitutos achados. Fechamento exato: substituição R$ 81.337,48 + duplicata R$ 24.747,55 + migração R$ 7.725 + sem-substituto R$ 15.879,91 = R$ 129.689,94. **Lição: "sem substituto identificável" não é conclusão, é estado da busca.** Restam 7 docs para `DocFin/Load` no Alvo|Pedro + Claude|
