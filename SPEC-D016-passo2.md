@@ -192,6 +192,29 @@ const rOrfaos = await processarOrfaos(
 );
 ```
 
+### 3.1-bis ⚠️ Ordenar a paginação que monta `chavesOrfas` (armadilha 36 / D-018)
+
+A lista de chaves que chega em `processarOrfaos` vem de uma paginação `.range()` **sem `.order()`**. Sem ordenação explícita, a mesma linha pode aparecer em duas páginas — e a RPC receberia a chave duplicada.
+
+```ts
+// ANTES
+.from('desp_docfin_doc').select('chave_docfin')
+  .eq('codigo_empresa_filial', filial)
+  .range(offset, offset + limite - 1)
+
+// DEPOIS — .order() por coluna ÚNICA, sempre ANTES do .range()
+.from('desp_docfin_doc').select('chave_docfin')
+  .eq('codigo_empresa_filial', filial)
+  .order('chave_docfin', { ascending: true })
+  .range(offset, offset + limite - 1)
+```
+
+A RPC já dedupa (`DISTINCT ON`) e devolve `duplicadas_no_lote` — **defesa em profundidade**, não substituto. Se esse contador vier > 0 nos logs, a paginação da origem ainda está instável.
+
+**Nunca ordenar por coluna não-única** (data, número, valor): empate reintroduz a instabilidade — foi a causa raiz do D-006.
+
+**Auditar também `carregarIndiceMovEstq`** — lá o dano é pior e silencioso: linha faltando no índice faz o anti-join **admitir** doc que o MovEstq tem, gerando dupla contagem sem erro nenhum. Ver card **D-018**.
+
 ### 3.2 Propagar pela Edge Function
 
 `sync-docfin-cron` repassa `permitir_remocao_orfaos` ao proxy **apenas se recebeu**. O pg_cron nunca envia esse campo — logo, rodada automática nunca apaga.
