@@ -112,9 +112,18 @@ O índice do MovEstq é montado sobre **`desp_realizado_doc` de TODAS as datas**
 | 2026-02 | +67 | +R$ 237.243,44 | +32 / R$ 133.256 | +31 / R$ 77.876 | +4 / R$ 26.111 |
 | 2026-03 | +58 | +R$ 195.575,26 | +24 / R$ 78.601 | +33 / R$ 116.776 | +1 / R$ 199 |
 | 2026-04 | +66 | +R$ 385.703,43 | +17 / R$ 159.871 | +44 / R$ 195.280 | +5 / R$ 30.552 |
-| 2026-05 | +59 | +R$ 171.281,25 | +27 / R$ 85.586 | +25 / R$ 35.004 | +7 / R$ 50.692 |
-| 2026-06 | +72 | +R$ 314.435,68 | +38 / R$ 194.060 | +27 / R$ 72.184 | +7 / R$ 48.191 |
-| **Total** | **+371** | **+R$ 1.475.637** | 148 / R$ 727.536 | 198 / R$ 592.155 | 25 / R$ 155.945 |
+| ~~2026-05~~ | ~~+59~~ | ~~+R$ 171.281,25~~ | ~~+27 / R$ 85.586~~ | ~~+25 / R$ 35.004~~ | ~~+7 / R$ 50.692~~ |
+| ~~2026-06~~ | ~~+72~~ | ~~+R$ 314.435,68~~ | ~~+38 / R$ 194.060~~ | ~~+27 / R$ 72.184~~ | ~~+7 / R$ 48.191~~ |
+| **Backfill pendente (jan–abr)** | **+240** | **+R$ 989.919,62** | 83 / R$ 447.891 | 146 / R$ 484.968 | 11 / R$ 57.061 |
+| *(referência: total original jan–jun)* | *+371* | *+R$ 1.475.637* | *148 / R$ 727.536* | *198 / R$ 592.155* | *25 / R$ 155.945* |
+
+> **ATUALIZAÇÃO 20/07/2026 — escopo reduzido de 6 para 4 competências.** **Maio, junho e julho já foram reprocessados com o código novo pela janela rolante do cron** (`JANELA_MESES = 3`: mai 20/07 · jun 20/07 15:11 · jul 14/07) — saíram do backfill sem intervenção. **Só jan, fev, mar e abr precisam de reabertura manual.**
+>
+> **Duas correções de método que a primeira rodada real impôs (ver PLANO-DESPESAS armadilhas 26 e 28):**
+> 1. **O delta esperado desta tabela é apenas a parcela POSITIVA.** A rodada também dispara a **limpeza de órfãos**, que apaga docs e **subtrai**. O delta líquido observado **pode ser negativo** — junho fechou em **−R$ 15.887,06** apesar de ter admitido R$ 103 mil só na NF-e ACURATE. Critério de aceitação em **três parcelas separadas**: (a) `antijoin_admite` = valor desta tabela [duro] · (b) ganho do anti-join · (c) perda pela limpeza. Nunca comparar só o líquido.
+> 2. **Dump obrigatório antes de reabrir**, verificado por `md5` calculado no banco — a limpeza é irreversível e o rollback de status não a desfaz.
+>
+> **Correção adicional:** a query de aceitação da §7 abaixo filtra por `data_competencia`. Em `desp_docfin_doc` essa coluna está 100% preenchida (0 nulos, verificado 20/07) e funciona, **mas o campo temporal canônico do módulo é `ano`/`mes` do rateio** (PLANO armadilha 24). Preferir `ano`/`mes` em qualquer conciliação.
 
 *(Valores estimados pelo `valor_soma_original` do censo. Pequenas diferenças por câmbio/retenção no Load individual são esperadas; a **contagem de docs** por competência é o critério duro — tem de bater exatamente.)*
 
