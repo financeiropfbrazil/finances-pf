@@ -14,7 +14,19 @@ O dump manual que passamos a exigir (armadilha 28) protege **só o backfill**. `
 
 Esta spec transforma proteção-por-procedimento em **proteção estrutural**, no mesmo espírito do `uq_desp_docfin_rateio_grao` do D-006: **o motor grava o que vai apagar, na mesma transação, antes de apagar.** E muda o default para **não apagar**.
 
-**Precedente concreto:** na rodada do cron das 15:11 de 20/07, junho teve **31 órfãos / R$ 109.889,94** removidos automaticamente, sem dump. Não há como saber hoje quanto era duplicata legítima (D-013) e quanto era despesa real perdida.
+**Precedente concreto:** na rodada do cron das 15:11 de 20/07, junho teve **31 órfãos / R$ 109.889,94** removidos automaticamente, sem dump.
+
+### ⚠️ Correção honesta da justificativa (20/07, após investigação completa)
+
+A investigação posterior mostrou que **a perda real daquela rodada foi de R$ 77,06** — um único documento. O restante era substituição legítima (PC→NFS-e), duplicata de documento (D-013), migração de competência, e **R$ 15.802,85 de documentos `Projeção = Sim`** capturados por uma versão antiga do motor. **A limpeza automática, nesse caso, acertou.**
+
+Isso **enfraquece a justificativa empírica** desta spec, e fica registrado como tal. O que **não** muda:
+
+1. **O ponto nunca foi o tamanho da perda — é que deleção sem registro torna a investigação impossível.** Chegar ao R$ 77,06 exigiu recuperar chaves de documentos já apagados via `RetrievePage` e rodar 8 `Load` individuais no Alvo. Com a quarentena no ar, seria **um `select` de dez segundos**. O custo aqui não foi o dinheiro perdido: foi a investigação que quase não foi feita — e que, não fosse a insistência, teria deixado no registro um número **200× maior que o real**.
+2. **O resultado favorável é propriedade da amostra, não do mecanismo.** Nada no código impedia que aqueles R$ 15.879 fossem despesa real; a rodada teria apagado igual, e o valor seria irrecuperável. **Proteção se avalia pelo pior caso que admite, não pelo resultado de uma execução.**
+3. **Assimetria de custo:** ~0,5 MB por competência contra a impossibilidade permanente de auditar deleções. E cada órfão futuro passa a chegar com snapshot e evidência de gêmeo, alimentando D-009 e D-013 sem arqueologia.
+
+**Corolário de método que a investigação produziu (PLANO, armadilha 33):** antes de declarar qualquer valor como perda, verificar **(a)** substituto por chave+valor nas duas fontes all-dates, **(b)** migração de competência, **(c)** `Projeção = Sim` na origem, **(d)** cancelamento no Alvo. O número caiu de R$ 39.599 → R$ 15.879 → R$ 77,06 em três passadas, sem que nenhum dado mudasse.
 
 ---
 
