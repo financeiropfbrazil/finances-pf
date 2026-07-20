@@ -190,7 +190,13 @@ Sequência:
 
 ### D-007 — Resíduo R$ 300,45: rateio de abril < valor dos docs (não-bloqueante)
 
-**Status:** ⬜ pendência aberta, não-bloqueante · **Origem:** limpeza do D-006 (14/07/2026).
+**Status:** ✅ **FECHADO 20/07/2026 — causa identificada, documento nominal.** · **Origem:** limpeza do D-006 (14/07/2026).
+
+> **A causa dos R$ 300,45 (20/07/2026).** É **um único documento**: o RDESP `20032026` (chave **27368**), entidade `0001179` **OPENAI LIMITED PARTNERSHIP**, emissão 20/03, competência abril. **Valor do documento R$ 319,98; rateio gravado R$ 19,53** (classe `09.04` DESPESAS MULTAS/JUROS). Diferença **R$ 300,45 — bate ao centavo** com o resíduo do card. O restante do documento está em **classe fora de `incluir_controle`**, e o motor gravou só a linha controlada.
+>
+> **Não é bug nem arredondamento de rateio percentual** (as duas hipóteses do card original). É a **mesma cegueira de classe do D-008 / D-011**, manifestada aqui como *resíduo de conciliação*: quando um doc tem classes mistas, o motor persiste o doc e grava **apenas** as linhas controladas — então `sum(rateio) < valor_documento` por construção, e a diferença é exatamente a despesa em classe não-controlada. **Corolário útil: `valor_documento − sum(rateio)` por documento é um MEDIDOR da despesa invisível** — funciona onde o doc entrou com classes mistas (não enxerga o doc descartado por inteiro, que não persiste). Vale como instrumento barato para o **D-011**.
+>
+> Achado durante o dump dos órfãos de abril (o doc é um dos 9 de `backup-orfaos-abril-D001.json`). A suspeita do card de que "o mesmo padrão existe nas outras competências, e são benignas" **se confirma** — e agora tem explicação, não só constatação.
 
 Após a limpeza do D-006, o rateio de abril (**R$ 1.152.546,84**) ficou R$ 300,45 **abaixo** do valor dos docs de abril (**R$ 1.152.847,29**). **Não vem do D-006** (o D-006 removeu inflação; este é um *déficit*). Provável classe fora do controle (doc sem rateio gravado por não ter conta mapeada) ou arredondamento de rateio percentual. Registrado para não renascer como investigação do zero. Ação futura: localizar o(s) doc(s) de abril com `sum(rateio) < valor_documento` e classificar. Verificar se o mesmo padrão existe nas outras competências (as diferenças pequenas rateio×doc vistas no baseline sugerem que sim, e são benignas).
 
@@ -311,7 +317,32 @@ O agente escreve o plano de lotes quando o Pedro priorizar. **Não iniciar sem e
 
 ### D-015 — Decompor os −R$ 15.887,06 de junho nas três parcelas
 
-**Status:** ⬜ pendência de **verificação**, não bloqueante · **Origem:** primeira rodada real do D-001 em produção (20/07/2026).
+**Status:** ✅ **CONCLUÍDO 20/07/2026 — decomposição fecha ao centavo.** · **Origem:** primeira rodada real do D-001 em produção (20/07/2026).
+
+> **Resultado — as duas parcelas, medidas (não estimadas):**
+>
+> |parcela|docs|rateio|
+> |-|-|-|
+> |**(a) admitidos pelo anti-join**|**+27**|**+R$ 113.802,88**|
+> |**(b) removidos pela limpeza de órfãos**|**−32**|**−R$ 129.689,94**|
+> |**líquido observado**|**−5**|**−R$ 15.887,06** ✅ bate|
+>
+> **Método:** junho **não tinha nenhuma espécie-alvo antes** da rodada (verificado), então os 27 são 100% ganho novo. A composição por espécie fecha exatamente: PC 34→3 (−31) e CRT 1→0 (−1) = −32; CT-e +11, NFS-e +6, DIV +5, NF-e +2, NF3E +2, NFCom +1 = +27. Os removidos somam **R$ 129.689,94 de valor de documento — idêntico ao rateio**, porque PC/CRT rateiam 100%.
+>
+> **Achado 1 — foram 32 removidos, não 31.** Os 31 órfãos que eu havia catalogado (R$ 109.889,94) **mais um PC de R$ 19.800,00** que tinha `sync_em` de 14/07 e não foi re-listado em 20/07. **Órfãos continuam sendo gerados a cada rodada** — não é um passivo estático que se drena.
+>
+> **Achado 2 — a parcela (b) NÃO é homogênea. Tem quatro sabores, e a maior parte tem contrapartida:**
+>
+> |sabor|valor|evidência|
+> |-|-|-|
+> |**substituição PC → NFS-e/NF-e** (armadilha 27) — remoção **correta**|**R$ 57.618,33**|**VR BENEFÍCIOS PC 4234 R$ 54.535,71 = NFS-e 98084371 (R$ 50.935,71) + NFS-e 98084370 (R$ 3.600,00)**, ambas **admitidas nesta mesma rodada** — soma **exata**. Mais GRÁFICA FB CAZA 1.200 (NF-e no MovEstq 18/06), HERO 1.007,62 e IBPIS 875 (NFS-e no MovEstq)|
+> |**duplicata de DOCUMENTO** (D-013) — remoção **correta**|R$ 24.747,55 bruto (~R$ 17.871,65 de excedente)|4 grupos de mesmo número com `chave_docfin` distintas: `0004192`×3, `0004201`×3, `0004202`×4, `0004212`×2 (MERCADO LIVRE / RAPHAELA)|
+> |**migração de competência** — não é perda|R$ 7.725,00|MICROLUMEN PC `0004034`: removido de junho, **existe em maio** (`sync` 14/07)|
+> |**sem substituto identificado** — risco real|**R$ 39.599,06**|ABIMO R$ 10.752 · VOOLT R$ 1.292,18 · 3D SLIM R$ 1.228,34 · RIOPRETRANS R$ 1.729 · o PC de R$ 19.800 · outros menores|
+>
+> **Conclusão que muda o critério de aceitação:** o líquido negativo **não** significa perda de despesa. Em junho, **~70% da remoção tem contrapartida comprovada** (substituição, duplicata ou migração). Mas **R$ 39.599,06 saíram sem substituto identificável** — e como foram apagados sem dump (armadilha 32), **não há como recuperá-los nem investigá-los além disto**. É a justificativa empírica do **D-016**.
+>
+> **Gabarito para abril:** esperar (a) positivo pequeno e (b) dominado por PC/RDESP; classificar (b) nos quatro sabores **antes** de concluir qualquer coisa sobre o líquido. Em abril os 9 órfãos já estão classificados (1 substituição PC→NFS-e de R$ 22.000 + 8 sem gêmeo de R$ 115,57) **e com dump feito** — o inverso da situação de junho.
 
 Junho fechou em **−5 docs / −R$ 15.887,06 líquido**, resultado de forças opostas. Decompor nas três parcelas do critério de aceitação (armadilha 26):
 
@@ -321,7 +352,30 @@ Junho fechou em **−5 docs / −R$ 15.887,06 líquido**, resultado de forças o
 
 Fonte para diferenciar: **`censo-jan-jun.json`** (quem era candidato do anti-join vs quem era doc pré-existente). **Reforça o critério de aceitação do backfill** de jan–abr: é o primeiro caso real com as três parcelas juntas e serve de gabarito para abril.
 
-*(novos cards entram aqui: D-016, D-017, ...)*
+### D-016 — Auditoria/quarentena de órfãos: tornar a deleção reversível por construção
+
+**Status:** ⬜ **SPEC ENTREGUE 20/07/2026** (`SPEC-D016-orfaos-auditoria.md`) — DDL aguarda aprovação do Pedro; mudança no proxy é implementação dele (regra 11) · **Origem:** achado durante o backfill do D-001 (20/07). · **Prioridade alta: o risco é contínuo e silencioso.**
+
+**O problema (levantado pelo Pedro).** O dump prévio da armadilha 28 protege **só o backfill manual**. Mas a limpeza de órfãos roda em **toda rodada do cron — 3×/dia, sobre as 3 competências da janela rolante** — e apaga **irreversivelmente, sem registro**. A trava de teto impede deleção em massa, mas **deleção pequena (≤25 docs) passa silenciosa**: uma listagem parcial do Alvo num dia ruim remove documentos e ninguém fica sabendo. **`mai/jun/jul` estão permanentemente desprotegidas.**
+
+**Precedente já consumado:** a rodada de 20/07 15:11 removeu **31 órfãos de junho / R$ 109.889,94 sem dump**. Não há como saber hoje quanto era duplicata legítima (D-013) e quanto era despesa real.
+
+**Solução (mesma filosofia do UNIQUE do D-006 — proteção estrutural, não disciplina):** tabela `desp_docfin_orfaos` (quarentena com snapshot completo: `doc_json` com `payload_alvo` + `rateios_json`), gravada **na detecção** (quando o doc ainda existe) e **na mesma transação** da deleção. Invariante: *nenhum doc é apagado sem registro já commitado com `doc_json` não-nulo* — verificado dentro da transação, não presumido.
+
+**Recomendação do agente sobre a política (a decisão principal do card): o motor NUNCA apaga por padrão — nem cron, nem backfill manual. Remoção exige flag explícita `permitir_remocao_orfaos=true`.**
+
+Argumento — **assimetria do erro**, a mesma lógica da armadilha 25 aplicada à deleção:
+
+|erro|manifestação|detectabilidade|
+|-|-|-|
+|apagar doc que deveria ficar|despesa **some**, total cai|**invisível** — ninguém questiona número menor|
+|não apagar doc que deveria sair|duplicata fica, total **sobe**|**visível** — o valor destoa|
+
+Custos assimétricos ⇒ **o default seguro é o que erra na direção visível**. Reforço empírico do **D-013**: a causa dominante de órfão **não é cancelamento no Alvo, é renumeração/listagem parcial** — apagar automático é apostar que a listagem daquele instante é a verdade, 3×/dia, sem testemunha. O custo de não apagar (órfão-duplicata inflando o total) é **aceitável porque é visível e vira fila de trabalho**; hoje o mesmo custo existe invertido e invisível.
+
+**Efeito colateral:** D-009 e D-013 deixam de ser arqueologia — cada órfão passa a chegar com snapshot e campos `tem_gemeo`/`gemeo_ref`. E a parcela (c) do critério de aceitação (armadilha 26) passa a ser **lida** da tabela em vez de estimada por diferença.
+
+*(novos cards entram aqui: D-017, D-018, ...)*
 
 \---
 
@@ -393,6 +447,8 @@ Fonte para diferenciar: **`censo-jan-jun.json`** (quem era candidato do anti-joi
 30. **Em análise MANUAL do DocFin, sempre ignorar `Projecao = 'Sim'` (adicionada 20/07/2026).** O motor de captura já filtra (`Projecao == 'Não'`, regra 6), mas **toda análise manual, export ou passthrough precisa aplicar o mesmo filtro** — projeção é lançamento previsto, não realizado. No export da esterilização, não filtrar teria **inflado o número em ~R$ 18 mil**. Regra: qualquer número tirado do Alvo por fora do motor passa pelos mesmos filtros do motor (filial 1.01 · `Tipo='PAG'` · `Projecao='Não'`), senão não é comparável com o Hub.
 31. **`/alvo/passthrough` é a ferramenta de pesquisa no Alvo — investiga sem código novo (adicionada 20/07/2026).** O erp-proxy expõe um passthrough que permite consultar o Alvo diretamente, sem depender de rota nova (portanto **sem deploy e sem violar a regra 11**). Auth por `X-System-Secret`. Já na whitelist: **`DocFin/RetrievePage`** (listar por filtro) e **`DocFin/Load`** (detalhe). Três armadilhas de uso: (a) **`RetrievePage` NÃO traz `DocFinClasseRecDespChildList`** — classe e rateio só vêm no **`Load` individual**, um por documento (é o que torna viável um censo-com-classe sem rota nova, ao custo de N chamadas); (b) o retorno do passthrough é o **array cru do Alvo em `.data`**, sem o embrulho `{count, data}` das rotas normais; (c) aplicar os filtros do motor no consumo (armadilha 30). Precedente: censo OXIMED de 12 meses, 84 Loads, 0 erros.
 
+32. **A limpeza de órfãos roda no CRON, 3×/dia, e apaga sem registro — o dump manual não cobre isso (adicionada 20/07/2026, levantada pelo Pedro).** A armadilha 28 (dump prévio) protege **apenas o backfill manual**. Mas a limpeza é executada em **toda rodada do cron**, sobre as **3 competências da janela rolante**, sem ninguém olhando. A trava de teto barra deleção **em massa**; **deleção pequena (≤25 docs) passa silenciosa e irreversível**. Consequência: as competências da janela rolante estão **permanentemente desprotegidas** — basta uma listagem parcial do Alvo num dia ruim para documentos sumirem sem rastro. **Caso consumado:** rodada de 20/07 15:11 removeu 31 órfãos de junho (R$ 109.889,94) sem dump; hoje é impossível saber quanto era duplicata e quanto era despesa real. **Regra de método (vale além deste módulo): proteção que depende de procedimento humano só cobre o caminho onde o humano está.** Todo caminho automático precisa da proteção embutida no código — foi assim que o D-006 se resolveu (UNIQUE no banco, não disciplina no proxy). Correção especificada em `SPEC-D016-orfaos-auditoria.md` (card **D-016**); enquanto não implantada, **o risco está ativo a cada rodada**.
+
 \---
 
 ## 5\. Concluído (histórico)
@@ -432,6 +488,9 @@ Fonte para diferenciar: **`censo-jan-jun.json`** (quem era candidato do anti-joi
 |15/07/2026|**D-010 etapa 3 APLICADA** — `despesas.ts` e `docfin-despesas.ts` passam a setar `em_controle: true` explícito no insert. Smoke das duas rotas com movimento real (MovEstq 17/07: 17 docs/19 rateios; DocFin maio: 97 docs/102 rateios). Invariante `fora=R$ 0,00`. **Crons reativados** após 2 dias pausados|Pedro + Claude|
 |15/07/2026|**Auditoria das 144 classes fora do controle (Pedro):** nenhuma é despesa que deveria ser controlada (receita, NF sem valor financeiro, devolução, reembolso, adiantamento, sintéticos, custo de produção, ativo). **O filtro atual está CORRETO — não havia cegueira, havia filtro.** → **D-008 FECHADO**, **D-010 etapa 3b CANCELADA**, criado card **D-011** (fronteira despesa × custo de produção: 13.x e 20.x são consumidos, não estocados)|Pedro + Claude|
 |15/07/2026|**Armadilha 24** (`data_competencia` é NULL na maior parte da base — recorte temporal usa `ano`/`mes` do rateio; uma query filtrando por ela mostrou R$ 10,7M de R$ 31,8M reais) e **armadilha 25** (`DEFAULT false` em flag de inclusão financeira, validada empiricamente pelo incidente dos R$ 648k)|Pedro + Claude|
+|20/07/2026|**D-015 CONCLUÍDO — decomposição de junho fecha ao centavo:** (a) admitidos **+27 docs / +R$ 113.802,88** · (b) órfãos removidos **−32 docs / −R$ 129.689,94** · líquido **−5 / −R$ 15.887,06** ✅. Foram **32** removidos, não 31 (um PC de R$ 19.800 virou órfão na própria rodada — órfãos são gerados continuamente). **A parcela (b) tem 4 sabores:** substituição PC→NFS-e R$ 57.618,33 (VR BENEFÍCIOS PC 4234 = NFS-e 98084371 + 98084370, soma exata, ambas admitidas na mesma rodada) · duplicata de documento R$ 24.747,55 (D-013) · migração de competência R$ 7.725 · **sem substituto R$ 39.599,06 — apagados sem dump, irrecuperáveis**. ~70% da remoção tem contrapartida: **líquido negativo ≠ perda de despesa**|Pedro + Claude|
+|20/07/2026|**D-007 FECHADO** — o resíduo de R$ 300,45 é **um documento**: RDESP `20032026` (chave 27368) OPENAI, doc R$ 319,98 com rateio de apenas R$ 19,53 (classe 09.04); o resto está em classe fora de controle. Não era bug nem arredondamento: é a **cegueira de classe do D-008/D-011 manifestada como resíduo de conciliação**. Corolário: `valor_documento − sum(rateio)` por doc é um **medidor barato da despesa invisível** em docs de classe mista — instrumento para o D-011|Pedro + Claude|
+|20/07/2026|**Risco sistêmico levantado pelo Pedro → armadilha 32 + card D-016 + `SPEC-D016-orfaos-auditoria.md`.** O dump da armadilha 28 protege só o backfill manual; a limpeza roda no **cron, 3×/dia, sobre a janela rolante**, e apaga sem registro — deleção ≤25 docs passa silenciosa e mai/jun/jul estão permanentemente desprotegidas. Spec entregue: tabela `desp_docfin_orfaos` (quarentena com `doc_json`+`payload_alvo`, gravada **na detecção** e na **mesma transação** da deleção). **Recomendação do agente: o motor NUNCA apaga por padrão — nem cron nem manual — remoção exige flag explícita**, por assimetria do erro (apagar errado é invisível, não apagar é visível). Regra de método: *proteção que depende de procedimento humano só cobre o caminho onde o humano está*|Pedro + Claude|
 |20/07/2026|**D-001 EM PRODUÇÃO — 1ª rodada real (Pedro).** O cron das 15:11 reprocessou junho com o código novo e admitiu espécies-alvo pela 1ª vez (NF-e 29434 ACURATE R$ 103.344,87 · CT-e 29433/29432 · NFS-e 29078 · NFCom 29057). Junho 243 → **238 docs**, R$ 1.434.526,06 → **R$ 1.418.639,00** (−R$ 15.887,06 líquido). Total do Hub: **R$ 32.058.639,92**, `valor_fora_controle` = R$ 0,00. **Escopo do backfill REDUZIDO de 6 para 4 competências** (mai/jun/jul já rodaram pela janela rolante) — §6 da `SPEC-D001-erp-proxy.md` atualizada. Criado **D-015** (decompor os −R$ 15.887,06 nas 3 parcelas, usando `censo-jan-jun.json`)|Pedro + Claude|
 |20/07/2026|**D-011 RESOLVIDO para esterilização, com número MEDIDO (Pedro).** Censo via `/alvo/passthrough` (RetrievePage + **Load individual de cada doc**), entidade OXIMED 0000143, 12 meses, **84 docs, 0 erros, 0 pulados** (`oximed-12m.csv`): **20.02 = 77 docs / R$ 163.839,39 (92,1%) INVISÍVEIS** · 25.10 = 7 docs / R$ 14.017,01 (7,9%) capturados. **Escritas do Pedro no rito:** de-para 20.02 → `5.3.01.005.009` (Beneficiamento de Terceiros) em `desp_classe_conta` + `incluir_controle=true` na 20.02 — captura futura resolvida, conferido por leitura. Histórico exige re-sync do MovEstq → card **D-014** (~250 dias úteis, watchdog corta em 80s, precisa de plano de lotes). **Armadilhas 29** (duas classes de esterilização; o volume migrou de P&D para produção e o Hub cegou progressivamente — não era erro de config), **30** (análise manual do DocFin sempre ignora `Projecao='Sim'`; teria inflado o número em ~R$ 18 mil) e **31** (`/alvo/passthrough` como ferramenta de pesquisa: RetrievePage não traz classe, só o Load; retorno é array cru em `.data`)|Pedro + Claude|
 |20/07/2026|**Dump de segurança dos 9 órfãos de abril** (`backup-orfaos-abril-D001.json`, 186.582 bytes, 9/9 md5 conferidos contra o banco) — exigido pelo Pedro ao apontar que o rollback de status **não** desfaz a limpeza e que reprocessar não recupera órfão. **Armadilha 28** (limpeza de órfãos é irreversível; dump verificado por md5 é pré-requisito de todo backfill). Rateio dos 9 = **R$ 22.115,57** (não R$ 22.416,02, que é valor de documento). Gêmeo confirmado doc a doc: **1 de 9** (PC 26217 ↔ NFS-e 32 do MovEstq, R$ 22.000, classe 14.08 nos dois lados) — os 8 RDESP (R$ 115,57) **não têm gêmeo** em nenhuma das duas fontes|Pedro + Claude|
