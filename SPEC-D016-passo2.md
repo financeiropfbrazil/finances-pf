@@ -12,6 +12,35 @@ Onde hoje o código **identifica órfãos e apaga**, passa a: **gravar o snapsho
 
 ---
 
+# ✅ LISTA ÚNICA DE APLICAÇÃO — `docfin-despesas.ts`
+
+> Aplicar **tudo de uma vez**, num único deploy. As quatro mudanças são independentes entre si, mas as 4 juntas é que fecham o ciclo (D-016 + D-018).
+> Pré-requisitos no banco: `SPEC-D016-passo1.sql` ✅ aplicado · `SPEC-D016-passo2-rpc.sql` (3 partes) — aplicar **antes** do deploy.
+
+| # | linha | o que fazer | por quê |
+|---|---|---|---|
+| **1** | **237** | `.order("chave_movestq", { ascending: true })` **antes** do `.range()` em `carregarIndiceMovEstq` | 🔴 crítico e silencioso: linha faltando no índice ⇒ anti-join **admite** doc que o MovEstq tem ⇒ **dupla contagem** (armadilha 36, D-018) |
+| **2** | **953** | `.order("chave_docfin", { ascending: true })` **antes** do `.range()` na limpeza de órfãos | chave repetida no lote ⇒ `ERROR 21000` no `ON CONFLICT` (armadilha 36, D-018) |
+| **3** | bloco da limpeza | substituir pela função `processarOrfaos()` (§2), que grava a quarentena via **`desp_registrar_orfaos`** na detecção | snapshot **antes** de apagar; preserva decisão humana |
+| **4** | chamada da limpeza | `permitirRemocao: body?.permitir_remocao_orfaos === true` | default seguro: **nunca** `?? true`, **nunca** `!== false` (armadilha 25) |
+
+**Ordenar pela PK, nunca por coluna do `select`** (itens 1 e 2): coluna não-única empata e a instabilidade volta — foi a causa raiz do D-006.
+
+**Dentro do item 3**, a deleção deixa de ser `DELETE` direto e passa a ser a RPC **`desp_remover_orfaos_verificado`**, que valida o snapshot **dentro da transação** (o cliente JS não abre transação).
+
+### Depois do deploy — teste de estabilidade da paginação
+
+O índice tem **5.139 linhas = 6 páginas de 1.000** (medido 20/07). Rodar o sync **duas vezes seguidas** e comparar, no log, `movestq_index_linhas` e o `size` do Map:
+
+* **variou entre execuções** ⇒ instabilidade **provada** — investigar antes de qualquer backfill;
+* **não variou** ⇒ **não prova** que não existe (paginação instável é intermitente — o D-006 só se manifestou numa rodada específica), mas fica o **baseline**.
+
+**Sinal de saúde permanente: `movestq_index_linhas` ≥ 5.139, crescendo devagar. Se CAIR, alguma coisa quebrou** — e a consequência é dupla contagem silenciosa, não erro visível. Vale monitorar esse número a cada rodada, como o `valor_fora_controle` do D-010.
+
+---
+
+---
+
 ## 1. Tipos (topo do arquivo, junto dos outros)
 
 ```ts
