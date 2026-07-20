@@ -22,7 +22,7 @@
 
 \---
 
-## 1\. Estado atual (snapshot: 15/07/2026)
+## 1\. Estado atual (snapshot: 20/07/2026)
 
 **Em produção:**
 
@@ -41,6 +41,7 @@
 |Backfill do D-001 — **ESCOPO REDUZIDO a jan–abr** (20/07)|⬜ **4 competências, não 6.** **mai, jun e jul já foram reprocessadas pela janela rolante com o código novo** (mai 20/07 · jun 20/07 15:11 · jul 14/07) — saíram do backfill sozinhas. Sobram **jan, fev, mar, abr**, que estão fora da janela e guardam a captura de 02/07 (código antigo). Fatiamento aprovado: **abril primeiro**. Dump de órfãos de abril ✅ feito (`backup-orfaos-abril-D001.json`)|
 |Simulação do anti-join jan–jun (20/07)|✅ reproduz a §6 da spec **exatamente** nas 6 competências (jan 49 · fev 67 · mar 58 · **abr 66** · mai 59 · jun 72 = 371 / R$ 1.475.637), rodada contra o MovEstq de hoje (5.139 docs, all-dates)|
 |`em_controle` no insert (D-010 etapa 3)|✅ **EM PRODUÇÃO** desde 15/07 nas DUAS rotas (`despesas.ts` MovEstq + `docfin-despesas.ts`). Smoke: MovEstq 17/07 (17 docs/19 rateios), DocFin maio (97 docs/102 rateios)|
+|**D-016 / D-018 (proteção de órfãos + paginação)**|🔧 **passo 1 no ar e verificado; passo 2 pronto para aplicar** (`SPEC-D016-passo2-rpc.sql` + 4 itens em `docfin-despesas.ts`). **Enquanto o passo 2 não subir, a limpeza automática segue apagando órfãos sem registro a cada rodada do cron** (armadilha 32) e as duas paginações seguem sem `.order()` (armadilha 36)|
 |Crons de despesa|✅ ativos (pausados 14–15/07 durante a migração do D-010; reativados após validação)|
 |Captura jan–jun/2026 (R$ 18,96M)|✅ íntegra, 0 erros *(número histórico do report v2.0 — ver linha "Total de despesa" acima para o valor atual)*|
 |Cron MovEstq (`sync-despesas-3x-dia`)|✅ auto-semeadura ativa (execução 16281 comprovada)|
@@ -62,6 +63,30 @@
 \---
 
 ## 2\. Fila de trabalho (cards)
+
+> ### 🔖 ESTADO DA FILA — fim da sessão de 20/07/2026 (ler primeiro)
+>
+> **Onde paramos:** o backfill de abril **NÃO foi executado** — está pausado por decisão consciente, atrás do D-016+D-018. Nada foi deixado pela metade no banco nem no proxy.
+>
+> **Ordem acordada dos próximos passos:**
+>
+> |ordem|passo|quem|estado|
+> |-|-|-|-|
+> |1|`SPEC-D016-passo2-rpc.sql` — aplicar em **3 execuções** (armadilha 34) e rodar V1–V6|Pedro|⬜ pronto para colar|
+> |2|`docfin-despesas.ts` — **os 4 itens da lista única** de `SPEC-D016-passo2.md`, num deploy só|Pedro|⬜ pronto|
+> |3|Teste de estabilidade: sync 2× seguidas, comparar `movestq_index_linhas` (baseline **5.139**)|Pedro|⬜|
+> |4|Observar **1–2 dias**: quarentena enche, `REMOVIDO` fica em **0**|—|⬜|
+> |5|Só então: habilitar `permitir_remocao_orfaos` para rodada manual|Pedro|⬜|
+> |6|**Backfill de abril** (reabrir competência + rodar) — dump já feito|Pedro + agente|⬜|
+>
+> **Estado do banco (aplicado e verificado hoje):** `desp_docfin_orfaos` ✅ criada (0 linhas, RLS, 5 índices) · `desp_remover_orfaos_verificado` ✅ criada (SECURITY DEFINER, grants OK, **guarda testada: levanta exceção**) · `desp_registrar_orfaos` ⬜ **ainda não aplicada** (é o passo 1 acima).
+>
+> **Nada pendente de decisão para retomar.** As decisões abertas (**D-003** desempates 1:N, **D-005** JUR/CF/ADT/CSRF, **D-011** fronteira despesa×custo, **D-017** retenção) **não bloqueiam** nenhum dos 6 passos.
+>
+> **Ao retomar, o crítico de aceitação de abril:** critério duro `antijoin_admite = 66`; **se divergir, investigar a PAGINAÇÃO antes da lógica de admissão** (a simulação dos 66 rodou em SQL direto, sem paginação — D-018). Com o D-016 no ar, o delta de abril fica **puramente positivo** e o critério cai de 3 para 2 parcelas.
+>
+> **Invariantes a conferir em qualquer retomada:** `valor_fora_controle` = **R$ 0,00** · total do Hub = **R$ 32.058.639,92** (era o valor ao fim de 20/07) · `movestq_index_linhas` ≥ **5.139** · `select count(*) from desp_docfin_doc where payload_alvo->>'Projecao'='Sim'` = **0**.
+
 
 ### D-001 — Fase 1 / Padrão 1: medir o vazamento NFCom antes de corrigir
 
