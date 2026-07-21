@@ -1316,7 +1316,11 @@ async function syncPedidos(
   const { count: elegiveisSemLimit } = await supabase
     .from("compras_pedidos")
     .select("id", { count: "exact", head: true })
-    .not("status", "in", '("Encerrado","Cancelado","Cancelado Parcial")')
+    // Terminais normalmente não mudam mais e ficam fora do rodízio. EXCEÇÃO:
+    // se ainda não têm itens carregados (detalhes_carregados=false), precisam
+    // de UMA visita para baixar o detalhe — depois a flag vira true e eles
+    // saem da fila de novo.
+    .or('and(status.not.in.("Encerrado","Cancelado","Cancelado Parcial")),and(detalhes_carregados.is.false)')
     .or("status_local.is.null,status_local.neq.excluido_alvo")
     .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.("Em Andamento","Reavaliar")`);
   result.elegiveis_sem_limit = elegiveisSemLimit ?? 0;
