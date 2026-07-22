@@ -66,7 +66,7 @@ Transições permitidas (mapa completo, válido desde já): RASCUNHO→ABERTA ·
 
 | Tarefa | Descrição | Status | Data | Notas |
 |---|---|---|---|---|
-| OP-1.0 | Reconhecimento read-only do terreno | PENDENTE | | |
+| OP-1.0 | Reconhecimento read-only do terreno | CONCLUÍDA | 22/07/2026 | Achados e ajustes na seção 4.1. Timestamps EN (`created_at`/`updated_at`); permissões pontilhadas `modulo.recurso.acao`; espelho = `stock_products`; RLS Suprimentos aberta; `profiles` sem `setor`. |
 | OP-1.1 | Migração: tabelas + seeds + numeração | PENDENTE | | ⚠️ exige último nº de OP 2026 (Pedro) |
 | OP-1.2 | RLS + RPCs de escrita | PENDENTE | | depende de OP-1.0 |
 | OP-1.3 | Frontend: seção Produção + lista de OPs | PENDENTE | | |
@@ -207,6 +207,60 @@ alter table public.op_status_historico enable row level security;
 
 ---
 
+## 4.1 — OP-1.0 · Reconhecimento do terreno (achados + ajustes aos rascunhos)
+
+Executado em 22/07/2026, **read-only**, projeto `hbtggrbauguukewiknew` (fingerprint `compras_pedidos` = 1674). Fontes: banco (MCP read-only) + código do repo (módulo **Suprimentos** como referência).
+
+### A) Modelo de permissões (Hub RBAC)
+- **Função canônica:** `public.user_has_permission(p_user_id uuid, p_permission_code text) → bool` (SECURITY DEFINER, `search_path=public`). Lógica: `profiles.is_admin` ⇒ TRUE (bypass total); senão `EXISTS` em `hub_user_roles ur → hub_role_permissions rp → hub_permissions p` com `p.codigo = code` e `ur.revogado_em IS NULL`.
+- **Wrapper por `auth.uid()`:** `public._user_has_perm(p_codigo text) → bool` (mesma lógica via `auth.uid()`, chama `_is_admin()`) — **gate ideal dentro de RPC/RLS**. Também: `_is_admin()`, `hub_caller_is_admin()`, `get_user_permissions(p_user_id) → setof(codigo)` (usado pelo AuthContext do front).
+- **Catálogo:** `hub_permissions(id, codigo, nome, descricao, modulo, created_at)`. Papéis: `hub_roles(codigo, nome, descricao)` — hoje: admin, analista_fiscal, analista_compras, requisitante, aprovador_projetos, controller_intercompany, financeiro, responsavel_projeto, visualizador_compras, viewer_intercompany. **Nenhum de produção.**
+- **Taxonomia real dos códigos:** `modulo.recurso.acao` — pontilhado, verbos em inglês. Ex. Suprimentos: `compras.pedidos.access|create|view_all|view_own|delete_draft`; `compras.requisicoes.access|create|view_all|view_own|delete_own|reenviar_own`. Módulos são palavra única (`compras`, `projetos`, `cartao`, `intercompany`, `ferramentas`; global `_global`).
+- **Gate no frontend:** `PermissionRoute permKey="…"` inline em `src/App.tsx:118-140` via `usePermissions().hasAccess()` (`src/hooks/usePermissions.ts`); botões/ações via `useHasPermission(code)` (`src/hooks/useHasPermission.ts`); permissões carregadas no `AuthContext` por `get_user_permissions`; catálogo tipado em `src/constants/permissions.ts`. Não existe `<PermissionGate>`. Convivem RBAC pontilhado e "menu_keys" legados (`suprimentos_requisicoes`, mapeados em `usePermissions.ts:14-21`) — **módulo novo usa só RBAC pontilhado.**
+
+### B) Espelho de produtos (picker de SKU)
+- Tabela **`public.stock_products`** (20 col). Chaves p/ o picker: `codigo_produto` (SKU, NOT NULL) · `codigo_reduzido` · `nome_produto` (descrição, NOT NULL) · `unidade_medida` (ex. "UNID") · `familia_codigo` (ex. "001.016") · `ativo` (bool) · `controla_lote` · `codigo_barras`/`codigo_alternativo`. Usa `created_at`/`updated_at`. Códigos no formato `001.016.062`.
+- **Mapa OP:** `op_ordem_itens.sku_codigo ← codigo_produto`; `descricao (snapshot) ← nome_produto`; sugerir coluna nova `unidade ← unidade_medida`. Picker filtra `ativo=true`, busca por codigo/nome.
+- ⚠️ `stock_products.tipo_produto` é código numérico ("15","53") — domínio distinto do `op_ordens.tipo_produto` (ACABADO|EM_PROCESSO). Só homônimo, **sem conflito**.
+
+### C) Trigger de `atualizado_em`
+- **Não há genérico reutilizável.** Cada módulo tem função nomeada (`set_compras_requisicoes_updated_at`, `intercompany_set_updated_at`, `tg_blocos_set_updated_at`…), todas `NEW.updated_at = now()`, ligadas por `BEFORE UPDATE ... FOR EACH ROW` (ex. real: `trg_compras_requisicoes_updated_at`).
+- **Convenção decisiva:** `created_at` (132 tabelas) / `updated_at` (76) vs `criado_em`/`atualizado_em` (**1 cada**) ⇒ o rascunho da OP (português) diverge; **adotar inglês**.
+
+### D) Rotas / service / layout
+- Rotas centralizadas em `src/App.tsx` (react-router v6): import estático no topo + `<Route path="/mod/recurso" element={<PermissionRoute permKey="…"><Pagina/></PermissionRoute>}/>` dentro do bloco `AppLayout` (`<Outlet/>`). Ex.: `/suprimentos/pedidos`, `/.../novo`, `/.../:id`.
+- Nav em `src/components/AppSidebar.tsx`: array de sub-itens + `renderXGroup(...)` (Collapsible shadcn) + invocação condicional a `hasAccess("…")` no bloco de injeção (~linhas 261-308). Ícone lucide.
+- Services em `src/services/*.ts` (funções, sem classe): `import { supabase } from "@/integrations/supabase/client"` + `(supabase as any).rpc("nome",{p_…})` (params `p_`) ou `(supabase as any).from("tbl")`. Mutations retornam `{sucesso, …, erro?}` ou lançam `Error(msg)`.
+- **Leitura de lista:** em geral **inline** na página via `useQuery` + `(supabase as any).from("tbl").select("*",{count:"exact"}).order().range().ilike()/.gte()/.lte()` (ex. `SuprimentosPedidos.tsx`). Existe também RPC de lista SECURITY DEFINER (`suprimentos_listar_pedidos_para`) — as duas abordagens convivem. Precedente de numeração Hub-side anual: `sugerir_proximo_numero_invoice(p_ano)` (SECURITY DEFINER) ⇒ **valida** o approach de `op_proximo_numero()`.
+
+### E) Padrão visual (Bloomberg-calm)
+- Tokens HSL em `src/index.css` (manifesto linhas 5-17): 3 superfícies (`--surface-1/2/3`), accent único `--primary` (azul), semânticos dessaturados `--success/--warning/--danger/--info/--violet`; sem glow/glass/gradiente; só `shadow-sm`. `darkMode:["class"]` (`tailwind.config.ts`); **dark é default** (toggle caseiro `ThemeToggle`, sem next-themes). Tokens no formato `"H S% L%"` ⇒ usar tints `token/opacidade`, nunca cor hardcoded.
+- Números: `font-variant-numeric: tabular-nums` global em `body`/`table` (index.css:150-165); colunas de valor `text-right tabular-nums whitespace-nowrap` (+ às vezes `font-mono`). **Sem util central de formatação** — replicar `formatBRL` local (`Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"})`, guarda null→"—").
+- Status: fonte única `src/lib/statusConfig.ts` com helpers `ROUTINE(sem)`/`EXCEPTION(sem)` e `getStatus*()` → `{label, className, Icon, tooltip}` em `<Badge variant="outline" className={…}>`. Componentes-chave: `DataSection`+`Field` (`src/components/DataSection.tsx`); set shadcn completo em `src/components/ui/*` (Dialog p/ modais, Command p/ combobox/picker, Table, Card, Select, Popover+Calendar).
+
+### Ajustes a aplicar aos rascunhos
+
+**OP-1.1 (DDL):**
+1. `criado_em`→`created_at`, `atualizado_em`→`updated_at` em todas as tabelas `op_*`.
+2. Criar `public.op_set_updated_at()` (`NEW.updated_at=now()`) + `CREATE TRIGGER trg_op_ordens_updated_at BEFORE UPDATE ON op_ordens ... EXECUTE FUNCTION op_set_updated_at()`. (Só `op_ordens` precisa; filhas são append.)
+3. `op_ordem_itens`: adicionar `unidade text` (snapshot de `unidade_medida`); `sku_codigo` ↔ `stock_products.codigo_produto`.
+4. `emitido_por`: uuid puro (= `auth.uid()`), **sem FK** (padrão do repo — `hub_user_roles.user_id` etc.). Confirmar unicidade de `profiles.user_id` se quiser FK.
+5. `op_proximo_numero()`: nascer `SECURITY DEFINER SET search_path='public'` (padrão Hub); lógica de lock mantida.
+6. Sem colisão de prefixo `op_` (verificado). `produto_familia`/`tipo_produto` seguem texto/CHECK como no rascunho.
+
+**OP-1.2 (RLS + permissões):**
+1. Renomear p/ convenção pontilhada: `op_visualizar`→`producao.access`; `op_abrir`→`producao.ordens.create`; `op_gerir`→`producao.ordens.manage`. (Opcional `producao.ordens.view_all/view_own`.) Módulo `producao`.
+2. INSERT em `hub_permissions(codigo,nome,descricao,modulo='producao')` + amarrar em `hub_role_permissions`. Decidir papéis (provável novo papel "Produção" em `hub_roles` + admin, que já bypassa). Espelhar em `src/constants/permissions.ts`.
+3. RLS: recomendo **divergir** do precedente compras (policy aberta `FOR ALL USING(true)`) e usar `FOR SELECT TO authenticated USING (user_has_permission(auth.uid(),'producao.access'))`; **sem policy de escrita** (só RPC SECURITY DEFINER que bypassa RLS). Combina com a leitura inline `.from()`. **Decisão do Pedro.**
+4. Gate nas RPCs via `_user_has_perm('producao.ordens.create')` (raise se falso); SECURITY DEFINER + `search_path`.
+
+**OP-1.3/1.4/1.5 (frontend):**
+- Molde de lista: `src/pages/SuprimentosPedidos.tsx`. Criar `src/lib/statusOP.ts` (ROUTINE/EXCEPTION + tokens) e `src/services/ordemProducaoService.ts`. Rota base `/producao/ordens`; nav `renderProducaoGroup` gateado por `producao.access` (ícone `Factory`/`ClipboardList`).
+- Picker de SKU: `Command`/combobox sobre `stock_products` (`ativo=true`); descrição auto de `nome_produto`, unidade de `unidade_medida`.
+- ⚠️ **Correção factual OP-1.4:** `profiles` **não tem** `setor`/`departamento` (só `full_name`, `email`, `is_admin`, `is_active`, `funcionario_alvo_codigo`, `alvo_usuario`) → `emitido_depto` é **texto livre puro, sem pré-preenchimento**.
+
+---
+
 ## 5. Questões em aberto (bloqueiam Fases 2–4; respostas do Pedro)
 
 1. **OP também no Alvo ou só no Hub?** O `ReqMat/Load` referencia `OrdProducObject` — se a P&F usar o módulo nativo de OP do Alvo, o Hub abre a OP lá e amarra; senão, vínculo via `Descricao`/`Texto` da ReqMat. Fase 0 (item 1) informa.
@@ -233,3 +287,4 @@ alter table public.op_status_historico enable row level security;
 | Data | Tarefa | Registro |
 |---|---|---|
 | 22/07/2026 | — | Plano criado. Decisões assumidas: sem gate de aprovação (campos preenchíveis, sem trava); `numero_referencia` nullable para o 2º número dos formulários; numeração AAAA-NNNN gerada pelo Hub na criação. Fonte dos campos: FRM-07-11 (OPs 2026-0007/0030/0056). |
+| 22/07/2026 | OP-1.0 | Reconhecimento read-only concluído (fingerprint `compras_pedidos`=1674, projeto `hbtggrbauguukewiknew`). Detalhe completo + ajustes na **seção 4.1**. Principais achados: (1) timestamps EN `created_at`/`updated_at` são a convenção (132/76 tabelas vs 1 em pt) e não há trigger genérico — cada módulo tem `set_*_updated_at`; (2) permissões pontilhadas `modulo.recurso.acao` via `user_has_permission`/`_user_has_perm` + catálogo `hub_permissions`/`hub_roles` — os nomes `op_*` do plano viram `producao.*`; (3) espelho de produtos = `stock_products` (codigo_produto/nome_produto/unidade_medida/ativo); (4) RLS do Suprimentos é aberta (`USING(true)`), gate em RPC+front — OP-1.2 vai divergir p/ SELECT gateado; (5) `profiles` **sem** `setor` ⇒ `emitido_depto` texto livre (corrige OP-1.4); (6) molde de tela = `SuprimentosPedidos.tsx`, visual em `statusConfig.ts`/`DataSection`, leitura de lista inline via `useQuery`+`.from()`. |
