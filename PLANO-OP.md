@@ -67,7 +67,7 @@ Transições permitidas (mapa completo, válido desde já): RASCUNHO→ABERTA ·
 | Tarefa | Descrição | Status | Data | Notas |
 |---|---|---|---|---|
 | OP-1.0 | Reconhecimento read-only do terreno | CONCLUÍDA | 22/07/2026 | Achados e ajustes na seção 4.1. Timestamps EN (`created_at`/`updated_at`); permissões pontilhadas `modulo.recurso.acao`; espelho = `stock_products`; RLS Suprimentos aberta; `profiles` sem `setor`. |
-| OP-1.1 | Migração: tabelas + seeds + numeração | EM ANDAMENTO | 22/07/2026 | DDL final pronto (seção 3). Bloqueado só por: **(1) seed real de 2026** (veio `<PREENCHER>` → placeholder `<<SEED_2026>>`) **(2) aplicação no SQL Editor + verificação**. FRM casa em `codigo_alternativo`. |
+| OP-1.1 | Migração: tabelas + seeds + numeração | EM ANDAMENTO | 22/07/2026 | DDL final pronto (seção 3), **seed 2026 = 500** (reserva de faixa; Hub emite de 2026-0501). Falta só **aplicar no SQL Editor + verificar** → então CONCLUÍDA. |
 | OP-1.2 | RLS + RPCs de escrita | PENDENTE | | depende de OP-1.0 |
 | OP-1.3 | Frontend: seção Produção + lista de OPs | PENDENTE | | |
 | OP-1.4 | Modal de abertura (USER 1) | PENDENTE | | |
@@ -85,7 +85,7 @@ Validado contra os formulários reais FRM-07-11 (OPs 2026-0007 Válvulas, 2026-0
 **Decisões assumidas (reversíveis, registradas em 22/07/2026):**
 - Sem gate de aprovação por ora: campos `aprovado_*` existem e são preenchíveis no detalhe, mas não travam o fluxo. Se virar gate, entra status `AGUARDANDO_APROVACAO` como Ajuste.
 - `numero_referencia` (nullable) guarda o segundo número visto nos formulários (ex.: 2025-0183) até o Pedro confirmar o que é.
-- Número gerado pelo Hub: formato `AAAA-NNNN`, sequência anual, atribuído na criação (inclusive rascunho); cancelada mantém o número (sem renumeração — trilha documental limpa).
+- Número gerado pelo Hub: formato `AAAA-NNNN`, sequência anual, atribuído na criação (inclusive rascunho); cancelada mantém o número (sem renumeração — trilha documental limpa). **Reserva de faixa:** 2026 semeado em `500` — manual usa 0001–0500, Hub emite de 0501+ (detalhe e regra de virada de ano em `op_numeracao`, seção 3).
 
 ### Tabelas
 
@@ -95,11 +95,11 @@ Validado contra os formulários reais FRM-07-11 (OPs 2026-0007 Válvulas, 2026-0
 
 **`op_ordem_itens`** — id uuid PK · op_id FK→op_ordens (cascade) · sequencia int · **codigo_produto** text NOT NULL (SKU hierárquico do espelho, ex. `001.010.037`) · **codigo_alternativo_produto** text NULL (código do FRM, ex. `82110053`) · **produto_nome** text NOT NULL (snapshot) · **produto_unidade** text NULL (snapshot, ex. `UNID`) · quantidade_planejada numeric(14,4) CHECK >0 · created_at · UNIQUE(op_id, sequencia). Snapshot da casa, **sem FK** ao catálogo (produto pode mudar/inativar; o item preserva o que foi planejado).
 
-**`op_numeracao`** — ano int PK · ultimo int default 0. Função `op_proximo_numero()` incrementa com lock de linha. **Seed obrigatório: último número já emitido em 2026 no processo Excel atual (Pedro informa — os exemplos chegam a 0056, o real pode estar além).**
+**`op_numeracao`** — ano int PK · ultimo int default 0. Função `op_proximo_numero()` incrementa com lock de linha. **Numeração por reserva de faixa (decidido 22/07/2026): seed 2026 = `500`.** `2026-0001`..`2026-0500` ficam reservados ao processo manual (FRM-07-11); o Hub emite de `2026-0501` em diante. Não há "último número" estável porque manual e Hub emitem em paralelo até o go-live — no **go-live o processo manual para** e o Hub vira emissor único. ⚠️ **Virada de ano:** se a operação paralela cruzar para 2027, semear `(2027, 500)` (ou a folga vigente) **antes** da 1ª OP do ano — senão `op_proximo_numero()` cria `(2027,0)` e começa em `2027-0001`, colidindo com a faixa manual.
 
 **`op_status_historico`** — id uuid PK · op_id FK (cascade) · de text NULL · para text · motivo text NULL · usuario uuid · created_at.
 
-**Achado OP-1.1 (verificação read-only, 22/07/2026):** os 9 códigos do FRM-07-11 (`8211020031`…`8211010001`) casam **100% com `stock_products.codigo_alternativo`** (0 em `codigo_produto`, 0 em `codigo_reduzido`, 2 coincidências em `codigo_barras`). Todos são da família `001.010` (Tricvalve — "TRICUSPID VALVE …"), `ativo=true`, `unidade_medida='UNID'`. ⇒ **o picker (OP-1.4) busca por `codigo_alternativo` + `nome_produto`**; o snapshot guarda `codigo_produto` (SKU interno hierárquico) **e** `codigo_alternativo_produto` (o código que o operador escreve no formulário).
+**Achado OP-1.1 (verificação read-only, 22/07/2026):** os 9 códigos do FRM-07-11 (`8211020031`…`8211010001`) casam **100% com `stock_products.codigo_alternativo`** (0 em `codigo_produto`, 0 em `codigo_reduzido`, 2 coincidências em `codigo_barras`). Todos são da família `001.010` (Tricvalve — "TRICUSPID VALVE …"), `ativo=true`, `unidade_medida='UNID'`. ⇒ **o picker (OP-1.4) busca por `codigo_alternativo` + `nome_produto` + `codigo_produto`**, exibindo os dois códigos; `codigo_barras` fica **fora da busca** (as 2 coincidências geram ambiguidade). O snapshot guarda `codigo_produto` (SKU interno hierárquico) **e** `codigo_alternativo_produto` (o código que o operador escreve no formulário).
 
 ### DDL final da OP-1.1 (validado contra o banco em 22/07/2026 — ajustes documentados na seção 4.1)
 
@@ -173,10 +173,11 @@ create table public.op_numeracao (
   ultimo int not null default 0
 );
 
--- ⚠️⚠️⚠️ SEED OBRIGATÓRIO — NÃO RODAR ATÉ SUBSTITUIR <<SEED_2026>> ⚠️⚠️⚠️
--- <<SEED_2026>> = ÚLTIMO número de OP JÁ emitido em 2026 (processo Excel atual).
--- A 1ª OP gerada pelo Hub será <<SEED_2026>>+1  (ex.: último = 56 ⇒ 1ª = 2026-0057).
-insert into public.op_numeracao (ano, ultimo) values (2026, <<SEED_2026>>);
+-- SEED por reserva de faixa: 2026-0001..2026-0500 reservados ao processo manual
+-- (FRM-07-11); o Hub emite de 2026-0501 em diante. No go-live o manual para.
+-- ⚠️ Virada de ano: se a operação paralela cruzar para 2027, semear (2027, 500)
+-- ANTES da 1ª OP de 2027 (senão a função cria (2027,0) e começa em 2027-0001).
+insert into public.op_numeracao (ano, ultimo) values (2026, 500);
 
 -- Gerador de número (SECURITY DEFINER: roda como owner e ignora RLS ao tocar op_numeracao)
 create or replace function public.op_proximo_numero()
@@ -331,7 +332,7 @@ Executado em 22/07/2026, **read-only**, projeto `hbtggrbauguukewiknew` (fingerpr
 
 **OP-1.3/1.4/1.5 (frontend):**
 - Molde de lista: `src/pages/SuprimentosPedidos.tsx`. Criar `src/lib/statusOP.ts` (ROUTINE/EXCEPTION + tokens) e `src/services/ordemProducaoService.ts`. Rota base `/producao/ordens`; nav `renderProducaoGroup` gateado por `producao.access` (ícone `Factory`/`ClipboardList`).
-- Picker de SKU: `Command`/combobox sobre `stock_products` (`ativo=true`); descrição auto de `nome_produto`, unidade de `unidade_medida`.
+- Picker de SKU: `Command`/combobox sobre `stock_products` (`ativo=true`); busca por `codigo_alternativo` + `nome_produto` + `codigo_produto` (exibe ambos os códigos); `codigo_barras` **fora da busca** (ambiguidade). Descrição auto de `nome_produto`, unidade de `unidade_medida`.
 - ⚠️ **Correção factual OP-1.4:** `profiles` **não tem** `setor`/`departamento` (só `full_name`, `email`, `is_admin`, `is_active`, `funcionario_alvo_codigo`, `alvo_usuario`) → `emitido_depto` é **texto livre puro, sem pré-preenchimento**.
 
 ---
@@ -364,3 +365,4 @@ Executado em 22/07/2026, **read-only**, projeto `hbtggrbauguukewiknew` (fingerpr
 | 22/07/2026 | — | Plano criado. Decisões assumidas: sem gate de aprovação (campos preenchíveis, sem trava); `numero_referencia` nullable para o 2º número dos formulários; numeração AAAA-NNNN gerada pelo Hub na criação. Fonte dos campos: FRM-07-11 (OPs 2026-0007/0030/0056). |
 | 22/07/2026 | OP-1.0 | Reconhecimento read-only concluído (fingerprint `compras_pedidos`=1674, projeto `hbtggrbauguukewiknew`). Detalhe completo + ajustes na **seção 4.1**. Principais achados: (1) timestamps EN `created_at`/`updated_at` são a convenção (132/76 tabelas vs 1 em pt) e não há trigger genérico — cada módulo tem `set_*_updated_at`; (2) permissões pontilhadas `modulo.recurso.acao` via `user_has_permission`/`_user_has_perm` + catálogo `hub_permissions`/`hub_roles` — os nomes `op_*` do plano viram `producao.*`; (3) espelho de produtos = `stock_products` (codigo_produto/nome_produto/unidade_medida/ativo); (4) RLS do Suprimentos é aberta (`USING(true)`), gate em RPC+front — OP-1.2 vai divergir p/ SELECT gateado; (5) `profiles` **sem** `setor` ⇒ `emitido_depto` texto livre (corrige OP-1.4); (6) molde de tela = `SuprimentosPedidos.tsx`, visual em `statusConfig.ts`/`DataSection`, leitura de lista inline via `useQuery`+`.from()`. |
 | 22/07/2026 | OP-1.1 | Decisões do Pedro aplicadas ao DDL: módulo de permissão `producao` (rota `/producao`); RLS gateada por `producao.access` (policies só na OP-1.2); papéis novos `operador_producao` (access+create) e `gestor_producao` (access+create+manage), `is_system=false` (wiring na OP-1.2); timestamps `created_at`/`updated_at` + trigger `op_set_updated_at()`; itens em snapshot (`codigo_produto`, `codigo_alternativo_produto`, `produto_nome`, `produto_unidade`, `quantidade_planejada`), sem FK ao catálogo; `op_proximo_numero()` SECURITY DEFINER + `search_path=public`. **Verificação read-only:** os 9 códigos do FRM-07-11 batem **100% em `stock_products.codigo_alternativo`** (0 em `codigo_produto`/`codigo_reduzido`; 2 coincidências em `codigo_barras`), família `001.010` (Tricvalve, "TRICUSPID VALVE …"), `ativo=true`, `UNID` ⇒ picker (OP-1.4) busca `codigo_alternativo`+`nome_produto`. DDL final na seção 3. **Pendências para CONCLUÍDA: seed real de 2026 (`<PREENCHER>`) + aplicação no SQL Editor + verificação empírica.** RLS habilitada sem policies = deny-all seguro no intervalo (nenhum frontend usa as tabelas ainda; SQL Editor roda como postgres e ignora RLS). |
+| 22/07/2026 | OP-1.1 | Seed definido: **`(2026, 500)` — reserva de faixa** (não há "último número" estável; manual e Hub emitem em paralelo). Regra: `2026-0001`..`0500` = processo manual (FRM-07-11); Hub emite de `2026-0501`. No **go-live o manual para** → Hub emissor único. ⚠️ **Virada de ano:** se a operação paralela cruzar 2027, semear `(2027, 500)` (ou folga vigente) antes da 1ª OP de 2027 — senão `op_proximo_numero()` cria `(2027,0)` e emite `2027-0001`, colidindo com a faixa manual. Endossado: deny-all até OP-1.2; lockdown de `op_proximo_numero()` (revogar EXECUTE público) na OP-1.2. `sequencia`+`UNIQUE(op_id,sequencia)` mantidos. Picker OP-1.4: busca `codigo_alternativo`+`nome_produto`+`codigo_produto` (exibe ambos); `codigo_barras` fora (ambiguidade). `<<SEED_2026>>`→`500` no bloco. **Pendente p/ CONCLUÍDA: aplicação no SQL Editor + verificação empírica.** |
