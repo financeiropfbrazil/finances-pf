@@ -17,6 +17,7 @@ export interface CartaoLote {
   codigo_tipo_pag_rec: string;
   competencia: string;
   data_vencimento: string;
+  data_entrada: string | null;
   status: StatusLote;
   created_by: string | null;
   created_at: string;
@@ -278,6 +279,7 @@ export async function criarLoteComLinhas(params: {
   codigo_tipo_pag_rec: string;
   competencia: string;
   data_vencimento: string;
+  data_entrada: string;
   linhas: ParsedLinha[];
   created_by: string | null;
 }): Promise<CartaoLote> {
@@ -290,6 +292,7 @@ export async function criarLoteComLinhas(params: {
       codigo_tipo_pag_rec: params.codigo_tipo_pag_rec,
       competencia: params.competencia,
       data_vencimento: params.data_vencimento,
+      data_entrada: params.data_entrada,
       status: "rascunho",
       created_by: params.created_by,
     })
@@ -487,8 +490,10 @@ export async function emitirLinhaNoAlvo(params: {
     codigo_classe_rec_desp: item.codigo_classe_rec_desp,
     codigo_centro_ctrl: item.codigo_centro_ctrl,
     valor: item.valor,
-    data_transacao: item.data_transacao,
+    data_transacao: item.data_transacao, // Emissão — por LINHA (planilha)
     data_vencimento: lote.data_vencimento,
+    competencia: lote.competencia, // digitada no lote
+    data_entrada: lote.data_entrada ?? undefined, // Entrada + Entrega; null nos lotes antigos
     titular: lote.titular,
     estabelecimento: item.descricao_estabelecimento,
   };
