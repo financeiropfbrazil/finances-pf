@@ -67,7 +67,7 @@ Transições permitidas (mapa completo, válido desde já): RASCUNHO→ABERTA ·
 | Tarefa | Descrição | Status | Data | Notas |
 |---|---|---|---|---|
 | OP-1.0 | Reconhecimento read-only do terreno | CONCLUÍDA | 22/07/2026 | Achados e ajustes na seção 4.1. Timestamps EN (`created_at`/`updated_at`); permissões pontilhadas `modulo.recurso.acao`; espelho = `stock_products`; RLS Suprimentos aberta; `profiles` sem `setor`. |
-| OP-1.1 | Migração: tabelas + seeds + numeração | PENDENTE | | ⚠️ exige último nº de OP 2026 (Pedro) |
+| OP-1.1 | Migração: tabelas + seeds + numeração | EM ANDAMENTO | 22/07/2026 | DDL final pronto (seção 3). Bloqueado só por: **(1) seed real de 2026** (veio `<PREENCHER>` → placeholder `<<SEED_2026>>`) **(2) aplicação no SQL Editor + verificação**. FRM casa em `codigo_alternativo`. |
 | OP-1.2 | RLS + RPCs de escrita | PENDENTE | | depende de OP-1.0 |
 | OP-1.3 | Frontend: seção Produção + lista de OPs | PENDENTE | | |
 | OP-1.4 | Modal de abertura (USER 1) | PENDENTE | | |
@@ -89,35 +89,41 @@ Validado contra os formulários reais FRM-07-11 (OPs 2026-0007 Válvulas, 2026-0
 
 ### Tabelas
 
-**`op_tipos`** — id uuid PK · codigo text UNIQUE (VALVULA/CATETER/ENCAPSULAMENTO) · nome text · ativo bool default true · ordem int · criado_em.
+**`op_tipos`** — id uuid PK · codigo text UNIQUE (VALVULA/CATETER/ENCAPSULAMENTO) · nome text · ativo bool default true · ordem int · created_at.
 
-**`op_ordens`** — id uuid PK · numero text UNIQUE (AAAA-NNNN) · numero_referencia text NULL · tipo_id FK→op_tipos · produto_familia text (hoje "Tricvalve") · tipo_ordem text CHECK (FABRICACAO|EMBALAGEM_FINAL) · tipo_produto text CHECK (ACABADO|EM_PROCESSO) · destino text CHECK (INTERNACIONAL|NACIONAL|NAO_APLICAVEL) · lote text NULL · data_inicio date · data_fim_planejada date NULL · status text CHECK (6 estados) default RASCUNHO · observacoes text · emitido_por uuid NOT NULL (profiles.user_id) · emitido_depto text · emitido_em timestamptz · aprovado_por/depto/em NULL · comunicado_a/depto/em NULL · op_pai_id FK→op_ordens NULL · cancelada_por/em/motivo_cancelamento NULL · criado_em · atualizado_em.
+**`op_ordens`** — id uuid PK · numero text UNIQUE (AAAA-NNNN) · numero_referencia text NULL · tipo_id FK→op_tipos · produto_familia text (hoje "Tricvalve") · tipo_ordem text CHECK (FABRICACAO|EMBALAGEM_FINAL) · tipo_produto text CHECK (ACABADO|EM_PROCESSO) · destino text CHECK (INTERNACIONAL|NACIONAL|NAO_APLICAVEL) · lote text NULL · data_inicio date · data_fim_planejada date NULL · status text CHECK (6 estados) default RASCUNHO · observacoes text · emitido_por uuid NOT NULL (profiles.user_id) · emitido_depto text · emitido_em timestamptz · aprovado_por/depto/em NULL · comunicado_a/depto/em NULL · op_pai_id FK→op_ordens NULL · cancelada_por/em/motivo_cancelamento NULL · created_at · updated_at (trigger `op_set_updated_at`).
 
-**`op_ordem_itens`** — id uuid PK · op_id FK→op_ordens (cascade) · sequencia int · sku_codigo text (catálogo espelho de produtos) · descricao text (snapshot) · quantidade_planejada numeric(14,4) CHECK >0 · criado_em · UNIQUE(op_id, sequencia).
+**`op_ordem_itens`** — id uuid PK · op_id FK→op_ordens (cascade) · sequencia int · **codigo_produto** text NOT NULL (SKU hierárquico do espelho, ex. `001.010.037`) · **codigo_alternativo_produto** text NULL (código do FRM, ex. `82110053`) · **produto_nome** text NOT NULL (snapshot) · **produto_unidade** text NULL (snapshot, ex. `UNID`) · quantidade_planejada numeric(14,4) CHECK >0 · created_at · UNIQUE(op_id, sequencia). Snapshot da casa, **sem FK** ao catálogo (produto pode mudar/inativar; o item preserva o que foi planejado).
 
 **`op_numeracao`** — ano int PK · ultimo int default 0. Função `op_proximo_numero()` incrementa com lock de linha. **Seed obrigatório: último número já emitido em 2026 no processo Excel atual (Pedro informa — os exemplos chegam a 0056, o real pode estar além).**
 
-**`op_status_historico`** — id uuid PK · op_id FK (cascade) · de text NULL · para text · motivo text NULL · usuario uuid · criado_em.
+**`op_status_historico`** — id uuid PK · op_id FK (cascade) · de text NULL · para text · motivo text NULL · usuario uuid · created_at.
 
-### Rascunho da migração (OP-1.1 — validar contra o banco na sessão antes de entregar ao Pedro)
+**Achado OP-1.1 (verificação read-only, 22/07/2026):** os 9 códigos do FRM-07-11 (`8211020031`…`8211010001`) casam **100% com `stock_products.codigo_alternativo`** (0 em `codigo_produto`, 0 em `codigo_reduzido`, 2 coincidências em `codigo_barras`). Todos são da família `001.010` (Tricvalve — "TRICUSPID VALVE …"), `ativo=true`, `unidade_medida='UNID'`. ⇒ **o picker (OP-1.4) busca por `codigo_alternativo` + `nome_produto`**; o snapshot guarda `codigo_produto` (SKU interno hierárquico) **e** `codigo_alternativo_produto` (o código que o operador escreve no formulário).
+
+### DDL final da OP-1.1 (validado contra o banco em 22/07/2026 — ajustes documentados na seção 4.1)
 
 ```sql
--- OP-1.1 · Módulo OP · Fase 1 · SQL Editor (hbtggrbauguukewiknew)
--- Rollback: drop function op_proximo_numero; drop table op_status_historico,
--- op_ordem_itens, op_numeracao, op_ordens, op_tipos; (sem dados de produção ainda)
+-- =====================================================================
+-- OP-1.1 · Módulo Ordem de Produção · Fase 1 · SQL Editor (hbtggrbauguukewiknew)
+-- ESTRUTURA APENAS: tabelas, trigger de updated_at, numeração.
+-- Policies (RLS) + RPCs de escrita = OP-1.2. Verificação e rollback no fim (comentados).
+-- =====================================================================
 
+-- 1) Tipos de OP (cadastro extensível — não é enum de código)
 create table public.op_tipos (
   id uuid primary key default gen_random_uuid(),
   codigo text not null unique,
   nome text not null,
   ativo boolean not null default true,
   ordem int,
-  criado_em timestamptz not null default now()
+  created_at timestamptz not null default now()
 );
 
 insert into public.op_tipos (codigo, nome, ordem) values
   ('VALVULA','Válvulas',1), ('CATETER','Cateter',2), ('ENCAPSULAMENTO','Encapsulamento',3);
 
+-- 2) Ordens de produção (cabeçalho)
 create table public.op_ordens (
   id uuid primary key default gen_random_uuid(),
   numero text not null unique,
@@ -133,58 +139,127 @@ create table public.op_ordens (
   status text not null default 'RASCUNHO'
     check (status in ('RASCUNHO','ABERTA','EM_ANDAMENTO','EM_FECHAMENTO','FECHADA','CANCELADA')),
   observacoes text,
-  emitido_por uuid not null,
-  emitido_depto text,
+  emitido_por uuid not null,                       -- = auth.uid(); uuid puro, sem FK (padrão do repo)
+  emitido_depto text,                              -- texto livre (profiles não tem setor)
   emitido_em timestamptz not null default now(),
   aprovado_por uuid, aprovado_depto text, aprovado_em timestamptz,
   comunicado_a text, comunicado_depto text, comunicado_em timestamptz,
   op_pai_id uuid references public.op_ordens(id),
   cancelada_por uuid, cancelada_em timestamptz, motivo_cancelamento text,
-  criado_em timestamptz not null default now(),
-  atualizado_em timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 create index idx_op_ordens_status on public.op_ordens(status);
-create index idx_op_ordens_tipo on public.op_ordens(tipo_id);
+create index idx_op_ordens_tipo   on public.op_ordens(tipo_id);
 
+-- 3) Itens da OP — SNAPSHOT do produto na criação (sem FK ao catálogo:
+--    produto pode mudar/inativar; o item preserva o que foi planejado)
 create table public.op_ordem_itens (
   id uuid primary key default gen_random_uuid(),
   op_id uuid not null references public.op_ordens(id) on delete cascade,
   sequencia int not null,
-  sku_codigo text not null,
-  descricao text,
+  codigo_produto text not null,                    -- SKU hierárquico do espelho (ex. 001.010.037)
+  codigo_alternativo_produto text,                 -- código do FRM/operador (ex. 82110053)
+  produto_nome text not null,                      -- snapshot de stock_products.nome_produto
+  produto_unidade text,                            -- snapshot de stock_products.unidade_medida
   quantidade_planejada numeric(14,4) not null check (quantidade_planejada > 0),
-  criado_em timestamptz not null default now(),
+  created_at timestamptz not null default now(),
   unique (op_id, sequencia)
 );
 
-create table public.op_numeracao (ano int primary key, ultimo int not null default 0);
--- ⚠️ SEED: substituir 0 pelo último número real emitido em 2026 antes de aplicar
-insert into public.op_numeracao (ano, ultimo) values (2026, 0);
+-- 4) Numeração anual AAAA-NNNN (gerada pelo Hub na criação)
+create table public.op_numeracao (
+  ano int primary key,
+  ultimo int not null default 0
+);
 
+-- ⚠️⚠️⚠️ SEED OBRIGATÓRIO — NÃO RODAR ATÉ SUBSTITUIR <<SEED_2026>> ⚠️⚠️⚠️
+-- <<SEED_2026>> = ÚLTIMO número de OP JÁ emitido em 2026 (processo Excel atual).
+-- A 1ª OP gerada pelo Hub será <<SEED_2026>>+1  (ex.: último = 56 ⇒ 1ª = 2026-0057).
+insert into public.op_numeracao (ano, ultimo) values (2026, <<SEED_2026>>);
+
+-- Gerador de número (SECURITY DEFINER: roda como owner e ignora RLS ao tocar op_numeracao)
 create or replace function public.op_proximo_numero()
-returns text language plpgsql as $$
-declare v_ano int := extract(year from now())::int; v_n int;
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_ano int := extract(year from now())::int;
+  v_n   int;
 begin
-  insert into public.op_numeracao (ano, ultimo) values (v_ano, 0) on conflict (ano) do nothing;
-  update public.op_numeracao set ultimo = ultimo + 1 where ano = v_ano returning ultimo into v_n;
+  insert into public.op_numeracao (ano, ultimo) values (v_ano, 0)
+    on conflict (ano) do nothing;
+  update public.op_numeracao set ultimo = ultimo + 1
+    where ano = v_ano
+    returning ultimo into v_n;
   return v_ano::text || '-' || lpad(v_n::text, 4, '0');
 end $$;
 
+-- 5) Histórico de status (append-only)
 create table public.op_status_historico (
   id uuid primary key default gen_random_uuid(),
   op_id uuid not null references public.op_ordens(id) on delete cascade,
   de text, para text not null, motivo text,
   usuario uuid not null,
-  criado_em timestamptz not null default now()
+  created_at timestamptz not null default now()
 );
+create index idx_op_status_historico_op on public.op_status_historico(op_id);
 
-alter table public.op_tipos enable row level security;
-alter table public.op_ordens enable row level security;
-alter table public.op_ordem_itens enable row level security;
-alter table public.op_numeracao enable row level security;
+-- 6) Trigger de updated_at (padrão do repo: 1 função por módulo)
+create or replace function public.op_set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end $$;
+
+create trigger trg_op_ordens_updated_at
+  before update on public.op_ordens
+  for each row execute function public.op_set_updated_at();
+
+-- 7) RLS habilitada SEM policies = deny-all até a OP-1.2 (estado seguro: nenhum
+--    frontend usa estas tabelas ainda; o SQL Editor roda como postgres e ignora
+--    RLS, então a verificação abaixo funciona).
+alter table public.op_tipos            enable row level security;
+alter table public.op_ordens           enable row level security;
+alter table public.op_ordem_itens      enable row level security;
+alter table public.op_numeracao        enable row level security;
 alter table public.op_status_historico enable row level security;
--- Policies de leitura + trigger de atualizado_em: entram na OP-1.2,
--- no padrão de permissões real descoberto na OP-1.0 (user_has_permission).
+
+-- =====================================================================
+-- VERIFICAÇÃO EMPÍRICA (rodar no SQL Editor logo após aplicar)
+-- =====================================================================
+-- a) contagem das 5 tabelas (op_tipos = 3; demais = 0):
+--   select 'op_tipos' t, count(*) n from public.op_tipos
+--   union all select 'op_ordens', count(*) from public.op_ordens
+--   union all select 'op_ordem_itens', count(*) from public.op_ordem_itens
+--   union all select 'op_numeracao', count(*) from public.op_numeracao
+--   union all select 'op_status_historico', count(*) from public.op_status_historico;
+-- b) seed:  select * from public.op_numeracao where ano = 2026;
+-- c) teste de op_proximo_numero() SEM consumir número:
+--   begin;
+--     select public.op_proximo_numero() as n1;   -- 2026-<seed+1>
+--     select public.op_proximo_numero() as n2;   -- 2026-<seed+2>
+--     select ultimo from public.op_numeracao where ano = 2026;  -- seed+2
+--   rollback;
+--   select ultimo from public.op_numeracao where ano = 2026;    -- de volta = seed
+-- d) trigger:  select tgname from pg_trigger where tgrelid='public.op_ordens'::regclass and not tgisinternal;
+
+-- =====================================================================
+-- ROLLBACK (sem dados de produção ainda)
+-- =====================================================================
+-- drop trigger if exists trg_op_ordens_updated_at on public.op_ordens;
+-- drop function if exists public.op_set_updated_at();
+-- drop function if exists public.op_proximo_numero();
+-- drop table if exists public.op_status_historico;
+-- drop table if exists public.op_ordem_itens;
+-- drop table if exists public.op_numeracao;
+-- drop table if exists public.op_ordens;
+-- drop table if exists public.op_tipos;
 ```
 
 ---
@@ -288,3 +363,4 @@ Executado em 22/07/2026, **read-only**, projeto `hbtggrbauguukewiknew` (fingerpr
 |---|---|---|
 | 22/07/2026 | — | Plano criado. Decisões assumidas: sem gate de aprovação (campos preenchíveis, sem trava); `numero_referencia` nullable para o 2º número dos formulários; numeração AAAA-NNNN gerada pelo Hub na criação. Fonte dos campos: FRM-07-11 (OPs 2026-0007/0030/0056). |
 | 22/07/2026 | OP-1.0 | Reconhecimento read-only concluído (fingerprint `compras_pedidos`=1674, projeto `hbtggrbauguukewiknew`). Detalhe completo + ajustes na **seção 4.1**. Principais achados: (1) timestamps EN `created_at`/`updated_at` são a convenção (132/76 tabelas vs 1 em pt) e não há trigger genérico — cada módulo tem `set_*_updated_at`; (2) permissões pontilhadas `modulo.recurso.acao` via `user_has_permission`/`_user_has_perm` + catálogo `hub_permissions`/`hub_roles` — os nomes `op_*` do plano viram `producao.*`; (3) espelho de produtos = `stock_products` (codigo_produto/nome_produto/unidade_medida/ativo); (4) RLS do Suprimentos é aberta (`USING(true)`), gate em RPC+front — OP-1.2 vai divergir p/ SELECT gateado; (5) `profiles` **sem** `setor` ⇒ `emitido_depto` texto livre (corrige OP-1.4); (6) molde de tela = `SuprimentosPedidos.tsx`, visual em `statusConfig.ts`/`DataSection`, leitura de lista inline via `useQuery`+`.from()`. |
+| 22/07/2026 | OP-1.1 | Decisões do Pedro aplicadas ao DDL: módulo de permissão `producao` (rota `/producao`); RLS gateada por `producao.access` (policies só na OP-1.2); papéis novos `operador_producao` (access+create) e `gestor_producao` (access+create+manage), `is_system=false` (wiring na OP-1.2); timestamps `created_at`/`updated_at` + trigger `op_set_updated_at()`; itens em snapshot (`codigo_produto`, `codigo_alternativo_produto`, `produto_nome`, `produto_unidade`, `quantidade_planejada`), sem FK ao catálogo; `op_proximo_numero()` SECURITY DEFINER + `search_path=public`. **Verificação read-only:** os 9 códigos do FRM-07-11 batem **100% em `stock_products.codigo_alternativo`** (0 em `codigo_produto`/`codigo_reduzido`; 2 coincidências em `codigo_barras`), família `001.010` (Tricvalve, "TRICUSPID VALVE …"), `ativo=true`, `UNID` ⇒ picker (OP-1.4) busca `codigo_alternativo`+`nome_produto`. DDL final na seção 3. **Pendências para CONCLUÍDA: seed real de 2026 (`<PREENCHER>`) + aplicação no SQL Editor + verificação empírica.** RLS habilitada sem policies = deny-all seguro no intervalo (nenhum frontend usa as tabelas ainda; SQL Editor roda como postgres e ignora RLS). |
