@@ -176,7 +176,7 @@ function ListaLotes({
   };
 
   return (
-    <div className="space-y-4 p-6 max-w-full overflow-hidden">
+    <div className="space-y-6 p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
@@ -219,6 +219,7 @@ function ListaLotes({
                 <TableHead>Cartão</TableHead>
                 <TableHead>Nº Lote</TableHead>
                 <TableHead>Competência</TableHead>
+                <TableHead>Entrada</TableHead>
                 <TableHead>Vencimento</TableHead>
                 <TableHead>Linhas</TableHead>
                 <TableHead>Status</TableHead>
@@ -235,6 +236,7 @@ function ListaLotes({
                   </TableCell>
                   <TableCell className="font-mono text-xs">{l.numero_onfly ?? "—"}</TableCell>
                   <TableCell>{format(new Date(l.competencia + "T00:00:00"), "MMM/yyyy", { locale: ptBR })}</TableCell>
+                  <TableCell>{fmtData(l.data_entrada)}</TableCell>
                   <TableCell>{fmtData(l.data_vencimento)}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1 text-xs">
@@ -330,6 +332,8 @@ function ImportDialog({
   const [numeroOnfly, setNumeroOnfly] = useState("");
   const [tipoPagRec, setTipoPagRec] = useState("");
   const [vencimento, setVencimento] = useState("");
+  const [competenciaMes, setCompetenciaMes] = useState(() => format(new Date(), "yyyy-MM"));
+  const [dataEntrada, setDataEntrada] = useState("");
   const [preview, setPreview] = useState<ParseResult | null>(null);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -340,6 +344,8 @@ function ImportDialog({
     setNumeroOnfly("");
     setTipoPagRec("");
     setVencimento("");
+    setCompetenciaMes(format(new Date(), "yyyy-MM"));
+    setDataEntrada("");
     setPreview(null);
   };
 
@@ -358,20 +364,27 @@ function ImportDialog({
   };
 
   const podeSalvar =
-    titular.trim() && numeroOnfly.trim() && tipoPagRec.trim() && vencimento && preview && preview.totalLinhas > 0;
+    titular.trim() &&
+    numeroOnfly.trim() &&
+    tipoPagRec.trim() &&
+    vencimento &&
+    competenciaMes &&
+    dataEntrada &&
+    preview &&
+    preview.totalLinhas > 0;
 
   const handleSalvar = async () => {
     if (!podeSalvar || !preview) return;
     setSaving(true);
     try {
-      const competenciaDerivada = `${vencimento.slice(0, 7)}-01`;
       await criarLoteComLinhas({
         titular: titular.trim(),
         final_cartao: finalCartao.trim() || null,
         numero_onfly: numeroOnfly.trim(),
         codigo_tipo_pag_rec: tipoPagRec.trim(),
-        competencia: competenciaDerivada,
+        competencia: `${competenciaMes}-01`,
         data_vencimento: vencimento,
+        data_entrada: dataEntrada,
         linhas: preview.linhas,
         created_by: userId,
       });
@@ -398,10 +411,8 @@ function ImportDialog({
         <DialogHeader>
           <DialogTitle>Importar fatura de cartão</DialogTitle>
           <DialogDescription>
-            {vencimento
-              ? `Competência ${format(new Date(vencimento.slice(0, 7) + "-01T00:00:00"), "MMMM 'de' yyyy", { locale: ptBR })} (derivada do vencimento). `
-              : "Informe o vencimento para definir a competência. "}
-            A planilha deve seguir o layout padrão (aba "RELAÇÃO CNPJ").
+            A competência e a data de entrada/entrega valem para todas as linhas do lote. A data de emissão vem da
+            planilha, registro a registro.
           </DialogDescription>
         </DialogHeader>
 
@@ -427,26 +438,36 @@ function ImportDialog({
             />
           </div>
 
+          <div className="space-y-2">
+            <Label>Cartão (Tipo Conta Pag/Rec) *</Label>
+            <Select value={tipoPagRec} onValueChange={setTipoPagRec}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione o cartão..." />
+              </SelectTrigger>
+              <SelectContent>
+                {CARTOES_TIPO_PAGREC.map((c) => (
+                  <SelectItem key={c.codigo} value={c.codigo}>
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Cartão (Tipo Conta Pag/Rec) *</Label>
-              <Select value={tipoPagRec} onValueChange={setTipoPagRec}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o cartão..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {CARTOES_TIPO_PAGREC.map((c) => (
-                    <SelectItem key={c.codigo} value={c.codigo}>
-                      {c.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Mês de competência *</Label>
+              <MonthYearPicker value={competenciaMes} onChange={setCompetenciaMes} />
             </div>
             <div className="space-y-2">
-              <Label>Vencimento da fatura *</Label>
-              <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+              <Label>Data de entrada/entrega *</Label>
+              <Input type="date" value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Vencimento da fatura *</Label>
+            <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
           </div>
 
           <div className="space-y-2">
@@ -697,10 +718,9 @@ function DetalheLote({
   };
 
   const marcadasProntas = itens.filter((i) => marcadas.has(i.id) && i.status_linha === "pronto").length;
-  const prontas = itens.filter((i) => i.status_linha === "pronto").length;
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4 p-6 max-w-full overflow-hidden">
       <div className="flex flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="icon" className="shrink-0" onClick={onVoltar}>
@@ -710,8 +730,10 @@ function DetalheLote({
             <h1 className="text-xl font-bold text-foreground truncate">{lote.titular}</h1>
             <p className="text-sm text-muted-foreground truncate">
               {lote.final_cartao ? `•••• ${lote.final_cartao} · ` : ""}
-              Nº {lote.numero_onfly} · Venc. {fmtData(lote.data_vencimento)} · {itens.length} linhas ·{" "}
-              {fmtBRL(totalValor)}
+              Nº {lote.numero_onfly} · Comp.{" "}
+              {format(new Date(lote.competencia + "T00:00:00"), "MMM/yyyy", { locale: ptBR })}
+              {lote.data_entrada ? ` · Entrada ${fmtData(lote.data_entrada)}` : ""}
+              {" · "}Venc. {fmtData(lote.data_vencimento)} · {itens.length} linhas · {fmtBRL(totalValor)}
             </p>
           </div>
         </div>
@@ -796,14 +818,14 @@ function DetalheLote({
               <TableHead className="w-[32px] px-1">
                 <Checkbox checked={todasMarcadas} onCheckedChange={toggleTodas} aria-label="Selecionar todas" />
               </TableHead>
-              <TableHead className="w-[72px]">Data</TableHead>
-              <TableHead>Estabelecimento</TableHead>
-              <TableHead className="w-[80px] text-right">Valor</TableHead>
-              <TableHead className="w-[180px]">Fornecedor</TableHead>
-              <TableHead className="w-[140px]">Classe</TableHead>
-              <TableHead className="w-[140px]">Centro</TableHead>
-              <TableHead className="w-[72px]">Status</TableHead>
-              <TableHead className="w-[40px]" />
+              <TableHead className="w-[68px]">Data</TableHead>
+              <TableHead className="min-w-[120px]">Estabelecimento</TableHead>
+              <TableHead className="w-[72px] text-right">Valor</TableHead>
+              <TableHead className="w-[170px]">Fornecedor</TableHead>
+              <TableHead className="w-[120px]">Classe</TableHead>
+              <TableHead className="w-[120px]">Centro</TableHead>
+              <TableHead className="w-[64px]">Status</TableHead>
+              <TableHead className="w-[36px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
