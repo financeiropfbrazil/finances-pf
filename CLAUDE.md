@@ -11,6 +11,7 @@ Responda sempre em português brasileiro.
 1. Identifique qual prompt está executando (ex.: "Prompt 43.1 — Diagnóstico"). Se o usuário não colou um prompt identificado, pergunte. **Nunca retome tarefa de conversa anterior sem confirmação explícita.**
 2. Rode `git remote -v`, `git branch --show-current` e `git log -1 --oneline`. O remote DEVE ser `github.com/financeiropfbrazil/finances-pf`. Se divergir, PARE e avise — não edite nem faça push.
 3. `git pull origin main`. Se vierem commits originados no Lovable, mostre a lista antes de seguir.
+4. Se a sessão for usar Supabase (MCP ou CLI): o projeto DEVE ser `hbtggrbauguukewiknew` (`https://hbtggrbauguukewiknew.supabase.co`). Confirme por evidência — URL do MCP com `project_ref=hbtggrbauguukewiknew&read_only=true`, e fingerprint query antes de qualquer outra (ver seção 0.5 do plano do módulo). CLI sempre com `--project-ref hbtggrbauguukewiknew` explícito. Projeto divergente = PARE e avise.
 
 ## Método de trabalho
 
@@ -38,6 +39,9 @@ Responda sempre em português brasileiro.
 - **Nunca** `DELETE FROM storage.objects` (bloqueado) — usar Storage API ou o painel.
 - RPCs novas com escrita nascem `SECURITY DEFINER` com gate explícito de permissão (`user_has_permission`), nunca abertas.
 - UPDATE/DELETE sempre com WHERE revisado; ao alterar view (`CREATE OR REPLACE`), salvar o DDL anterior para rollback imediato.
+- **NUNCA `supabase db push` neste projeto:** histórico de migrations divergente do banco (Lovable/MCP escrevem direto — 58 arquivos locais constam como não-aplicados; push tentaria rodar migrations de fev/mar em produção). DDL pontual = SQL editor (Pedro cola) ou psql com connection string.
+- **4 projetos Supabase na conta** (`Hub de IA`, `IBBIC`, `Inveentory`, `financeiropfbrazil's Project` = este). Só `hbtggrbauguukewiknew` está `linked`, mas comando sem `--project-ref` explícito ou MCP mal configurado cai no projeto errado. SEMPRE fingerprint (`count` em `compras_pedidos` ~1.650) antes de qualquer escrita.
+- `status_local` é enum `public.compras_pedido_status_local` (não texto livre). Novos valores exigem `ALTER TYPE` aplicado por fora **antes** do código usá-los.
 
 ## Gateway erp-proxy (repo separado — mudanças de PDF, mappers, sync)
 
@@ -64,3 +68,8 @@ Responda sempre em português brasileiro.
 - Entidade Áustria no Alvo: `CodigoEntidade=0000017` · Filial `1.01` · Moedas: `0000001` BRL, `0000003` EUR · CFOP exportação serviço `7.933.001` · NFS-e série 001.
 - Número intercompany oficial = `DocFinUserFieldsObject.UserInvoice` (só vem no `DocFin/Load` com `loadOneToOne=All`, não no `RetrievePage`).
 - pg_cron do sync intercompany: jobid 14 (`30 10,15,19 * * 1-5`).
+
+##Para trabalho no módulo de Despesas, leia e mantenha PLANO-DESPESAS.md
+##Para trabalho no módulo de Suprimentos (Requisições e Pedidos), leia e mantenha PLANO-PEDIDOS.md — atualize o status ao concluir cada prompt e registre achados no diário (seção 8)
+
+##Para trabalho no módulo de Ordem de Produção (OP), leia e mantenha PLANO-OP.md — leia integralmente no início de toda sessão do módulo, atualize o status ao concluir cada tarefa e registre achados no diário (seção 7). O plano é autocontido: protocolo, modelo de dados, tarefas e decisões vivem lá.
