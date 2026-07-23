@@ -6,14 +6,30 @@
 -- PROTOCOLO: este arquivo é a FONTE CANÔNICA do bloco. Copiar DAQUI (do arquivo),
 -- nunca do terminal/chat — o display colapsa linhas longas e corrompe o SQL.
 --
--- Schema do RBAC lido ao vivo (23/07/2026), NÃO assumido:
+-- Schema RBAC/tabela lido ao vivo (23/07/2026), NÃO assumido:
 --   hub_permissions(id, codigo UNIQUE, nome, descricao, modulo, created_at)
---   hub_roles(id, codigo UNIQUE, nome, descricao, modulo NOT NULL, is_system default false, created_at, updated_at)
---   hub_role_permissions(id, role_id, permission_id, created_at) UNIQUE(role_id, permission_id)  -- liga por UUID
---   gate: _user_has_perm(p_codigo text) [via auth.uid()] · user_has_permission(p_user_id, p_permission_code)
--- Tudo idempotente (ON CONFLICT / create or replace / drop policy if exists) → re-execução segura.
--- Verificação e rollback comentados no fim.
+--   hub_roles(id, codigo UNIQUE, nome, descricao, modulo NOT NULL, is_system default false, ...)
+--   hub_role_permissions(id, role_id, permission_id, created_at) UNIQUE(role_id, permission_id) -- liga por UUID
+--   gate RPC: _user_has_perm(p_codigo) [STABLE, usa auth.uid()] · RLS: user_has_permission(uid, code)
+--   op_ordens = 28 colunas (SEM fechada_por/fechada_em na OP-1.1 → adicionadas na seção 0 abaixo).
+-- Tudo idempotente (add column if not exists / ON CONFLICT / create or replace / drop policy if exists).
+--
+-- ---- Mudanças da REVISÃO v2 (23/07/2026) ----------------------------
+--  0) NOVO: op_ordens ganha fechada_por/fechada_em (não existiam; FECHADA precisa carimbá-las).
+--  1) op_transicao_status: ramo p_para='FECHADA' carimba fechada_por/fechada_em (antes caía no else).
+--  2) NOVAS RPCs (gate producao.ordens.manage): op_registrar_aprovacao, op_registrar_comunicacao.
+--  3) Policies de SELECT com gate em subselect ((select user_has_permission(...))) → initplan 1x/consulta.
+--  4) op_numeracao SEM policy (deny-all; RLS segue habilitada) — nenhuma tela lê o contador.
+--  5) Verificação: has_function_privilege (lockdown/grants), contagem de policies=4, def de _user_has_perm.
 -- =====================================================================
+
+-- =====================================================================
+-- 0) AJUSTE DE ESTRUTURA — colunas de fechamento (aditivo, nullable, reversível)
+--    ⚠️ fechada_por/fechada_em NÃO existiam após a OP-1.1 (op_ordens tinha 28 col).
+--    op_ordens tem 0 registros; adição é segura. Rollback: drop column (no fim).
+-- =====================================================================
+alter table public.op_ordens add column if not exists fechada_por uuid;
+alter table public.op_ordens add column if not exists fechada_em  timestamptz;
 
 -- =====================================================================
 -- 1) CATÁLOGO DE PERMISSÕES (módulo 'producao') — descrições no padrão da casa
@@ -54,35 +70,35 @@ where (r.codigo, p.codigo) in (
 on conflict (role_id, permission_id) do nothing;
 
 -- =====================================================================
--- 4) RLS · SELECT gateado por producao.access nas 5 tabelas.
---    SEM policy de escrita direta: toda escrita passa pelas RPCs SECURITY DEFINER
---    (item 5), que rodam como owner e ignoram RLS. RLS já habilitada na OP-1.1.
+-- 4) RLS · SELECT gateado por producao.access. Gate em subselect → o planner
+--    avalia como InitPlan 1x por consulta (não 1x por linha). SEM policy de
+--    escrita: escrita só via RPCs SECURITY DEFINER (item 5). RLS já ligada (OP-1.1).
+--    op_numeracao: SEM policy de propósito (deny-all) — nenhuma tela lê o contador;
+--    as RPCs o acessam por dentro do definer. RLS permanece habilitada nela.
 -- =====================================================================
 drop policy if exists op_tipos_select            on public.op_tipos;
 drop policy if exists op_ordens_select           on public.op_ordens;
 drop policy if exists op_ordem_itens_select      on public.op_ordem_itens;
-drop policy if exists op_numeracao_select        on public.op_numeracao;
+drop policy if exists op_numeracao_select        on public.op_numeracao;   -- removida no v2 (deny-all)
 drop policy if exists op_status_historico_select on public.op_status_historico;
 
 create policy op_tipos_select on public.op_tipos
   for select to authenticated
-  using (public.user_has_permission(auth.uid(), 'producao.access'));
+  using ((select public.user_has_permission(auth.uid(), 'producao.access')));
 
 create policy op_ordens_select on public.op_ordens
   for select to authenticated
-  using (public.user_has_permission(auth.uid(), 'producao.access'));
+  using ((select public.user_has_permission(auth.uid(), 'producao.access')));
 
 create policy op_ordem_itens_select on public.op_ordem_itens
   for select to authenticated
-  using (public.user_has_permission(auth.uid(), 'producao.access'));
-
-create policy op_numeracao_select on public.op_numeracao
-  for select to authenticated
-  using (public.user_has_permission(auth.uid(), 'producao.access'));
+  using ((select public.user_has_permission(auth.uid(), 'producao.access')));
 
 create policy op_status_historico_select on public.op_status_historico
   for select to authenticated
-  using (public.user_has_permission(auth.uid(), 'producao.access'));
+  using ((select public.user_has_permission(auth.uid(), 'producao.access')));
+
+-- op_numeracao: intencionalmente SEM policy (deny-all). RLS segue habilitada da OP-1.1.
 
 -- =====================================================================
 -- 5) RPCs DE ESCRITA (SECURITY DEFINER + search_path + gate explícito)
@@ -212,7 +228,7 @@ begin
 end $$;
 
 -- 5.3 op_transicao_status: valida o mapa (seção 1 do PLANO-OP.md), gate por ação,
---     motivo obrigatório em cancelamento, carimba cancelada_*, grava histórico
+--     motivo obrigatório em cancelamento, carimba cancelada_* / fechada_*, grava histórico
 create or replace function public.op_transicao_status(p_op_id uuid, p_para text, p_motivo text default null)
 returns void
 language plpgsql
@@ -240,7 +256,7 @@ begin
   end if;
 
   -- Gate por ação: avanço operacional (abrir / iniciar) = create;
-  -- governança (cancelar / fechar / reabrir) = manage.
+  -- governança (cancelar / avançar p/ fechamento / fechar / reabrir) = manage.
   v_requer_manage := (v_de, p_para) not in (('RASCUNHO','ABERTA'), ('ABERTA','EM_ANDAMENTO'));
   if v_requer_manage then
     if not public._user_has_perm('producao.ordens.manage') then
@@ -262,6 +278,12 @@ begin
           cancelada_em = now(),
           motivo_cancelamento = p_motivo
       where id = p_op_id;
+  elsif p_para = 'FECHADA' then
+    update public.op_ordens
+      set status = 'FECHADA',
+          fechada_por = v_uid,
+          fechada_em = now()
+      where id = p_op_id;
   else
     update public.op_ordens set status = p_para where id = p_op_id;
   end if;
@@ -270,13 +292,71 @@ begin
   values (p_op_id, v_de, p_para, p_motivo, v_uid);
 end $$;
 
+-- 5.4 op_registrar_aprovacao: carimba aprovado_* (gate manage; OP existente e não cancelada)
+create or replace function public.op_registrar_aprovacao(p_op_id uuid, p_depto text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status text;
+begin
+  if not public._user_has_perm('producao.ordens.manage') then
+    raise exception 'Sem permissão para registrar aprovação (producao.ordens.manage).' using errcode = '42501';
+  end if;
+  select status into v_status from public.op_ordens where id = p_op_id for update;
+  if not found then
+    raise exception 'Ordem de Produção % não encontrada.', p_op_id using errcode = 'P0002';
+  end if;
+  if v_status = 'CANCELADA' then
+    raise exception 'OP cancelada não aceita registro de aprovação.' using errcode = '22023';
+  end if;
+  update public.op_ordens
+    set aprovado_por = auth.uid(),
+        aprovado_em = now(),
+        aprovado_depto = nullif(p_depto, '')
+    where id = p_op_id;
+end $$;
+
+-- 5.5 op_registrar_comunicacao: carimba comunicado_* (gate manage; OP existente e não cancelada)
+create or replace function public.op_registrar_comunicacao(p_op_id uuid, p_comunicado_a text, p_depto text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status text;
+begin
+  if not public._user_has_perm('producao.ordens.manage') then
+    raise exception 'Sem permissão para registrar comunicação (producao.ordens.manage).' using errcode = '42501';
+  end if;
+  select status into v_status from public.op_ordens where id = p_op_id for update;
+  if not found then
+    raise exception 'Ordem de Produção % não encontrada.', p_op_id using errcode = 'P0002';
+  end if;
+  if v_status = 'CANCELADA' then
+    raise exception 'OP cancelada não aceita registro de comunicação.' using errcode = '22023';
+  end if;
+  update public.op_ordens
+    set comunicado_a = nullif(p_comunicado_a, ''),
+        comunicado_depto = nullif(p_depto, ''),
+        comunicado_em = now()
+    where id = p_op_id;
+end $$;
+
 -- Grants das RPCs: só authenticated executa (o gate interno faz o resto)
 revoke all on function public.op_criar_ordem(jsonb, jsonb)              from public;
 revoke all on function public.op_atualizar_rascunho(uuid, jsonb, jsonb) from public;
 revoke all on function public.op_transicao_status(uuid, text, text)     from public;
+revoke all on function public.op_registrar_aprovacao(uuid, text)        from public;
+revoke all on function public.op_registrar_comunicacao(uuid, text, text) from public;
 grant execute on function public.op_criar_ordem(jsonb, jsonb)              to authenticated;
 grant execute on function public.op_atualizar_rascunho(uuid, jsonb, jsonb) to authenticated;
 grant execute on function public.op_transicao_status(uuid, text, text)     to authenticated;
+grant execute on function public.op_registrar_aprovacao(uuid, text)        to authenticated;
+grant execute on function public.op_registrar_comunicacao(uuid, text, text) to authenticated;
 
 -- =====================================================================
 -- 6) LOCKDOWN de op_proximo_numero: ninguém a chama direto; só por dentro de
@@ -289,30 +369,39 @@ revoke execute on function public.op_proximo_numero() from authenticated;
 -- =====================================================================
 -- VERIFICAÇÃO EMPÍRICA (rodar no SQL Editor logo após aplicar)
 -- =====================================================================
--- a) permissões (3 linhas) e papéis (2 linhas):
+-- a) colunas de fechamento presentes (2 linhas):
+--   select column_name from information_schema.columns
+--    where table_schema='public' and table_name='op_ordens'
+--      and column_name in ('fechada_por','fechada_em');
+-- b) permissões (3 linhas) e papéis (2 linhas):
 --   select codigo, nome, modulo from public.hub_permissions where modulo='producao' order by codigo;
 --   select codigo, nome, is_system from public.hub_roles where modulo='producao' order by codigo;
--- b) wiring (esperado: operador_producao=2, gestor_producao=3):
---   select r.codigo, count(*) n
---     from public.hub_role_permissions rp
+-- c) wiring (operador_producao=2, gestor_producao=3):
+--   select r.codigo, count(*) n from public.hub_role_permissions rp
 --     join public.hub_roles r on r.id=rp.role_id
 --     join public.hub_permissions p on p.id=rp.permission_id
---    where r.codigo in ('operador_producao','gestor_producao')
---    group by r.codigo order by r.codigo;
--- c) policies (5 linhas, todas cmd=SELECT):
+--    where r.codigo in ('operador_producao','gestor_producao') group by r.codigo order by r.codigo;
+-- d) policies op_* = 4 (op_numeracao SEM policy = deny-all), todas cmd=SELECT:
+--   select count(*) as n_policies_op from pg_policies where schemaname='public' and tablename like 'op\_%';  -- 4
 --   select tablename, policyname, cmd from pg_policies
 --    where schemaname='public' and tablename like 'op\_%' order by tablename;
--- d) RPCs presentes + SECURITY DEFINER + search_path:
---   select proname, prosecdef, proconfig from pg_proc p
---     join pg_namespace n on n.oid=p.pronamespace
---    where n.nspname='public'
---      and proname in ('op_criar_ordem','op_atualizar_rascunho','op_transicao_status');
--- e) lockdown: op_proximo_numero SEM execute para public/anon/authenticated:
---   select grantee, privilege_type from information_schema.routine_privileges
---    where routine_schema='public' and routine_name='op_proximo_numero';
---    -- (não deve listar anon nem authenticated; se listar 'PUBLIC' some, ok)
--- f) teste funcional (SÓ com sessão autenticada — no SQL Editor sem auth dá "sem permissão",
---    que é o comportamento correto do gate):
+-- e) RPCs presentes + SECURITY DEFINER + search_path:
+--   select proname, prosecdef, proconfig from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+--    where n.nspname='public' and proname in
+--      ('op_criar_ordem','op_atualizar_rascunho','op_transicao_status',
+--       'op_registrar_aprovacao','op_registrar_comunicacao');
+-- f) lockdown + grants (has_function_privilege — proxnum=false, RPCs=true):
+--   select
+--     has_function_privilege('authenticated','public.op_proximo_numero()','execute')                as proxnum_auth,   -- false
+--     has_function_privilege('anon',         'public.op_proximo_numero()','execute')                as proxnum_anon,   -- false
+--     has_function_privilege('authenticated','public.op_criar_ordem(jsonb,jsonb)','execute')        as criar_auth,     -- true
+--     has_function_privilege('authenticated','public.op_atualizar_rascunho(uuid,jsonb,jsonb)','execute') as atualizar_auth, -- true
+--     has_function_privilege('authenticated','public.op_transicao_status(uuid,text,text)','execute')     as transicao_auth, -- true
+--     has_function_privilege('authenticated','public.op_registrar_aprovacao(uuid,text)','execute')       as aprov_auth,     -- true
+--     has_function_privilege('authenticated','public.op_registrar_comunicacao(uuid,text,text)','execute') as comunic_auth;  -- true
+-- g) evidência do gate interno via auth.uid():
+--   select pg_get_functiondef('public._user_has_perm(text)'::regprocedure);
+-- h) teste funcional (SÓ com sessão autenticada — no SQL Editor sem auth o gate nega, que é o correto):
 --   -- begin;
 --   --   select public.op_criar_ordem(
 --   --     jsonb_build_object('tipo_id',(select id from public.op_tipos where codigo='VALVULA'),
@@ -324,18 +413,21 @@ revoke execute on function public.op_proximo_numero() from authenticated;
 --   -- rollback;
 
 -- =====================================================================
--- ROLLBACK (ordem respeita FKs: policies/funcs -> wiring -> papéis -> permissões)
+-- ROLLBACK (ordem respeita FKs: funcs/policies -> wiring -> papéis -> permissões -> colunas)
 -- =====================================================================
+-- drop function if exists public.op_registrar_comunicacao(uuid, text, text);
+-- drop function if exists public.op_registrar_aprovacao(uuid, text);
 -- drop function if exists public.op_transicao_status(uuid, text, text);
 -- drop function if exists public.op_atualizar_rascunho(uuid, jsonb, jsonb);
 -- drop function if exists public.op_criar_ordem(jsonb, jsonb);
 -- drop policy if exists op_tipos_select            on public.op_tipos;
 -- drop policy if exists op_ordens_select           on public.op_ordens;
 -- drop policy if exists op_ordem_itens_select      on public.op_ordem_itens;
--- drop policy if exists op_numeracao_select        on public.op_numeracao;
 -- drop policy if exists op_status_historico_select on public.op_status_historico;
 -- delete from public.hub_role_permissions
 --   where role_id in (select id from public.hub_roles where codigo in ('operador_producao','gestor_producao'));
 -- delete from public.hub_roles       where codigo in ('operador_producao','gestor_producao');
 -- delete from public.hub_permissions where codigo in ('producao.access','producao.ordens.create','producao.ordens.manage');
 -- grant execute on function public.op_proximo_numero() to public;   -- restaura estado pré-lockdown
+-- alter table public.op_ordens drop column if exists fechada_em;
+-- alter table public.op_ordens drop column if exists fechada_por;
