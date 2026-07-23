@@ -58,6 +58,11 @@ export const PERMISSIONS = {
   FERRAMENTAS_BULK_EDIT_EXECUTE: "ferramentas.bulk_edit.execute",
   FERRAMENTAS_BULK_EDIT_RESTORE: "ferramentas.bulk_edit.restore",
   FERRAMENTAS_CRON_VIEW: "ferramentas.cron.view",
+
+  // ─── Módulo Produção (Ordem de Produção) ────────────────────────
+  PRODUCAO_ACCESS: "producao.access",
+  PRODUCAO_ORDENS_CREATE: "producao.ordens.create",
+  PRODUCAO_ORDENS_MANAGE: "producao.ordens.manage",
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -76,6 +81,8 @@ export const ROLES = {
   APROVADOR_PROJETOS: "aprovador_projetos",
   CONTROLLER_INTERCOMPANY: "controller_intercompany",
   FINANCEIRO: "financeiro",
+  OPERADOR_PRODUCAO: "operador_producao",
+  GESTOR_PRODUCAO: "gestor_producao",
 } as const;
 
 export type RoleCode = (typeof ROLES)[keyof typeof ROLES];

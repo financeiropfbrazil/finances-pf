@@ -30,6 +30,7 @@ import {
   Wrench,
   History,
   Coins,
+  Factory,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -115,6 +116,8 @@ const suprimentosSubItems: { label: string; url: string; icon: any; perm?: strin
   { label: "Atualizar Cadastros", url: "/suprimentos/cadastros", icon: RefreshCw, perm: "compras.cadastros.sync" },
 ];
 
+const producaoSubItems = [{ label: "Ordens de Produção", url: "/producao/ordens", icon: ClipboardList }];
+
 const intercompanySubItems = [
   { label: "Master", url: "/intercompany/master", icon: ClipboardList },
   { label: "Novo Reembolso", url: "/intercompany/reembolsos/novo", icon: FileText },
@@ -172,6 +175,7 @@ export function AppSidebar() {
   const isEntidadesActive = location.pathname.startsWith("/entidades");
   const isContasPagarActive = location.pathname.startsWith("/contas-a-pagar");
   const isSuprimentosActive = location.pathname.startsWith("/suprimentos");
+  const isProducaoActive = location.pathname.startsWith("/producao");
   const isIntercompanyActive = location.pathname.startsWith("/intercompany");
   const isDespesasActive = location.pathname.startsWith("/despesas");
   const isFerramentasActive = location.pathname.startsWith("/ferramentas");
@@ -212,11 +216,13 @@ export function AppSidebar() {
                       !hasAccess("entidades") &&
                       !hasAccess("suprimentos_requisicoes") &&
                       !hasAccess("intercompany") &&
+                      !hasAccess("producao.access") &&
                       !isAdmin
                     )
                       return null;
                     return (
                       <div key="nf-entrada-and-compras-group">
+                        {hasAccess("producao.access") && renderProducaoGroup(t, isProducaoActive)}
                         {hasAccess("suprimentos_requisicoes") &&
                           renderSuprimentosGroup(t, isSuprimentosActive, hasAccess)}
                         {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
@@ -288,6 +294,9 @@ export function AppSidebar() {
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
+
+                      {/* Produção expandable */}
+                      {hasAccess("producao.access") && renderProducaoGroup(t, isProducaoActive)}
 
                       {/* Suprimentos expandable */}
                       {hasAccess("suprimentos_requisicoes") &&
@@ -633,6 +642,44 @@ function renderSuprimentosGroup(t: any, isActive: boolean, hasAccess: (perm: str
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
               ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+
+function renderProducaoGroup(t: any, isActive: boolean) {
+  return (
+    <Collapsible defaultOpen={isActive} className="group/collapsible-producao">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
+            }`}
+          >
+            <Factory className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Produção</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-producao:rotate-[-90deg]" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {producaoSubItems.map((sub) => (
+              <SidebarMenuSubItem key={sub.url}>
+                <SidebarMenuSubButton asChild>
+                  <NavLink
+                    to={sub.url}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                  >
+                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
           </SidebarMenuSub>
         </CollapsibleContent>
       </SidebarMenuItem>

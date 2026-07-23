@@ -1,0 +1,174 @@
+import { supabase } from "@/integrations/supabase/client";
+
+/**
+ * Service do módulo Ordem de Produção (OP-1.3 — leitura da lista).
+ *
+ * Leitura DIRETA nas tabelas op_* (a RLS gateia por producao.access — policies
+ * de SELECT criadas na OP-1.2). Escritas (criar/editar/transição) virão por RPC
+ * SECURITY DEFINER nas tarefas OP-1.4/1.5, nunca por `.insert()` direto.
+ *
+ * Padrão da casa: `(supabase as any).from(...)`; resolução de nomes (tipo,
+ * emissor) em lote por `.in(...)` — mesmo approach de ProjetoRequisicoes.
+ */
+
+export interface OrdemProducaoListItem {
+  id: string;
+  numero: string;
+  numero_referencia: string | null;
+  status: string;
+  tipo_id: string;
+  tipo_ordem: string;
+  tipo_produto: string;
+  destino: string;
+  produto_familia: string | null;
+  lote: string | null;
+  data_inicio: string | null;
+  data_fim_planejada: string | null;
+  observacoes: string | null;
+  emitido_por: string | null;
+  emitido_depto: string | null;
+  emitido_em: string | null;
+  created_at: string;
+  updated_at: string;
+  // Derivados (resolvidos no service):
+  tipo_nome: string | null;
+  tipo_codigo: string | null;
+  itens_count: number;
+  itens_qtd_total: number;
+  emitido_por_nome: string | null;
+}
+
+export interface OrdemTipo {
+  id: string;
+  codigo: string;
+  nome: string;
+}
+
+export interface FiltrosComuns {
+  status?: string;
+  tipoId?: string;
+  dataInicioDe?: string; // "YYYY-MM-DD"
+  dataInicioAte?: string; // "YYYY-MM-DD"
+  busca?: string; // por numero
+}
+
+export interface ListarOrdensParams extends FiltrosComuns {
+  orderBy?: { field: string; dir: "asc" | "desc" } | null;
+  pagina: number;
+  pageSize: number;
+}
+
+/** Aplica os filtros server-side compartilhados (status, tipo, período, busca). */
+function aplicarFiltros(query: any, p: FiltrosComuns): any {
+  if (p.status && p.status !== "todos") query = query.eq("status", p.status);
+  if (p.tipoId && p.tipoId !== "todos") query = query.eq("tipo_id", p.tipoId);
+  if (p.busca) {
+    // Escapa curinga/PostgREST; busca só por numero (ex.: "2026-0501").
+    const termo = p.busca.replace(/[,()%]/g, " ").trim();
+    if (termo) query = query.ilike("numero", `%${termo}%`);
+  }
+  // Período por data_inicio: só filtra quando AMBOS estão preenchidos.
+  if (p.dataInicioDe && p.dataInicioAte) {
+    query = query.gte("data_inicio", p.dataInicioDe).lte("data_inicio", p.dataInicioAte);
+  }
+  return query;
+}
+
+/**
+ * Lista paginada de OPs + total (count exato). Resolve, em lote, o nome do tipo,
+ * o agregado de itens (nº de SKUs e soma das quantidades) e o nome do emissor.
+ */
+export async function listarOrdens(params: ListarOrdensParams): Promise<{
+  ordens: OrdemProducaoListItem[];
+  total: number;
+}> {
+  const inicio = (params.pagina - 1) * params.pageSize;
+  const fim = inicio + params.pageSize - 1;
+
+  let query = (supabase as any).from("op_ordens").select("*", { count: "exact" });
+  query = aplicarFiltros(query, params);
+
+  if (params.orderBy) {
+    query = query.order(params.orderBy.field, { ascending: params.orderBy.dir === "asc", nullsFirst: false });
+  } else {
+    query = query.order("created_at", { ascending: false, nullsFirst: false });
+  }
+  query = query.range(inicio, fim);
+
+  const { data, count, error } = await query;
+  if (error) throw error;
+
+  const rows: any[] = data || [];
+  if (rows.length === 0) return { ordens: [], total: count || 0 };
+
+  const tipoIds = Array.from(new Set(rows.map((r) => r.tipo_id).filter(Boolean)));
+  const opIds = rows.map((r) => r.id);
+  const emitidoIds = Array.from(new Set(rows.map((r) => r.emitido_por).filter(Boolean)));
+
+  const [tiposRes, itensRes, profsRes] = await Promise.all([
+    tipoIds.length
+      ? (supabase as any).from("op_tipos").select("id, nome, codigo").in("id", tipoIds)
+      : Promise.resolve({ data: [] as any[] }),
+    (supabase as any).from("op_ordem_itens").select("op_id, quantidade_planejada").in("op_id", opIds),
+    emitidoIds.length
+      ? supabase.from("profiles").select("user_id, full_name").in("user_id", emitidoIds)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
+
+  const tipoMap = new Map<string, { nome: string; codigo: string }>();
+  (tiposRes.data || []).forEach((t: any) => tipoMap.set(t.id, { nome: t.nome, codigo: t.codigo }));
+
+  const aggMap = new Map<string, { count: number; total: number }>();
+  (itensRes.data || []).forEach((it: any) => {
+    const cur = aggMap.get(it.op_id) || { count: 0, total: 0 };
+    cur.count += 1;
+    cur.total += Number(it.quantidade_planejada || 0);
+    aggMap.set(it.op_id, cur);
+  });
+
+  const nomeMap = new Map<string, string>();
+  (profsRes.data || []).forEach((p: any) => nomeMap.set(p.user_id, p.full_name));
+
+  const ordens: OrdemProducaoListItem[] = rows.map((r) => {
+    const tipo = r.tipo_id ? tipoMap.get(r.tipo_id) : undefined;
+    const agg = aggMap.get(r.id) || { count: 0, total: 0 };
+    return {
+      ...r,
+      tipo_nome: tipo?.nome ?? null,
+      tipo_codigo: tipo?.codigo ?? null,
+      itens_count: agg.count,
+      itens_qtd_total: agg.total,
+      emitido_por_nome: r.emitido_por ? nomeMap.get(r.emitido_por) ?? null : null,
+    };
+  });
+
+  return { ordens, total: count || 0 };
+}
+
+/**
+ * Contagem por status honrando os filtros de tipo/período/busca (NÃO o de
+ * status — os chips mostram todos os estados para navegar entre eles). Dataset
+ * pequeno (produção), então varre a coluna `status` e tabula client-side.
+ */
+export async function contarPorStatus(params: Omit<FiltrosComuns, "status">): Promise<Record<string, number>> {
+  let query = (supabase as any).from("op_ordens").select("status");
+  query = aplicarFiltros(query, params);
+  const { data, error } = await query;
+  if (error) throw error;
+  const counts: Record<string, number> = {};
+  (data || []).forEach((r: any) => {
+    counts[r.status] = (counts[r.status] || 0) + 1;
+  });
+  return counts;
+}
+
+/** Tipos de OP ativos (para o filtro por tipo). */
+export async function listarTipos(): Promise<OrdemTipo[]> {
+  const { data, error } = await (supabase as any)
+    .from("op_tipos")
+    .select("id, codigo, nome, ordem")
+    .eq("ativo", true)
+    .order("ordem", { ascending: true, nullsFirst: false });
+  if (error) throw error;
+  return (data || []).map((t: any) => ({ id: t.id, codigo: t.codigo, nome: t.nome }));
+}
