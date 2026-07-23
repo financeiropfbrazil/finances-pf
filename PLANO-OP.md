@@ -18,6 +18,7 @@ Complementa o CLAUDE.md (regras gerais do repo) — em conflito, o CLAUDE.md pre
 - Nunca assumir schema: ler `information_schema`/amostras antes de escrever qualquer SQL ou service.
 - Tarefas registradas neste plano são **imutáveis** — mudanças entram como tarefas novas (Ajuste/Correção), preservando a original.
 - **Banco:** MCP do Supabase é read-only. Toda DDL/DML sai daqui como bloco revisado → Pedro cola no **SQL Editor** → confirmação empírica (SELECT) antes de qualquer código que dependa dela. NUNCA `supabase db push`. Escritas de app em produção só via RPC `SECURITY DEFINER` com gate de permissão.
+- **Blocos SQL para aplicação manual são gravados em arquivo no repo (`sql/OP-x.y.sql`) e copiados DO ARQUIVO, nunca do terminal/chat** — o display colapsa linhas longas e corrompe o SQL. O arquivo é a fonte canônica do bloco; o DDL espelhado neste plano (seção 3) deve bater com o arquivo. Pedro abre `sql/OP-x.y.sql` no editor e copia de lá para o SQL Editor.
 
 **Fim de toda tarefa concluída (nesta ordem):**
 1. Atualizar a seção 2 (Status) e registrar achados/decisões no Diário (seção 7).
@@ -67,7 +68,7 @@ Transições permitidas (mapa completo, válido desde já): RASCUNHO→ABERTA ·
 | Tarefa | Descrição | Status | Data | Notas |
 |---|---|---|---|---|
 | OP-1.0 | Reconhecimento read-only do terreno | CONCLUÍDA | 22/07/2026 | Achados e ajustes na seção 4.1. Timestamps EN (`created_at`/`updated_at`); permissões pontilhadas `modulo.recurso.acao`; espelho = `stock_products`; RLS Suprimentos aberta; `profiles` sem `setor`. |
-| OP-1.1 | Migração: tabelas + seeds + numeração | EM ANDAMENTO | 22/07/2026 | DDL final pronto (seção 3), **seed 2026 = 500** (reserva de faixa; Hub emite de 2026-0501). Falta só **aplicar no SQL Editor + verificar** → então CONCLUÍDA. |
+| OP-1.1 | Migração: tabelas + seeds + numeração | EM ANDAMENTO | 23/07/2026 | **Verificado empiricamente em 23/07 (MCP read-only, fingerprint 1686): NÃO aplicada** — 0 tabelas `op_*`, 0 funções. Bloco canônico em `sql/OP-1.1.sql` com revisão de 4 olhos (CASE no lpad; search_path no trigger), **seed 2026 = 500**. Próximo passo: **Pedro cola `sql/OP-1.1.sql` no SQL Editor + verificação** → então CONCLUÍDA. |
 | OP-1.2 | RLS + RPCs de escrita | PENDENTE | | depende de OP-1.0 |
 | OP-1.3 | Frontend: seção Produção + lista de OPs | PENDENTE | | |
 | OP-1.4 | Modal de abertura (USER 1) | PENDENTE | | |
@@ -102,6 +103,9 @@ Validado contra os formulários reais FRM-07-11 (OPs 2026-0007 Válvulas, 2026-0
 **Achado OP-1.1 (verificação read-only, 22/07/2026):** os 9 códigos do FRM-07-11 (`8211020031`…`8211010001`) casam **100% com `stock_products.codigo_alternativo`** (0 em `codigo_produto`, 0 em `codigo_reduzido`, 2 coincidências em `codigo_barras`). Todos são da família `001.010` (Tricvalve — "TRICUSPID VALVE …"), `ativo=true`, `unidade_medida='UNID'`. ⇒ **o picker (OP-1.4) busca por `codigo_alternativo` + `nome_produto` + `codigo_produto`**, exibindo os dois códigos; `codigo_barras` fica **fora da busca** (as 2 coincidências geram ambiguidade). O snapshot guarda `codigo_produto` (SKU interno hierárquico) **e** `codigo_alternativo_produto` (o código que o operador escreve no formulário).
 
 ### DDL final da OP-1.1 (validado contra o banco em 22/07/2026 — ajustes documentados na seção 4.1)
+
+> **Fonte canônica: [`sql/OP-1.1.sql`](sql/OP-1.1.sql)** — copiar DO ARQUIVO para o SQL Editor (protocolo seção 0). O bloco abaixo é espelho e deve bater com o arquivo.
+> **Revisão de 4 olhos (23/07/2026, pré-aplicação):** (a) `op_proximo_numero()` usa `case when v_n > 9999 then v_n::text else lpad(v_n::text,4,'0') end` — `lpad(...,4,...)` **trunca à esquerda** acima de 4 dígitos (`lpad('10000',4,'0')`=`'1000'` ⇒ colisão silenciosa); (b) `op_set_updated_at()` com `set search_path = public`.
 
 ```sql
 -- =====================================================================
@@ -195,7 +199,10 @@ begin
   update public.op_numeracao set ultimo = ultimo + 1
     where ano = v_ano
     returning ultimo into v_n;
-  return v_ano::text || '-' || lpad(v_n::text, 4, '0');
+  -- lpad(txt,4,'0') TRUNCA à esquerda acima de 4 dígitos (lpad('10000',4,'0')='1000'
+  -- ⇒ colisão silenciosa): CASE devolve o número inteiro quando passa de 9999.
+  return v_ano::text || '-' ||
+    case when v_n > 9999 then v_n::text else lpad(v_n::text, 4, '0') end;
 end $$;
 
 -- 5) Histórico de status (append-only)
@@ -212,6 +219,7 @@ create index idx_op_status_historico_op on public.op_status_historico(op_id);
 create or replace function public.op_set_updated_at()
 returns trigger
 language plpgsql
+set search_path = public
 as $$
 begin
   new.updated_at = now();
@@ -366,3 +374,4 @@ Executado em 22/07/2026, **read-only**, projeto `hbtggrbauguukewiknew` (fingerpr
 | 22/07/2026 | OP-1.0 | Reconhecimento read-only concluído (fingerprint `compras_pedidos`=1674, projeto `hbtggrbauguukewiknew`). Detalhe completo + ajustes na **seção 4.1**. Principais achados: (1) timestamps EN `created_at`/`updated_at` são a convenção (132/76 tabelas vs 1 em pt) e não há trigger genérico — cada módulo tem `set_*_updated_at`; (2) permissões pontilhadas `modulo.recurso.acao` via `user_has_permission`/`_user_has_perm` + catálogo `hub_permissions`/`hub_roles` — os nomes `op_*` do plano viram `producao.*`; (3) espelho de produtos = `stock_products` (codigo_produto/nome_produto/unidade_medida/ativo); (4) RLS do Suprimentos é aberta (`USING(true)`), gate em RPC+front — OP-1.2 vai divergir p/ SELECT gateado; (5) `profiles` **sem** `setor` ⇒ `emitido_depto` texto livre (corrige OP-1.4); (6) molde de tela = `SuprimentosPedidos.tsx`, visual em `statusConfig.ts`/`DataSection`, leitura de lista inline via `useQuery`+`.from()`. |
 | 22/07/2026 | OP-1.1 | Decisões do Pedro aplicadas ao DDL: módulo de permissão `producao` (rota `/producao`); RLS gateada por `producao.access` (policies só na OP-1.2); papéis novos `operador_producao` (access+create) e `gestor_producao` (access+create+manage), `is_system=false` (wiring na OP-1.2); timestamps `created_at`/`updated_at` + trigger `op_set_updated_at()`; itens em snapshot (`codigo_produto`, `codigo_alternativo_produto`, `produto_nome`, `produto_unidade`, `quantidade_planejada`), sem FK ao catálogo; `op_proximo_numero()` SECURITY DEFINER + `search_path=public`. **Verificação read-only:** os 9 códigos do FRM-07-11 batem **100% em `stock_products.codigo_alternativo`** (0 em `codigo_produto`/`codigo_reduzido`; 2 coincidências em `codigo_barras`), família `001.010` (Tricvalve, "TRICUSPID VALVE …"), `ativo=true`, `UNID` ⇒ picker (OP-1.4) busca `codigo_alternativo`+`nome_produto`. DDL final na seção 3. **Pendências para CONCLUÍDA: seed real de 2026 (`<PREENCHER>`) + aplicação no SQL Editor + verificação empírica.** RLS habilitada sem policies = deny-all seguro no intervalo (nenhum frontend usa as tabelas ainda; SQL Editor roda como postgres e ignora RLS). |
 | 22/07/2026 | OP-1.1 | Seed definido: **`(2026, 500)` — reserva de faixa** (não há "último número" estável; manual e Hub emitem em paralelo). Regra: `2026-0001`..`0500` = processo manual (FRM-07-11); Hub emite de `2026-0501`. No **go-live o manual para** → Hub emissor único. ⚠️ **Virada de ano:** se a operação paralela cruzar 2027, semear `(2027, 500)` (ou folga vigente) antes da 1ª OP de 2027 — senão `op_proximo_numero()` cria `(2027,0)` e emite `2027-0001`, colidindo com a faixa manual. Endossado: deny-all até OP-1.2; lockdown de `op_proximo_numero()` (revogar EXECUTE público) na OP-1.2. `sequencia`+`UNIQUE(op_id,sequencia)` mantidos. Picker OP-1.4: busca `codigo_alternativo`+`nome_produto`+`codigo_produto` (exibe ambos); `codigo_barras` fora (ambiguidade). `<<SEED_2026>>`→`500` no bloco. **Pendente p/ CONCLUÍDA: aplicação no SQL Editor + verificação empírica.** |
+| 23/07/2026 | OP-1.1 | **Sessão de sincronização.** `git pull` = up-to-date, sem commits do Lovable. **Detecção empírica do estado (MCP read-only, fingerprint `compras_pedidos`=1686):** `op_*` = **0 tabelas, 0 funções** (checado via `information_schema` + `pg_proc`/`pg_namespace` + regex de token) ⇒ **OP-1.1 NÃO aplicada**; banco limpo. **Revisão de 4 olhos incorporada ao bloco (pré-aplicação):** (a) `op_proximo_numero()` retorna `v_ano::text || '-' || case when v_n > 9999 then v_n::text else lpad(v_n::text,4,'0') end` — `lpad(txt,4,'0')` **trunca à esquerda** acima de 4 dígitos (`lpad('10000',4,'0')`=`'1000'`), gerando colisão silenciosa ao passar de 9999; (b) `op_set_updated_at()` ganha `set search_path = public`. **Regra de protocolo nova (seção 0):** blocos SQL de aplicação manual vivem em `sql/OP-x.y.sql` e são copiados DO ARQUIVO (o terminal colapsa linhas longas e corrompe o SQL). Criado **`sql/OP-1.1.sql`** (bloco canônico com as duas correções + seed 500). **Próximo passo: Pedro cola `sql/OP-1.1.sql` no SQL Editor**, depois roda a verificação empírica (contagem das 5 tabelas, seed, `op_proximo_numero()` em BEGIN/ROLLBACK, trigger) → OP-1.1 CONCLUÍDA e segue OP-1.2. |
