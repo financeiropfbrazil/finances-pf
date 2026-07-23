@@ -30,9 +30,13 @@ import {
   ultimoDeptoDoUsuario,
   criarOrdem,
   abrirOrdem,
+  atualizarRascunho,
+  transicionar,
   listarTipos,
   SKU_MAX_RESULTADOS,
   type StockPickerRow,
+  type NovaOPDados,
+  type NovaOPItem,
 } from "@/services/opService";
 
 // ── Opções (rótulos do FRM-07-11) ─────────────────────────────────────────────
@@ -53,6 +57,13 @@ const DESTINO_OPTS = [
 function dateToYMD(d: Date | undefined): string | null {
   if (!d) return null;
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function ymdToDate(s: string | null): Date | undefined {
+  if (!s) return undefined;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (!m) return undefined;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
 interface ItemRow {
@@ -187,13 +198,23 @@ const SkuPicker = forwardRef<{ focus: () => void }, { onPick: (p: StockPickerRow
   },
 );
 
+export interface EdicaoOP {
+  id: string;
+  numero: string;
+  dados: NovaOPDados;
+  itens: NovaOPItem[];
+}
+
 interface NovaOPModalProps {
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  /** Chamado após criar OU atualizar — o pai revalida as queries. */
   onCreated: () => void;
+  /** Quando presente, o modal abre em modo EDIÇÃO (op_atualizar_rascunho). */
+  edicao?: EdicaoOP | null;
 }
 
-export function NovaOPModal({ open, onOpenChange, onCreated }: NovaOPModalProps) {
+export function NovaOPModal({ open, onOpenChange, onCreated, edicao = null }: NovaOPModalProps) {
   const { user } = useAuth();
   const { data: tipos = [] } = useQuery({ queryKey: ["op_tipos"], queryFn: listarTipos });
 
@@ -218,9 +239,37 @@ export function NovaOPModal({ open, onOpenChange, onCreated }: NovaOPModalProps)
 
   const markDirty = () => setDirty(true);
 
-  // Reset + pré-preenchimento do depto ao abrir.
+  // Reset (criar) OU pré-preenchimento (editar) ao abrir. `edicao` fora das deps
+  // de propósito: recomputado a cada render no pai, não pode re-disparar e apagar
+  // o que o operador está editando com o modal aberto.
   useEffect(() => {
     if (!open) return;
+    if (edicao) {
+      const d = edicao.dados;
+      setTipoId(d.tipo_id);
+      setTipoOrdem(d.tipo_ordem);
+      setTipoProduto(d.tipo_produto);
+      setDestino(d.destino);
+      setProdutoFamilia(d.produto_familia ?? "");
+      setLote(d.lote ?? "");
+      setDataInicio(ymdToDate(d.data_inicio));
+      setDataFim(ymdToDate(d.data_fim_planejada));
+      setNumeroReferencia(d.numero_referencia ?? "");
+      setObservacoes(d.observacoes ?? "");
+      setEmitidoDepto(d.emitido_depto ?? "");
+      setItems(
+        edicao.itens.map((i) => ({
+          codigo_produto: i.codigo_produto,
+          codigo_alternativo_produto: i.codigo_alternativo_produto,
+          produto_nome: i.produto_nome,
+          produto_unidade: i.produto_unidade,
+          quantidade: String(i.quantidade_planejada),
+        })),
+      );
+      setDirty(false);
+      setSaving(false);
+      return;
+    }
     setTipoId("");
     setTipoOrdem("FABRICACAO");
     setTipoProduto("");
@@ -236,6 +285,7 @@ export function NovaOPModal({ open, onOpenChange, onCreated }: NovaOPModalProps)
     setDirty(false);
     setSaving(false);
     if (user?.id) ultimoDeptoDoUsuario(user.id).then(setEmitidoDepto).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, user?.id]);
 
   const adicionarItem = (p: StockPickerRow) => {
@@ -317,9 +367,15 @@ export function NovaOPModal({ open, onOpenChange, onCreated }: NovaOPModalProps)
         produto_unidade: i.produto_unidade,
         quantidade_planejada: Number(i.quantidade),
       }));
-      const { id, numero } = await criarOrdem(dados, itensPayload);
-      if (abrir) await abrirOrdem(id);
-      toast.success(`OP ${numero} criada${abrir ? " e aberta" : ""}.`);
+      if (edicao) {
+        await atualizarRascunho(edicao.id, dados, itensPayload);
+        if (abrir) await transicionar(edicao.id, "ABERTA");
+        toast.success(`OP ${edicao.numero} atualizada${abrir ? " e aberta" : ""}.`);
+      } else {
+        const { id, numero } = await criarOrdem(dados, itensPayload);
+        if (abrir) await abrirOrdem(id);
+        toast.success(`OP ${numero} criada${abrir ? " e aberta" : ""}.`);
+      }
       setDirty(false);
       onCreated();
       doClose();
@@ -341,8 +397,10 @@ export function NovaOPModal({ open, onOpenChange, onCreated }: NovaOPModalProps)
       >
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Nova Ordem de Produção</DialogTitle>
-            <DialogDescription>Nº automático (2026-05xx) — atribuído ao salvar.</DialogDescription>
+            <DialogTitle>{edicao ? `Editar OP ${edicao.numero}` : "Nova Ordem de Produção"}</DialogTitle>
+            <DialogDescription>
+              {edicao ? "Edição de rascunho." : "Nº automático (2026-05xx) — atribuído ao salvar."}
+            </DialogDescription>
           </DialogHeader>
 
           {/* ── Cabeçalho ── */}

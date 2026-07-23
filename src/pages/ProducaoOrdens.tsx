@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { NovaOPModal } from "@/components/producao/NovaOPModal";
 import { useHasPermission } from "@/hooks/useHasPermission";
 import { PERMISSIONS } from "@/constants/permissions";
@@ -30,7 +30,6 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { toast } from "sonner";
 import { getStatusOP, STATUS_OP_ORDER } from "@/lib/statusOP";
 import { listarOrdens, contarPorStatus, listarTipos } from "@/services/opService";
 
@@ -85,6 +84,7 @@ type SortDir = "asc" | "desc";
 const PAGE_SIZE = 30;
 
 export default function ProducaoOrdens() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const podeCriar = useHasPermission(PERMISSIONS.PRODUCAO_ORDENS_CREATE);
@@ -212,7 +212,6 @@ export default function ProducaoOrdens() {
   };
 
   const abrirNovaOP = () => setModalOpen(true);
-  const abrirDetalhe = () => toast.info("O detalhe da OP chega na OP-1.5.");
 
   const aoCriar = () => {
     queryClient.invalidateQueries({ queryKey: ["op_lista"] });
@@ -462,7 +461,7 @@ export default function ProducaoOrdens() {
                       <tr
                         key={op.id}
                         className="cursor-pointer border-b last:border-b-0 transition-colors hover:bg-muted/40"
-                        onClick={abrirDetalhe}
+                        onClick={() => navigate(`/producao/ordens/${op.id}`)}
                       >
                         <td className="px-4 py-3 font-mono text-xs tabular-nums whitespace-nowrap">{op.numero}</td>
                         <td className="px-4 py-3 whitespace-nowrap">{op.tipo_nome || "—"}</td>

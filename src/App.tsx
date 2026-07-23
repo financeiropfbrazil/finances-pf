@@ -64,6 +64,7 @@ import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
 import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import ProducaoOrdens from "./pages/ProducaoOrdens";
+import ProducaoOrdemDetalhe from "./pages/ProducaoOrdemDetalhe";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
 import ConfigContasDespesas from "@/pages/despesas/ConfigContasDespesas";
 import ReqBackfillDataAbertura from "./pages/ferramentas/ReqBackfillDataAbertura";
@@ -310,6 +311,14 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="producao.access">
               <ProducaoOrdens />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/producao/ordens/:id"
+          element={
+            <PermissionRoute permKey="producao.access">
+              <ProducaoOrdemDetalhe />
             </PermissionRoute>
           }
         />

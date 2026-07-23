@@ -260,3 +260,83 @@ export async function abrirOrdem(opId: string): Promise<void> {
   const { error } = await (supabase as any).rpc("op_transicao_status", { p_op_id: opId, p_para: "ABERTA" });
   if (error) throw new Error(error.message);
 }
+
+// ── OP-1.5: detalhe + mutações (edição, transições, carimbos) ─────────────────
+
+export interface OrdemDetalhe {
+  ordem: Record<string, any>; // op_ordens + nomes resolvidos (tipo_nome, *_por_nome)
+  itens: any[]; // op_ordem_itens (order sequencia)
+  historico: any[]; // op_status_historico + usuario_nome (order created_at asc)
+}
+
+/** Carrega a OP completa (cabeçalho + itens + histórico) com nomes resolvidos. */
+export async function obterOrdem(opId: string): Promise<OrdemDetalhe> {
+  const { data: ordem, error } = await (supabase as any).from("op_ordens").select("*").eq("id", opId).single();
+  if (error) throw new Error(error.message);
+
+  const [itensRes, histRes, tipoRes] = await Promise.all([
+    (supabase as any).from("op_ordem_itens").select("*").eq("op_id", opId).order("sequencia", { ascending: true }),
+    (supabase as any).from("op_status_historico").select("*").eq("op_id", opId).order("created_at", { ascending: true }),
+    (supabase as any).from("op_tipos").select("nome, codigo").eq("id", ordem.tipo_id).maybeSingle(),
+  ]);
+
+  const itens = itensRes.data || [];
+  const historico = histRes.data || [];
+
+  const ids = new Set<string>();
+  [ordem.emitido_por, ordem.aprovado_por, ordem.cancelada_por, ordem.fechada_por].forEach((u: string | null) => {
+    if (u) ids.add(u);
+  });
+  historico.forEach((h: any) => {
+    if (h.usuario) ids.add(h.usuario);
+  });
+
+  const nomeMap = new Map<string, string>();
+  if (ids.size) {
+    const { data: profs } = await supabase.from("profiles").select("user_id, full_name").in("user_id", Array.from(ids));
+    (profs || []).forEach((p: any) => nomeMap.set(p.user_id, p.full_name));
+  }
+
+  return {
+    ordem: {
+      ...ordem,
+      tipo_nome: tipoRes.data?.nome ?? null,
+      emitido_por_nome: ordem.emitido_por ? nomeMap.get(ordem.emitido_por) ?? null : null,
+      aprovado_por_nome: ordem.aprovado_por ? nomeMap.get(ordem.aprovado_por) ?? null : null,
+      cancelada_por_nome: ordem.cancelada_por ? nomeMap.get(ordem.cancelada_por) ?? null : null,
+      fechada_por_nome: ordem.fechada_por ? nomeMap.get(ordem.fechada_por) ?? null : null,
+    },
+    itens,
+    historico: historico.map((h: any) => ({ ...h, usuario_nome: h.usuario ? nomeMap.get(h.usuario) ?? null : null })),
+  };
+}
+
+/** Atualiza rascunho (só status RASCUNHO — enforced na RPC). */
+export async function atualizarRascunho(opId: string, dados: NovaOPDados, itens: NovaOPItem[]): Promise<void> {
+  const { error } = await (supabase as any).rpc("op_atualizar_rascunho", { p_op_id: opId, p_dados: dados, p_itens: itens });
+  if (error) throw new Error(error.message);
+}
+
+/** Transição de status (valida o mapa + gate na RPC). Motivo obrigatório em CANCELADA. */
+export async function transicionar(opId: string, para: string, motivo?: string): Promise<void> {
+  const params: Record<string, any> = { p_op_id: opId, p_para: para };
+  if (motivo != null) params.p_motivo = motivo;
+  const { error } = await (supabase as any).rpc("op_transicao_status", params);
+  if (error) throw new Error(error.message);
+}
+
+/** Carimba aprovação (aprovado_por=auth.uid(), aprovado_em=now(), aprovado_depto). Gate manage. */
+export async function registrarAprovacao(opId: string, depto: string): Promise<void> {
+  const { error } = await (supabase as any).rpc("op_registrar_aprovacao", { p_op_id: opId, p_depto: depto });
+  if (error) throw new Error(error.message);
+}
+
+/** Carimba comunicação (comunicado_a, comunicado_depto, comunicado_em=now()). Gate manage. */
+export async function registrarComunicacao(opId: string, comunicadoA: string, depto: string): Promise<void> {
+  const { error } = await (supabase as any).rpc("op_registrar_comunicacao", {
+    p_op_id: opId,
+    p_comunicado_a: comunicadoA,
+    p_depto: depto,
+  });
+  if (error) throw new Error(error.message);
+}
