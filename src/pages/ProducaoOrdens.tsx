@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
+import { NovaOPModal } from "@/components/producao/NovaOPModal";
 import { useHasPermission } from "@/hooks/useHasPermission";
 import { PERMISSIONS } from "@/constants/permissions";
 import { Button } from "@/components/ui/button";
@@ -85,7 +86,9 @@ const PAGE_SIZE = 30;
 
 export default function ProducaoOrdens() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
   const podeCriar = useHasPermission(PERMISSIONS.PRODUCAO_ORDENS_CREATE);
+  const [modalOpen, setModalOpen] = useState(false);
 
   // ── Estado (inicializado a partir da URL, para persistir na volta do detalhe) ──
   const [buscaInput, setBuscaInput] = useState(() => searchParams.get("busca") || "");
@@ -208,8 +211,13 @@ export default function ProducaoOrdens() {
     );
   };
 
-  const abrirNovaOP = () => toast.info("O modal de abertura da OP chega na OP-1.4.");
+  const abrirNovaOP = () => setModalOpen(true);
   const abrirDetalhe = () => toast.info("O detalhe da OP chega na OP-1.5.");
+
+  const aoCriar = () => {
+    queryClient.invalidateQueries({ queryKey: ["op_lista"] });
+    queryClient.invalidateQueries({ queryKey: ["op_counts"] });
+  };
 
   return (
     <div className="space-y-6 p-6">
@@ -527,6 +535,8 @@ export default function ProducaoOrdens() {
           </div>
         </div>
       )}
+
+      <NovaOPModal open={modalOpen} onOpenChange={setModalOpen} onCreated={aoCriar} />
     </div>
   );
 }

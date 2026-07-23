@@ -172,3 +172,91 @@ export async function listarTipos(): Promise<OrdemTipo[]> {
   if (error) throw error;
   return (data || []).map((t: any) => ({ id: t.id, codigo: t.codigo, nome: t.nome }));
 }
+
+// ── OP-1.4: picker de SKU + criação via RPC ───────────────────────────────────
+
+/** Resultado do picker de SKU (snapshot do catálogo espelho). */
+export interface StockPickerRow {
+  codigo_produto: string;
+  codigo_alternativo: string | null;
+  nome_produto: string;
+  unidade_medida: string | null;
+}
+
+/** Quantos resultados por busca (acima disso, avisa para refinar). */
+export const SKU_MAX_RESULTADOS = 30;
+
+/**
+ * Busca produtos no catálogo espelho para o picker da OP. Só `ativo=true`.
+ * Busca por `codigo_alternativo` + `nome_produto` + `codigo_produto` — NUNCA
+ * por `codigo_barras` (ambiguidade; achado OP-1.1). Escapa os separadores do
+ * `or()` do PostgREST (mesma armadilha do ProductCombobox).
+ */
+export async function buscarProdutos(termo: string): Promise<StockPickerRow[]> {
+  const t = termo.replace(/[,()%]/g, " ").trim();
+  if (t.length < 2) return [];
+  const padrao = `%${t}%`;
+  const { data, error } = await (supabase as any)
+    .from("stock_products")
+    .select("codigo_produto, codigo_alternativo, nome_produto, unidade_medida")
+    .or([`codigo_alternativo.ilike.${padrao}`, `nome_produto.ilike.${padrao}`, `codigo_produto.ilike.${padrao}`].join(","))
+    .eq("ativo", true)
+    .order("nome_produto")
+    .limit(SKU_MAX_RESULTADOS);
+  if (error) throw new Error(error.message);
+  return (data || []) as StockPickerRow[];
+}
+
+/** Último depto usado pelo usuário (pré-preenche emitido_depto). "" se não houver. */
+export async function ultimoDeptoDoUsuario(userId: string): Promise<string> {
+  const { data, error } = await (supabase as any)
+    .from("op_ordens")
+    .select("emitido_depto")
+    .eq("emitido_por", userId)
+    .not("emitido_depto", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return "";
+  return data?.emitido_depto ?? "";
+}
+
+export interface NovaOPDados {
+  tipo_id: string;
+  tipo_ordem: string;
+  tipo_produto: string;
+  destino: string;
+  produto_familia: string | null;
+  lote: string | null;
+  data_inicio: string | null; // "YYYY-MM-DD"
+  data_fim_planejada: string | null; // "YYYY-MM-DD"
+  numero_referencia: string | null;
+  observacoes: string | null;
+  emitido_depto: string | null;
+}
+
+export interface NovaOPItem {
+  codigo_produto: string;
+  codigo_alternativo_produto: string | null;
+  produto_nome: string;
+  produto_unidade: string | null;
+  quantidade_planejada: number;
+}
+
+/**
+ * Cria a OP (RASCUNHO) via RPC SECURITY DEFINER `op_criar_ordem` — o número é
+ * gerado pela RPC no salvamento (op_proximo_numero está em lockdown; só ela
+ * chama). Retorna id + número (buscado logo após, para o toast).
+ */
+export async function criarOrdem(dados: NovaOPDados, itens: NovaOPItem[]): Promise<{ id: string; numero: string }> {
+  const { data: id, error } = await (supabase as any).rpc("op_criar_ordem", { p_dados: dados, p_itens: itens });
+  if (error) throw new Error(error.message);
+  const { data: row } = await (supabase as any).from("op_ordens").select("numero").eq("id", id).maybeSingle();
+  return { id: id as string, numero: row?.numero ?? "" };
+}
+
+/** Abre a OP (RASCUNHO → ABERTA) via RPC `op_transicao_status`. */
+export async function abrirOrdem(opId: string): Promise<void> {
+  const { error } = await (supabase as any).rpc("op_transicao_status", { p_op_id: opId, p_para: "ABERTA" });
+  if (error) throw new Error(error.message);
+}
