@@ -33,6 +33,7 @@ import {
   Factory,
   PackageSearch,
 } from "lucide-react";
+import { Fragment, type ReactNode } from "react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -186,6 +187,124 @@ export function AppSidebar() {
   const isDespesasActive = location.pathname.startsWith("/despesas");
   const isFerramentasActive = location.pathname.startsWith("/ferramentas");
 
+  // ── ORDEM DA SIDEBAR (REC-1.8) ────────────────────────────────────────────
+  // A lista `entradas` abaixo É a ordem renderizada, de cima para baixo.
+  //
+  // Antes, os grupos colapsáveis eram injetados como efeito colateral de
+  // "âncoras" (`nav.commodatum`, `nav.nf_entrada`, `nav.loans`, `nav.closing`)
+  // dentro de um `navItems.map`, com a lógica DUPLICADA para o caso de o
+  // usuário não enxergar a âncora. Isso amarrava a ordem dos grupos à posição
+  // do item que os hospedava — Estoques só existia colado em Bens em Comodato,
+  // por exemplo — e tornava a cadeia física (Compras → NF → Recebimento →
+  // Estoque → Produção) impossível de montar sem quebrar o resto.
+  //
+  // Nada aqui muda permissão, rota, ícone, rótulo ou agrupamento: cada entrada
+  // carrega o MESMO gate que tinha antes. Os itens soltos seguem lendo
+  // `navItems` e `routePermMap`, que continuam intactos.
+  //
+  // O "guard ampliado" da OP-1.3 (que fazia os grupos aparecerem para quem não
+  // tem `nf_entrada`) deixa de existir como código porque a âncora que o
+  // exigia sumiu — o comportamento que ele garantia continua, agora por
+  // construção: cada grupo é gateado só pela própria permissão.
+
+  /** Item solto do `navItems`, com o mesmo gate de sempre (`routePermMap`). */
+  const itemSolto = (url: string) => {
+    const item = navItems.find((i) => i.url === url);
+    if (!item) return null;
+    const permKey = routePermMap[item.url];
+    if (permKey && !hasAccess(permKey)) return null;
+    return (
+      <SidebarMenuItem>
+        <SidebarMenuButton asChild>
+          <NavLink
+            to={item.url}
+            end={item.url === "/"}
+            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+          >
+            <item.icon className="h-4 w-4 shrink-0" />
+            <span>{t(item.titleKey as any)}</span>
+          </NavLink>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  };
+
+  /** Email NF-e — item fixo (sem i18n), gateado por `nf_entrada` como antes. */
+  const itemEmailNfe = () => {
+    if (!hasAccess(routePermMap["/email-nfe"])) return null;
+    return (
+      <SidebarMenuItem>
+        <SidebarMenuButton asChild>
+          <NavLink
+            to="/email-nfe"
+            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+          >
+            <Mail className="h-4 w-4 shrink-0" />
+            <span>Email NF-e</span>
+          </NavLink>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  };
+
+  const entradas: ReactNode[] = [];
+  const add = (key: string, mostrar: boolean, node: () => ReactNode) => {
+    if (!mostrar) return;
+    const n = node();
+    if (n) entradas.push(<Fragment key={key}>{n}</Fragment>);
+  };
+
+  // 1) visão geral
+  add("dashboard", true, () => itemSolto("/"));
+
+  // 2) cadeia física: comprar → receber → estocar → produzir
+  add("compras", hasAccess("compras"), () => renderComprasGroup(t, isComprasActive));
+  add("suprimentos", hasAccess("suprimentos_requisicoes"), () =>
+    renderSuprimentosGroup(t, isSuprimentosActive, hasAccess),
+  );
+  add("nf-entrada", true, () => itemSolto("/nf-entrada"));
+  add("email-nfe", true, () => itemEmailNfe());
+  add("recebimento", isAdmin, () => renderRecebimentoGroup(t, isRecebimentoActive));
+  add("estoques", hasAccess("inventory"), () => renderInventoryGroup(t, isInventoryActive));
+  add("producao", hasAccess("producao.access"), () => renderProducaoGroup(t, isProducaoActive));
+
+  // 3) financeiro
+  add("cash", true, () => itemSolto("/cash"));
+  add("receivables", true, () => itemSolto("/receivables"));
+  add("contas-a-pagar", hasAccess("contas_pagar"), () => renderContasPagarGroup(t, isContasPagarActive));
+  add("sales", true, () => itemSolto("/sales"));
+  add("despesas", isAdmin, () => renderDespesasGroup(t, isDespesasActive));
+  add("credit-cards", true, () => itemSolto("/credit-cards"));
+  add("cartao", true, () => itemSolto("/cartao"));
+  add("loans", true, () => itemSolto("/loans"));
+  add("taxes", true, () => itemSolto("/taxes"));
+
+  // 4) patrimônio e contrapartes
+  add("imobilizado", hasAccess("fixed_assets"), () => renderFixedAssetsGroup(t, isFixedAssetsActive));
+  add("commodatum", true, () => itemSolto("/commodatum"));
+  add("intercompany", hasAccess("intercompany"), () => renderIntercompanyGroup(t, isIntercompanyActive));
+  add("entidades", hasAccess("entidades"), () => renderEntidadesGroup(t, isEntidadesActive));
+
+  // 5) gestão e apoio
+  add("projetos", true, () => itemSolto("/projetos"));
+  add("closing", true, () => itemSolto("/closing"));
+  // ⚠ O `&& hasAccess("closing")` é PRESERVAÇÃO DELIBERADA do comportamento
+  // anterior, não um gate novo: na estrutura de âncoras, Ferramentas era
+  // injetado dentro de `nav.closing` e quem não passava no gate de Fechamento
+  // saía por `return null` antes de chegar nele — ou seja, Ferramentas já
+  // dependia de `closing`. É o mesmo defeito que a OP-1.3 corrigiu para
+  // `nf_entrada` (o "guard ampliado") e que nunca foi replicado aqui.
+  // Hoje não afeta ninguém (o único usuário com a permissão é admin, que tem
+  // bypass). Soltar essa amarra é mudança de visibilidade e fica para uma
+  // tarefa própria — a REC-1.8 é só de ordem.
+  add(
+    "ferramentas",
+    hasAccess("ferramentas_bulk_edit_produtos_campos") && hasAccess("closing"),
+    () => renderFerramentasGroup(t, isFerramentasActive),
+  );
+
   return (
     <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="border-b border-sidebar-border p-4">
@@ -200,192 +319,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => {
-                // Permission check for regular items
-                const permKey = routePermMap[item.url];
-                if (permKey && !hasAccess(permKey)) {
-                  // Still need to render expandable groups even if the trigger item is hidden
-                  if (item.titleKey === "nav.commodatum") {
-                    const showInventory = hasAccess("inventory");
-                    const showFixedAssets = hasAccess("fixed_assets");
-                    if (!showInventory && !showFixedAssets) return null;
-                    return (
-                      <div key="inventory-and-fixed-assets-group">
-                        {showInventory && renderInventoryGroup(t, isInventoryActive)}
-                        {showFixedAssets && renderFixedAssetsGroup(t, isFixedAssetsActive)}
-                      </div>
-                    );
-                  }
-                  if (item.titleKey === "nav.nf_entrada") {
-                    if (
-                      !hasAccess("compras") &&
-                      !hasAccess("entidades") &&
-                      !hasAccess("suprimentos_requisicoes") &&
-                      !hasAccess("intercompany") &&
-                      !hasAccess("producao.access") &&
-                      !isAdmin
-                    )
-                      return null;
-                    return (
-                      <div key="nf-entrada-and-compras-group">
-                        {isAdmin && renderRecebimentoGroup(t, isRecebimentoActive)}
-                        {hasAccess("producao.access") && renderProducaoGroup(t, isProducaoActive)}
-                        {hasAccess("suprimentos_requisicoes") &&
-                          renderSuprimentosGroup(t, isSuprimentosActive, hasAccess)}
-                        {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
-                        {isAdmin && renderDespesasGroup(t, isDespesasActive)}
-                        {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
-                        {hasAccess("entidades") && renderEntidadesGroup(t, isEntidadesActive)}
-                      </div>
-                    );
-                  }
-                  if (item.titleKey === "nav.loans") {
-                    if (!hasAccess("contas_pagar")) return null;
-                    return <div key="contaspagar-only">{renderContasPagarGroup(t, isContasPagarActive)}</div>;
-                  }
-                  return null;
-                }
-
-                // Insert Inventory + Fixed Assets expandable before Commodatum
-                if (item.titleKey === "nav.commodatum") {
-                  return (
-                    <div key="inventory-and-fixed-assets-group">
-                      {hasAccess("inventory") && renderInventoryGroup(t, isInventoryActive)}
-                      {hasAccess("fixed_assets") && renderFixedAssetsGroup(t, isFixedAssetsActive)}
-
-                      {/* Then render commodatum */}
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink
-                            to={item.url}
-                            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                          >
-                            <item.icon className="h-4 w-4 shrink-0" />
-                            <span>{t(item.titleKey as any)}</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </div>
-                  );
-                }
-
-                // Insert Compras expandable after NF Entrada
-                if (item.titleKey === "nav.nf_entrada") {
-                  return (
-                    <div key="nf-entrada-and-compras-group">
-                      {/* NF Entrada item */}
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink
-                            to={item.url}
-                            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                          >
-                            <item.icon className="h-4 w-4 shrink-0" />
-                            <span>{t(item.titleKey as any)}</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-
-                      {/* Email NF-e item */}
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink
-                            to="/email-nfe"
-                            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                          >
-                            <Mail className="h-4 w-4 shrink-0" />
-                            <span>Email NF-e</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-
-                      {/* Recebimento expandable (admin-only): fila de inspeção */}
-                      {isAdmin && renderRecebimentoGroup(t, isRecebimentoActive)}
-
-                      {/* Produção expandable */}
-                      {hasAccess("producao.access") && renderProducaoGroup(t, isProducaoActive)}
-
-                      {/* Suprimentos expandable */}
-                      {hasAccess("suprimentos_requisicoes") &&
-                        renderSuprimentosGroup(t, isSuprimentosActive, hasAccess)}
-
-                      {/* Intercompany expandable */}
-                      {hasAccess("intercompany") && renderIntercompanyGroup(t, isIntercompanyActive)}
-
-                      {/* Despesas expandable (admin-only): Realizado + De-Para */}
-                      {isAdmin && renderDespesasGroup(t, isDespesasActive)}
-
-                      {/* Compras expandable */}
-                      {hasAccess("compras") && renderComprasGroup(t, isComprasActive)}
-
-                      {/* Entidades expandable */}
-                      {hasAccess("entidades") && renderEntidadesGroup(t, isEntidadesActive)}
-                    </div>
-                  );
-                }
-
-                // Insert Contas a Pagar expandable before Loans
-                if (item.titleKey === "nav.loans") {
-                  return (
-                    <div key="contaspagar-and-loans">
-                      {hasAccess("contas_pagar") && renderContasPagarGroup(t, isContasPagarActive)}
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink
-                            to={item.url}
-                            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                          >
-                            <item.icon className="h-4 w-4 shrink-0" />
-                            <span>{t(item.titleKey as any)}</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </div>
-                  );
-                }
-
-                // Insert Ferramentas expandable before Closing
-                if (item.titleKey === "nav.closing") {
-                  return (
-                    <div key="ferramentas-and-closing">
-                      {hasAccess("ferramentas_bulk_edit_produtos_campos") &&
-                        renderFerramentasGroup(t, isFerramentasActive)}
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink
-                            to={item.url}
-                            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                          >
-                            <item.icon className="h-4 w-4 shrink-0" />
-                            <span>{t(item.titleKey as any)}</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </div>
-                  );
-                }
-
-                return (
-                  <SidebarMenuItem key={item.url}>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to={item.url}
-                        end={item.url === "/"}
-                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                        activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                      >
-                        <item.icon className="h-4 w-4 shrink-0" />
-                        <span>{t(item.titleKey as any)}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              {entradas}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
