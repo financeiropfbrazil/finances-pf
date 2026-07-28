@@ -117,6 +117,19 @@ function paramToDate(s: string | null): Date | undefined {
   return new Date(Number(ano), Number(mes) - 1, Number(dia)); // local, sem UTC
 }
 
+// ── Colunas congeladas (REC-1.6) ────────────────────────────────────────────
+// Com "Todos" a tabela tem 14 colunas e precisa rolar. "Laudo" e "Produto"
+// ficam presos à esquerda para a linha nunca perder identificação.
+// Duas exigências que não dá para relaxar:
+//   1. LARGURA EXPLÍCITA na 1ª coluna — o `left` da 2ª depende dela;
+//   2. FUNDO OPACO nas duas — com fundo translúcido o conteúdo que rola
+//      apareceria por baixo. Por isso o hover da linha usa `muted` opaco
+//      (antes era `muted/30`), aplicado igual nas fixas e nas que rolam.
+const L1 = "left-0 w-[116px] min-w-[116px]";
+const L2 = "left-[116px] w-[240px] min-w-[240px] border-r border-border";
+const TH_FIXA = "sticky z-20 bg-card";
+const TD_FIXA = "sticky z-10 bg-card group-hover:bg-muted";
+
 /** Classe do badge de "dias parado". Sem cor até 15 dias — o normal não grita. */
 function classeDias(dias: number | null): string {
   const f = faixaDe(dias);
@@ -312,14 +325,17 @@ export default function RecebimentoFila() {
     7 + (mostraPendentes ? 1 : 0) + (mostraColunaStatus ? 1 : 0) + (mostraConcluidos ? 5 : 0);
 
   // Quantos KPIs a seleção produz — a grade acompanha (classes estáticas,
-  // senão o Tailwind não as gera no build).
+  // senão o Tailwind não as gera no build). A grade QUEBRA EM LINHAS: 1 card
+  // por linha no estreito, 2 no médio, 3 no largo e a fileira cheia só no
+  // muito largo (2xl = 1536px). Com 6 cards em 1280 isso dá 2×3, que cabe —
+  // antes, `xl:grid-cols-6` espremia os 6 e o último saía da viewport.
   const nKpis = 3 + (mostraPendentes ? 1 : 0) + (mostraConcluidos ? 2 : 0);
   const gridKpis =
     nKpis >= 6
-      ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
+      ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6"
       : nKpis === 5
-        ? "sm:grid-cols-2 lg:grid-cols-5"
-        : "sm:grid-cols-2 lg:grid-cols-4";
+        ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5"
+        : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4";
 
   const rotuloLotes =
     filtroStatus === STATUS_CONCLUIDO ? "Lotes concluídos" : filtroStatus === STATUS_TODOS ? "Lotes" : "Lotes aguardando";
@@ -393,155 +409,176 @@ export default function RecebimentoFila() {
         </div>
       )}
 
-      {/* Filtros */}
+      {/* Filtros — grade que QUEBRA EM LINHAS (antes era flex e o último
+          controle vazava do card). Em 2 e em 3 colunas os dois date pickers
+          caem juntos na mesma linha; em 6, tudo cabe numa fileira só. */}
       <Card>
-        <CardContent className="flex flex-wrap items-end gap-4 p-4">
-          {/* Único controle de recorte da tela (REC-1.5). Opções vêm do que
-              existe no espelho — "Todos" permite ver fila e concluídos juntos. */}
-          <div className="min-w-[170px]">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
-            <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Emitido">Emitido</SelectItem>
-                {statusDisponiveis
-                  .filter((s) => s !== "Emitido")
-                  .map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
+        <CardContent className="space-y-4 p-4">
+          <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+            {/* Único controle de recorte da tela (REC-1.5). Opções vêm do que
+                existe no espelho — "Todos" permite ver fila e concluídos juntos. */}
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
+              <Select value={filtroStatus} onValueChange={setFiltroStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Emitido">Emitido</SelectItem>
+                  {statusDisponiveis
+                    .filter((s) => s !== "Emitido")
+                    .map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  <SelectItem value={STATUS_TODOS}>Todos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Produto</label>
+              <Select value={filtroProduto} onValueChange={setFiltroProduto}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  {opcoesProduto.map(([codigo, nome]) => (
+                    <SelectItem key={codigo} value={codigo}>
+                      <span className="font-mono text-xs">{codigo}</span> · {nome}
                     </SelectItem>
                   ))}
-                <SelectItem value={STATUS_TODOS}>Todos</SelectItem>
-              </SelectContent>
-            </Select>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Nota fiscal</label>
+              <Select value={filtroNF} onValueChange={setFiltroNF}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas</SelectItem>
+                  {opcoesNF.map((nf) => (
+                    <SelectItem key={nf} value={nf}>
+                      {nf}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="min-w-0">
+              <label className="mb-1 block truncate text-xs font-medium text-muted-foreground">
+                {mostraPendentes ? "Dias parado" : "Dias desde a emissão"}
+              </label>
+              <Select value={filtroFaixa} onValueChange={(v) => setFiltroFaixa(v as FaixaDias)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FAIXAS_DIAS.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Período por data de emissão — De e Até independentes. Ficam
+                lado a lado em 2, 3 e 6 colunas (só se separam no layout de
+                1 coluna, onde nada cabe lado a lado). */}
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Emissão de</label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start overflow-hidden text-left font-normal",
+                      !filtroDe && "text-muted-foreground",
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                    <span className="truncate">
+                      {filtroDe ? format(filtroDe, "dd/MM/yyyy", { locale: ptBR }) : "Data inicial"}
+                    </span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarComponent
+                    mode="single"
+                    selected={filtroDe}
+                    onSelect={setFiltroDe}
+                    disabled={(d) => (filtroAte ? d > filtroAte : false)}
+                    initialFocus
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                  {filtroDe && (
+                    <div className="border-t border-border p-2">
+                      <Button variant="ghost" size="sm" className="w-full" onClick={() => setFiltroDe(undefined)}>
+                        <X className="mr-1 h-3 w-3" /> Limpar
+                      </Button>
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Emissão até</label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start overflow-hidden text-left font-normal",
+                      !filtroAte && "text-muted-foreground",
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                    <span className="truncate">
+                      {filtroAte ? format(filtroAte, "dd/MM/yyyy", { locale: ptBR }) : "Data final"}
+                    </span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <CalendarComponent
+                    mode="single"
+                    selected={filtroAte}
+                    onSelect={setFiltroAte}
+                    disabled={(d) => (filtroDe ? d < filtroDe : false)}
+                    initialFocus
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                  {filtroAte && (
+                    <div className="border-t border-border p-2">
+                      <Button variant="ghost" size="sm" className="w-full" onClick={() => setFiltroAte(undefined)}>
+                        <X className="mr-1 h-3 w-3" /> Limpar
+                      </Button>
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
 
-          <div className="min-w-[280px] flex-1 max-w-md">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Produto</label>
-            <Select value={filtroProduto} onValueChange={setFiltroProduto}>
-              <SelectTrigger>
-                <SelectValue placeholder="Todos" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                {opcoesProduto.map(([codigo, nome]) => (
-                  <SelectItem key={codigo} value={codigo}>
-                    <span className="font-mono text-xs">{codigo}</span> · {nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="min-w-[160px]">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Nota fiscal</label>
-            <Select value={filtroNF} onValueChange={setFiltroNF}>
-              <SelectTrigger>
-                <SelectValue placeholder="Todas" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todas">Todas</SelectItem>
-                {opcoesNF.map((nf) => (
-                  <SelectItem key={nf} value={nf}>
-                    {nf}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="min-w-[170px]">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              {mostraPendentes ? "Dias parado" : "Dias desde a emissão"}
-            </label>
-            <Select value={filtroFaixa} onValueChange={(v) => setFiltroFaixa(v as FaixaDias)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {FAIXAS_DIAS.map((f) => (
-                  <SelectItem key={f.value} value={f.value}>
-                    {f.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Período por data de emissão — De e Até independentes. */}
-          <div className="min-w-[150px]">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Emissão de</label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn("w-full justify-start text-left font-normal", !filtroDe && "text-muted-foreground")}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {filtroDe ? format(filtroDe, "dd/MM/yyyy", { locale: ptBR }) : "Data inicial"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <CalendarComponent
-                  mode="single"
-                  selected={filtroDe}
-                  onSelect={setFiltroDe}
-                  disabled={(d) => (filtroAte ? d > filtroAte : false)}
-                  initialFocus
-                  className={cn("p-3 pointer-events-auto")}
-                />
-                {filtroDe && (
-                  <div className="border-t border-border p-2">
-                    <Button variant="ghost" size="sm" className="w-full" onClick={() => setFiltroDe(undefined)}>
-                      <X className="mr-1 h-3 w-3" /> Limpar
-                    </Button>
-                  </div>
-                )}
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          <div className="min-w-[150px]">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Emissão até</label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn("w-full justify-start text-left font-normal", !filtroAte && "text-muted-foreground")}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {filtroAte ? format(filtroAte, "dd/MM/yyyy", { locale: ptBR }) : "Data final"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <CalendarComponent
-                  mode="single"
-                  selected={filtroAte}
-                  onSelect={setFiltroAte}
-                  disabled={(d) => (filtroDe ? d < filtroDe : false)}
-                  initialFocus
-                  className={cn("p-3 pointer-events-auto")}
-                />
-                {filtroAte && (
-                  <div className="border-t border-border p-2">
-                    <Button variant="ghost" size="sm" className="w-full" onClick={() => setFiltroAte(undefined)}>
-                      <X className="mr-1 h-3 w-3" /> Limpar
-                    </Button>
-                  </div>
-                )}
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          {temFiltroAtivo && (
-            <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-muted-foreground">
-              <X className="mr-1 h-3 w-3" /> Limpar filtros
-            </Button>
-          )}
-
-          <div className="ml-auto flex items-center gap-2">
+          {/* Ações em linha própria — não disputam espaço com os filtros. */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {temFiltroAtivo && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={limparFiltros}
+                className="mr-auto text-muted-foreground"
+              >
+                <X className="mr-1 h-3 w-3" /> Limpar filtros
+              </Button>
+            )}
             {grupos.length > 0 && (
               <Button
                 variant="ghost"
@@ -598,11 +635,14 @@ export default function RecebimentoFila() {
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              {/* w-max + min-w-full: a tabela ocupa a largura toda quando cabe
+                  e CRESCE quando não cabe (rolando), em vez de espremer as 14
+                  colunas até ficarem ilegíveis. */}
+              <table className="w-max min-w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Laudo</th>
-                    <th className="px-4 py-3 font-medium">Produto</th>
+                    <th className={`${TH_FIXA} ${L1} px-4 py-3 font-medium`}>Laudo</th>
+                    <th className={`${TH_FIXA} ${L2} px-4 py-3 font-medium`}>Produto</th>
                     <th className="px-4 py-3 font-medium">Lote</th>
                     <th className="px-4 py-3 text-right font-medium">Qtd</th>
                     <th className="px-4 py-3 font-medium">Un</th>
@@ -632,8 +672,12 @@ export default function RecebimentoFila() {
                           className="cursor-pointer border-b bg-muted/40 transition-colors hover:bg-muted/60"
                           onClick={() => alternarGrupo(g.nf)}
                         >
-                          <td colSpan={colSpanTabela} className="px-4 py-2.5">
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <td colSpan={colSpanTabela} className="p-0">
+                            {/* O cabeçalho do grupo também acompanha a rolagem:
+                                o conteúdo é sticky dentro da célula larga. Aqui
+                                não há transparência a resolver — o fundo da
+                                linha é uniforme em toda a largura. */}
+                            <div className="sticky left-0 flex w-fit max-w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
                               {fechado ? (
                                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                               ) : (
@@ -658,11 +702,15 @@ export default function RecebimentoFila() {
                           g.laudos.map((l) => (
                             <tr
                               key={`${l.codigo_empresa_filial}-${l.numero}`}
-                              className="border-b last:border-b-0 transition-colors hover:bg-muted/30"
+                              className="group border-b last:border-b-0 transition-colors hover:bg-muted"
                             >
-                              <td className="px-4 py-3 font-mono text-xs tabular-nums">{l.numero}</td>
-                              <td className="max-w-[320px] px-4 py-3">
-                                <span className="font-mono text-xs text-muted-foreground">{l.codigo_produto || "—"}</span>
+                              <td className={`${TD_FIXA} ${L1} px-4 py-3 font-mono text-xs tabular-nums`}>
+                                {l.numero}
+                              </td>
+                              <td className={`${TD_FIXA} ${L2} px-4 py-3`}>
+                                <span className="block truncate font-mono text-xs text-muted-foreground">
+                                  {l.codigo_produto || "—"}
+                                </span>
                                 <span className="line-clamp-1">{l.produto_nome || "—"}</span>
                               </td>
                               <td className="px-4 py-3 font-mono text-xs">
@@ -792,20 +840,23 @@ function KpiCard({
   destaque?: boolean;
 }) {
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
-          {icon}
-          {label}
+    // min-w-0 em toda a cadeia: sem isso o item de grid assume a largura do
+    // conteúdo (min-width:auto) e um rótulo longo empurra o card para fora
+    // da viewport em vez de quebrar linha.
+    <Card className="min-w-0">
+      <CardContent className="min-w-0 p-4">
+        <div className="flex min-w-0 items-start gap-2 text-xs font-medium uppercase text-muted-foreground">
+          <span className="mt-0.5 shrink-0">{icon}</span>
+          <span className="min-w-0 break-words">{label}</span>
         </div>
         <p
-          className={`mt-2 text-2xl font-semibold tabular-nums ${
+          className={`mt-2 break-words text-2xl font-semibold tabular-nums ${
             destaque ? "text-red-700 dark:text-red-400" : "text-foreground"
           }`}
         >
           {valor}
         </p>
-        {sub && <p className="mt-1 text-xs tabular-nums text-muted-foreground">{sub}</p>}
+        {sub && <p className="mt-1 break-words text-xs tabular-nums text-muted-foreground">{sub}</p>}
       </CardContent>
     </Card>
   );
