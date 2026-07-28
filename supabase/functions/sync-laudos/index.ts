@@ -23,6 +23,13 @@
 //      não estourar o tempo da função; o cron completa nas execuções
 //      seguintes (751 laudos convergem em ~8 rodadas).
 //
+// REGRA DE OURO DO PASSO B (REC-1.4): `enriquecido_em` só é carimbado em
+// SUCESSO. A fila de retentativa é `enriquecido_em is null` (com índice
+// parcial), então carimbar numa falha tiraria aquele laudo da fila PARA
+// SEMPRE — sem erro visível em lugar nenhum. Em falha: nada é gravado, o
+// número entra em `sync_runs.detalhes` (agregado, até 20 números com a
+// contagem total) e a execução SEGUE com os demais laudos.
+//
 // ESTA FUNÇÃO SÓ LÊ O ALVO. `GetListForComponents` é leitura (POST por
 // causa do corpo de filtro). Nenhuma escrita no ERP, em nenhuma hipótese.
 //
@@ -102,6 +109,16 @@ interface ResultadoSync {
   possivel_truncacao: boolean;
   parado_por_watchdog: boolean;
   detalhes: Detalhe[];
+  /**
+   * REC-1.4 — números dos laudos que FALHARAM no `Laudo/Load`. Nenhum deles
+   * teve `enriquecido_em` carimbado, então todos voltam na próxima execução.
+   * Vira UMA entrada agregada em `sync_runs.detalhes` (até 20 números + a
+   * contagem total), em vez de uma linha por falha — 100 falhas não podem
+   * inchar o jsonb da auditoria.
+   */
+  falhas_load: string[];
+  /** motivo → quantas vezes ocorreu (diagnóstico barato, sem inchar). */
+  falhas_motivos: Record<string, number>;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -286,30 +303,95 @@ function mapearLista(item: any): Record<string, any> | null {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Análise da resposta do Laudo/Load  (REC-1.4)
+// ─────────────────────────────────────────────────────────────────────
+// O Alvo devolve exceção de regra de negócio (BrokenRulesException) com
+// **HTTP 200**, então "status 2xx" não é prova de sucesso. A detecção é por
+// ESTRUTURA do corpo, nunca por substring no texto inteiro: o campo `Texto`
+// do laudo é livre, vem em português e alemão e pode conter qualquer palavra
+// — procurar "erro"/"exception" ali produziria falso-positivo e jogaria
+// laudos bons fora da fila.
+//
+// Três regras, nesta ordem:
+//   1. corpo que não é objeto        → falha;
+//   2. corpo com CHAVE DE ENVELOPE de exceção do .NET → falha;
+//   3. corpo sem ÂNCORA de laudo com valor real       → falha.
+// Só passa quem tem âncora preenchida e nenhum sinal de exceção.
+
+/** Chaves que só aparecem em envelope de erro do .NET / ASP.NET Web API. */
+const CHAVES_DE_EXCECAO = [
+  "ExceptionType",
+  "ExceptionMessage",
+  "ClassName",
+  "StackTrace",
+  "StackTraceString",
+  "InnerException",
+  "BrokenRules",
+  "BrokenRulesCollection",
+  "Message",
+  "MessageDetail",
+  "ModelState",
+];
+
 /**
- * O `Laudo/Load` devolve o laudo na raiz. Se um dia vier embrulhado, tentamos
- * a única propriedade-objeto. Devolve null quando a resposta não tem NENHUM
- * campo reconhecível de Laudo — nesse caso o registro NÃO é marcado como
- * enriquecido (senão ficaria "queimado" com 12 colunas nulas para sempre).
+ * Âncoras de um Laudo de verdade. Exigimos VALOR (não só a chave presente):
+ * um envelope de erro que ecoe `"Numero": null` não pode passar por laudo —
+ * era esse o caminho que carimbava `enriquecido_em` com 12 colunas nulas.
  */
-function desembrulharLaudo(data: any): any | null {
-  const reconhece = (o: any) => {
-    const i = indexar(o);
-    return (
-      pick(i, "Numero") !== undefined ||
-      pick(i, "NumeroCtrlLote") !== undefined ||
-      pick(i, "ChaveMovEstq") !== undefined ||
-      pick(i, "QuantidadeAprovada") !== undefined
-    );
-  };
+function temAncoraDeLaudo(o: any): boolean {
+  const i = indexar(o);
+  return ["Numero", "NumeroCtrlLote", "ChaveMovEstq"].some((c) => {
+    const v = pick(i, c);
+    return v !== undefined && v !== null && String(v).trim() !== "";
+  });
+}
 
-  if (!data || typeof data !== "object") return null;
-  if (reconhece(data)) return data;
+function chavesDeExcecaoPresentes(o: any): string[] {
+  const i = indexar(o);
+  return CHAVES_DE_EXCECAO.filter((c) => pick(i, c) !== undefined);
+}
 
+export interface AnaliseLaudo {
+  ok: boolean;
+  laudo?: any;
+  motivo?: string;
+}
+
+export function analisarRespostaLaudo(data: any): AnaliseLaudo {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false, motivo: `corpo não é objeto (${data === null ? "null" : typeof data})` };
+  }
+
+  const chaves = (o: any) => Object.keys(o).slice(0, 8).join(",");
+
+  const sinais = chavesDeExcecaoPresentes(data);
+  if (sinais.length > 0) {
+    // Só DENTRO dos campos de mensagem procuramos texto — nunca no corpo
+    // inteiro, para não encostar no `Texto` do laudo.
+    const i = indexar(data);
+    const msg = [pick(i, "Message"), pick(i, "MessageDetail"), pick(i, "ExceptionMessage")]
+      .filter((v) => typeof v === "string")
+      .join(" | ");
+    const bindingErrado = /No action was found on the controller/i.test(msg);
+    return {
+      ok: false,
+      motivo: bindingErrado
+        ? `binding de parâmetro no Alvo — "No action was found on the controller" (parâmetro que não casa, NÃO action inexistente; ver §6.3-A)`
+        : `envelope de exceção do Alvo (chaves: ${sinais.join(",")})`,
+    };
+  }
+
+  if (temAncoraDeLaudo(data)) return { ok: true, laudo: data };
+
+  // O Load devolve o laudo na raiz; se um dia vier embrulhado, aceitamos a
+  // única propriedade-objeto — desde que ela também passe nas duas regras.
   const objetos = Object.values(data).filter((v) => v && typeof v === "object" && !Array.isArray(v));
-  if (objetos.length === 1 && reconhece(objetos[0])) return objetos[0];
+  if (objetos.length === 1 && chavesDeExcecaoPresentes(objetos[0]).length === 0 && temAncoraDeLaudo(objetos[0])) {
+    return { ok: true, laudo: objetos[0] };
+  }
 
-  return null;
+  return { ok: false, motivo: `sem âncora de Laudo (chaves: ${chaves(data)})` };
 }
 
 /** As 12 colunas de detalhe de `Laudo/Load` (o lote mora aqui). */
@@ -490,51 +572,60 @@ async function enriquecerUm(
   result: ResultadoSync,
 ): Promise<void> {
   const filial = laudo.codigo_empresa_filial || FILIAL_PADRAO;
+
+  // ⚠ REC-1.4: o `Laudo/Load` NÃO tem `codigoEmpresaFilial`. A assinatura real,
+  // vista no stack trace do próprio Alvo, é:
+  //     LaudoController.Load(String numero, List loadParent, List loadChild, List loadOneToOne)
+  // Enviar o parâmetro extra fazia o binding do ASP.NET falhar de forma
+  // INTERMITENTE. A filial continua sendo usada abaixo, no WHERE do UPDATE —
+  // ela é chave do espelho, só não é parâmetro do endpoint.
+  // A whitelist do gateway casa o endpoint SEM query string, então `Laudo/Load`
+  // segue liberado sem tocar no erp-proxy.
   const endpoint =
-    `Laudo/Load?codigoEmpresaFilial=${encodeURIComponent(filial)}` +
-    `&numero=${encodeURIComponent(laudo.numero)}` +
-    `&loadParent=All&loadChild=All&loadOneToOne=All`;
+    `Laudo/Load?numero=${encodeURIComponent(laudo.numero)}` + `&loadParent=All&loadChild=All&loadOneToOne=All`;
+
+  // Toda saída por falha passa por aqui: registra o número, NÃO grava coluna
+  // nenhuma e NÃO carimba `enriquecido_em` — o laudo continua com
+  // `enriquecido_em is null` e volta na fila da próxima execução.
+  const falhar = (motivo: string) => {
+    result.erros++;
+    result.falhas_load.push(laudo.numero);
+    result.falhas_motivos[motivo] = (result.falhas_motivos[motivo] || 0) + 1;
+    console.warn(`[sync-laudos] laudo ${laudo.numero} NÃO enriquecido: ${motivo}`);
+  };
 
   try {
     const resp = await callPassthrough(erpUrl, systemSecret, endpoint, "GET");
 
     if (!resp.ok) {
-      result.erros++;
-      result.detalhes.push({ etapa: "load", numero: laudo.numero, erro: resp.erro || `HTTP ${resp.status}` });
+      falhar(resp.erro || `HTTP ${resp.status}`);
       return;
     }
 
-    const detalhe = desembrulharLaudo(resp.data);
-    if (!detalhe) {
-      // Resposta sem campo reconhecível: NÃO marcamos enriquecido_em — o
-      // registro continua na fila e a próxima execução tenta de novo.
-      result.erros++;
-      result.detalhes.push({
-        etapa: "load",
-        numero: laudo.numero,
-        erro: `resposta não parece um Laudo (chaves: ${
-          resp.data && typeof resp.data === "object" ? Object.keys(resp.data).slice(0, 8).join(",") : typeof resp.data
-        })`,
-      });
+    // HTTP 200 não é prova de sucesso: o Alvo devolve BrokenRulesException
+    // com 200. A análise é estrutural — ver `analisarRespostaLaudo`.
+    const analise = analisarRespostaLaudo(resp.data);
+    if (!analise.ok) {
+      falhar(analise.motivo || "resposta inesperada do Laudo/Load");
       return;
     }
 
     const { error } = await supabase
       .from("rec_laudos")
-      .update(mapearLoad(detalhe))
+      .update(mapearLoad(analise.laudo))
       .eq("codigo_empresa_filial", filial)
       .eq("numero", laudo.numero);
 
     if (error) {
-      result.erros++;
-      result.detalhes.push({ etapa: "load", numero: laudo.numero, erro: `update: ${error.message}` });
+      falhar(`update: ${error.message}`);
       return;
     }
 
     result.enriquecidos++;
   } catch (err: any) {
-    result.erros++;
-    result.detalhes.push({ etapa: "load", numero: laudo.numero, erro: `exception: ${err?.message || String(err)}` });
+    // Falha individual NÃO aborta o lote: o erro morre aqui e os demais
+    // laudos do chunk e da execução seguem.
+    falhar(`exception: ${err?.message || String(err)}`);
   }
 }
 
@@ -663,6 +754,8 @@ Deno.serve(async (req: Request) => {
     possivel_truncacao: false,
     parado_por_watchdog: false,
     detalhes: [],
+    falhas_load: [],
+    falhas_motivos: {},
   };
 
   let observacao: string | null = null;
@@ -690,9 +783,30 @@ Deno.serve(async (req: Request) => {
     .from("compras_pedidos")
     .select("id", { count: "exact", head: true });
 
+  // REC-1.4 — UMA entrada agregada com os laudos que falharam no Load. Todos
+  // seguem com `enriquecido_em is null`, então voltam na próxima execução; o
+  // registro existe para a falha não ficar invisível.
+  if (result.falhas_load.length > 0) {
+    const AMOSTRA = 20;
+    const mostrados = result.falhas_load.slice(0, AMOSTRA);
+    const resto = result.falhas_load.length - mostrados.length;
+    result.detalhes.push({
+      etapa: "load",
+      erro:
+        `${result.falhas_load.length} laudo(s) falharam no Laudo/Load — NÃO carimbados, ` +
+        `voltam na próxima execução`,
+      info:
+        `números (até ${AMOSTRA}): ${mostrados.join(", ")}${resto > 0 ? ` … +${resto}` : ""}` +
+        ` | motivos: ${Object.entries(result.falhas_motivos)
+          .map(([m, n]) => `${n}× ${m}`)
+          .join(" ; ")}`,
+    });
+  }
+
   const resumo =
     `ano=${ano} listados=${result.listados} novos=${result.inseridos} atualizados=${result.atualizados} ` +
     `enriquecidos=${result.enriquecidos} pendentes=${result.pendentes_enriquecimento} erros=${result.erros}` +
+    (result.falhas_load.length > 0 ? ` | ${result.falhas_load.length} laudo(s) falharam no Load (voltam depois)` : "") +
     (result.possivel_truncacao ? " | ⚠ POSSÍVEL TRUNCAÇÃO DA LISTA" : "") +
     (result.parado_por_watchdog ? " | parou por watchdog (completa na próxima)" : "");
 
@@ -731,6 +845,12 @@ Deno.serve(async (req: Request) => {
       enriquecidos: result.enriquecidos,
       pendentes_enriquecimento: result.pendentes_enriquecimento,
       erros: result.erros,
+      // REC-1.4 — quem falhou no Load continua na fila (sem carimbo).
+      falhas_load: {
+        total: result.falhas_load.length,
+        numeros: result.falhas_load.slice(0, 20),
+        motivos: result.falhas_motivos,
+      },
       possivel_truncacao: result.possivel_truncacao,
       parado_por_watchdog: result.parado_por_watchdog,
       detalhes: result.detalhes.slice(0, 50),
