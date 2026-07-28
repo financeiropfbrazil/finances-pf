@@ -31,6 +31,7 @@ import {
   History,
   Coins,
   Factory,
+  PackageSearch,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -118,6 +119,10 @@ const suprimentosSubItems: { label: string; url: string; icon: any; perm?: strin
 
 const producaoSubItems = [{ label: "Ordens de Produção", url: "/producao/ordens", icon: ClipboardList }];
 
+// Recebimento (admin-only) — material recebido aguardando a Qualidade.
+// Sem permissão nova no RBAC: o gate é a RLS de rec_laudos (_is_admin).
+const recebimentoSubItems = [{ label: "Fila de Inspeção", url: "/recebimento/fila", icon: PackageSearch }];
+
 const intercompanySubItems = [
   { label: "Master", url: "/intercompany/master", icon: ClipboardList },
   { label: "Novo Reembolso", url: "/intercompany/reembolsos/novo", icon: FileText },
@@ -176,6 +181,7 @@ export function AppSidebar() {
   const isContasPagarActive = location.pathname.startsWith("/contas-a-pagar");
   const isSuprimentosActive = location.pathname.startsWith("/suprimentos");
   const isProducaoActive = location.pathname.startsWith("/producao");
+  const isRecebimentoActive = location.pathname.startsWith("/recebimento");
   const isIntercompanyActive = location.pathname.startsWith("/intercompany");
   const isDespesasActive = location.pathname.startsWith("/despesas");
   const isFerramentasActive = location.pathname.startsWith("/ferramentas");
@@ -222,6 +228,7 @@ export function AppSidebar() {
                       return null;
                     return (
                       <div key="nf-entrada-and-compras-group">
+                        {isAdmin && renderRecebimentoGroup(t, isRecebimentoActive)}
                         {hasAccess("producao.access") && renderProducaoGroup(t, isProducaoActive)}
                         {hasAccess("suprimentos_requisicoes") &&
                           renderSuprimentosGroup(t, isSuprimentosActive, hasAccess)}
@@ -294,6 +301,9 @@ export function AppSidebar() {
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
+
+                      {/* Recebimento expandable (admin-only): fila de inspeção */}
+                      {isAdmin && renderRecebimentoGroup(t, isRecebimentoActive)}
 
                       {/* Produção expandable */}
                       {hasAccess("producao.access") && renderProducaoGroup(t, isProducaoActive)}
@@ -667,6 +677,44 @@ function renderProducaoGroup(t: any, isActive: boolean) {
         <CollapsibleContent>
           <SidebarMenuSub>
             {producaoSubItems.map((sub) => (
+              <SidebarMenuSubItem key={sub.url}>
+                <SidebarMenuSubButton asChild>
+                  <NavLink
+                    to={sub.url}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                  >
+                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+
+function renderRecebimentoGroup(_t: any, isActive: boolean) {
+  return (
+    <Collapsible defaultOpen={isActive} className="group/collapsible-recebimento">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
+            }`}
+          >
+            <PackageSearch className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Recebimento</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-recebimento:rotate-[-90deg]" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {recebimentoSubItems.map((sub) => (
               <SidebarMenuSubItem key={sub.url}>
                 <SidebarMenuSubButton asChild>
                   <NavLink

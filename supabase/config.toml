@@ -54,3 +54,8 @@ verify_jwt = false
 # A auth real é o gate RASTRO_FEED_KEY (header x-rastro-key) dentro da função.
 [functions.rastro-nfe-feed]
 verify_jwt = false
+
+# sync-laudos (REC-1.1): reachable sem JWT — o cron/pg_net não manda JWT.
+# A auth real é o gate CRON_SECRET (header x-cron-secret) dentro da função.
+[functions.sync-laudos]
+verify_jwt = false

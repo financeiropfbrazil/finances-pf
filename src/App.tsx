@@ -65,6 +65,7 @@ import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import ProducaoOrdens from "./pages/ProducaoOrdens";
 import ProducaoOrdemDetalhe from "./pages/ProducaoOrdemDetalhe";
+import RecebimentoFila from "./pages/RecebimentoFila";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
 import ConfigContasDespesas from "@/pages/despesas/ConfigContasDespesas";
 import ReqBackfillDataAbertura from "./pages/ferramentas/ReqBackfillDataAbertura";
@@ -322,6 +323,12 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
+
+        {/* Recebimento — fila de inspeção (REC-1.1). Admin-only: sem permissão
+            nova no RBAC; o gate é a RLS de rec_laudos (_is_admin) e a própria
+            página, que mostra "Acesso Restrito" a quem não for admin.
+            Mesmo padrão das rotas de /despesas. */}
+        <Route path="/recebimento/fila" element={<RecebimentoFila />} />
 
         <Route
           path="/compras/notas-fiscais"

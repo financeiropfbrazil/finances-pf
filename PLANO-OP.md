@@ -74,6 +74,10 @@ Transições permitidas (mapa completo, válido desde já): RASCUNHO→ABERTA ·
 | OP-1.4 | Modal de abertura (USER 1) | EM ANDAMENTO | 23/07/2026 | **Entregue (código no preview) — validação PENDENTE (OP-1.6).** Build limpo. Modal XL espelhando o FRM-07-11: cabeçalho + grade de itens com picker de SKU dedicado (busca server-side `codigo_alternativo`+`nome_produto`+`codigo_produto`, `codigo_barras` fora), fluxo de teclado (selecionar→foco na qtd, Enter→volta à busca), dedup de SKU, dirty-check, "Salvar rascunho"/"Salvar e abrir" via `op_criar_ordem`(+`op_transicao_status`). **Aguarda validação + Publish do Pedro** (teste real: espelhar a 2026-0007, 3 SKUs de válvula). |
 | OP-1.5 | Detalhe da OP + transições | EM ANDAMENTO | 23/07/2026 | **Entregue (código no preview) — validação PENDENTE (OP-1.6).** Build limpo. Rota `/producao/ordens/:id` (clique na linha navega, substitui o toast): cabeçalho com número + badges, bloco de campos (`DataSection`/`Field`), tabela de itens, timeline do histórico; ações por status/permissão: Editar (RASCUNHO→modal em modo edição via `op_atualizar_rascunho`), Abrir (RASCUNHO), Cancelar com motivo (RASCUNHO/ABERTA/EM_ANDAMENTO, gate manage), Registrar aprovação/comunicação (carimbos, gate manage). **Aguarda validação + Publish do Pedro** (cancelar 0501/0502 com motivo "OP de teste da Fase 1"). |
 | OP-1.6 | Validação ponta a ponta + saneamento + fechamento Fase 1 | CONCLUÍDA | 23/07/2026 | **SELADA — Publish feito; saneamento reconferido no selo (0/0/0/500, fingerprint 1693).** Bateria completa VERDE (visual + banco, fingerprint 1692): Bloco A (carimbos provados na 0504; qtd 0; dirty-check; edição sem itens; cancelamento c/ e sem motivo), Bloco B (dark/light, filtro+F5 via URL, console limpo), **Bloco C gate real provado** — `nfe@pfbrazil.com` **não-admin**: create efetivo (0505 ABERTA emitida por ele), manage negado, **revogação** (`revogado_em`) tira acesso, higiene dos demais papéis preservada. Numeração 0501–0505, contador=505. Critério **reformulado** (sem recriar a 2026-0007 — BPF). **Saneamento AUTORIZADO** (`sql/OP-1.6-saneamento.sql`). **Falta selar:** Pedro aplica saneamento (reconferir op_ordens=0 / contador=500) + Publish → então OP-1.6 e Fase 1 CONCLUÍDAS. IVC 41 presente+ativo (sem pendência). BL-1 no backlog §8. |
+| OP-2.0 | Reconhecimento read-only do terreno de ESTOQUE e RECEBIMENTO | CONCLUÍDA | 28/07/2026 | Achados completos e **consolidados** na **seção 6.3** (retificações da 1ª redação em §6.3-N). Sessão de leitura (Lab de API + SQL read-only no Hub), **sem escrita no Alvo**. **Fluxo de recebimento provado ponta a ponta em 4 tempos:** (1) fiscal lança NF → `MovEstq` tipo `E0000158` com **`ControlaEstoque="Não"`** → **cria o lote** com a quantidade cheia, validade e destino `001`, **sem gerar saldo**; (2) sistema gera **um Laudo por lote** (`Emitido`); (3) Qualidade analisa (`QuantidadeAprovada`/`QuantidadeReprovada`); (4) conclusão → `MovEstq` `E0000163` com `ControlaEstoque="Sim"` → **só a quantidade aprovada vira saldo**. Prova numérica no laudo `0000002070`: lote de 60, aprovadas 21 + reprovadas 39, entrada de **21** un (chave 18072). ⇒ **material reprovado nunca fica disponível para requisição**; a RM pode confiar no saldo do `001`. **Não existe transferência 015→001** — o local de inspeção não é modelado no Alvo. Endpoints provados: `MovEstq/RetornaFichaEstoque`, `MovEstq/Load`, `Laudo/Load`, `laudo/GetListForComponents`. Junção **bidirecional**: `laudo.ChaveMovEstq`→origem e `ficha.Documento`=**número do laudo**→entrada. Valorização **se lê** (`BaseCustoMedio`/`CustoUnitario`); **`CustoMedio` da ficha não é confiável** (2 evidências). **O lote do fornecedor não entra no Alvo** — ruptura da rastreabilidade está no **recebimento**, não na transformação. **Única lacuna que o Hub preenche de forma nativa: o momento físico entre recebimento e inspeção** (`DataRecepcao` é preenchida na conclusão, 3 de 3 casos). |
+
+| REC-1.0 | Espelho do Laudo (`rec_laudos`) | CONCLUÍDA | 28/07/2026 | Bloco `sql/REC-1.0.sql` aplicado pelo Pedro e **verificado empiricamente** (MCP read-only, fingerprint 1720): **39 colunas**, **8 índices** (1 PK + 7), **RLS ligada**, **1 policy** de SELECT (`rec_laudos_select_admin` via `public._is_admin()`), **1 trigger** (`trg_rec_laudos_updated_at`), **0 linhas** antes do 1º sync. Espelho **read-only**: nenhuma coluna é editada por tela; quem grava é a Edge Function (service_role). Chave natural `(codigo_empresa_filial, numero)`. Colunas de enriquecimento nulas até o `Laudo/Load` rodar (`enriquecido_em`). |
+| REC-1.1 | Sync do Laudo (Edge Function) + tela de Fila de Inspeção | EM ANDAMENTO | 28/07/2026 | **Código entregue e buildado (build limpo + `tsc --noEmit` limpo); NADA foi deployado.** Detalhe completo na **seção 9**. Entregues: (a) `supabase/functions/sync-laudos/index.ts` — dois passos por execução (lista do ano corrente via `laudo/GetListForComponents` → upsert dos 21 campos; enriquecimento de até 100 pendentes via `Laudo/Load` → 12 colunas + lote), acesso **só leitura** ao Alvo pelo gateway `/alvo/passthrough` com `X-System-Secret`, gate `CRON_SECRET`, kill-switch em `sync_settings`, auditoria em `sync_runs` (`job_type='laudos'`), watchdog de 110s; (b) `sql/REC-1.1.sql` — disparador `call_sync_laudos_cron`, linha de `sync_settings` e `cron.schedule` 4x/dia útil (**a aplicar pelo Pedro**); (c) tela `/recebimento/fila` (`src/pages/RecebimentoFila.tsx` + `src/services/recebimentoService.ts`), somente leitura, admin-only, com KPIs, agrupamento por NF, faixas de dias parado e aba Concluídos; (d) rota em `App.tsx`, grupo "Recebimento" no `AppSidebar.tsx`, `verify_jwt=false` no `config.toml`. **Pendente para CONCLUÍDA:** deploy da função + `sql/REC-1.1.sql` + 1º disparo + validação visual do Pedro. |
 
 Status possíveis: PENDENTE · EM ANDAMENTO · CONCLUÍDA · BLOQUEADA (com motivo).
 
@@ -414,6 +418,293 @@ Provado com a requisição `0000002236` (**criada e deletada**). Espécime adici
 
 ---
 
+### 6.3 — Preparação da Fase 2 · Investigação de ESTOQUE e RECEBIMENTO (MovEstq / Ficha / Laudo) — CONCLUÍDA (28/07/2026)
+
+> **Consolidada ao fim da sessão de 28/07/2026.** A primeira redação desta seção continha inferências que a própria sessão derrubou (ver **§6.3-N · Retificações**). O que está abaixo é o estado provado.
+
+**Escopo.** Sessão de leitura (Lab de API do Alvo + SQL read-only no Hub) para responder como a tela de RM vai exibir "material disponível no local 001". **Nenhuma escrita no Alvo.** Espécimes: `001.007.00101` (MEMBRANA DE PERICÁRDIO BOVINO SELECIONADO, matéria-prima biológica, BIOCOLLAGEN) · `001.007.00025` (LFU – Lucélio Ferramentaria, caso de reprova parcial) · `001.007.00005` (FAST PARTS).
+
+---
+
+#### A) Endpoints
+
+| Endpoint | Método | Assinatura | Estado |
+|---|---|---|---|
+| `MovEstq/RetornaFichaEstoque` | POST | body `{produto, unidadeMedida, posicao, peso, pesoFatorDivisor, dataInicial, dataFinal, idProdutoId}` — datas `dd/MM/yyyy` | **PROVADO** |
+| `MovEstq/Load` | GET | `?codigoEmpresaFilial=1.01&chave=N&loadParent=All&loadChild=All&loadOneToOne=All` | **PROVADO** |
+| `Laudo/Load` | GET | `?codigoEmpresaFilial=1.01&numero=0000002073&loadParent=All&loadChild=All&loadOneToOne=All` | **PROVADO** |
+| `laudo/GetListForComponents` | POST | body `{FormName:"laudo", ClassInput:"Laudo", ControllerForm:"laudo", ClassVinculo:"laudo", Input:"gridTableLaudo", Shortcut:"laudo", Type:"GridTable", TypeObject:"tabForm", Filter, Order, PageIndex, PageSize}` | **PROVADO** (via Network) |
+| `movEstq/GetListForComponents` | POST | mesmo padrão, `FormName:"movEstq"`, `Input:"gridTableMovEstq"` | capturado do Network — **não testado direto** |
+| `Produto/Load` | GET | `?codigo=001.007.00101&loadParent=All&loadChild=All&loadOneToOne=All` — o parâmetro é **`codigo`** | do swagger |
+| `CtrlLote/Load` | — | **3 tentativas falharam.** Ler o swagger antes de tentar de novo | **A INVESTIGAR** |
+
+**Regra de leitura de erro.** `"No action was found on the controller 'X'"` significa que o **controller resolveu** e os **parâmetros não casaram** (binding do ASP.NET Web API) — **não** que a action não existe. Foi o caso do `MovEstq/Load`: falhou com `?chave=`, funcionou com `codigoEmpresaFilial=1.01&chave=`. Corolário: **não adivinhar nome de parâmetro** — ler o swagger. O padrão de prefixo deduzido na §6.2 (`reqMatNumero`) **não é universal** (`Produto/Load` usa `codigo`; `Laudo/Load` usa `numero`).
+
+**Sintaxe do filtro do `GetListForComponents`** (C#-like — **diferente** do `DocFin/RetrievePage`, que é SQL-like):
+```
+( DataEmissao >= #01/06/2026 00:00:00# &&  DataEmissao <= #30/06/2026 23:59:59#)
+( DocumentoHomologado == 'Sim' && CodigoEmpresaFilial == '1.01' && DataMovimento >= #01/01/2026 00:00:00#)
+```
+`==`, `&&`, datas entre `#dd/MM/yyyy HH:mm:ss#`. `Order: "Numero DESC"` / `"Chave DESC"`. Retorna **apenas cabeçalhos** (sem itens, sem lotes) ⇒ sync = **listar → `Load` por chave**.
+
+---
+
+#### B) O fluxo de recebimento — quatro tempos, PROVADO ponta a ponta
+
+```
+1. FISCAL LANÇA A NF
+   MovEstq  tipo E0000158  ·  ControlaEstoque = "Não"
+   → CRIA o(s) lote(s): NumeroCtrlLote, quantidade CHEIA da nota,
+     DataFabricacao, DataValidadeCtrlLote, CodigoLocArmaz = 001 (destino)
+   → NÃO gera saldo  (não aparece na ficha de estoque)
+
+2. SISTEMA GERA UM LAUDO POR LOTE
+   Status = "Emitido"  ·  ResultadoAnalise = "Nenhum"
+   → aponta ChaveMovEstq + SequenciaItMovEstq + NumeroCtrlLote
+   → CodigoFuncionario = null (examinador ainda não definido)
+
+3. QUALIDADE ANALISA
+   → ResultadoAnalise (Aprovado / Aprovado Parcial / …)
+   → QuantidadeAprovada, QuantidadeReprovada, ValorReprovado
+   → DataResultado, DataRecepcao, CodigoFuncionario (examinador)
+
+4. CONCLUSÃO DO LAUDO
+   MovEstq  tipo E0000163  ·  ControlaEstoque = "Sim"
+   Especie = LAUDO · Serie = 99 · Documento = NÚMERO DO LAUDO
+   → SÓ A QUANTIDADE APROVADA entra como saldo no 001
+```
+
+**Prova numérica (laudo `0000002070`, produto `001.007.00025`, LFU, NF-e 100):**
+
+| Etapa | Chave | Tipo | ControlaEstoque | Qtd | Efeito |
+|---|---|---|---|---|---|
+| Lançamento da NF (29/06) | `18063` | `E0000158` | **Não** | 60 | cria lote `0002636` (60 un, val. 25/06/2031), **sem saldo** |
+| Laudo `0000002070` | — | — | — | 60 | `Aprovado Parcial` · aprovada **21** · reprovada **39** · `ValorReprovado` R$ 5.304 |
+| Entrada por laudo (29/06) | `18072` | `E0000163` | **Sim** | **21** | `QtdEntrada 21`, `ValorEntrada 2.591,82` (= 21 × R$ 123,42) |
+
+`21 + 39 = 60` — **o balanço fecha dentro do laudo. Não há saída silenciosa.**
+
+⇒ **A Qualidade controla o que vira saldo.** Material reprovado **nunca fica disponível para requisição**. A RM pode confiar no saldo do `001` — o filtro de aprovação já aconteceu a montante.
+
+**Não existe transferência `015 → 001`.** O local de inspeção não é modelado no Alvo de forma alguma: o material simplesmente **não tem saldo** enquanto o laudo está `Emitido`. O `015` não aparece em nenhum registro examinado.
+
+**Janela de inspeção medida:** NF 1460 emitida 27/04 → laudos emitidos 29/04 → conclusão 25/05 = **26 dias**.
+
+---
+
+#### C) `ControlaEstoque` do cabeçalho é o discriminador de efeito em estoque
+
+| Chave | Espécie | Tipo | `ControlaEstoque` | Aparece na ficha? |
+|---|---|---|---|---|
+| `18063` | NF-e | `E0000158` | **Não** | não |
+| `12614` | NF-e | `E0000158` | **Não** | não |
+| `15028` (NF 1405) | NF-e | `E0000003` | **Sim** | **sim** |
+| `17127` | LAUDO | `E0000163` | **Sim** | **sim** |
+| `18072` | LAUDO | `E0000163` | **Sim** | **sim** |
+
+**Isso explica a NF 1405** (24/03/2026, único caso do semestre a entrar direto no estoque): foi lançada com tipo **`E0000003`** em vez de `E0000158`. Não foi "decisão de pular o laudo" — foi **escolha de tipo de lançamento pelo operador fiscal**. O tipo determina o comportamento.
+
+Verificado empiricamente: as chaves `17363`, `17364`, `17365`, `17492`, `17493`, `17494`, `17646` (lançamentos de NF de junho, citados nos laudos pendentes) estão **dentro** da faixa de chaves da ficha (12576–17537) e **nenhuma aparece** nela.
+
+⚠️ Nem todo `MovEstq` mexe em estoque — a amostra de janeiro trouxe `CT-e` (`E0000108`, frete, `ControlaEstoque="Não"`). **A varredura precisa filtrar por `ControlaEstoque`/tipo**, senão a carga histórica traz frete e serviço junto.
+
+---
+
+#### D) A entidade `Laudo` — é o registro de recebimento POR LOTE
+
+Campos do `Laudo/Load` (o `GetListForComponents` mostra só um subconjunto):
+
+| Grupo | Campos |
+|---|---|
+| Identidade | `Numero` (`0000002073`), `CodigoEmpresaFilial`, `CodigoProduto`, `CodigoProdUnidMed`, `PosicaoProdUnidMed` |
+| **Junção** | **`ChaveMovEstq`**, **`SequenciaItMovEstq`**, **`NumeroCtrlLote`**, `DataValidadeCtrlLote` |
+| Documento origem | `EspecieDocumento`, `SerieDocumento`, `NumeroDocumento` (nº da NF) |
+| Quantidades | `QuantidadeProdUnidMedPrincipal`, `Quantidade2`, **`QuantidadeAprovada`**, **`QuantidadeReprovada`**, `QuantidadeExame`, `QuantidadeDestruida`, `QuantidadeDestruidaAprovada`, `QuantidadeDestruidaReprovada`, **`QuantidadeDevolvida`** |
+| Resultado | `Status` (`Emitido`/`Concluído`), **`ResultadoAnalise`** (`Nenhum`/`Aprovado`/`Aprovado Parcial`), `DataResultado`, **`TextoResultado`**, `ValorReprovado`, `DiferencaIcmsValorReprovado` |
+| Pessoas / datas | `CodigoFuncionario` (examinador — null enquanto Emitido), `CodigoFuncionarioResponsavel` (`0000005`, constante), **`DataRecepcao`**, `DataEmissao`, `DataValidade`, `DataDevolvida`, `DataDestruida`, `DataExame` |
+| **Laboratório externo** | `DataEnvioTesteLab`, `QuantidadeEnvioTesteLab`, `TelefoneTesteLab`, `CodigoCentroCtrlTesteLab`, `DataRetornoTesteLab`, `QuantidadeRetornoTesteLab` |
+| EPI / CA | `NumeroCa`, `DataValidadeInicialCa`, `DataValidadeFinalCa`, `NomeFabricanteCa`, `CodigoFabricanteCa` |
+| Outros | `CodigoCentroCtrl` (`00001.00001.00005`), `CodigoLocArmaz` (destino), `GeraRmEspecifica`, `OrigemRecMerc`, `FotoLaudoObject` (foto anexa), `LaudoProdAnaliseQuimicaChildList` (análise química) |
+
+**Um lote do fornecedor = um laudo, com a quantidade daquele lote.** Provado: NF 1586 → laudos `2073`(18) / `2074`(16) / `2075`(14), todos `ChaveMovEstq 18094`, `SequenciaItMovEstq 1`, emitidos com milissegundos de diferença e numeração sequencial. NF 1460 → 7 laudos (`1815`–`1821`) para 7 lotes, 71 un.
+
+⚠️ **`CodigoEntidade` é sempre null no laudo** — o fornecedor só se descobre via `ChaveMovEstq → MovEstq/Load`, ou por join no espelho.
+
+⚠️ **`DataRecepcao` é preenchida na conclusão, não na chegada física.** Confirmado em 3 laudos (`1815`: recepção 25/05 = resultado 25/05; `2070`: 29/06 = 29/06; `2073` pendente: null). **O campo existe e não carrega a informação real** — é exatamente a lacuna que o Hub vai preencher.
+
+**O laudo é geral, não é de um fornecedor.** Aparecem `001.002.00035` (ROLO), `001.004.00008` (GALÃO), `001.003.00086/87`, `001.002.00084` (etiqueta, P+F GMBH), com NFs `280664`, `273773`, `100`. Validades de meses a **5 anos** (`0002636`: 25/06/2031). ⇒ **o módulo nasce genérico**, servindo o recebimento inteiro da empresa.
+
+---
+
+#### E) Chaves de junção — a ligação é BIDIRECIONAL
+
+```
+laudo.ChaveMovEstq  ──►  MovEstq de ORIGEM   (E0000158, cria o lote, sem saldo)
+ficha.Documento     ◄──  MovEstq de ENTRADA  (E0000163, traz o nº do LAUDO)
+```
+
+Exemplo (`0000002070`): `laudo.ChaveMovEstq = 18063` (origem) · linha da ficha com `Documento = "0000002070"` e `Chave = 18072` (entrada).
+Exemplo (`0000001815`): `laudo.ChaveMovEstq = 16458` (origem) · entrada = chave `17127`.
+
+⇒ **A ficha basta para o sync.** O campo `Documento` do movimento `E0000163` **é o número do laudo** — casamento direto, sem varredura.
+
+Chave natural do laudo dentro do movimento de origem: **`(ChaveMovEstq, SequenciaItMovEstq, NumeroCtrlLote)`**.
+
+---
+
+#### F) A ficha responde posição em qualquer data
+
+`RetornaFichaEstoque` aceita janela e devolve, como primeira linha, `Operacao: "Saldo Anterior"` com `QtdSaldo` e `ValorSaldo` **já calculados** na entrada da janela (carimbada com a data do último movimento anterior).
+
+⇒ **Janela de 1 dia devolve o saldo atual.** Não é preciso varrer desde ago/2024.
+
+**Reconciliação verificada** (pericárdio, jan–jun/2026, 191 linhas): `66 + 1.893 − 1.345 = 614`. **Zero divergências em quantidade e em valor.**
+
+⚠️ O resultado **depende** de `unidadeMedida`/`posicao`/`peso`/`pesoFatorDivisor`. Na varredura, passar sempre a unidade própria do produto.
+
+---
+
+#### G) Todo movimento com efeito em estoque carrega LOCAL e LOTE
+
+Dentro de `ItemMovEstqChildList[]`:
+
+- **`LocArmazItemMovEstqChildList[]`** → `CodigoLocArmaz`, **`CodigoLocArmazDestino`** (nulo fora de transferência), `QuantidadeProdUnidMedPrincipal`
+- **`CtrlLoteItemMovEstqChildList[]`** → `NumeroCtrlLote`, `DataValidadeCtrlLote`, `DataFabricacao`, `CodigoLocArmaz`, `QuantidadeProdUnidMedPrincipal`, `QuantidadeBruta`, `QuantidadeDevolvidaProdUnidMedPrincipal`, `Operacao`
+
+⇒ **Posição por `produto × local × lote × validade` é derivável** por replay do ledger.
+
+Provado na RM `0000002125` (chave 17537, 11/06, 75 un): 10 lotes, todos `CodigoLocArmaz = "001"`, somando exatamente 75. `QuantidadeBruta` = tamanho do lote · `Quantidade` = o que saiu dele.
+
+**FEFO é praticado** pelo almoxarifado (em 11/06 consumiram lotes com validade 05–06/2027 tendo o `0002396`, validade 08/2027, disponível). O Hub não implementa FEFO; não atrapalha.
+
+**Estruturas nativas presentes** (existem porque o conceito existe): `NumSerieItemMovEstqChildList`, `MovEstqFifoChildList`, `TipoTransferencia`/`TipoDevolucao`/`TipoRetorno`/`TipoRemessa`, `GeraRMEspecificaLaudo` + `CodigoFuncionarioAprovadorRMEspecificaLaudo`, `ConfiguracaoAlteraMovEstqLaudoConcluido`.
+
+---
+
+#### H) Valorização — LER, nunca calcular
+
+| Campo | Significado |
+|---|---|
+| `ValorProduto` | valor de documento (comercial) — R$ 900,00/un no pericárdio |
+| **`BaseCustoMedio` / `CustoUnitario`** | **o que entra no estoque** — R$ 669,73/un; é o que a ficha usa em `ValorEntrada`/`ValorSaida` |
+
+Fórmula observada: `BaseCustoMedio = ValorProduto × (1 − ICMS 18%) × (1 − PIS/COFINS 9,25%)` — custo líquido de impostos recuperáveis. Bate na 4ª casa nos 5 itens da NF 1405.
+
+⚠️ **Regra:** o Hub **lê** `BaseCustoMedio`/`CustoUnitario`; **nunca** replica o cálculo (depende de alíquota por item, CFOP e regime) e **nunca** usa `ValorProduto` para valorizar estoque.
+
+⚠️ **O `CustoMedio` da ficha não é confiável — duas evidências independentes:**
+1. Pericárdio, a partir de 16/04/2026: `CustoMedio` ≠ `ValorSaldo ÷ QtdSaldo`. Quatro saídas (docs `0000001965`, `0000002015`, `0000002040`, `0000002125`) com unitário 6–10× o custo médio da data — 152 un por R$ 405.650 onde o custo médio indicava R$ 62.189, **excesso de R$ 343.461** — derrubando o custo médio de R$ 669 para R$ 235. Todas as entradas do semestre vieram a R$ 669,74/un ⇒ não é oscilação de preço.
+2. `001.007.00025`, 23/06/2026: linha `Saldo Anterior` com `QtdSaldo 76`, `ValorSaldo 1.117,04` e `CustoMedio 132,28` — mas `1.117,04 ÷ 76 = 14,70`.
+
+⇒ **Regra: o Hub lê `ValorSaldo` e `QtdSaldo`; se precisar de unitário, calcula a partir dos dois, ou lê `CustoUnitario` do movimento. Nunca o `CustoMedio` da ficha.** Investigar em separado (achado de Controller, fora do módulo).
+
+---
+
+#### I) Genealogia — o lote do fornecedor NÃO entra no Alvo
+
+`NumeroLoteFabricante`, `NumeroLoteOrigem`, `NumeroNotaFiscalOrigem`, `CodigoEntidadeProdutoOrigem`, `CodigoProdutoEntidadeOrigem`: **os campos existem e estão sempre nulos.**
+
+Confirmado pelo Pedro: a operadora que dá entrada na NF **converte para o código da P&F**, e o lote interno é **gerado pela P&F**. O lote do fornecedor só existe na descrição da nota.
+
+⚠️ **Este é o ponto de ruptura da rastreabilidade, e ele está no RECEBIMENTO — não na transformação.** Se um fornecedor recolher um lote, hoje não há caminho no sistema que ligue o lote dele aos lotes internos.
+
+**Onde o dado está:** XML da NF-e, **partido** entre `xProd` (limite de 120 caracteres — trunca) e `infAdProd`. Exemplo NF 1460:
+```
+xProd:      ...260202-3 02/08/2027  260203 03/08/2027  260203-3 03/08/2027  260204 04/08
+infAdProd:  /2027 260204-2 04/08/2027  260205 05/08/2027  260205-2 05/08/2027
+```
+Sete lotes do fornecedor. Padrão = **`AAMMDD` da fabricação**; validade = fabricação + 18 meses.
+
+**Casamento lote fornecedor ⇄ lote interno:** por **`DataFabricacao`** (lote `0002396` tem fab. 02/02/2026 ⇒ lote `260202-3`). Ambíguo apenas quando dois lotes do fornecedor compartilham a data — e aí desempata a **ordem dos laudos dentro da NF** (`Numero` do laudo crescente = ordem da descrição).
+
+⚠️ **Nunca usar offset** entre número de documento e número de lote. Os contadores correm em paralelo e desalinham (jan/2026: bases 1323, 1331, 1413; mai/2026: 1814).
+
+**O código do produto na NF é o do fornecedor** (`001.009.00003` na NF 1460), não o da P&F (`001.007.00101`) nem o `codigo_alternativo` do Hub (`810081`) ⇒ o recebimento precisa de um **de-para fornecedor→produto** que hoje não existe.
+
+---
+
+#### J) Campos que enganam (registrar para não repetir)
+
+| Campo | O que parece | O que realmente é |
+|---|---|---|
+| `ItemMovEstqChildList[].ControlaLote` | flag de controle de lote do produto | vem **`"Não"`** mesmo com 10 lotes gravados no mesmo item. **NÃO usar.** O flag do produto está em `stock_products.controla_lote` e **não** aparece no export do mestre `Produto` (hipótese: `ProdEmpresaFilialChildList`). |
+| ficha `.Sequencia` | sequência do item no movimento | é a posição do documento dentro da leva de recebimento (o item no `Load` é sempre `Sequencia=1`). |
+| ficha `.CentroControle` | local de armazenagem | é **centro de custo**, e deriva do funcionário (§6.2, descoberta 1). |
+| ficha `.CustoMedio` | `ValorSaldo ÷ QtdSaldo` | **diverge** (duas evidências em §6.3-H). Não usar. |
+| `laudo.DataRecepcao` | quando a Qualidade recebeu o material | preenchida **na conclusão** (= `DataResultado` em 3 de 3 casos). Não carrega a informação real. |
+| `laudo.CodigoEntidade` | fornecedor | **sempre null**. Fornecedor vem do `MovEstq` de origem. |
+| `nf_entrada` (Supabase) | espelho das entradas de estoque | espelho **parcial** — só notas com classificação de despesa. **Não contém** os 163 laudos nem a NF 1405. **Não serve ao módulo de recebimento.** |
+| `Produto` (export, 112 colunas) | traz o controle de lote | **não traz.** Único campo com "Lote" é `Base Lote Controle Esterilização`. Sem campo de validade no mestre. |
+
+---
+
+#### K) Cadastro de produtos — famílias e lote
+
+| Família | O que é | Lote |
+|---|---|---|
+| `001.007.*` | pericárdio bruto (matéria-prima comprada) | **Sim** |
+| `001.009.00088` | membrana para treinamento | Não |
+| `001.010.*` (alt. `825*`) | membranas cortadas — semi-acabado | **Não** |
+| `001.010.*` (alt. `835*`) | membranas cortadas **estéreis** | **Não** |
+
+**O lote liga na matéria-prima e desliga em tudo que é produzido.** A genealogia interna (lote → produto) só pode existir no registro da OP — o ERP não a mantém.
+
+**Esterilizar é trocar de SKU:** dez tamanhos não estéreis e dez estéreis, um a um (1.5×2.0 … 12.0×18.0). O de-para **não se deriva do código** (estéreis sequenciais `83510000`–`83510009`; não estéreis fora de ordem `825100xx`) ⇒ de-para explícito pelo tamanho no nome. Transformação e esterilização são **o mesmo mecanismo aplicado duas vezes**.
+
+**O classificador real é o prefixo do `codigo_alternativo`**, não o código hierárquico (`001.010` mistura peças de válvula `821*` com membranas `825*`/`835*`). Largura dos segmentos é variável ⇒ **nada de parsing de largura fixa.**
+
+**Bug de de-para na tela:** `001.009.00088` exibe `15` cru na coluna Tipo. Mapa numérico incompleto. (Registro; não corrigir agora.)
+
+---
+
+#### L) Achados operacionais (fora do escopo do módulo — para o Pedro)
+
+1. **Pendência de inspeção sem visibilidade — o argumento mais concreto do módulo.** Em 28/07/2026 havia **76 laudos `Emitido` de pericárdio, 1.044 unidades**, de 20 NFs, emitidos entre 02/06 e 15/07. O saldo em estoque em 11/06 era **614**. Há **70% mais pericárdio esperando liberação do que disponível para produzir**. Em `compras_nfe`: 52 NFs da Biocollagen abr–jun/2026 (R$ 1.278.850), **todas** `status_lancamento='pendente'`, `erp_chave_movestq` nulo, `recebido=false`. No mesmo período o pericárdio teve 7 laudos concluídos em maio e **nenhum em junho**.
+2. **Reprova sem acompanhamento estruturado.** Laudo `0000002070`: 39 unidades reprovadas, R$ 5.304, com `QuantidadeDevolvida = 0` e `DataDevolvida = null` — a decisão de devolver ao fornecedor existe **apenas em `TextoResultado`** (texto livre). Material fisicamente existe, contabilmente não. Nada no sistema cobra a devolução. **Levantar o acumulado do semestre** (`laudo/GetListForComponents` com `ResultadoAnalise != 'Aprovado'`).
+3. **Custo médio da ficha não confiável** — ver §6.3-H, duas evidências independentes.
+4. **A Biocollagen tem três relações comerciais** (abr–jun/2026): VENDA DE PRODUÇÃO DO ESTABELECIMENTO (27 NFs, R$ 1.210.320) · **RETORNO DE MERCADORIA UTILIZADA NA INDUSTRIALIZAÇÃO POR ENCOMENDA** (18 NFs, R$ 13.630) · VENDA DE MERCADORIA ADQUIRIDA DE TERCEIROS (7 NFs, R$ 54.900). **A segunda é nova:** a P&F manda material para industrializar e recebe de volta — *serviço de redução de biocarga* (CFOP 5124) com retorno de cubas de inox, instrumentais e wipers (CFOP 5902). **Segundo processador externo além do Oximed**, pertence ao elo E3. A Biocollagen também presta **serviço** (2 NFS-e, `E0000091`, R$ 73.700 em 27/04).
+5. **Teste de laboratório externo existe como conceito** (`DataEnvioTesteLab`, `QuantidadeEnvioTesteLab`, `TelefoneTesteLab`, `CodigoCentroCtrlTesteLab`, `DataRetornoTesteLab`) e não estava em nenhum plano. Zerado nos casos examinados.
+6. **NF 1405 (24/03/2026)** entrou direto no estoque por tipo de lançamento `E0000003` — único caso no semestre.
+
+---
+
+#### M) Impacto no desenho dos módulos
+
+1. **Espelho de estoque (`est_saldos`)** = replay dos lotes do `MovEstq` **com `ControlaEstoque="Sim"`**, chave `(produto, local, lote)`. Reconciliação contra `RetornaFichaEstoque` com janela de 1 dia.
+2. **Lote com movimento de estoque = disponível · lote sem movimento = em inspeção.** As duas perguntas são respondidas pela mesma fonte.
+3. **A RM pode confiar no saldo do `001`** — a Qualidade já filtrou a montante (§6.3-B). **Não** precisa filtrar por aprovação do laudo.
+4. **A coluna "a caminho".** Com os laudos `Emitido` (quantidade por lote), a RM pode mostrar ao requisitante o que vai entrar quando a Qualidade liberar — em vez de ele descobrir no atendimento.
+5. **Sync em dois tempos:** `movEstq/GetListForComponents` (chaves por período, filtrar `ControlaEstoque`) → `MovEstq/Load` por chave. Um movimento de laudo cobre vários produtos ⇒ a varredura serve o catálogo inteiro.
+6. **`MovEstq` e `Laudo` NÃO estão na whitelist do passthrough.** `ALLOWED_ENDPOINTS` em `erp-proxy/src/routes/alvo.ts`, **repo separado** `financeiropfbrazil/erp-proxy`; hoje: `DocFin/Load`, `DocFin/GetListaRelatorio`, `ClasseRecDesp/Load`, `ClasseRecDesp/RetornaListaClasseRecDespSistemaExterno`, `CentroCusto/GetRegistros`, `Produto/GetRegistros`, `FaturaFin/GetRegistros`, `FaturaFin/GerarRealizado`. Inclusão é **mudança no gargalo compartilhado** (Suprimentos 100+ usuários, Despesas, Intercompany, NF-e) — fazer **aditivo**, com rollback confirmado no Render antes de publicar.
+7. **O módulo de recebimento muda de forma.** Deixa de ser "criar local RECEB no Alvo". **RECEBIMENTO e ESTOQUE já existem no Alvo** (laudo `Emitido` / laudo `Concluído` + movimento). O que **não existe em lugar nenhum** é o momento físico entre os dois — quando o material saiu da doca e chegou na inspeção, e com quem. **Esse é o único dado que o Hub gera de forma nativa**, e ele é a razão do bipe/QR.
+8. **Peças novas necessárias:** parser de lote/validade do `xProd`+`infAdProd`, de-para fornecedor→produto, tabela de vínculo lote-fornecedor ⇄ lote-interno, e o registro de custódia física.
+
+---
+
+#### N) Retificações durante a investigação (o que foi superado)
+
+| Afirmação da 1ª redação | Correção |
+|---|---|
+| "O lote interno nasce na conclusão do laudo" | **ERRADO.** O lote é criado **no lançamento da NF**, dentro do item do `MovEstq` (`12614`, `18063`), com quantidade cheia e sem saldo. O material tem identidade durante toda a inspeção. |
+| "O laudo é a entrada em estoque, portanto 001 = liberado por construção" | **Parcialmente errado na 1ª formulação, agora confirmado com ressalva.** É verdade para o caminho normal (`E0000158`→laudo→`E0000163`), mas o caminho `E0000003` entra direto. O discriminador é o **tipo de lançamento**, não o produto nem a relação comercial. |
+| "O discriminador entre os dois caminhos é a natureza da operação" | **Impreciso.** O CFOP acompanha, mas o que determina o efeito em estoque é **`ControlaEstoque` do cabeçalho**, herdado do tipo de lançamento. |
+| Regra de genealogia por ordem de `Documento` + quebra por `Sequencia == 1` | **Superada.** O laudo carrega `NumeroCtrlLote` diretamente. O casamento posicional só é necessário para amarrar o **lote do fornecedor**, e aí o critério primário é `DataFabricacao`. |
+| "A ligação laudo ⇄ entrada só existe num sentido" | **ERRADO.** O movimento `E0000163` traz o **número do laudo** no campo `Documento` — visível já na ficha. |
+
+---
+
+#### O) Pendências desta investigação
+
+1. **Assinatura do `CtrlLote/Load`** (swagger) — 3 tentativas falharam. *Pode não ser necessário:* lote com movimento = disponível, lote sem movimento = em inspeção.
+2. **Catálogo de tipos de lançamento** — `E0000003`, `E0000005`, `E0000023`, `E0000026`, `E0000091`, `E0000108`, `E0000158`, `E0000163`. O cabeçalho do MovEstq tem campos `TipoLancamentoGeraControleEstoque`/`IntegraFinanceiro`/`IntegraCompras` (zerados no retorno) que provavelmente vêm do mestre do tipo ⇒ carregar o mestre dá a **matriz de comportamento** de forma estrutural.
+3. `movEstq/GetListForComponents` **testado direto** (só capturado do Network).
+4. Onde vive o flag `controla_lote` do produto no Alvo (hipótese: `ProdEmpresaFilialChildList`).
+5. Acumulado de reprovas do semestre e destino do material reprovado.
+6. Onde está o lado fiscal dos lançamentos `E0000158` (não integram estoque, mas `IntegradoFiscal="Sim"`).
+7. `GeraRmEspecifica` — o que dispara e o que gera (`"Não"` em todos os casos examinados).
+
+---
+
 ## 7. Diário de achados e decisões
 
 | Data | Tarefa | Registro |
@@ -433,6 +724,10 @@ Provado com a requisição `0000002236` (**criada e deletada**). Espécime adici
 | 23/07/2026 | Fase 0 | **Investigação ReqMat concluída (leitura / Lab de API).** Achados completos na **§6.1**. **§5 Q2 RESPONDIDA:** atendimento é do **almoxarifado, por item** (`CodigoFuncionarioAtendente`/`DataHoraAtendimento`) ⇒ **Fase 2 sem rota de atender; ledger pelo ATENDIDO via Load**. **§5 Q1 meio-fechada:** OP nativa não usada (`OrdProduc` vazio em 46 reqs + 3 Loads) ⇒ vínculo do Hub via `Descricao`. Tipos em uso `0000002` (REQUISIÇÃO PRODUÇÃO)/`0000004` (SAÍDA CONSUMO); **Devolução a descobrir**; baixa só no atendimento (`BaixouEstoque`+`CodigoTipoLanc E0000023`); quantidades nativas `Quantidade/Atendida/Saldo/Devolvida/Perdida`; lote nativo em `CtrlLoteItemReqMatChildList` (genealogia Fase 5; pericárdio 2214 = 174 un/18 lotes); `PosicaoProdUnidMed` 1=principal, `CodigoAlternativoProduto` no item, campos de viagem/Mix ignorar; `TipoAtendimento` Manual/Automático (Hub=**Manual**; Automático suspeito de baixar na criação → 2187 Aberta c/ **custo negativo**). **Pendências Fase 0:** teste de ESCRITA (Numero auto?/`Operacao`/`TipoAtendimento`/`Descricao`) + `Deletar`; código do tipo Devolução; confirmar Automático c/ almoxarifado. **Achado operacional (fora do módulo):** 2187 aberta há 3 semanas + re-requisição na 2231 = **risco de baixa em dobro** (Pedro trata). Espécimes: 2231 (parcial), 2187 (aberta), 2214 (total, 18 lotes). §1 atualizado (Fase 0 CONCLUÍDA-leitura; Fase 2 refinada). |
 | 23/07/2026 | Fase 0 | **Perna de ESCRITA concluída — ReqMat Insert/Delete provado** (req `0000002236` criada e deletada). Achados na **§6.2**. **Receita do INSERT** (`POST ReqMat/InserirAlterarRequisicaoMaterial`): **sem `Numero`** (auto-gera; `""` quebra c/ `SqlException 'syntax near And'`), header `Operacao="Retirada"`, item `Operacao="I"`, `CodigoTipoRequisicaoMaterial="0000002"`, **`Descricao`≤40** (`"OP 2026-05xx - <resumo>"`), `Mix` omitido (servidor põe -1), `PosicaoUnidadeMedida=1`; **resposta com ECO BUGADO** (Numero replicado em todo campo string) → parsear só `Numero` + confirmar via Load. **Descobertas:** (1) `CodigoCentroControle` **ignorado** — centro deriva do funcionário ⇒ de-para `profiles.funcionario_alvo_codigo` crítico; (2) `Origem="Importação"` = carimbo de auditoria grátis (vs `ManualAlvo`); (3) `TipoAtendimento="Automático"` = default de nascimento (API+UI) mas **não atendeu** com estoque (2 casos Abertos) — semântica DESCONHECIDA; (4) `DataValidade` nasce null via API; (5) inserção **não baixa estoque** (baixa só no atendimento — 2235/2236); (6) `DeletarReqMat` usa `reqMatNumero`; (7) UI usa endpoints internos (`GerenciaReqMat`/`New?numero=-1`), contrato do Hub = endpoint de integração; (8) tela tem **Estornar/Aprovar** (estorno nativo); (9) cadastro tem tipos `0000005` SAÍDA MATERIAL / `0000003` EPI'S, **Devolução não identificada**. **Pendências humanas:** semântica do Automático; código Devolução; quem deleta requisições (2196/2230 sumidas); §5 Q3 (reprova) / Q4 (acabado) / Q5 (2º número). **§1: Fase 0 CONCLUÍDA (leitura + escrita).** |
 | 23/07/2026 | OP-1.6 / Fase 1 | **SELADA — FASE 1 CONCLUÍDA.** Publish confirmado pelo Pedro (feito hoje, logo após o saneamento). Reconferência final de selo (fingerprint 1693): `op_ordens`=0, `op_ordem_itens`=0, `op_status_historico`=0, `op_numeracao` 2026=**500** ⇒ produção limpa, pronta para a **2026-0501 real** (piloto sob demanda com o USER 1). **Fase 1 completa:** OP-1.0 (reconhecimento) → OP-1.1 (DDL/numeração) → OP-1.2 (RLS+RPCs+RBAC+lockdown) → OP-1.3 (nav+lista) → OP-1.4 (modal FRM) → OP-1.5 (detalhe+transições) → OP-1.6 (validação ponta a ponta + gate real provado com `nfe@pfbrazil.com` + saneamento). Backlog aberto: BL-1 (carimbos aceitos em RASCUNHO). **Próxima: Fase 2 (ReqMat)** — abre quando fecharem as pendências humanas (§6.2 + §5 Q3/Q4/Q5); Pedro conduz nos próximos dias. |
+| 28/07/2026 | OP-2.0 | **Reconhecimento de ESTOQUE concluído (read-only; Lab de API + SQL no Hub).** Achados completos na **§6.3**. Espécime `001.007.00101` (pericárdio, BIOCOLLAGEN). **Endpoints provados:** `MovEstq/RetornaFichaEstoque` (POST, janela de datas, devolve `Saldo Anterior` calculado) e `MovEstq/Load?codigoEmpresaFilial=1.01&chave=N&loadParent=All&loadChild=All&loadOneToOne=All`. **Capturado do Network (não testado):** `movEstq/GetListForComponents` (POST, filtro C#-like `==`/`&&`/`#dd/MM/yyyy#`, paginado, **só cabeçalhos**) ⇒ sync em dois tempos: listar chaves → Load por chave. **Regra de erro registrada:** `"No action was found on the controller"` = controller resolveu, **parâmetros não casaram** (foi o caso do `MovEstq/Load` sem `codigoEmpresaFilial`) — não adivinhar parâmetro, ler o swagger; o padrão de prefixo da §6.2 **não é universal** (`Produto/Load` usa `codigo`). **Estrutura:** todo movimento traz `LocArmazItemMovEstqChildList` (com `CodigoLocArmazDestino`, nulo fora de transferência) e `CtrlLoteItemMovEstqChildList` (lote, validade, fabricação, local, qtd) ⇒ **`est_saldos` = replay do ledger**, reconciliado contra a ficha. Ledger do Alvo reconciliou **191 linhas com 0 divergências** em qtd e valor. FEFO é praticado pelo almoxarifado. **Entrada:** dois caminhos, ambos para o 001 — `LAUDO`/99/`E0000163`/CFOP `1.101.001` (163 lanç., 1.852 un, R$ 1,24 mi, `IntegradoFiscal=Não`) e `NF-e`/1/`E0000003`/CFOP `1.101.002` (5 lanç., 41 un, integrado). Mesmo SKU nos dois ⇒ **discriminador é a natureza da operação**. **Não existe transferência 015→001**: o laudo **é** a entrada em estoque; janela de inspeção de **26 dias** (NF 1460 em 27/04 → chegada 29/04 → efetivação 25/05, elo provado por aritmética exata: 71 un × R$ 900 = R$ 63.900). ⚠️ **"Saldo em 001" ≠ "liberado pela Qualidade"** — o caminho NF-e direta existe. **Valorização:** `BaseCustoMedio = ValorProduto × (1−ICMS) × (1−PIS/COFINS)`; o Hub **lê**, não calcula, e nunca usa `ValorProduto`. **Genealogia:** o lote do fornecedor **não entra no Alvo** (`NumeroLoteFabricante`/`NumeroLoteOrigem`/`CodigoProdutoEntidadeOrigem` sempre nulos) — a operadora converte para o código da P&F e a Inspeção gera lote novo; o dado do fornecedor vive partido entre `xProd` (trunca em 120 chars) e `infAdProd` do XML. **Regra de reconstrução:** ordenar por `Documento`, quebrar leva quando `Sequencia==1`, casar posicionalmente com a NF, validar pela soma — **nunca por offset** (bases diferentes por leva: 1323/1331/1413 em jan; 1814 em mai; leva pode atravessar dias). Provado nas posições 1, 4 e 7 da NF 1460. **Campos que enganam:** `ControlaLote` do item vem "Não" com 10 lotes gravados (não usar); `Sequencia` da ficha é a posição do documento na leva (não do item); `CentroControle` é centro de custo; **`nf_entrada` é espelho parcial** (só notas com classificação de despesa) e **não serve** ao recebimento. **Achados operacionais (fora do módulo):** (a) 52 NFs da Biocollagen abr–jun/2026, R$ 1.278.850, **todas pendentes**, contra 7 laudos em maio e 0 em junho ⇒ ~R$ 1 mi de material invisível no estoque e na inspeção — **é o argumento mais concreto do módulo**; (b) `CustoMedio` da ficha diverge de `ValorSaldo÷QtdSaldo` desde 16/04/2026, 4 saídas com excesso de R$ 343 mil derrubando o custo médio de R$ 669 para R$ 235 — **investigar em separado**; (c) Biocollagen tem **3 relações comerciais**, incluindo **industrialização por encomenda** (redução de biocarga, CFOP 5124/5902) = **segundo processador externo além do Oximed**, não previsto em nenhum plano. **Impacto no desenho:** o módulo de recebimento deixa de ser "criar local RECEB no Alvo" e vira **tela de conciliação no Hub** (NF ⇄ lotes internos, vínculo gravado no Hub, sem escrever no Alvo); "RECEB" vira visão calculada. **`MovEstq` NÃO está na whitelist** do passthrough (repo separado `financeiropfbrazil/erp-proxy`) — inclusão é mudança no gargalo compartilhado (Suprimentos 100+ usuários), fazer aditivo com rollback confirmado. **Pendências em §6.3-K.** |
+| 28/07/2026 | OP-2.0 | **Consolidação da §6.3 — modelo de recebimento fechado.** A 1ª redação da §6.3 continha inferências que a própria sessão derrubou; **§6.3-N lista as 5 retificações**. **O que mudou:** (1) **o lote NÃO nasce na conclusão do laudo** — é criado no **lançamento da NF**, dentro do item do `MovEstq` (`12614`: lote `0001988`/150 un; `18063`: lote `0002636`/60 un), com quantidade cheia, validade e destino `001`, **sem gerar saldo** ⇒ o material tem identidade durante toda a inspeção, e o bipe do Hub pode carregar um lote real; (2) o discriminador de efeito em estoque é **`ControlaEstoque` do cabeçalho** (herdado do tipo de lançamento), não a natureza da operação — `E0000158`=Não, `E0000003`/`E0000163`=Sim; isso **explica a NF 1405** (entrou direto por ter sido lançada com `E0000003`); (3) a ligação laudo⇄entrada é **bidirecional**: o movimento `E0000163` traz o **número do laudo** no campo `Documento`, visível já na ficha ⇒ **a ficha basta para o sync**; (4) a regra de genealogia posicional (ordenar por `Documento`, quebrar por `Sequencia==1`) foi **superada** — o laudo carrega `NumeroCtrlLote` direto; o casamento posicional sobra só para o **lote do fornecedor**, com `DataFabricacao` como critério primário. **Endpoints novos provados:** `Laudo/Load?codigoEmpresaFilial=1.01&numero=N` e `laudo/GetListForComponents` (mesmo padrão do `movEstq`). **A entidade Laudo é o registro de recebimento POR LOTE** — traz `ChaveMovEstq`+`SequenciaItMovEstq`+`NumeroCtrlLote`, quantidades aprovada/reprovada/devolvida/destruída, resultado, examinador, foto, análise química e **teste de laboratório externo** (conceito novo, não previsto). **Reprova provada com balanço fechado:** laudo `0000002070` (LFU, NF 100), lote de 60 → aprovadas 21 + reprovadas 39 = 60; entrada de **21** un (chave 18072, `ValorEntrada` 2.591,82 = 21×123,42). ⇒ **a Qualidade controla o que vira saldo; material reprovado nunca fica disponível para requisição** e a RM **pode confiar no saldo do `001`** sem filtrar por laudo. ⚠️ As 39 reprovadas existem só em `QuantidadeReprovada`+`ValorReprovado` (R$ 5.304) e em **texto livre** (`QuantidadeDevolvida=0`, `DataDevolvida=null`) — **a devolução ao fornecedor não tem registro estruturado**. ⚠️ **2ª evidência de que o `CustoMedio` da ficha não é confiável** (`001.007.00025`, 23/06: `ValorSaldo/QtdSaldo`=14,70 vs `CustoMedio`=132,28) ⇒ regra: ler `ValorSaldo`+`QtdSaldo` ou `CustoUnitario` do movimento, **nunca** o `CustoMedio`. **Pendência de inspeção quantificada:** 76 laudos `Emitido` de pericárdio, **1.044 un** de 20 NFs (02/06 a 15/07), contra 614 un em estoque ⇒ **70% mais material esperando liberação do que disponível para produzir**. **Conclusão de desenho:** RECEBIMENTO e ESTOQUE **já existem no Alvo** (laudo `Emitido`/`Concluído`); o que **não existe em lugar nenhum** é o momento físico entre os dois — `DataRecepcao` é preenchida na conclusão (3 de 3 casos). **É a única informação que o Hub gera de forma nativa, e é a razão do bipe/QR.** Pendências em §6.3-O. |
+
+| 28/07/2026 | REC-1.1 | **Sync do Laudo + Fila de Inspeção entregues (código; nada deployado).** Sessão iniciada com `git pull` = up-to-date (sem commits do Lovable) e **fingerprint `compras_pedidos` = 1720** (projeto `hbtggrbauguukewiknew`, MCP read-only). **REC-1.0 reconferido no banco antes de escrever qualquer código:** `rec_laudos` com 39 colunas, 8 índices, RLS ligada, 1 policy (`rec_laudos_select_admin` → `_is_admin()`), 1 trigger, **0 linhas**. **Whitelist do gateway conferida na fonte** (`erp-proxy`, `origin/main`, commit `e0b6e05`): `Laudo/Load`, `laudo/GetListForComponents` e `Laudo/GetListForComponents` estão em `ALLOWED_ENDPOINTS` — o clone local do erp-proxy estava 1 commit atrás e **não** foi tocado. **Autenticação lida, não inventada:** as 6 Edge Functions de sync do projeto usam `X-System-Secret` server-to-server; o middleware `requireSupabaseAuth` do gateway aceita esse header antes do JWT ⇒ `sync-laudos` segue o mesmo caminho. **Padrão de histórico seguido:** `sync_runs` (`job_type='laudos'`) + kill-switch `sync_settings` + `CRON_SECRET` + disparador `call_sync_laudos_cron` espelhado de `call_sync_produtos_cron`. **Decisões registradas:** (1) o Alvo devolve datas **sem offset** e elas são horário de Brasília — gravar cru em `timestamptz` faria a data "voltar" um dia, então o mapper carimba `-03:00` (constante `ALVO_TZ_OFFSET`); (2) o parser da lista é **defensivo** (tenta `Registros`/`Lista`/`Items`/… e, no limite, o 1º array de objetos) porque o envelope do `GetListForComponents` nunca foi visto de dentro de código — a chave usada vai para `sync_runs.detalhes`; (3) datas-zero do .NET (`0001-01-01`) viram null; (4) **sem corte silencioso**: se a lista bater no `PageSize` 2000 o job marca `possivel_truncacao` no retorno e na observação. **Mapeamento `sync_runs` deste job:** `total_candidatos`=listados · `total_consultados`=gravados · `total_mudaram`=enriquecidos · `total_erros`=erros. **Tela:** `/recebimento/fila`, somente leitura, **admin-only sem permissão nova** (gate = RLS `_is_admin()` + `isAdmin` na página e na sidebar) — `hub_permissions`/`hub_roles` não foram tocados. **Nenhuma escrita no Alvo, nenhum SQL aplicado, nenhum deploy** (função, Lovable e Render seguem intactos). Build `bun run build` limpo e `tsc --noEmit` limpo. Detalhe operacional (rota, payload, cadência, teto, o que validar) na **seção 9**. |
 
 ---
 
@@ -444,3 +739,63 @@ Provado com a requisição `0000002236` (**criada e deletada**). Espécime adici
 | 23/07/2026 | OP-1.5 | **Detalhe da OP + transições (código pronto no preview; build limpo).** Params das RPCs reconfirmados ao vivo (fingerprint 1686): `op_atualizar_rascunho(p_op_id,p_dados,p_itens)`, `op_registrar_aprovacao(p_op_id,p_depto)`, `op_registrar_comunicacao(p_op_id,p_comunicado_a,p_depto)`, `op_transicao_status(p_op_id,p_para,p_motivo)`. Nova página `src/pages/ProducaoOrdemDetalhe.tsx` (rota `/producao/ordens/:id`; clique na linha da lista agora **navega** — substituiu o toast placeholder): cabeçalho com número em destaque (mono/tabular) + badges de status e tipo_ordem; bloco de campos via `DataSection`/`Field` (todos os campos do FRM, incluindo blocos condicionais de aprovação/comunicação/cancelamento/fechamento e motivo); tabela de itens planejados; **timeline do histórico** (`op_status_historico`, de→para + motivo + usuário + data, rótulos via `getStatusOP`). Ações condicionais por status/permissão: **Editar** (só RASCUNHO, gate create — reabre o `NovaOPModal` em **modo edição** via novo prop `edicao`, salvando por `op_atualizar_rascunho`; "Salvar e abrir" faz update+`op_transicao_status` ABERTA), **Abrir** (RASCUNHO, create), **Cancelar** (RASCUNHO/ABERTA/EM_ANDAMENTO, gate manage, **motivo obrigatório** via dialog → `op_transicao_status` CANCELADA), **Registrar aprovação** e **Registrar comunicação** (botões-carimbo, gate manage, dialogs → `op_registrar_aprovacao`/`op_registrar_comunicacao`; disponíveis enquanto status≠CANCELADA). Toda mutação invalida `op_detalhe`/`op_lista`/`op_counts`. Serviços novos em `opService.ts`: `obterOrdem`/`atualizarRascunho`/`transicionar`/`registrarAprovacao`/`registrarComunicacao`. `NovaOPModal` ganhou modo edição (prop `edicao`, `ymdToDate`, título/toast condicionais). **Aguarda Publish do Pedro** — na validação, cancelar 2026-0501/0502 com motivo "OP de teste da Fase 1". |
 | 23/07/2026 | OP-1.4 | **Modal de abertura de OP (código pronto no preview; build limpo).** Verificado ao vivo (fingerprint 1686): `stock_products` tem `codigo_produto`/`codigo_alternativo`/`nome_produto`/`unidade_medida`/`ativo`; RPCs `op_criar_ordem(p_dados jsonb, p_itens jsonb)→uuid` e `op_transicao_status(p_op_id uuid, p_para text, p_motivo text)→void`. Novo `src/components/producao/NovaOPModal.tsx` (Dialog XL `max-w-4xl`, cabeçalho em cima + grade de itens embaixo, ordem do FRM-07-11): tipo de OP (select `op_tipos`), tipo_ordem/tipo_produto/destino (radios horizontais, rótulos do form), `produto_familia` default "Tricvalve", lote/`data_fim_planejada`/`numero_referencia`/observações opcionais, `data_inicio` default hoje, `emitido_depto` pré-preenchido com o último valor do usuário (`ultimoDeptoDoUsuario`). Defaults: `tipo_ordem=FABRICACAO`; **destino e tipo_produto sem default** (decisão consciente). Número prometido, não reservado (RPC gera no salvar; texto "Nº automático 2026-05xx"). Picker de SKU **dedicado** (não mexi no `ProductCombobox` compartilhado): busca server-side debounce 300ms + race-guard em `stock_products` por `codigo_alternativo`+`nome_produto`+`codigo_produto` (**`codigo_barras` fora**), só `ativo=true`, exibe "alternativo · hierárquico · nome · unidade"; selecionar→snapshot na linha + foco na quantidade, Enter→volta à busca; **SKU repetido bloqueado** com aviso; mín. 1 item, qtd>0. Ações "Salvar rascunho" e "Salvar e abrir" (2ª faz `op_criar_ordem`+`op_transicao_status` RASCUNHO→ABERTA), validação idêntica. Dirty-check via AlertDialog "Descartar alterações?". Botão "Nova OP" só com `producao.ordens.create`. Após salvar: toast "OP 2026-05xx criada" + invalidação de `op_lista`/`op_counts` (lista e chips atualizam). Serviços novos em `opService.ts`: `buscarProdutos`/`ultimoDeptoDoUsuario`/`criarOrdem`/`abrirOrdem`. **Aguarda Publish do Pedro.** |
 | 23/07/2026 | OP-1.3 | **Frontend: nav Produção + lista de OPs (código pronto no preview; build limpo).** Novos: `src/lib/statusOP.ts` (6 estados no padrão sóbrio, molde de `statusPedido.ts`), `src/services/opService.ts` (`listarOrdens`/`contarPorStatus`/`listarTipos`; leitura direta gateada pela RLS; resolve tipo, agregado de itens e nome do emissor via `profiles` em lote por `.in()`), `src/pages/ProducaoOrdens.tsx` (lista no molde `SuprimentosPedidos`: Nº tabular-nums, tipo, tipo_ordem, resumo "N SKUs · Q un", badge de status, data_inicio, emitido por; filtros server-side status/tipo/período/busca com persistência na URL, ordenação padrão `created_at desc`, chips de contagem por status clicáveis, empty state com "Nova OP"). Editados: `App.tsx` (rota `/producao/ordens` gateada por `PermissionRoute permKey="producao.access"`), `AppSidebar.tsx` (grupo colapsável "Produção" ícone `Factory`, injetado nos dois caminhos do bloco `nf_entrada` + guard ampliado para quem só tem `producao.access`), `constants/permissions.ts` (3 permissões `PRODUCAO_*` + papéis `OPERADOR_PRODUCAO`/`GESTOR_PRODUCAO`). "Nova OP"→toast (modal = OP-1.4); clique na linha→toast (detalhe = OP-1.5). **Aguarda Publish manual do Pedro.** Para ver a tela, um usuário precisa do papel `operador_producao`/`gestor_producao` (ou admin) — senão o menu/rota não aparecem (RBAC) e a RLS retorna vazio. | (sem executar nada; tarefa OP-1.2 é a mesma). Gate do `op_transicao_status` confirmado (abrir/iniciar=create; cancelar/avançar/fechar/reabrir=manage). **Achado empírico:** `fechada_por`/`fechada_em` **não existiam** em `op_ordens` (verificado: 28 colunas, sem elas — a OP-1.1 não as criou; não estavam "órfãs") ⇒ v2 adiciona no topo `alter table op_ordens add column if not exists fechada_por uuid / fechada_em timestamptz` (aditivo, nullable, 0 registros; rollback = drop column) e o ramo `p_para='FECHADA'` passa a carimbar `fechada_por=auth.uid()`/`fechada_em=now()` (antes caía no else genérico). **Duas RPCs novas** (gate `producao.ordens.manage`, SECURITY DEFINER + `search_path=public`, mesmo revoke public/grant authenticated): `op_registrar_aprovacao(p_op_id,p_depto)` → `aprovado_por/aprovado_em/aprovado_depto`; `op_registrar_comunicacao(p_op_id,p_comunicado_a,p_depto)` → `comunicado_a/comunicado_depto/comunicado_em`; ambas exigem OP existente e `status<>'CANCELADA'`. **Perf/segurança:** 4 policies de SELECT com gate em subselect `((select user_has_permission(auth.uid(),'producao.access')))` (InitPlan 1x/consulta, não 1x/linha); **`op_numeracao` perde a policy (deny-all; RLS segue habilitada)** — nenhuma tela lê o contador, RPCs acessam por dentro do definer ⇒ contagem de policies `op_*` = **4**. Verificação do arquivo ampliada: `has_function_privilege` (proxnum=false p/ authenticated+anon; 5 RPCs=true p/ authenticated), policies=4, e `pg_get_functiondef(_user_has_perm)`. **Evidência do gate interno:** `_user_has_perm(text)` é `STABLE SECURITY DEFINER search_path=public,auth`, usa **`auth.uid()`** (`hub_user_roles→hub_role_permissions→hub_permissions`, `revogado_em IS NULL`, bypass `_is_admin()`). Normalização `nullif(depto,'')` nas RPCs de aprovação/comunicação (padrão do arquivo). |
+
+---
+
+## 9. Módulo Recebimento (REC) — espelho do Laudo, sync e Fila de Inspeção
+
+**Por que existe.** A §6.3 provou que o laudo com status `Emitido` é material **fisicamente na empresa** (a NF foi lançada, o lote foi criado com quantidade cheia) que **ainda não é saldo em estoque** — logo é invisível no Alvo e não existia em nenhuma tela do Hub. Medição de 28/07/2026: **751 laudos em 2026**, **120 `Emitido`**, **1.433 unidades de pericárdio** paradas em **115 lotes**, a mais antiga desde **08/05** (dois lotes de 09/04 = 110 dias). O saldo do mesmo produto em 11/06 era 614 ⇒ **2,3× mais material esperando liberação do que disponível para produzir**.
+
+**Princípio.** `rec_laudos` é **espelho read-only** do Alvo: nenhuma coluna é editada por tela, o Hub não escreve nada no ERP. A custódia física (o bipe recebimento→inspeção, único dado que o Hub gera de forma nativa) virá em tabela **separada** e append-only (REC-2.x).
+
+### 9.1 — Edge Function `sync-laudos` (REC-1.1)
+
+| Item | Valor |
+|---|---|
+| Arquivo | `supabase/functions/sync-laudos/index.ts` |
+| Invocação | `POST /functions/v1/sync-laudos`, gate `CRON_SECRET` (header `x-cron-secret` ou `body.cron_secret`) |
+| Acesso ao Alvo | **sempre** `POST {ERP_PROXY_URL}/alvo/passthrough` com header `X-System-Secret` (padrão server-to-server dos outros 6 crons; o gateway aceita esse header antes do JWT) |
+| Secrets | `CRON_SECRET`, `ERP_PROXY_URL`, `ERP_PROXY_SYSTEM_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (todos já existentes) |
+| Kill-switch | `sync_settings.job_name = 'sync-laudos'` → `enabled=false` registra "Pausado" em `sync_runs` e sai sem tocar no Alvo |
+| Auditoria | `sync_runs` com `job_type='laudos'` |
+| Body opcional | `{"triggered_by":"manual_admin"}` · `{"ano":2025}` (rejanela a lista; o upsert é idempotente) |
+
+**Passo A — LISTA** (1 chamada): `laudo/GetListForComponents`, payload exato da §6.3-A com `Filter: "( DataEmissao >= #01/01/<ano> 00:00:00# )"`, `Order: "Numero DESC"`, `PageIndex: 1`, `PageSize: 2000`. **Sem filtro de status** — `Emitido` é a fila e `Concluído` mede o tempo de inspeção realizado. Upsert por `(codigo_empresa_filial, numero)` com os 21 campos + `raw_lista` + `sincronizado_em`; **não toca** nas colunas de enriquecimento nem em `enriquecido_em`. Se a lista bater no `PageSize`, o job marca `possivel_truncacao` (nunca corta em silêncio).
+
+**Passo B — ENRIQUECIMENTO** (teto de **100** por execução): seleciona `enriquecido_em is null` ordenado por `data_emissao desc`, chama `Laudo/Load?codigoEmpresaFilial=…&numero=…&loadParent=All&loadChild=All&loadOneToOne=All` em chunks de 5 paralelos (sleep 200ms) e grava as 12 colunas de detalhe (incluindo **`numero_ctrl_lote`**, a âncora do QR) + `raw_load` + `enriquecido_em`. **Watchdog de 110s** antes do teto de 150s de resposta: ao estourar, devolve o parcial — o que gravou fica e a execução seguinte continua. Os ~751 laudos convergem em **~8 rodadas**.
+
+**Cadência** (`sql/REC-1.1.sql`, a aplicar pelo Pedro): `cron.schedule('sync-laudos-4x-dia', '45 11,14,17,20 * * 1-5')` = **08:45 / 11:45 / 14:45 / 17:45 BRT**, dias úteis. Minuto 45 evita o `sync-compras-status-cron` (hora cheia, 11–20 UTC) e os crons de despesas/docfin/intercompany (minutos 00/10/30). Convergência inicial ≈ 2 dias úteis; para acelerar, `select public.call_sync_laudos_cron('manual_admin');`.
+
+**Mapeamento `sync_runs` deste job** (ler o histórico com esta chave): `total_candidatos` = laudos listados · `total_consultados` = laudos gravados · `total_mudaram` = laudos enriquecidos · `total_erros` = erros.
+
+**Códigos de erro distinguidos no log e em `sync_runs.detalhes`:** `401` = `X-System-Secret` inválido no gateway · `403` = endpoint fora da whitelist · `417` = payload rejeitado pelo Alvo.
+
+**Decisões de mapeamento (registradas para não se perder):**
+1. **Fuso.** O Alvo devolve datas **sem offset** (`2026-06-29T00:00:00`) e elas são horário de Brasília; gravar cru em `timestamptz` faria o Postgres assumir UTC e a data **voltaria um dia** na exibição. O mapper carimba `-03:00` (constante `ALVO_TZ_OFFSET`); strings que já trazem `Z`/`±HH:MM` passam intactas.
+2. **Parser defensivo.** O envelope do `GetListForComponents` nunca foi visto de dentro de código (só pelo Network): o extrator tenta `Registros`/`Lista`/`Items`/`Rows`/`Data`/`Result` e, no limite, o primeiro array de objetos — e **registra em `sync_runs.detalhes` qual chave usou**. Diagnóstico sem redeploy.
+3. **Datas-zero do .NET** (`0001-01-01`, `1900-01-01`) viram `null`.
+4. **Leitura de campo case-insensitive** — o Alvo alterna a caixa dos nomes entre endpoints (`GeraRmEspecifica`/`GeraRMEspecifica`).
+5. **inseridos × atualizados** sai da contagem da tabela antes/depois do upsert (só este job escreve em `rec_laudos`).
+
+### 9.2 — Tela `/recebimento/fila`
+
+`src/pages/RecebimentoFila.tsx` + `src/services/recebimentoService.ts`. **Somente leitura, admin-only, sem permissão nova**: o gate é a RLS de `rec_laudos` (`_is_admin()`), reforçado por `isAdmin` na página (tela "Acesso Restrito") e na sidebar. `hub_permissions`/`hub_roles`/`_user_has_perm` **não foram tocados**.
+
+- **KPIs:** lotes aguardando · unidades · lote mais antigo (dias, em vermelho acima de 45) · nº de NFs. Na aba Concluídos o 3º KPI vira **tempo médio de inspeção**.
+- **Tabela agrupada por NF** (`numero_documento`), grupos ordenados pelo lote mais antigo — a fila real. Colunas: laudo, produto (código + nome via `stock_products`), lote (`—` enquanto não enriquecido, com tooltip explicando), quantidade, unidade, emissão, **dias parado**, validade do lote.
+- **Faixas de dias parado:** até 15 **sem cor** (o normal não grita), 16–45 âmbar, acima de 45 vermelho — light e dark, `tabular-nums`, sem glow/gradiente (§4.1-E).
+- **Filtros:** status (default `Emitido`), produto, NF, faixa de dias — persistidos na URL (sobrevivem ao F5, como em Suprimentos).
+- **Aba "Concluídos":** resultado da análise, quantidade aprovada/reprovada e **tempo de inspeção realizado** (`data_resultado − data_emissao`).
+- **Transparência:** avisa quando a leitura atinge o teto de 3.000 linhas e quantos laudos ainda estão sem lote.
+- **Rodapé:** "Atualizado em …" a partir do `sincronizado_em` mais recente.
+- Nav: grupo novo **"Recebimento"** (ícone `PackageSearch`), injetado nos dois caminhos do bloco `nf_entrada` do `AppSidebar`.
+
+### 9.3 — Sequência para o Pedro (nada disso foi executado)
+
+1. `supabase functions deploy sync-laudos --no-verify-jwt --project-ref hbtggrbauguukewiknew`
+2. Disparo de teste (sem cron): `curl -X POST https://hbtggrbauguukewiknew.supabase.co/functions/v1/sync-laudos -H "Content-Type: application/json" -H "x-cron-secret: <CRON_SECRET>" -d '{"triggered_by":"test"}'` → conferir `listados`, `inseridos`, `enriquecidos`, `pendentes_enriquecimento`, `erros` e o `fingerprint.compras_pedidos` (deve dar 1720).
+3. Aplicar `sql/REC-1.1.sql` no SQL Editor (agendamento + kill-switch) e rodar a verificação do fim do arquivo.
+4. **Publish manual no Lovable** (a tela só aparece no app publicado depois disso).
+5. Validar na tela: KPIs batendo com o Alvo, agrupamento por NF, faixas de cor em dark **e** light, filtros + F5, aba Concluídos, console limpo.
+
+**Pendências conhecidas:** (a) o envelope da lista só será confirmado no 1º disparo real — se vier 0 listados, o `detalhes` do `sync_runs` diz a forma da resposta; (b) a janela é o **ano corrente**: na virada de ano, laudos de dezembro ainda `Emitido` saem da janela até um disparo com `{"ano": <anterior>}` (registrar como tarefa REC-1.x antes de 01/01/2027); (c) o fornecedor não vem no laudo (`CodigoEntidade` sempre null, §6.3-D) — para mostrá-lo é preciso o `MovEstq/Load` pela `chave_movestq`, que **não** está na whitelist do gateway.
