@@ -23,6 +23,9 @@ import type { LaudoFila } from "./recebimentoService";
  * filtro nativos no Excel. Ver REC-1.3 no PLANO-OP.md.
  */
 
+/** Recorte exportado — espelha o filtro de status escolhido na tela. */
+export type EscopoExport = "emitido" | "concluido" | "todos";
+
 interface ColunaExport {
   label: string;
   tipo: "texto" | "numero" | "data";
@@ -70,9 +73,12 @@ const COLUNAS_BASE: ColunaExport[] = [
   { label: "Chave MovEstq", tipo: "numero", largura: 14, valor: (l) => numero(l.chave_movestq) },
 ];
 
+// Colunas do desfecho da inspeção — entram quando a exportação inclui
+// laudos concluídos. "Valor reprovado" sai como NÚMERO para o Excel somar.
 const COLUNAS_CONCLUIDOS: ColunaExport[] = [
   { label: "Quantidade aprovada", tipo: "numero", largura: 18, valor: (l) => numero(l.quantidade_aprovada) },
   { label: "Quantidade reprovada", tipo: "numero", largura: 18, valor: (l) => numero(l.quantidade_reprovada) },
+  { label: "Valor reprovado", tipo: "numero", largura: 16, valor: (l) => numero(l.valor_reprovado) },
 ];
 
 /** `fila-inspecao_AAAA-MM-DD_HHmm.xlsx` — carimbo do momento da exportação. */
@@ -89,11 +95,12 @@ function nomeArquivo(agora: Date): string {
  */
 export async function exportarFilaXLSX(
   laudos: LaudoFila[],
-  escopo: "fila" | "concluidos",
+  escopo: EscopoExport,
 ): Promise<{ arquivo: string; linhas: number }> {
   const XLSX = await import("xlsx");
 
-  const colunas = escopo === "concluidos" ? [...COLUNAS_BASE, ...COLUNAS_CONCLUIDOS] : COLUNAS_BASE;
+  // As colunas de desfecho só entram quando há concluídos no recorte.
+  const colunas = escopo === "emitido" ? COLUNAS_BASE : [...COLUNAS_BASE, ...COLUNAS_CONCLUIDOS];
 
   const cabecalho = colunas.map((c) => c.label);
   const linhas = laudos.map((l) => colunas.map((c) => c.valor(l)));
@@ -124,7 +131,8 @@ export async function exportarFilaXLSX(
   }
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, escopo === "concluidos" ? "Concluídos" : "Fila de Inspeção");
+  const nomeAba = escopo === "concluido" ? "Concluídos" : escopo === "todos" ? "Laudos" : "Fila de Inspeção";
+  XLSX.utils.book_append_sheet(wb, ws, nomeAba);
 
   const arquivo = nomeArquivo(new Date());
   XLSX.writeFile(wb, arquivo, { cellDates: true });

@@ -36,6 +36,7 @@ export interface LaudoFila {
   data_validade_ctrl_lote: string | null;
   quantidade_aprovada: number | null;
   quantidade_reprovada: number | null;
+  valor_reprovado: number | null;
   enriquecido_em: string | null;
   sincronizado_em: string | null;
   // Derivados (resolvidos aqui):
@@ -108,6 +109,7 @@ const COLUNAS = [
   "data_validade_ctrl_lote",
   "quantidade_aprovada",
   "quantidade_reprovada",
+  "valor_reprovado",
   "enriquecido_em",
   "sincronizado_em",
 ].join(", ");
@@ -158,6 +160,7 @@ export async function listarLaudos(params: { status: string }): Promise<FilaResu
       quantidade: numOuNull(r.quantidade),
       quantidade_aprovada: numOuNull(r.quantidade_aprovada),
       quantidade_reprovada: numOuNull(r.quantidade_reprovada),
+      valor_reprovado: numOuNull(r.valor_reprovado),
       chave_movestq: numOuNull(r.chave_movestq),
       produto_nome: prod?.nome ?? null,
       produto_unidade: r.codigo_prod_unid_med || prod?.unidade || null,
@@ -184,10 +187,24 @@ export async function listarStatusDisponiveis(): Promise<string[]> {
 // Agregações da tela (feitas sobre o conjunto JÁ FILTRADO)
 // ─────────────────────────────────────────────────────────────────────
 
+/** Status do Alvo que significa "a inspeção terminou". */
+export const STATUS_CONCLUIDO = "Concluído";
+
+export function estaConcluido(l: LaudoFila): boolean {
+  return l.status === STATUS_CONCLUIDO;
+}
+
 export interface KpisFila {
   lotes: number;
+  pendentes: number; // ainda não concluídos — os que de fato esperam
+  concluidos: number;
   unidades: number;
+  /** Maior espera entre os laudos NÃO concluídos (um concluído não está parado). */
   diasMaisAntigo: number | null;
+  /** Média de `data_resultado − data_emissao` entre os concluídos. */
+  tempoMedioInspecao: number | null;
+  /** Soma de `valor_reprovado` — o que a Qualidade recusou, em R$. */
+  valorReprovado: number;
   nfs: number;
   semLote: number; // ainda não enriquecidos (Laudo/Load não rodou)
 }
@@ -196,24 +213,52 @@ export function calcularKpis(laudos: LaudoFila[]): KpisFila {
   let unidades = 0;
   let diasMaisAntigo: number | null = null;
   let semLote = 0;
+  let pendentes = 0;
+  let concluidos = 0;
+  let valorReprovado = 0;
+  let somaInspecao = 0;
+  let nInspecao = 0;
   const nfs = new Set<string>();
 
   for (const l of laudos) {
     unidades += Number(l.quantidade) || 0;
     if (l.numero_documento) nfs.add(l.numero_documento);
     if (!l.numero_ctrl_lote) semLote++;
-    if (l.dias_parado !== null && (diasMaisAntigo === null || l.dias_parado > diasMaisAntigo)) {
-      diasMaisAntigo = l.dias_parado;
+    valorReprovado += Number(l.valor_reprovado) || 0;
+
+    if (estaConcluido(l)) {
+      concluidos++;
+      if (l.dias_inspecao !== null) {
+        somaInspecao += l.dias_inspecao;
+        nInspecao++;
+      }
+    } else {
+      pendentes++;
+      // "Mais antigo" mede ESPERA: só conta quem ainda não foi liberado.
+      if (l.dias_parado !== null && (diasMaisAntigo === null || l.dias_parado > diasMaisAntigo)) {
+        diasMaisAntigo = l.dias_parado;
+      }
     }
   }
 
-  return { lotes: laudos.length, unidades, diasMaisAntigo, nfs: nfs.size, semLote };
+  return {
+    lotes: laudos.length,
+    pendentes,
+    concluidos,
+    unidades,
+    diasMaisAntigo,
+    tempoMedioInspecao: nInspecao > 0 ? Math.round(somaInspecao / nInspecao) : null,
+    valorReprovado,
+    nfs: nfs.size,
+    semLote,
+  };
 }
 
 export interface GrupoNF {
   nf: string; // "—" quando o laudo não tem NF
   laudos: LaudoFila[];
   unidades: number;
+  /** Maior espera do grupo, contando só os laudos NÃO concluídos. */
   diasMaisAntigo: number | null;
 }
 
@@ -230,7 +275,8 @@ export function agruparPorNF(laudos: LaudoFila[]): GrupoNF[] {
     }
     g.laudos.push(l);
     g.unidades += Number(l.quantidade) || 0;
-    if (l.dias_parado !== null && (g.diasMaisAntigo === null || l.dias_parado > g.diasMaisAntigo)) {
+    // Mesma regra do KPI: concluído não está esperando, não conta.
+    if (!estaConcluido(l) && l.dias_parado !== null && (g.diasMaisAntigo === null || l.dias_parado > g.diasMaisAntigo)) {
       g.diasMaisAntigo = l.dias_parado;
     }
   }

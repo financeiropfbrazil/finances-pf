@@ -22,7 +22,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -39,6 +38,7 @@ import {
   ChevronDown,
   ChevronRight,
   Calendar as CalendarIcon,
+  Coins,
   Download,
   X,
 } from "lucide-react";
@@ -50,11 +50,13 @@ import {
   calcularKpis,
   agruparPorNF,
   faixaDe,
+  estaConcluido,
   FAIXAS_DIAS,
+  STATUS_CONCLUIDO,
   type FaixaDias,
   type LaudoFila,
 } from "@/services/recebimentoService";
-import { exportarFilaXLSX } from "@/services/recebimentoExport";
+import { exportarFilaXLSX, type EscopoExport } from "@/services/recebimentoExport";
 
 // ════════════════════════════════════════════════════════════
 // FORMATADORES
@@ -93,6 +95,11 @@ function formatQtd(v: number | null | undefined): string {
   return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(Number(v));
 }
 
+function formatBRL(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
+}
+
 // Datas viajam na URL como "YYYY-MM-DD" (sem fuso). Parse e serialização por
 // componentes LOCAIS, para o dia não escorregar — mesmo cuidado do formatData
 // e do padrão já usado em SuprimentosPedidos.
@@ -122,15 +129,22 @@ function classeDias(dias: number | null): string {
 // PÁGINA
 // ════════════════════════════════════════════════════════════
 
-type Aba = "fila" | "concluidos";
+/** Valor do filtro de status que significa "sem filtrar". */
+const STATUS_TODOS = "todos";
 
 export default function RecebimentoFila() {
   const { isAdmin, loading: permLoading } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // ── Estado inicializado A PARTIR DA URL (filtro sobrevive ao F5) ──
-  const [aba, setAba] = useState<Aba>(() => (searchParams.get("aba") === "concluidos" ? "concluidos" : "fila"));
-  const [filtroStatus, setFiltroStatus] = useState(() => searchParams.get("status") || "Emitido");
+  // O status é o ÚNICO controle de recorte (REC-1.5 removeu o toggle do topo,
+  // que podia divergir deste dropdown). `?aba=concluidos` de links antigos
+  // continua funcionando: cai em "Concluído".
+  const [filtroStatus, setFiltroStatus] = useState(() => {
+    const daUrl = searchParams.get("status");
+    if (daUrl) return daUrl;
+    return searchParams.get("aba") === "concluidos" ? STATUS_CONCLUIDO : "Emitido";
+  });
   const [filtroProduto, setFiltroProduto] = useState(() => searchParams.get("produto") || "todos");
   const [filtroNF, setFiltroNF] = useState(() => searchParams.get("nf") || "todas");
   const [filtroFaixa, setFiltroFaixa] = useState<FaixaDias>(
@@ -143,13 +157,17 @@ export default function RecebimentoFila() {
   const [gruposFechados, setGruposFechados] = useState<Set<string>>(new Set());
   const [exportando, setExportando] = useState(false);
 
-  // Status efetivo da consulta: a aba "Concluídos" fixa o escopo.
-  const statusConsulta = aba === "concluidos" ? "Concluído" : filtroStatus;
+  // ── O status escolhido comanda a tela inteira ──
+  // Quais blocos de coluna/KPI fazem sentido no recorte atual:
+  //   "Dias parado" só para quem AINDA espera;
+  //   resultado/aprovada/reprovada/valor só para quem já foi inspecionado.
+  const mostraPendentes = filtroStatus !== STATUS_CONCLUIDO;
+  const mostraConcluidos = filtroStatus === STATUS_CONCLUIDO || filtroStatus === STATUS_TODOS;
+  const mostraColunaStatus = filtroStatus === STATUS_TODOS;
 
   useEffect(() => {
     const next: Record<string, string> = {};
-    if (aba !== "fila") next.aba = aba;
-    if (aba === "fila" && filtroStatus !== "Emitido") next.status = filtroStatus;
+    if (filtroStatus !== "Emitido") next.status = filtroStatus;
     if (filtroProduto !== "todos") next.produto = filtroProduto;
     if (filtroNF !== "todas") next.nf = filtroNF;
     if (filtroFaixa !== "todas") next.faixa = filtroFaixa;
@@ -159,7 +177,7 @@ export default function RecebimentoFila() {
     if (ate) next.ate = ate;
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aba, filtroStatus, filtroProduto, filtroNF, filtroFaixa, filtroDe, filtroAte]);
+  }, [filtroStatus, filtroProduto, filtroNF, filtroFaixa, filtroDe, filtroAte]);
 
   const { data: statusDisponiveis = [] } = useQuery({
     queryKey: ["rec_laudos_status"],
@@ -168,8 +186,8 @@ export default function RecebimentoFila() {
   });
 
   const { data: resultado, isLoading } = useQuery({
-    queryKey: ["rec_laudos_fila", statusConsulta],
-    queryFn: () => listarLaudos({ status: statusConsulta }),
+    queryKey: ["rec_laudos_fila", filtroStatus],
+    queryFn: () => listarLaudos({ status: filtroStatus }),
     enabled: isAdmin,
   });
 
@@ -233,7 +251,7 @@ export default function RecebimentoFila() {
     filtroFaixa !== "todas" ||
     !!filtroDe ||
     !!filtroAte ||
-    (aba === "fila" && filtroStatus !== "Emitido");
+    filtroStatus !== "Emitido";
 
   const limparFiltros = () => {
     setFiltroProduto("todos");
@@ -241,16 +259,18 @@ export default function RecebimentoFila() {
     setFiltroFaixa("todas");
     setFiltroDe(undefined);
     setFiltroAte(undefined);
-    if (aba === "fila") setFiltroStatus("Emitido");
+    setFiltroStatus("Emitido");
   };
 
   // Exporta EXATAMENTE o que está na tela (todos os filtros já aplicados).
   // A tela não pagina no servidor: `laudos` já é o conjunto completo do filtro.
   const handleExportar = async () => {
     if (laudos.length === 0) return;
+    const escopo: EscopoExport =
+      filtroStatus === STATUS_CONCLUIDO ? "concluido" : filtroStatus === "Emitido" ? "emitido" : "todos";
     setExportando(true);
     try {
-      const { arquivo, linhas } = await exportarFilaXLSX(laudos, aba);
+      const { arquivo, linhas } = await exportarFilaXLSX(laudos, escopo);
       toast.success(`${linhas} linha(s) exportada(s)`, { description: arquivo });
     } catch (err: any) {
       console.error("[fila-inspecao] falha ao exportar:", err);
@@ -268,13 +288,6 @@ export default function RecebimentoFila() {
       return s;
     });
   };
-
-  // Tempo médio de inspeção — só faz sentido na aba de concluídos.
-  const tempoMedioInspecao = useMemo(() => {
-    const vals = laudos.map((l) => l.dias_inspecao).filter((d): d is number => d !== null);
-    if (vals.length === 0) return null;
-    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-  }, [laudos]);
 
   if (permLoading) {
     return (
@@ -294,53 +307,71 @@ export default function RecebimentoFila() {
     );
   }
 
-  const colSpanTabela = aba === "fila" ? 8 : 10;
+  // Colunas visíveis dependem do status escolhido (7 fixas + condicionais).
+  const colSpanTabela =
+    7 + (mostraPendentes ? 1 : 0) + (mostraColunaStatus ? 1 : 0) + (mostraConcluidos ? 5 : 0);
+
+  // Quantos KPIs a seleção produz — a grade acompanha (classes estáticas,
+  // senão o Tailwind não as gera no build).
+  const nKpis = 3 + (mostraPendentes ? 1 : 0) + (mostraConcluidos ? 2 : 0);
+  const gridKpis =
+    nKpis >= 6
+      ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
+      : nKpis === 5
+        ? "sm:grid-cols-2 lg:grid-cols-5"
+        : "sm:grid-cols-2 lg:grid-cols-4";
+
+  const rotuloLotes =
+    filtroStatus === STATUS_CONCLUIDO ? "Lotes concluídos" : filtroStatus === STATUS_TODOS ? "Lotes" : "Lotes aguardando";
 
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Fila de Inspeção</h1>
-          <p className="text-sm text-muted-foreground">
-            Material recebido que aguarda liberação da Qualidade — já está na empresa, ainda não é saldo em estoque.
-          </p>
-        </div>
-        <Tabs value={aba} onValueChange={(v) => setAba(v as Aba)}>
-          <TabsList>
-            <TabsTrigger value="fila">Aguardando liberação</TabsTrigger>
-            <TabsTrigger value="concluidos">Concluídos</TabsTrigger>
-          </TabsList>
-        </Tabs>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Fila de Inspeção</h1>
+        <p className="text-sm text-muted-foreground">
+          Recebimento por lote: o que aguarda liberação da Qualidade — material já na empresa e ainda fora do estoque — e
+          o que já foi inspecionado.
+        </p>
       </div>
 
-      {/* KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* KPIs — refletem o status escolhido no filtro */}
+      <div className={`grid gap-4 ${gridKpis}`}>
         <KpiCard
           icon={<Boxes className="h-4 w-4" />}
-          label={aba === "fila" ? "Lotes aguardando" : "Lotes concluídos"}
+          label={rotuloLotes}
           valor={formatQtd(kpis.lotes)}
-        />
-        <KpiCard
-          icon={<PackageSearch className="h-4 w-4" />}
-          label="Unidades"
-          valor={formatQtd(kpis.unidades)}
-        />
-        <KpiCard
-          icon={<Clock className="h-4 w-4" />}
-          label={aba === "fila" ? "Lote mais antigo" : "Tempo médio de inspeção"}
-          valor={
-            aba === "fila"
-              ? kpis.diasMaisAntigo !== null
-                ? `${kpis.diasMaisAntigo} dias`
-                : "—"
-              : tempoMedioInspecao !== null
-                ? `${tempoMedioInspecao} dias`
-                : "—"
+          sub={
+            filtroStatus === STATUS_TODOS
+              ? `${formatQtd(kpis.pendentes)} aguardando · ${formatQtd(kpis.concluidos)} concluídos`
+              : undefined
           }
-          destaque={aba === "fila" && faixaDe(kpis.diasMaisAntigo) === "acima45"}
         />
+        <KpiCard icon={<PackageSearch className="h-4 w-4" />} label="Unidades" valor={formatQtd(kpis.unidades)} />
+        {mostraPendentes && (
+          <KpiCard
+            icon={<Clock className="h-4 w-4" />}
+            label="Lote mais antigo"
+            valor={kpis.diasMaisAntigo !== null ? `${kpis.diasMaisAntigo} dias` : "—"}
+            destaque={faixaDe(kpis.diasMaisAntigo) === "acima45"}
+          />
+        )}
+        {mostraConcluidos && (
+          <KpiCard
+            icon={<Clock className="h-4 w-4" />}
+            label="Tempo médio de inspeção"
+            valor={kpis.tempoMedioInspecao !== null ? `${kpis.tempoMedioInspecao} dias` : "—"}
+          />
+        )}
         <KpiCard icon={<FileText className="h-4 w-4" />} label="Notas fiscais" valor={formatQtd(kpis.nfs)} />
+        {mostraConcluidos && (
+          <KpiCard
+            icon={<Coins className="h-4 w-4" />}
+            label="Valor reprovado"
+            valor={formatBRL(kpis.valorReprovado)}
+            destaque={kpis.valorReprovado > 0}
+          />
+        )}
       </div>
 
       {/* Avisos de integridade — nunca esconder o que ficou de fora */}
@@ -365,27 +396,27 @@ export default function RecebimentoFila() {
       {/* Filtros */}
       <Card>
         <CardContent className="flex flex-wrap items-end gap-4 p-4">
-          {aba === "fila" && (
-            <div className="min-w-[170px]">
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
-              <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Emitido">Emitido</SelectItem>
-                  {statusDisponiveis
-                    .filter((s) => s !== "Emitido")
-                    .map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  <SelectItem value="todos">Todos os status</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          {/* Único controle de recorte da tela (REC-1.5). Opções vêm do que
+              existe no espelho — "Todos" permite ver fila e concluídos juntos. */}
+          <div className="min-w-[170px]">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
+            <Select value={filtroStatus} onValueChange={setFiltroStatus}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Emitido">Emitido</SelectItem>
+                {statusDisponiveis
+                  .filter((s) => s !== "Emitido")
+                  .map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                <SelectItem value={STATUS_TODOS}>Todos</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           <div className="min-w-[280px] flex-1 max-w-md">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Produto</label>
@@ -423,7 +454,7 @@ export default function RecebimentoFila() {
 
           <div className="min-w-[170px]">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              {aba === "fila" ? "Dias parado" : "Dias desde a emissão"}
+              {mostraPendentes ? "Dias parado" : "Dias desde a emissão"}
             </label>
             <Select value={filtroFaixa} onValueChange={(v) => setFiltroFaixa(v as FaixaDias)}>
               <SelectTrigger>
@@ -576,16 +607,17 @@ export default function RecebimentoFila() {
                     <th className="px-4 py-3 text-right font-medium">Qtd</th>
                     <th className="px-4 py-3 font-medium">Un</th>
                     <th className="whitespace-nowrap px-4 py-3 font-medium">Emissão</th>
-                    {aba === "fila" ? (
-                      <>
-                        <th className="whitespace-nowrap px-4 py-3 text-right font-medium">Dias parado</th>
-                        <th className="whitespace-nowrap px-4 py-3 font-medium">Validade do lote</th>
-                      </>
-                    ) : (
+                    {mostraPendentes && (
+                      <th className="whitespace-nowrap px-4 py-3 text-right font-medium">Dias parado</th>
+                    )}
+                    <th className="whitespace-nowrap px-4 py-3 font-medium">Validade do lote</th>
+                    {mostraColunaStatus && <th className="px-4 py-3 font-medium">Status</th>}
+                    {mostraConcluidos && (
                       <>
                         <th className="px-4 py-3 font-medium">Resultado</th>
                         <th className="px-4 py-3 text-right font-medium">Aprovada</th>
                         <th className="px-4 py-3 text-right font-medium">Reprovada</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-right font-medium">Valor reprovado</th>
                         <th className="whitespace-nowrap px-4 py-3 text-right font-medium">Inspeção</th>
                       </>
                     )}
@@ -613,7 +645,7 @@ export default function RecebimentoFila() {
                                 <span className="tabular-nums">{g.laudos.length}</span> lote(s) ·{" "}
                                 <span className="tabular-nums">{formatQtd(g.unidades)}</span> un
                               </span>
-                              {aba === "fila" && g.diasMaisAntigo !== null && (
+                              {mostraPendentes && g.diasMaisAntigo !== null && (
                                 <Badge variant="outline" className={`${classeDias(g.diasMaisAntigo)} tabular-nums`}>
                                   {g.diasMaisAntigo} dias
                                 </Badge>
@@ -654,41 +686,72 @@ export default function RecebimentoFila() {
                               <td className="px-4 py-3 text-xs text-muted-foreground">{l.produto_unidade || "—"}</td>
                               <td className="whitespace-nowrap px-4 py-3 tabular-nums">{formatData(l.data_emissao)}</td>
 
-                              {aba === "fila" ? (
-                                <>
-                                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                                    {l.dias_parado === null ? (
-                                      "—"
-                                    ) : (
-                                      <Badge variant="outline" className={`${classeDias(l.dias_parado)} tabular-nums`}>
-                                        {l.dias_parado}
-                                      </Badge>
-                                    )}
-                                  </td>
-                                  <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
-                                    {formatData(l.data_validade_ctrl_lote)}
-                                  </td>
-                                </>
-                              ) : (
-                                <>
-                                  <td className="px-4 py-3">{l.resultado_analise || "—"}</td>
-                                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                                    {formatQtd(l.quantidade_aprovada)}
-                                  </td>
-                                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                                    {l.quantidade_reprovada ? (
-                                      <span className="text-red-700 dark:text-red-400">
-                                        {formatQtd(l.quantidade_reprovada)}
-                                      </span>
-                                    ) : (
-                                      formatQtd(l.quantidade_reprovada)
-                                    )}
-                                  </td>
-                                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                                    {l.dias_inspecao === null ? "—" : `${l.dias_inspecao} d`}
-                                  </td>
-                                </>
+                              {/* Dias parado: só mede quem AINDA espera. Um laudo
+                                  concluído aparece vazio quando o recorte é "Todos". */}
+                              {mostraPendentes && (
+                                <td className="whitespace-nowrap px-4 py-3 text-right">
+                                  {estaConcluido(l) || l.dias_parado === null ? (
+                                    <span className="text-muted-foreground">—</span>
+                                  ) : (
+                                    <Badge variant="outline" className={`${classeDias(l.dias_parado)} tabular-nums`}>
+                                      {l.dias_parado}
+                                    </Badge>
+                                  )}
+                                </td>
                               )}
+
+                              <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
+                                {formatData(l.data_validade_ctrl_lote)}
+                              </td>
+
+                              {mostraColunaStatus && (
+                                <td className="whitespace-nowrap px-4 py-3">
+                                  <Badge variant="outline" className="border-border bg-transparent text-foreground">
+                                    {l.status || "—"}
+                                  </Badge>
+                                </td>
+                              )}
+
+                              {/* Desfecho da inspeção: vazio enquanto o laudo não
+                                  foi concluído (não há resultado a mostrar). */}
+                              {mostraConcluidos &&
+                                (estaConcluido(l) ? (
+                                  <>
+                                    <td className="px-4 py-3">{l.resultado_analise || "—"}</td>
+                                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                                      {formatQtd(l.quantidade_aprovada)}
+                                    </td>
+                                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                                      {l.quantidade_reprovada ? (
+                                        <span className="text-red-700 dark:text-red-400">
+                                          {formatQtd(l.quantidade_reprovada)}
+                                        </span>
+                                      ) : (
+                                        formatQtd(l.quantidade_reprovada)
+                                      )}
+                                    </td>
+                                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                                      {l.valor_reprovado ? (
+                                        <span className="text-red-700 dark:text-red-400">
+                                          {formatBRL(l.valor_reprovado)}
+                                        </span>
+                                      ) : (
+                                        formatBRL(l.valor_reprovado)
+                                      )}
+                                    </td>
+                                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                                      {l.dias_inspecao === null ? "—" : `${l.dias_inspecao} d`}
+                                    </td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td className="px-4 py-3 text-muted-foreground">—</td>
+                                    <td className="px-4 py-3 text-right text-muted-foreground">—</td>
+                                    <td className="px-4 py-3 text-right text-muted-foreground">—</td>
+                                    <td className="px-4 py-3 text-right text-muted-foreground">—</td>
+                                    <td className="px-4 py-3 text-right text-muted-foreground">—</td>
+                                  </>
+                                ))}
                             </tr>
                           ))}
                       </Fragment>
@@ -719,11 +782,13 @@ function KpiCard({
   icon,
   label,
   valor,
+  sub,
   destaque = false,
 }: {
   icon: React.ReactNode;
   label: string;
   valor: string;
+  sub?: string;
   destaque?: boolean;
 }) {
   return (
@@ -740,6 +805,7 @@ function KpiCard({
         >
           {valor}
         </p>
+        {sub && <p className="mt-1 text-xs tabular-nums text-muted-foreground">{sub}</p>}
       </CardContent>
     </Card>
   );
