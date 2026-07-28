@@ -324,24 +324,17 @@ export default function RecebimentoFila() {
   const colSpanTabela =
     7 + (mostraPendentes ? 1 : 0) + (mostraColunaStatus ? 1 : 0) + (mostraConcluidos ? 5 : 0);
 
-  // Quantos KPIs a seleção produz — a grade acompanha (classes estáticas,
-  // senão o Tailwind não as gera no build). A grade QUEBRA EM LINHAS: 1 card
-  // por linha no estreito, 2 no médio, 3 no largo e a fileira cheia só no
-  // muito largo (2xl = 1536px). Com 6 cards em 1280 isso dá 2×3, que cabe —
-  // antes, `xl:grid-cols-6` espremia os 6 e o último saía da viewport.
-  const nKpis = 3 + (mostraPendentes ? 1 : 0) + (mostraConcluidos ? 2 : 0);
-  const gridKpis =
-    nKpis >= 6
-      ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6"
-      : nKpis === 5
-        ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5"
-        : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4";
-
   const rotuloLotes =
     filtroStatus === STATUS_CONCLUIDO ? "Lotes concluídos" : filtroStatus === STATUS_TODOS ? "Lotes" : "Lotes aguardando";
 
   return (
-    <div className="space-y-6 p-6">
+    // ⚠ `grid grid-cols-1` NÃO é decoração: a coluna é `minmax(0, 1fr)`, o que
+    // impede o conteúdo largo (a tabela) de inflar a página. Sem isso a largura
+    // da tabela sobe a cadeia, estica o <main> do AppLayout além da viewport e
+    // a barra de rolagem passa a ser DA PÁGINA — arrastando KPIs e filtros para
+    // fora da tela (era exatamente o defeito da REC-1.6, medido em navegador).
+    // `gap-6` reproduz o espaçamento do antigo `space-y-6`.
+    <div className="grid grid-cols-1 gap-6 p-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Fila de Inspeção</h1>
@@ -351,8 +344,10 @@ export default function RecebimentoFila() {
         </p>
       </div>
 
-      {/* KPIs — refletem o status escolhido no filtro */}
-      <div className={`grid gap-4 ${gridKpis}`}>
+      {/* KPIs — refletem o status escolhido no filtro. Uma grade só para os
+          três recortes (4, 5 ou 6 cards): no máximo 4 por linha, quebrando o
+          resto. Duas linhas de cards legíveis valem mais que seis espremidos. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <KpiCard
           icon={<Boxes className="h-4 w-4" />}
           label={rotuloLotes}
@@ -375,7 +370,8 @@ export default function RecebimentoFila() {
         {mostraConcluidos && (
           <KpiCard
             icon={<Clock className="h-4 w-4" />}
-            label="Tempo médio de inspeção"
+            label="Tempo médio"
+            title="Tempo médio de inspeção: data do resultado − data de emissão"
             valor={kpis.tempoMedioInspecao !== null ? `${kpis.tempoMedioInspecao} dias` : "—"}
           />
         )}
@@ -414,7 +410,7 @@ export default function RecebimentoFila() {
           caem juntos na mesma linha; em 6, tudo cabe numa fileira só. */}
       <Card>
         <CardContent className="space-y-4 p-4">
-          <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+          <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {/* Único controle de recorte da tela (REC-1.5). Opções vêm do que
                 existe no espelho — "Todos" permite ver fila e concluídos juntos. */}
             <div className="min-w-0">
@@ -634,7 +630,13 @@ export default function RecebimentoFila() {
       ) : (
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            {/* `w-0 min-w-full` no CONTAINER DE ROLAGEM é o que prende a
+                rolagem aqui dentro: a largura intrínseca vira 0 e deixa de
+                subir a cadeia até o <main>, mas o `min-w-full` mantém o
+                container ocupando 100% da largura disponível. Medido em
+                navegador: sem isso, este container era esticado até caber a
+                tabela inteira e quem rolava era a página. */}
+            <div className="w-0 min-w-full overflow-x-auto">
               {/* w-max + min-w-full: a tabela ocupa a largura toda quando cabe
                   e CRESCE quando não cabe (rolando), em vez de espremer as 14
                   colunas até ficarem ilegíveis. */}
@@ -831,19 +833,22 @@ function KpiCard({
   label,
   valor,
   sub,
+  title,
   destaque = false,
 }: {
   icon: React.ReactNode;
   label: string;
   valor: string;
   sub?: string;
+  /** Texto completo quando o rótulo é abreviado (ex.: "Tempo médio"). */
+  title?: string;
   destaque?: boolean;
 }) {
   return (
     // min-w-0 em toda a cadeia: sem isso o item de grid assume a largura do
     // conteúdo (min-width:auto) e um rótulo longo empurra o card para fora
     // da viewport em vez de quebrar linha.
-    <Card className="min-w-0">
+    <Card className="min-w-0" title={title}>
       <CardContent className="min-w-0 p-4">
         <div className="flex min-w-0 items-start gap-2 text-xs font-medium uppercase text-muted-foreground">
           <span className="mt-0.5 shrink-0">{icon}</span>
