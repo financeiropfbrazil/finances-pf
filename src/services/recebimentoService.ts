@@ -26,6 +26,7 @@ export interface LaudoFila {
   data_resultado: string | null;
   numero_documento: string | null; // nº da NF de origem
   especie_documento: string | null;
+  chave_movestq: number | null; // MovEstq de origem (lançamento da NF)
   codigo_produto: string | null;
   quantidade: number | null;
   codigo_prod_unid_med: string | null;
@@ -72,6 +73,13 @@ export function faixaDe(dias: number | null | undefined): Exclude<FaixaDias, "to
  * Comparamos DIAS (não horas) — "parado desde 08/05" tem que dar o mesmo
  * número para quem olha às 9h e às 18h.
  */
+/** Converte o que o PostgREST devolver (string de `numeric`, número, null) em número. */
+function numOuNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function diffDias(deISO: string | null | undefined, ateISO?: string | null): number | null {
   if (!deISO) return null;
   const de = new Date(deISO);
@@ -90,6 +98,7 @@ const COLUNAS = [
   "data_resultado",
   "numero_documento",
   "especie_documento",
+  "chave_movestq",
   "codigo_produto",
   "quantidade",
   "codigo_prod_unid_med",
@@ -144,6 +153,12 @@ export async function listarLaudos(params: { status: string }): Promise<FilaResu
     if (r.sincronizado_em && (!maisRecente || r.sincronizado_em > maisRecente)) maisRecente = r.sincronizado_em;
     return {
       ...r,
+      // `numeric` do Postgres chega como STRING no PostgREST ("32.000000000").
+      // Convertemos aqui, na fronteira, para ninguém somar texto adiante.
+      quantidade: numOuNull(r.quantidade),
+      quantidade_aprovada: numOuNull(r.quantidade_aprovada),
+      quantidade_reprovada: numOuNull(r.quantidade_reprovada),
+      chave_movestq: numOuNull(r.chave_movestq),
       produto_nome: prod?.nome ?? null,
       produto_unidade: r.codigo_prod_unid_med || prod?.unidade || null,
       dias_parado: diffDias(r.data_emissao),

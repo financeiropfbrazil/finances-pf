@@ -24,6 +24,10 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import {
   ShieldX,
   Loader2,
@@ -34,6 +38,8 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  Calendar as CalendarIcon,
+  Download,
   X,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -48,6 +54,7 @@ import {
   type FaixaDias,
   type LaudoFila,
 } from "@/services/recebimentoService";
+import { exportarFilaXLSX } from "@/services/recebimentoExport";
 
 // ════════════════════════════════════════════════════════════
 // FORMATADORES
@@ -86,6 +93,23 @@ function formatQtd(v: number | null | undefined): string {
   return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(Number(v));
 }
 
+// Datas viajam na URL como "YYYY-MM-DD" (sem fuso). Parse e serialização por
+// componentes LOCAIS, para o dia não escorregar — mesmo cuidado do formatData
+// e do padrão já usado em SuprimentosPedidos.
+function dateToParam(d: Date | undefined): string | undefined {
+  if (!d) return undefined;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function paramToDate(s: string | null): Date | undefined {
+  if (!s) return undefined;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return undefined;
+  const [, ano, mes, dia] = m;
+  return new Date(Number(ano), Number(mes) - 1, Number(dia)); // local, sem UTC
+}
+
 /** Classe do badge de "dias parado". Sem cor até 15 dias — o normal não grita. */
 function classeDias(dias: number | null): string {
   const f = faixaDe(dias);
@@ -112,7 +136,12 @@ export default function RecebimentoFila() {
   const [filtroFaixa, setFiltroFaixa] = useState<FaixaDias>(
     () => (searchParams.get("faixa") as FaixaDias) || "todas",
   );
+  // Período por data de emissão. Independentes: só De, só Até, ou os dois.
+  // Sem default — a tela abre mostrando tudo.
+  const [filtroDe, setFiltroDe] = useState<Date | undefined>(() => paramToDate(searchParams.get("de")));
+  const [filtroAte, setFiltroAte] = useState<Date | undefined>(() => paramToDate(searchParams.get("ate")));
   const [gruposFechados, setGruposFechados] = useState<Set<string>>(new Set());
+  const [exportando, setExportando] = useState(false);
 
   // Status efetivo da consulta: a aba "Concluídos" fixa o escopo.
   const statusConsulta = aba === "concluidos" ? "Concluído" : filtroStatus;
@@ -124,9 +153,13 @@ export default function RecebimentoFila() {
     if (filtroProduto !== "todos") next.produto = filtroProduto;
     if (filtroNF !== "todas") next.nf = filtroNF;
     if (filtroFaixa !== "todas") next.faixa = filtroFaixa;
+    const de = dateToParam(filtroDe);
+    const ate = dateToParam(filtroAte);
+    if (de) next.de = de;
+    if (ate) next.ate = ate;
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aba, filtroStatus, filtroProduto, filtroNF, filtroFaixa]);
+  }, [aba, filtroStatus, filtroProduto, filtroNF, filtroFaixa, filtroDe, filtroAte]);
 
   const { data: statusDisponiveis = [] } = useQuery({
     queryKey: ["rec_laudos_status"],
@@ -160,14 +193,36 @@ export default function RecebimentoFila() {
   }, [todos]);
 
   // ── Filtros client-side (o conjunto inteiro já está em memória) ──
+  // Período: comparamos INSTANTES — início do dia "De" e fim do dia "Até",
+  // ambos no fuso local, para o limite não cortar meio dia por engano.
+  const limiteDe = useMemo(
+    () => (filtroDe ? new Date(filtroDe.getFullYear(), filtroDe.getMonth(), filtroDe.getDate()).getTime() : null),
+    [filtroDe],
+  );
+  const limiteAte = useMemo(
+    () =>
+      filtroAte
+        ? new Date(filtroAte.getFullYear(), filtroAte.getMonth(), filtroAte.getDate(), 23, 59, 59, 999).getTime()
+        : null,
+    [filtroAte],
+  );
+
   const laudos = useMemo(() => {
     return todos.filter((l: LaudoFila) => {
       if (filtroProduto !== "todos" && l.codigo_produto !== filtroProduto) return false;
       if (filtroNF !== "todas" && l.numero_documento !== filtroNF) return false;
       if (filtroFaixa !== "todas" && faixaDe(l.dias_parado) !== filtroFaixa) return false;
+      if (limiteDe !== null || limiteAte !== null) {
+        // Sem data de emissão o laudo não pertence a período nenhum.
+        if (!l.data_emissao) return false;
+        const t = new Date(l.data_emissao).getTime();
+        if (Number.isNaN(t)) return false;
+        if (limiteDe !== null && t < limiteDe) return false;
+        if (limiteAte !== null && t > limiteAte) return false;
+      }
       return true;
     });
-  }, [todos, filtroProduto, filtroNF, filtroFaixa]);
+  }, [todos, filtroProduto, filtroNF, filtroFaixa, limiteDe, limiteAte]);
 
   const kpis = useMemo(() => calcularKpis(laudos), [laudos]);
   const grupos = useMemo(() => agruparPorNF(laudos), [laudos]);
@@ -176,13 +231,33 @@ export default function RecebimentoFila() {
     filtroProduto !== "todos" ||
     filtroNF !== "todas" ||
     filtroFaixa !== "todas" ||
+    !!filtroDe ||
+    !!filtroAte ||
     (aba === "fila" && filtroStatus !== "Emitido");
 
   const limparFiltros = () => {
     setFiltroProduto("todos");
     setFiltroNF("todas");
     setFiltroFaixa("todas");
+    setFiltroDe(undefined);
+    setFiltroAte(undefined);
     if (aba === "fila") setFiltroStatus("Emitido");
+  };
+
+  // Exporta EXATAMENTE o que está na tela (todos os filtros já aplicados).
+  // A tela não pagina no servidor: `laudos` já é o conjunto completo do filtro.
+  const handleExportar = async () => {
+    if (laudos.length === 0) return;
+    setExportando(true);
+    try {
+      const { arquivo, linhas } = await exportarFilaXLSX(laudos, aba);
+      toast.success(`${linhas} linha(s) exportada(s)`, { description: arquivo });
+    } catch (err: any) {
+      console.error("[fila-inspecao] falha ao exportar:", err);
+      toast.error("Não foi possível gerar a planilha", { description: err?.message || String(err) });
+    } finally {
+      setExportando(false);
+    }
   };
 
   const alternarGrupo = (nf: string) => {
@@ -364,24 +439,102 @@ export default function RecebimentoFila() {
             </Select>
           </div>
 
+          {/* Período por data de emissão — De e Até independentes. */}
+          <div className="min-w-[150px]">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Emissão de</label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn("w-full justify-start text-left font-normal", !filtroDe && "text-muted-foreground")}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {filtroDe ? format(filtroDe, "dd/MM/yyyy", { locale: ptBR }) : "Data inicial"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarComponent
+                  mode="single"
+                  selected={filtroDe}
+                  onSelect={setFiltroDe}
+                  disabled={(d) => (filtroAte ? d > filtroAte : false)}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+                {filtroDe && (
+                  <div className="border-t border-border p-2">
+                    <Button variant="ghost" size="sm" className="w-full" onClick={() => setFiltroDe(undefined)}>
+                      <X className="mr-1 h-3 w-3" /> Limpar
+                    </Button>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Emissão até</label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn("w-full justify-start text-left font-normal", !filtroAte && "text-muted-foreground")}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {filtroAte ? format(filtroAte, "dd/MM/yyyy", { locale: ptBR }) : "Data final"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarComponent
+                  mode="single"
+                  selected={filtroAte}
+                  onSelect={setFiltroAte}
+                  disabled={(d) => (filtroDe ? d < filtroDe : false)}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+                {filtroAte && (
+                  <div className="border-t border-border p-2">
+                    <Button variant="ghost" size="sm" className="w-full" onClick={() => setFiltroAte(undefined)}>
+                      <X className="mr-1 h-3 w-3" /> Limpar
+                    </Button>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
+
           {temFiltroAtivo && (
             <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-muted-foreground">
               <X className="mr-1 h-3 w-3" /> Limpar filtros
             </Button>
           )}
 
-          {grupos.length > 0 && (
+          <div className="ml-auto flex items-center gap-2">
+            {grupos.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={() =>
+                  setGruposFechados((prev) => (prev.size > 0 ? new Set() : new Set(grupos.map((g) => g.nf))))
+                }
+              >
+                {gruposFechados.size > 0 ? "Expandir todas" : "Recolher todas"}
+              </Button>
+            )}
+            {/* Exporta o conjunto filtrado inteiro — não só o que está visível. */}
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="ml-auto text-muted-foreground"
-              onClick={() =>
-                setGruposFechados((prev) => (prev.size > 0 ? new Set() : new Set(grupos.map((g) => g.nf))))
-              }
+              onClick={handleExportar}
+              disabled={exportando || laudos.length === 0}
+              title="Exporta em .xlsx exatamente o conjunto filtrado, uma linha por laudo"
             >
-              {gruposFechados.size > 0 ? "Expandir todas" : "Recolher todas"}
+              {exportando ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Download className="mr-1 h-4 w-4" />}
+              {exportando ? "Gerando…" : "Exportar"}
             </Button>
-          )}
+          </div>
         </CardContent>
       </Card>
 
