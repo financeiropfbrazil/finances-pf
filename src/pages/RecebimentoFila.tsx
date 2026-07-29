@@ -38,6 +38,7 @@ import {
   ChevronDown,
   ChevronRight,
   Calendar as CalendarIcon,
+  Banknote,
   Coins,
   Download,
   X,
@@ -98,6 +99,16 @@ function formatQtd(v: number | null | undefined): string {
 function formatBRL(v: number | null | undefined): string {
   if (v === null || v === undefined) return "—";
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
+}
+
+/** BRL sem centavos — para totais grandes, onde o centavo é ruído. */
+function formatBRLCheio(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(Number(v));
 }
 
 // Datas viajam na URL como "YYYY-MM-DD" (sem fuso). Parse e serialização por
@@ -327,6 +338,15 @@ export default function RecebimentoFila() {
   const rotuloLotes =
     filtroStatus === STATUS_CONCLUIDO ? "Lotes concluídos" : filtroStatus === STATUS_TODOS ? "Lotes" : "Lotes aguardando";
 
+  // O KPI de valor acompanha o recorte, como o de lotes: chamar de "aguardando
+  // liberação" o total de um recorte que inclui concluídos seria mentira.
+  const rotuloValor =
+    filtroStatus === STATUS_CONCLUIDO
+      ? "Valor inspecionado"
+      : filtroStatus === STATUS_TODOS
+        ? "Valor total"
+        : "Valor aguardando liberação";
+
   return (
     // ⚠ `grid grid-cols-1` NÃO é decoração: a coluna é `minmax(0, 1fr)`, o que
     // impede o conteúdo largo (a tabela) de inflar a página. Sem isso a largura
@@ -384,6 +404,18 @@ export default function RecebimentoFila() {
             destaque={kpis.valorReprovado > 0}
           />
         )}
+        {/* REC-2.1 — custo do material no recorte atual. `valor_custo_lote` é
+            null enquanto o passo C do sync não alcançou o laudo: esses lotes
+            ficam FORA da soma e viram o aviso abaixo do número, para o total
+            nunca parecer menor sem explicação. Quando o enriquecimento
+            terminar, o contador zera e o aviso some sozinho. */}
+        <KpiCard
+          icon={<Banknote className="h-4 w-4" />}
+          label={rotuloValor}
+          title="Custo do material (custo unitário × quantidade do lote), somando apenas os lotes já valorizados"
+          valor={formatBRLCheio(kpis.valorCustoLote)}
+          sub={kpis.lotesSemValor > 0 ? `${formatQtd(kpis.lotesSemValor)} lotes sem valor` : undefined}
+        />
       </div>
 
       {/* Avisos de integridade — nunca esconder o que ficou de fora */}

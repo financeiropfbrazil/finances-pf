@@ -37,6 +37,12 @@ export interface LaudoFila {
   quantidade_aprovada: number | null;
   quantidade_reprovada: number | null;
   valor_reprovado: number | null;
+  /**
+   * Custo do lote (REC-2.0, passo C): `custo_unitario × quantidade do lote`.
+   * NULL enquanto o enriquecimento via `MovEstq/Load` não alcançou o laudo —
+   * nulo NÃO é zero, e a UI precisa distinguir os dois.
+   */
+  valor_custo_lote: number | null;
   enriquecido_em: string | null;
   sincronizado_em: string | null;
   // Derivados (resolvidos aqui):
@@ -110,6 +116,7 @@ const COLUNAS = [
   "quantidade_aprovada",
   "quantidade_reprovada",
   "valor_reprovado",
+  "valor_custo_lote",
   "enriquecido_em",
   "sincronizado_em",
 ].join(", ");
@@ -161,6 +168,7 @@ export async function listarLaudos(params: { status: string }): Promise<FilaResu
       quantidade_aprovada: numOuNull(r.quantidade_aprovada),
       quantidade_reprovada: numOuNull(r.quantidade_reprovada),
       valor_reprovado: numOuNull(r.valor_reprovado),
+      valor_custo_lote: numOuNull(r.valor_custo_lote),
       chave_movestq: numOuNull(r.chave_movestq),
       produto_nome: prod?.nome ?? null,
       produto_unidade: r.codigo_prod_unid_med || prod?.unidade || null,
@@ -205,6 +213,14 @@ export interface KpisFila {
   tempoMedioInspecao: number | null;
   /** Soma de `valor_reprovado` — o que a Qualidade recusou, em R$. */
   valorReprovado: number;
+  /**
+   * Soma de `valor_custo_lote` (REC-2.1). Ignora os nulos — nulo é "ainda não
+   * enriquecido", não "vale zero"; somá-los como 0 mostraria um total menor
+   * sem dizer por quê.
+   */
+  valorCustoLote: number;
+  /** Quantos lotes do conjunto ainda estão sem valor (o `n` do aviso na UI). */
+  lotesSemValor: number;
   nfs: number;
   semLote: number; // ainda não enriquecidos (Laudo/Load não rodou)
 }
@@ -216,6 +232,8 @@ export function calcularKpis(laudos: LaudoFila[]): KpisFila {
   let pendentes = 0;
   let concluidos = 0;
   let valorReprovado = 0;
+  let valorCustoLote = 0;
+  let lotesSemValor = 0;
   let somaInspecao = 0;
   let nInspecao = 0;
   const nfs = new Set<string>();
@@ -225,6 +243,10 @@ export function calcularKpis(laudos: LaudoFila[]): KpisFila {
     if (l.numero_documento) nfs.add(l.numero_documento);
     if (!l.numero_ctrl_lote) semLote++;
     valorReprovado += Number(l.valor_reprovado) || 0;
+
+    // Nulo NÃO entra na soma e é contado à parte.
+    if (l.valor_custo_lote === null || l.valor_custo_lote === undefined) lotesSemValor++;
+    else valorCustoLote += Number(l.valor_custo_lote) || 0;
 
     if (estaConcluido(l)) {
       concluidos++;
@@ -249,6 +271,8 @@ export function calcularKpis(laudos: LaudoFila[]): KpisFila {
     diasMaisAntigo,
     tempoMedioInspecao: nInspecao > 0 ? Math.round(somaInspecao / nInspecao) : null,
     valorReprovado,
+    valorCustoLote,
+    lotesSemValor,
     nfs: nfs.size,
     semLote,
   };
