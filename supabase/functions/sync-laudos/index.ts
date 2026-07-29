@@ -23,7 +23,16 @@
 //      não estourar o tempo da função; o cron completa nas execuções
 //      seguintes (751 laudos convergem em ~8 rodadas).
 //
-// REGRA DE OURO DO PASSO B (REC-1.4): `enriquecido_em` só é carimbado em
+//   C) VALOR e FORNECEDOR (REC-2.0) — varre até MOV_BATCH `chave_movestq`
+//      DISTINTAS com `mov_enriquecido_em is null` e chama `MovEstq/Load`
+//      uma vez por chave. O item casa com o laudo pelo par
+//      (chave_movestq, Sequencia ⇄ sequencia_it_movestq); uma chamada
+//      resolve todos os laudos daquela chave — 295 chaves cobrem os 751
+//      laudos. Traz custo/valor unitário do item e o FORNECEDOR do
+//      cabeçalho (`CodigoEntidade` é sempre null no laudo, §6.3-D).
+//
+// REGRA DE OURO DOS PASSOS B e C: `enriquecido_em` / `mov_enriquecido_em`
+// só são carimbados em
 // SUCESSO. A fila de retentativa é `enriquecido_em is null` (com índice
 // parcial), então carimbar numa falha tiraria aquele laudo da fila PARA
 // SEMPRE — sem erro visível em lugar nenhum. Em falha: nada é gravado, o
@@ -70,6 +79,20 @@ const LIST_PAGE_SIZE = 2000;
 // folgadamente no tempo da função e o cron completa o resto depois.
 const LOAD_BATCH = 100;
 
+// REC-2.0 (passo C) — teto de `MovEstq/Load` por execução. A varredura é por
+// CHAVE DE MOVIMENTO, não por laudo: um movimento serve vários laudos (média
+// 2,5), então 295 chaves cobrem os 751 laudos. Universo total ~295 ⇒ converge
+// em ~8 rodadas com este teto.
+const MOV_BATCH = 40;
+
+// Quantas LINHAS de rec_laudos varremos para extrair as chaves distintas.
+// O PostgREST não tem DISTINCT: pegamos um lote de linhas ordenado por chave
+// e deduplicamos no cliente. Com média de 2,5 laudos por chave, 8× o teto dá
+// folga larga para fechar MOV_BATCH chaves mesmo com movimentos grandes
+// (uma NF chegou a ter 18 lotes). Se vier menos, tudo bem — a próxima
+// execução continua de onde parou.
+const MOV_SCAN_LINHAS = MOV_BATCH * 8;
+
 // Loads em paralelo (mesmo tamanho de chunk do sync-compras-status-cron).
 const LOAD_CHUNK = 5;
 const SLEEP_BETWEEN_CHUNKS_MS = 200;
@@ -93,7 +116,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // ─────────────────────────────────────────────────────────────────────
 
 interface Detalhe {
-  etapa: "lista" | "gravacao" | "load" | "watchdog" | "exception";
+  etapa: "lista" | "gravacao" | "load" | "movestq" | "watchdog" | "exception";
   numero?: string;
   erro?: string;
   info?: string;
@@ -119,6 +142,21 @@ interface ResultadoSync {
   falhas_load: string[];
   /** motivo → quantas vezes ocorreu (diagnóstico barato, sem inchar). */
   falhas_motivos: Record<string, number>;
+
+  // ── REC-2.0 · passo C (valor e fornecedor via MovEstq/Load) ──
+  /** chaves de movimento lidas nesta execução (= chamadas ao Alvo). */
+  chaves_lidas: number;
+  chaves_ok: number;
+  chaves_falha: number;
+  /** laudos que receberam custo/valor/fornecedor. */
+  laudos_valorizados: number;
+  /** laudos cuja `sequencia_it_movestq` não achou item no movimento. */
+  laudos_sem_item_casado: number;
+  /** chaves que falharam (até 20 vão para os detalhes) + motivos agregados. */
+  falhas_mov: string[];
+  falhas_mov_motivos: Record<string, number>;
+  /** números dos laudos sem item casado (até 20 vão para os detalhes). */
+  sem_item_casado: string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -394,6 +432,58 @@ export function analisarRespostaLaudo(data: any): AnaliseLaudo {
   return { ok: false, motivo: `sem âncora de Laudo (chaves: ${chaves(data)})` };
 }
 
+/**
+ * REC-2.0 — mesma régua estrutural do `analisarRespostaLaudo`, agora para o
+ * `MovEstq/Load`. Âncoras do movimento: `Chave` com valor E
+ * `ItemMovEstqChildList` como array. Continua valendo a regra de nunca casar
+ * texto no corpo inteiro (campos livres existem aqui também).
+ *
+ * Lista vazia é falha DA CHAVE: sem itens não há como casar sequência
+ * nenhuma, e carimbar os laudos deixaria todos com valor nulo para sempre.
+ */
+export interface AnaliseMovEstq {
+  ok: boolean;
+  cabecalho?: any;
+  itens?: any[];
+  motivo?: string;
+}
+
+export function analisarRespostaMovEstq(data: any): AnaliseMovEstq {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false, motivo: `corpo não é objeto (${data === null ? "null" : typeof data})` };
+  }
+
+  const sinais = chavesDeExcecaoPresentes(data);
+  if (sinais.length > 0) {
+    const i = indexar(data);
+    const msg = [pick(i, "Message"), pick(i, "MessageDetail"), pick(i, "ExceptionMessage")]
+      .filter((v) => typeof v === "string")
+      .join(" | ");
+    return {
+      ok: false,
+      motivo: /No action was found on the controller/i.test(msg)
+        ? `binding de parâmetro no Alvo — "No action was found on the controller" (ver §6.3-A)`
+        : `envelope de exceção do Alvo (chaves: ${sinais.join(",")})`,
+    };
+  }
+
+  const i = indexar(data);
+  const chave = pick(i, "Chave");
+  const itens = pick(i, "ItemMovEstqChildList");
+
+  if (chave === undefined || chave === null || String(chave).trim() === "") {
+    return { ok: false, motivo: `sem âncora de MovEstq (chaves: ${Object.keys(data).slice(0, 8).join(",")})` };
+  }
+  if (!Array.isArray(itens)) {
+    return { ok: false, motivo: "ItemMovEstqChildList ausente ou não é lista" };
+  }
+  if (itens.length === 0) {
+    return { ok: false, motivo: "ItemMovEstqChildList vazio — nada a casar" };
+  }
+
+  return { ok: true, cabecalho: data, itens };
+}
+
 /** As 12 colunas de detalhe de `Laudo/Load` (o lote mora aqui). */
 function mapearLoad(detalhe: any): Record<string, any> {
   const i = indexar(detalhe);
@@ -630,6 +720,205 @@ async function enriquecerUm(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// PASSO C — VALOR e FORNECEDOR (MovEstq/Load)          [REC-2.0]
+// ─────────────────────────────────────────────────────────────────────
+// A varredura é por CHAVE DE MOVIMENTO, não por laudo: uma chamada resolve
+// todos os laudos daquela chave (média 2,5), então 295 chamadas cobrem os
+// 751 laudos. A ligação item ⇄ laudo é o par (chave_movestq, Sequencia),
+// onde `Sequencia` do item casa com `rec_laudos.sequencia_it_movestq`.
+//
+// O que NÃO assumir (medido contra a chave 15869 em 28/07/2026):
+//   · `ControlaLote` pode ser "Não" e o laudo existir mesmo assim
+//     (importação) ⇒ não condicionar nada a controle de lote;
+//   · `CodigoTipoLanc` varia (E0000158 nacional, E0000160 importação)
+//     ⇒ NÃO filtrar por código de lançamento em lugar nenhum;
+//   · `MovEstqPedCompChildList` vem vazio em importação ⇒ não amarrar a
+//     compras_pedidos;
+//   · uma chave pode ter 6 itens e só 2 laudos — normal.
+
+async function passoMovEstq(
+  supabase: SupabaseClient,
+  erpUrl: string,
+  systemSecret: string,
+  t0: number,
+  result: ResultadoSync,
+): Promise<void> {
+  // O PostgREST não faz DISTINCT: lemos um lote de linhas por chave desc e
+  // deduplicamos aqui. Chaves maiores = movimentos mais recentes, que é onde
+  // está a fila pendente.
+  const { data: linhas, error } = await supabase
+    .from("rec_laudos")
+    .select("chave_movestq")
+    .not("chave_movestq", "is", null)
+    .is("mov_enriquecido_em", null)
+    .order("chave_movestq", { ascending: false })
+    .limit(MOV_SCAN_LINHAS);
+
+  if (error) {
+    result.erros++;
+    result.detalhes.push({ etapa: "movestq", erro: `select de chaves pendentes: ${error.message}` });
+    return;
+  }
+
+  const chaves: number[] = [];
+  const vistas = new Set<number>();
+  for (const l of linhas || []) {
+    const c = Number((l as any).chave_movestq);
+    if (!Number.isFinite(c) || vistas.has(c)) continue;
+    vistas.add(c);
+    chaves.push(c);
+    if (chaves.length >= MOV_BATCH) break;
+  }
+
+  console.log(`[sync-laudos] passo C: ${chaves.length} chave(s) de movimento (teto ${MOV_BATCH})`);
+  if (chaves.length === 0) return;
+
+  for (let k = 0; k < chaves.length; k += LOAD_CHUNK) {
+    if (Date.now() - t0 > WATCHDOG_MS) {
+      result.parado_por_watchdog = true;
+      result.detalhes.push({
+        etapa: "watchdog",
+        info: `passo C parou na chave ${k + 1}/${chaves.length} após ${Date.now() - t0}ms; a próxima execução continua`,
+      });
+      console.warn(`[sync-laudos] watchdog no passo C: parou em ${k}/${chaves.length}`);
+      break;
+    }
+
+    const chunk = chaves.slice(k, k + LOAD_CHUNK);
+    await Promise.all(chunk.map((c) => enriquecerChave(supabase, erpUrl, systemSecret, c, result)));
+
+    if (k + LOAD_CHUNK < chaves.length) await sleep(SLEEP_BETWEEN_CHUNKS_MS);
+  }
+}
+
+// `export` para permitir teste isolado do casamento por sequência e do
+// cálculo de `valor_custo_lote` — é o ponto onde confundir a quantidade do
+// item com a do lote multiplicaria o valor.
+export async function enriquecerChave(
+  supabase: SupabaseClient,
+  erpUrl: string,
+  systemSecret: string,
+  chave: number,
+  result: ResultadoSync,
+): Promise<void> {
+  result.chaves_lidas++;
+
+  // Falha da CHAVE: nenhum laudo dela é carimbado, todos voltam na próxima
+  // execução (o índice parcial é `mov_enriquecido_em is null`).
+  const falharChave = (motivo: string) => {
+    result.erros++;
+    result.chaves_falha++;
+    result.falhas_mov.push(String(chave));
+    result.falhas_mov_motivos[motivo] = (result.falhas_mov_motivos[motivo] || 0) + 1;
+    console.warn(`[sync-laudos] chave ${chave} NÃO valorizada: ${motivo}`);
+  };
+
+  const endpoint =
+    `MovEstq/Load?codigoEmpresaFilial=${encodeURIComponent(FILIAL_PADRAO)}` +
+    `&chave=${encodeURIComponent(String(chave))}` +
+    `&loadParent=All&loadChild=All&loadOneToOne=All`;
+
+  try {
+    const resp = await callPassthrough(erpUrl, systemSecret, endpoint, "GET");
+    if (!resp.ok) {
+      falharChave(resp.erro || `HTTP ${resp.status}`);
+      return;
+    }
+
+    const analise = analisarRespostaMovEstq(resp.data);
+    if (!analise.ok) {
+      falharChave(analise.motivo || "resposta inesperada do MovEstq/Load");
+      return;
+    }
+
+    // Cabeçalho: fornecedor. `CodigoEntidade` é null no laudo (§6.3-D) — é
+    // aqui que ele existe.
+    const cab = indexar(analise.cabecalho);
+    const codigoEntidade = txt(pick(cab, "CodigoEntidade"));
+    const nomeEntidade = txt(pick(cab, "NomeEntidade"));
+
+    // Itens indexados por Sequencia. Um item pode servir mais de um laudo,
+    // então guardamos o item, não consumimos.
+    const porSequencia = new Map<number, any>();
+    for (const item of analise.itens || []) {
+      const seq = inteiro(pick(indexar(item), "Sequencia"));
+      if (seq !== null && !porSequencia.has(seq)) porSequencia.set(seq, item);
+    }
+
+    const { data: laudos, error: errSel } = await supabase
+      .from("rec_laudos")
+      .select("codigo_empresa_filial, numero, sequencia_it_movestq, quantidade")
+      .eq("chave_movestq", chave)
+      .is("mov_enriquecido_em", null);
+
+    if (errSel) {
+      falharChave(`select dos laudos da chave: ${errSel.message}`);
+      return;
+    }
+    if (!laudos || laudos.length === 0) {
+      // Nada a fazer (outra execução paralela já cobriu). Não é falha.
+      result.chaves_ok++;
+      return;
+    }
+
+    result.chaves_ok++;
+
+    for (const laudo of laudos as any[]) {
+      const seq = inteiro(laudo.sequencia_it_movestq);
+      const item = seq === null ? undefined : porSequencia.get(seq);
+
+      if (!item) {
+        // Falha DESTE laudo, não da chave: não carimba, registra e segue.
+        result.laudos_sem_item_casado++;
+        result.sem_item_casado.push(laudo.numero);
+        console.warn(
+          `[sync-laudos] laudo ${laudo.numero}: sequência ${seq ?? "null"} sem item na chave ${chave} ` +
+            `(itens: ${Array.from(porSequencia.keys()).join(",")})`,
+        );
+        continue;
+      }
+
+      const i = indexar(item);
+      const custoUnitario = num(pick(i, "CustoUnitario"));
+      // ⚠ A quantidade vem do ESPELHO (quantidade do lote daquele laudo).
+      // O item traz a quantidade CHEIA do movimento — usar a do item
+      // multiplicaria o valor.
+      const qtdLaudo = num(laudo.quantidade);
+
+      const { error: errUpd } = await supabase
+        .from("rec_laudos")
+        .update({
+          custo_unitario: custoUnitario,
+          valor_unitario: num(pick(i, "ValorUnitario")),
+          valor_custo_lote: custoUnitario !== null && qtdLaudo !== null ? custoUnitario * qtdLaudo : null,
+          codigo_entidade_mov: codigoEntidade,
+          nome_entidade_mov: nomeEntidade,
+          controla_lote_item: txt(pick(i, "ControlaLote")),
+          codigo_tipo_lanc_item: txt(pick(i, "CodigoTipoLanc")),
+          raw_movestq_item: item,
+          mov_enriquecido_em: new Date().toISOString(),
+        })
+        .eq("codigo_empresa_filial", laudo.codigo_empresa_filial)
+        .eq("numero", laudo.numero);
+
+      if (errUpd) {
+        // Falha de gravação deste laudo: sem carimbo, volta na próxima.
+        result.erros++;
+        result.laudos_sem_item_casado++;
+        result.sem_item_casado.push(laudo.numero);
+        console.error(`[sync-laudos] update do laudo ${laudo.numero} falhou: ${errUpd.message}`);
+        continue;
+      }
+
+      result.laudos_valorizados++;
+    }
+  } catch (err: any) {
+    // Falha de uma chave não aborta o lote.
+    falharChave(`exception: ${err?.message || String(err)}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Handler
 // ─────────────────────────────────────────────────────────────────────
 
@@ -756,6 +1045,14 @@ Deno.serve(async (req: Request) => {
     detalhes: [],
     falhas_load: [],
     falhas_motivos: {},
+    chaves_lidas: 0,
+    chaves_ok: 0,
+    chaves_falha: 0,
+    laudos_valorizados: 0,
+    laudos_sem_item_casado: 0,
+    falhas_mov: [],
+    falhas_mov_motivos: {},
+    sem_item_casado: [],
   };
 
   let observacao: string | null = null;
@@ -763,6 +1060,7 @@ Deno.serve(async (req: Request) => {
   try {
     await passoLista(supabase, erpUrl, systemSecret, ano, result);
     await passoEnriquecimento(supabase, erpUrl, systemSecret, startTime, result);
+    await passoMovEstq(supabase, erpUrl, systemSecret, startTime, result);
   } catch (err: any) {
     console.error("[sync-laudos] exception:", err);
     result.erros++;
@@ -803,9 +1101,39 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // REC-2.0 — chaves de movimento que falharam: nenhum laudo delas foi
+  // carimbado, todas voltam na próxima execução.
+  if (result.falhas_mov.length > 0) {
+    const mostradas = result.falhas_mov.slice(0, 20);
+    const resto = result.falhas_mov.length - mostradas.length;
+    result.detalhes.push({
+      etapa: "movestq",
+      erro: `${result.falhas_mov.length} chave(s) de MovEstq falharam — nenhum laudo delas foi carimbado`,
+      info:
+        `chaves (até 20): ${mostradas.join(", ")}${resto > 0 ? ` … +${resto}` : ""}` +
+        ` | motivos: ${Object.entries(result.falhas_mov_motivos)
+          .map(([m, n]) => `${n}× ${m}`)
+          .join(" ; ")}`,
+    });
+  }
+
+  // REC-2.0 — laudos cuja sequência não achou item no movimento. É falha do
+  // LAUDO, não da chave: ele segue sem carimbo e será tentado de novo.
+  if (result.sem_item_casado.length > 0) {
+    const mostrados = result.sem_item_casado.slice(0, 20);
+    const resto = result.sem_item_casado.length - mostrados.length;
+    result.detalhes.push({
+      etapa: "movestq",
+      erro: `${result.sem_item_casado.length} laudo(s) sem item casado pela sequência — não carimbados`,
+      info: `números (até 20): ${mostrados.join(", ")}${resto > 0 ? ` … +${resto}` : ""}`,
+    });
+  }
+
   const resumo =
     `ano=${ano} listados=${result.listados} novos=${result.inseridos} atualizados=${result.atualizados} ` +
     `enriquecidos=${result.enriquecidos} pendentes=${result.pendentes_enriquecimento} erros=${result.erros}` +
+    ` | mov: chaves=${result.chaves_lidas} ok=${result.chaves_ok} falha=${result.chaves_falha} ` +
+    `valorizados=${result.laudos_valorizados} sem_item=${result.laudos_sem_item_casado}` +
     (result.falhas_load.length > 0 ? ` | ${result.falhas_load.length} laudo(s) falharam no Load (voltam depois)` : "") +
     (result.possivel_truncacao ? " | ⚠ POSSÍVEL TRUNCAÇÃO DA LISTA" : "") +
     (result.parado_por_watchdog ? " | parou por watchdog (completa na próxima)" : "");
@@ -850,6 +1178,17 @@ Deno.serve(async (req: Request) => {
         total: result.falhas_load.length,
         numeros: result.falhas_load.slice(0, 20),
         motivos: result.falhas_motivos,
+      },
+      // REC-2.0 (passo C) — valor e fornecedor via MovEstq/Load.
+      movestq: {
+        chaves_lidas: result.chaves_lidas,
+        chaves_ok: result.chaves_ok,
+        chaves_falha: result.chaves_falha,
+        laudos_valorizados: result.laudos_valorizados,
+        laudos_sem_item_casado: result.laudos_sem_item_casado,
+        chaves_com_falha: result.falhas_mov.slice(0, 20),
+        motivos: result.falhas_mov_motivos,
+        laudos_sem_item: result.sem_item_casado.slice(0, 20),
       },
       possivel_truncacao: result.possivel_truncacao,
       parado_por_watchdog: result.parado_por_watchdog,
