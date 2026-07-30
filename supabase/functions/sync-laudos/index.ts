@@ -17,11 +17,26 @@
 //      (codigo_empresa_filial, numero) com os 21 campos da lista +
 //      raw_lista + sincronizado_em. NÃO toca nas colunas de
 //      enriquecimento nem em enriquecido_em.
-//   B) ENRIQUECIMENTO — até LOAD_BATCH registros com enriquecido_em is
-//      null (data_emissao desc), um `Laudo/Load` cada, gravando as 12
-//      colunas de detalhe + raw_load + enriquecido_em. O teto existe para
-//      não estourar o tempo da função; o cron completa nas execuções
-//      seguintes (751 laudos convergem em ~8 rodadas).
+//   B) ENRIQUECIMENTO — até LOAD_BATCH registros, um `Laudo/Load` cada,
+//      gravando as 12 colunas de detalhe + raw_load + enriquecido_em. O teto
+//      existe para não estourar o tempo da função; o cron completa nas
+//      execuções seguintes (751 laudos convergem em ~8 rodadas).
+//      A fila é `enriquecido_em is null` OU `precisa_releitura` (REC-3.0):
+//      quem nunca foi lido MAIS quem mudou de estado desde a última leitura.
+//
+//   REC-3.0 tem duas metades, e a razão de existir é a mesma dos dois lados:
+//   dado errado que NUNCA se corrige.
+//     (A) RELEITURA CONDICIONAL. Um laudo lido enquanto ainda estava
+//         "Emitido" tem quantidade_aprovada/reprovada, valor_reprovado,
+//         texto_resultado, data_recepcao e codigo_funcionario zerados — a
+//         inspeção não havia acontecido. Quando a Qualidade conclui, o passo
+//         A traz status e resultado (estão na listagem), mas os campos acima
+//         só existem no `Laudo/Load` — e o passo B antigo, filtrando por
+//         `enriquecido_em is null`, nunca voltava. Ficavam vazios PARA
+//         SEMPRE, e o KPI de valor reprovado somaria R$ 0 numa reprova real.
+//         Caso vivo em 30/07/2026: laudo 0000002149, status "Concluído" com
+//         raw_load "Emitido", 180 unidades e quantidade_aprovada = 0.
+//     (B) FLAG DE AUSÊNCIA. Ver `marcarAusencias`.
 //
 //   C) VALOR e FORNECEDOR (REC-2.0) — varre até MOV_BATCH `chave_movestq`
 //      DISTINTAS com `mov_enriquecido_em is null` e chama `MovEstq/Load`
@@ -93,6 +108,22 @@ const MOV_BATCH = 40;
 // execução continua de onde parou.
 const MOV_SCAN_LINHAS = MOV_BATCH * 8;
 
+// REC-3.0 — tamanho da PÁGINA nas leituras que varrem o espelho (universo do
+// ano na checagem de ausência).
+// ⚠ NÃO trocar por um `.limit()` grande: o PostgREST corta a resposta em
+// `db-max-rows` (1.000 por padrão no Supabase) SEM erro e SEM aviso, então
+// `.limit(5000)` numa tabela de 1.200 linhas devolveria 1.000 e o job trataria
+// isso como "o espelho inteiro". Paginamos por `.range()` e avançamos pelo que
+// efetivamente voltou — assim funciona com qualquer valor de db-max-rows.
+// Medido em 30/07/2026: 756 laudos (todos de 2026, desde 07/01), ~1.300/ano.
+// Passar de 1.000 é questão de meses.
+const PAGINA_LEITURA = 1000;
+
+// Trava de sanidade da paginação (nunca deve ser alcançada: 50 × 1.000 linhas
+// é ~40 anos de laudos). Existe para um bug de paginação não virar loop
+// infinito dentro da Edge Function.
+const MAX_PAGINAS = 50;
+
 // Loads em paralelo (mesmo tamanho de chunk do sync-compras-status-cron).
 const LOAD_CHUNK = 5;
 const SLEEP_BETWEEN_CHUNKS_MS = 200;
@@ -116,7 +147,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // ─────────────────────────────────────────────────────────────────────
 
 interface Detalhe {
-  etapa: "lista" | "gravacao" | "load" | "movestq" | "watchdog" | "exception";
+  etapa: "lista" | "gravacao" | "load" | "movestq" | "ausencia" | "watchdog" | "exception";
   numero?: string;
   erro?: string;
   info?: string;
@@ -157,6 +188,16 @@ interface ResultadoSync {
   falhas_mov_motivos: Record<string, number>;
   /** números dos laudos sem item casado (até 20 vão para os detalhes). */
   sem_item_casado: string[];
+
+  // ── REC-3.0 · releitura condicional (A) e flag de ausência (B) ──
+  /** laudos relidos porque status/resultado mudaram desde a última leitura. */
+  relidos_por_mudanca: number;
+  /** laudos que sumiram da listagem e ganharam `ausente_desde`. */
+  marcados_ausentes: number;
+  /** laudos que reapareceram e tiveram `ausente_desde` limpo. */
+  ausentes_limpos: number;
+  ausentes_numeros: string[];
+  reaparecidos_numeros: string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -484,10 +525,42 @@ export function analisarRespostaMovEstq(data: any): AnaliseMovEstq {
   return { ok: true, cabecalho: data, itens };
 }
 
-/** As 12 colunas de detalhe de `Laudo/Load` (o lote mora aqui). */
-function mapearLoad(detalhe: any): Record<string, any> {
+/**
+ * As 12 colunas de detalhe de `Laudo/Load` (o lote mora aqui) + o CARIMBO DE
+ * ESTADO da leitura (REC-3.0).
+ *
+ * `load_status_lido` / `load_resultado_lido` guardam o estado que ESTA leitura
+ * enxergou. É o que permite o passo B saber, depois, que a inspeção mudou:
+ * quando a Qualidade conclui um laudo, o passo A atualiza `status` e
+ * `resultado_analise` pela listagem, a coluna gerada `precisa_releitura` vira
+ * `true` e o laudo volta à fila. Sem isso, um laudo lido enquanto ainda estava
+ * vazio ficaria com quantidade_aprovada/reprovada, valor_reprovado e
+ * texto_resultado zerados PARA SEMPRE.
+ *
+ * POR QUE O VALOR VEM DO LOAD, e não da linha do espelho: o Load é a leitura
+ * mais fresca das duas. Se ele já vê "Concluído" enquanto a listagem daquela
+ * execução ainda dizia "Emitido", carimbamos "Concluído" — os dados de
+ * inspeção que acabamos de gravar SÃO os do laudo concluído, e no próximo
+ * passo A o `status` alcança o carimbo sem gastar um Load. Gravar o valor da
+ * linha faria o contrário: uma releitura desnecessária depois.
+ * (Efeito colateral aceito: entre o Load e o próximo passo A o laudo fica
+ * marcado como `precisa_releitura`. Custa 1 chamada e se resolve sozinho.)
+ *
+ * ⚠ A comparação só converge porque as duas fontes usam a MESMA escala de
+ * valores. Medido em 30/07/2026: `raw_load->>'Status'` é idêntico a `status`
+ * em 755 dos 756 laudos, e o único divergente (0000002149) é um laudo que
+ * mudou de verdade. Se um dia o Alvo devolver um valor que a listagem não usa,
+ * aquele laudo relê a cada execução — visível em `relidos_por_mudanca`, que
+ * ficaria alto de forma persistente.
+ *
+ * O fallback existe para não criar releitura eterna: se o Load não trouxer os
+ * campos, gravamos o estado da própria linha — assim a comparação converge.
+ */
+function mapearLoad(detalhe: any, estadoDaLinha?: { status: string | null; resultado_analise: string | null }): Record<string, any> {
   const i = indexar(detalhe);
   return {
+    load_status_lido: txt(pick(i, "Status")) ?? estadoDaLinha?.status ?? null,
+    load_resultado_lido: txt(pick(i, "ResultadoAnalise")) ?? estadoDaLinha?.resultado_analise ?? null,
     sequencia_it_movestq: inteiro(pick(i, "SequenciaItMovEstq")),
     numero_ctrl_lote: txt(pick(i, "NumeroCtrlLote")),
     data_validade_ctrl_lote: toDate(pick(i, "DataValidadeCtrlLote")),
@@ -602,6 +675,223 @@ async function passoLista(
   result.inseridos = Math.max(0, depois - antes);
   result.atualizados = Math.max(0, gravados - result.inseridos);
   console.log(`[sync-laudos] gravados=${gravados} (novos=${result.inseridos} atualizados=${result.atualizados})`);
+
+  // A listagem em mãos é o retrato do ano no Alvo — dá para saber quem sumiu.
+  //
+  // `confiavel` é a pré-condição de (B), e é deliberadamente pessimista:
+  //   · nenhum erro até aqui (lista ou upsert) — erro parcial = retrato furado;
+  //   · nada foi descartado no mapeamento. Um item sem `Numero` não entra em
+  //     `linhas`, logo não entraria no conjunto dos listados, logo seria lido
+  //     como "sumiu do Alvo" — marcaria ausência num laudo que ESTÁ lá.
+  const descartados = itens.length - linhas.length;
+  const confiavel = result.erros === 0 && descartados === 0;
+  await marcarAusencias(supabase, ano, linhas, confiavel, descartados, result);
+}
+
+/**
+ * REC-3.0 (B) — flag de ausência. O sync faz upsert e NUNCA delete: um laudo
+ * excluído no Alvo (a tela tem botão Excluir) sumiria da listagem e ficaria no
+ * espelho como fantasma, sem sinal nenhum. Aqui ele ganha `ausente_desde`.
+ *
+ * NADA é apagado — a flag é para auditoria, e some sozinha se o laudo
+ * reaparecer numa listagem posterior.
+ *
+ * ⚠ AS GUARDAS SÃO O CORAÇÃO DESTA FUNÇÃO. Marcar ausência em massa por causa
+ * de uma listagem truncada ou parcial esvaziaria a fila na tela — destrutivo
+ * em significado, ainda que nenhuma linha seja apagada. Por isso só marcamos
+ * quando a listagem veio COMPLETA e sem erro, e abortamos se o volume de
+ * ausentes passar de LIMITE_AUSENCIA_PCT do espelho daquele ano.
+ */
+const LIMITE_AUSENCIA_PCT = 0.05;
+
+/**
+ * Lê TODAS as linhas do espelho de um ano, paginando por `.range()`.
+ *
+ * Devolve `completo: false` se a varredura não pôde ser provada íntegra — e
+ * quem chama TEM de tratar isso como "não sei quem está no espelho", nunca
+ * como "o espelho é isto".
+ *
+ * A prova é o `count: exact` do próprio banco: paginamos até juntar essa
+ * quantidade (ou até uma página vir vazia) e, no fim, os dois números têm de
+ * fechar. O count vem pelo header `Content-Range` e NÃO passa por
+ * `db-max-rows`, então serve de testemunha independente do tamanho real —
+ * é o que permite detectar um corte silencioso na leitura.
+ */
+async function lerEspelhoDoAno(
+  supabase: SupabaseClient,
+  ano: number,
+): Promise<{ linhas: any[]; completo: boolean; motivo?: string }> {
+  const inicio = `${ano}-01-01T00:00:00${ALVO_TZ_OFFSET}`;
+  const fim = `${ano + 1}-01-01T00:00:00${ALVO_TZ_OFFSET}`;
+
+  const base = () =>
+    supabase
+      .from("rec_laudos")
+      .select("codigo_empresa_filial, numero, ausente_desde")
+      .gte("data_emissao", inicio)
+      .lt("data_emissao", fim);
+
+  // Total esperado, medido pelo banco.
+  const { count: esperado, error: errCount } = await supabase
+    .from("rec_laudos")
+    .select("numero", { count: "exact", head: true })
+    .gte("data_emissao", inicio)
+    .lt("data_emissao", fim);
+
+  if (errCount || esperado === null) {
+    return { linhas: [], completo: false, motivo: `count do espelho falhou: ${errCount?.message ?? "count nulo"}` };
+  }
+
+  const linhas: any[] = [];
+  for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+    const de = linhas.length;
+    if (de >= esperado) break; // já temos o ano inteiro
+
+    // Ordem estável (a PK) — sem ela, duas páginas podem repetir ou pular
+    // linhas quando o Postgres muda o plano no meio da varredura.
+    const { data, error } = await base()
+      .order("codigo_empresa_filial", { ascending: true })
+      .order("numero", { ascending: true })
+      .range(de, de + PAGINA_LEITURA - 1);
+
+    if (error) return { linhas: [], completo: false, motivo: `select do espelho do ano: ${error.message}` };
+    // Nada voltou: acabou de verdade, ou algo cortou a leitura. Quem decide é
+    // a conferência contra o `count`, logo abaixo.
+    if (!data || data.length === 0) break;
+
+    // ⚠ NÃO paramos ao ver uma página menor que PAGINA_LEITURA. Se o
+    // `db-max-rows` do PostgREST for menor que a nossa página, TODA página vem
+    // curta — tratar isso como fim da lista desligaria a checagem de ausência
+    // para sempre (o total nunca fecharia com o count). Avançamos pelo que
+    // efetivamente voltou e paramos por `de >= esperado` ou por página vazia,
+    // o que funciona com qualquer valor de db-max-rows.
+    linhas.push(...data);
+  }
+
+  if (linhas.length !== esperado) {
+    return {
+      linhas,
+      completo: false,
+      motivo: `varredura incompleta: leu ${linhas.length} de ${esperado} laudos de ${ano}`,
+    };
+  }
+  return { linhas, completo: true };
+}
+
+// `export` para permitir teste isolado das GUARDAS — marcar ausência em massa
+// por listagem incompleta é o risco mais caro desta função.
+export async function marcarAusencias(
+  supabase: SupabaseClient,
+  ano: number,
+  linhasListadas: Record<string, any>[],
+  listagemConfiavel: boolean,
+  descartados: number,
+  result: ResultadoSync,
+): Promise<void> {
+  if (!listagemConfiavel || result.possivel_truncacao || linhasListadas.length === 0) {
+    result.detalhes.push({
+      etapa: "ausencia",
+      info:
+        `marcação de ausência PULADA (listagem não confiável): ` +
+        `erros=${result.erros} descartados=${descartados} ` +
+        `truncada=${result.possivel_truncacao} listados=${linhasListadas.length}`,
+    });
+    console.warn("[sync-laudos] ausência pulada: listagem não confiável");
+    return;
+  }
+
+  // Universo do espelho para o MESMO ANO da listagem.
+  const { linhas: espelho, completo, motivo } = await lerEspelhoDoAno(supabase, ano);
+
+  if (!completo) {
+    // Espelho lido pela metade: quem não foi lido apareceria como "sumiu".
+    // Não marca NADA — a leitura falha FECHADA, de propósito.
+    result.erros++;
+    result.detalhes.push({
+      etapa: "ausencia",
+      erro: `NÃO marcado: não foi possível ler o espelho de ${ano} por inteiro — ${motivo}`,
+    });
+    console.error(`[sync-laudos] ausência ABORTADA (espelho incompleto): ${motivo}`);
+    return;
+  }
+
+  const chave = (filial: string, numero: string) => `${filial || FILIAL_PADRAO}|${numero}`;
+  const listados = new Set(linhasListadas.map((l) => chave(l.codigo_empresa_filial, l.numero)));
+
+  const ausentes: any[] = []; // no espelho, fora da listagem, ainda sem flag
+  const reapareceram: any[] = []; // na listagem, com flag antiga a limpar
+  for (const l of espelho) {
+    const k = chave(l.codigo_empresa_filial, l.numero);
+    if (!listados.has(k)) {
+      if (!l.ausente_desde) ausentes.push(l);
+    } else if (l.ausente_desde) {
+      reapareceram.push(l);
+    }
+  }
+
+  const totalAno = espelho.length;
+  const limite = Math.max(1, Math.floor(totalAno * LIMITE_AUSENCIA_PCT));
+
+  if (ausentes.length > limite) {
+    // Sinal de listagem incompleta, não de exclusão real. Não marca NADA.
+    result.detalhes.push({
+      etapa: "ausencia",
+      erro:
+        `NÃO marcado: ${ausentes.length} ausentes excedem ${Math.round(LIMITE_AUSENCIA_PCT * 100)}% ` +
+        `do espelho de ${ano} (${totalAno} laudos, limite ${limite}) — trata-se como falha de listagem`,
+      info: `números (até 20): ${ausentes.slice(0, 20).map((l) => l.numero).join(", ")}`,
+    });
+    console.error(`[sync-laudos] ausência ABORTADA: ${ausentes.length} > limite ${limite}`);
+    return;
+  }
+
+  const agora = new Date().toISOString();
+
+  for (const l of ausentes) {
+    const { error: errUpd } = await supabase
+      .from("rec_laudos")
+      .update({ ausente_desde: agora })
+      .eq("codigo_empresa_filial", l.codigo_empresa_filial)
+      .eq("numero", l.numero);
+    if (errUpd) {
+      result.erros++;
+      console.error(`[sync-laudos] marcar ausente ${l.numero}: ${errUpd.message}`);
+      continue;
+    }
+    result.marcados_ausentes++;
+    result.ausentes_numeros.push(l.numero);
+  }
+
+  for (const l of reapareceram) {
+    const { error: errUpd } = await supabase
+      .from("rec_laudos")
+      .update({ ausente_desde: null })
+      .eq("codigo_empresa_filial", l.codigo_empresa_filial)
+      .eq("numero", l.numero);
+    if (errUpd) {
+      result.erros++;
+      console.error(`[sync-laudos] limpar ausência ${l.numero}: ${errUpd.message}`);
+      continue;
+    }
+    result.ausentes_limpos++;
+    result.reaparecidos_numeros.push(l.numero);
+  }
+
+  if (result.marcados_ausentes > 0) {
+    result.detalhes.push({
+      etapa: "ausencia",
+      erro: `${result.marcados_ausentes} laudo(s) sumiram da listagem do Alvo — marcados com ausente_desde (nada foi apagado)`,
+      info: `números (até 20): ${result.ausentes_numeros.slice(0, 20).join(", ")}`,
+    });
+  }
+  if (result.ausentes_limpos > 0) {
+    result.detalhes.push({
+      etapa: "ausencia",
+      info:
+        `${result.ausentes_limpos} laudo(s) reapareceram na listagem — ausente_desde limpo ` +
+        `(até 20): ${result.reaparecidos_numeros.slice(0, 20).join(", ")}`,
+    });
+  }
 }
 
 async function contarLaudos(supabase: SupabaseClient): Promise<number> {
@@ -620,21 +910,69 @@ async function passoEnriquecimento(
   t0: number,
   result: ResultadoSync,
 ): Promise<void> {
-  const { data: pendentes, error } = await supabase
+  // ── Fila do passo B (REC-3.0-A) ────────────────────────────────────────
+  //   enriquecido_em is null            → nunca foi lido
+  //   OR precisa_releitura              → o estado mudou desde a leitura
+  //
+  // `precisa_releitura` é coluna GERADA no banco:
+  //     status            IS DISTINCT FROM load_status_lido
+  //  OR resultado_analise IS DISTINCT FROM load_resultado_lido
+  //
+  // Ela existe porque o PostgREST NÃO compara duas colunas entre si (todo
+  // filtro é coluna×literal). Sem ela o predicado só poderia ser avaliado no
+  // client — o que obrigaria a LER O ESPELHO INTEIRO a cada execução e, pior,
+  // ficaria à mercê do `db-max-rows` do PostgREST (1.000 por padrão), que
+  // cortaria a fila em silêncio quando a tabela passasse disso. Com a coluna
+  // gerada, o filtro E o teto LOAD_BATCH ficam no Postgres: lemos 100 linhas.
+  //
+  // ORDEM — `enriquecido_em desc NULLS LAST` resolve a prioridade pedida sem
+  // ordenação extra: quem MUDOU tem `enriquecido_em` preenchido e vem
+  // primeiro; quem nunca foi lido tem NULL e drena depois, por data_emissao
+  // desc (o comportamento antigo). Os que mudaram são poucos e são os que
+  // carregam inspeção nova, então merecem o começo da fila.
+  const { data: filaRaw, error } = await supabase
     .from("rec_laudos")
-    .select("codigo_empresa_filial, numero")
-    .is("enriquecido_em", null)
+    .select("codigo_empresa_filial, numero, status, resultado_analise, enriquecido_em")
+    .or("enriquecido_em.is.null,precisa_releitura.is.true")
+    .order("enriquecido_em", { ascending: false, nullsFirst: false })
     .order("data_emissao", { ascending: false, nullsFirst: false })
     .limit(LOAD_BATCH);
 
   if (error) {
     result.erros++;
-    result.detalhes.push({ etapa: "load", erro: `select de pendentes: ${error.message}` });
+    result.detalhes.push({ etapa: "load", erro: `select da fila: ${error.message}` });
     return;
   }
 
-  const fila = pendentes || [];
-  console.log(`[sync-laudos] enriquecendo ${fila.length} laudos (teto ${LOAD_BATCH})`);
+  const fila = (filaRaw || []) as any[];
+
+  // Releitura = já tinha sido lido antes. O resto é primeira leitura.
+  const mudados = fila.filter((l) => l.enriquecido_em);
+  result.relidos_por_mudanca = mudados.length;
+
+  if (mudados.length > 0) {
+    // Quantos ainda esperam releitura ALÉM deste lote — se isto ficar alto de
+    // forma persistente, é sinal de que algum valor de Status/ResultadoAnalise
+    // do `Laudo/Load` não bate com o da listagem e o laudo relê para sempre.
+    const { count: pendentesReleitura } = await supabase
+      .from("rec_laudos")
+      .select("numero", { count: "exact", head: true })
+      .not("enriquecido_em", "is", null)
+      .is("precisa_releitura", true);
+
+    result.detalhes.push({
+      etapa: "load",
+      info:
+        `${mudados.length} laudo(s) mudaram de estado desde a última leitura e serão relidos ` +
+        `(total aguardando releitura: ${pendentesReleitura ?? "?"}) ` +
+        `— números (até 20): ${mudados.slice(0, 20).map((l) => l.numero).join(", ")}`,
+    });
+  }
+
+  console.log(
+    `[sync-laudos] fila do passo B: ${fila.length} (releitura=${mudados.length}, ` +
+      `1ª leitura=${fila.length - mudados.length}, teto ${LOAD_BATCH})`,
+  );
 
   for (let k = 0; k < fila.length; k += LOAD_CHUNK) {
     if (Date.now() - t0 > WATCHDOG_MS) {
@@ -658,7 +996,7 @@ async function enriquecerUm(
   supabase: SupabaseClient,
   erpUrl: string,
   systemSecret: string,
-  laudo: { codigo_empresa_filial: string; numero: string },
+  laudo: { codigo_empresa_filial: string; numero: string; status?: string | null; resultado_analise?: string | null },
   result: ResultadoSync,
 ): Promise<void> {
   const filial = laudo.codigo_empresa_filial || FILIAL_PADRAO;
@@ -702,7 +1040,12 @@ async function enriquecerUm(
 
     const { error } = await supabase
       .from("rec_laudos")
-      .update(mapearLoad(analise.laudo))
+      .update(
+        mapearLoad(analise.laudo, {
+          status: laudo.status ?? null,
+          resultado_analise: laudo.resultado_analise ?? null,
+        }),
+      )
       .eq("codigo_empresa_filial", filial)
       .eq("numero", laudo.numero);
 
@@ -1053,6 +1396,11 @@ Deno.serve(async (req: Request) => {
     falhas_mov: [],
     falhas_mov_motivos: {},
     sem_item_casado: [],
+    relidos_por_mudanca: 0,
+    marcados_ausentes: 0,
+    ausentes_limpos: 0,
+    ausentes_numeros: [],
+    reaparecidos_numeros: [],
   };
 
   let observacao: string | null = null;
@@ -1132,6 +1480,8 @@ Deno.serve(async (req: Request) => {
   const resumo =
     `ano=${ano} listados=${result.listados} novos=${result.inseridos} atualizados=${result.atualizados} ` +
     `enriquecidos=${result.enriquecidos} pendentes=${result.pendentes_enriquecimento} erros=${result.erros}` +
+    ` | relidos_por_mudanca=${result.relidos_por_mudanca}` +
+    ` ausentes=${result.marcados_ausentes} ausentes_limpos=${result.ausentes_limpos}` +
     ` | mov: chaves=${result.chaves_lidas} ok=${result.chaves_ok} falha=${result.chaves_falha} ` +
     `valorizados=${result.laudos_valorizados} sem_item=${result.laudos_sem_item_casado}` +
     (result.falhas_load.length > 0 ? ` | ${result.falhas_load.length} laudo(s) falharam no Load (voltam depois)` : "") +
@@ -1178,6 +1528,14 @@ Deno.serve(async (req: Request) => {
         total: result.falhas_load.length,
         numeros: result.falhas_load.slice(0, 20),
         motivos: result.falhas_motivos,
+      },
+      // REC-3.0 — releitura condicional e flag de ausência.
+      relidos_por_mudanca: result.relidos_por_mudanca,
+      ausencia: {
+        marcados: result.marcados_ausentes,
+        limpos: result.ausentes_limpos,
+        numeros: result.ausentes_numeros.slice(0, 20),
+        reaparecidos: result.reaparecidos_numeros.slice(0, 20),
       },
       // REC-2.0 (passo C) — valor e fornecedor via MovEstq/Load.
       movestq: {
