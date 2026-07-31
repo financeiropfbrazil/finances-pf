@@ -151,6 +151,18 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * Data de hoje normalizada para 00:00 no fuso local.
+ * Usada como Data do Pedido, que é carimbada pelo sistema e NÃO é editável pelo
+ * usuário (ver Etapa 3). Chamada de novo no envio para cobrir a virada de meia-noite
+ * com o wizard aberto.
+ */
+function hojeNormalizado(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 // ════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ════════════════════════════════════════════════════════════
@@ -210,22 +222,19 @@ export default function SuprimentosPedidoNovo() {
   const [tipoEntrega, setTipoEntrega] = useState<"Parcial" | "Total">("Total");
 
   // ── Etapa 3: Datas ──────────────────────────────────────
-  // Default: DataPedido = hoje
-  // DataEntrega = hoje + 30 dias
-  // DataValidade = hoje + 60 dias
+  // DataPedido = hoje, carimbada pelo sistema e NÃO editável pelo usuário
+  // DataEntrega = hoje + 30 dias (editável)
+  // DataValidade = hoje + 60 dias (editável)
   // DataCompetencia = primeiro dia do mês de DataPedido (derivado, não editável)
-  const hoje = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
+  const hoje = useMemo(() => hojeNormalizado(), []);
 
+  // Data do Pedido não tem controle de edição na UI. O setter existe só para o
+  // recarimbo no envio (virada de meia-noite) — ver handleEnviarPedido.
   const [dataPedido, setDataPedido] = useState<Date>(hoje);
   const [dataEntrega, setDataEntrega] = useState<Date>(addDays(hoje, 30));
   const [dataValidade, setDataValidade] = useState<Date>(addDays(hoje, 60));
 
   // Popovers dos calendários
-  const [dataPedidoPopoverOpen, setDataPedidoPopoverOpen] = useState(false);
   const [dataEntregaPopoverOpen, setDataEntregaPopoverOpen] = useState(false);
   const [dataValidadePopoverOpen, setDataValidadePopoverOpen] = useState(false);
 
@@ -517,7 +526,9 @@ export default function SuprimentosPedidoNovo() {
           dt.setHours(0, 0, 0, 0);
           return dt;
         };
-        setDataPedido(parseLocalDate(dados.data_pedido));
+        // Data do Pedido NÃO é restaurada do rascunho: ela vale a data do envio
+        // efetivo ao Alvo, não a data em que o rascunho foi salvo. Um rascunho de
+        // 23/07 enviado hoje entra no ERP com a data de hoje.
         setDataEntrega(parseLocalDate(dados.data_entrega));
         setDataValidade(parseLocalDate(dados.data_validade));
 
@@ -977,17 +988,15 @@ export default function SuprimentosPedidoNovo() {
   const erroDatas = useMemo(() => validarDatas(), [dataPedido, dataEntrega, dataValidade]);
   const canAdvanceFromEtapa3 = !erroDatas;
 
-  // Detecta se as datas atuais correspondem ao "padrão sugerido" (hoje / +30 / +60)
+  // Detecta se as datas EDITÁVEIS correspondem ao "padrão sugerido" (+30 / +60).
+  // Data do Pedido ficou de fora: é sempre hoje, não editável, logo nunca sai do padrão.
   const datasNoPadrao = useMemo(() => {
     const sameDay = (a: Date, b: Date) =>
       a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-    return (
-      sameDay(dataPedido, hoje) && sameDay(dataEntrega, addDays(hoje, 30)) && sameDay(dataValidade, addDays(hoje, 60))
-    );
-  }, [dataPedido, dataEntrega, dataValidade, hoje]);
+    return sameDay(dataEntrega, addDays(hoje, 30)) && sameDay(dataValidade, addDays(hoje, 60));
+  }, [dataEntrega, dataValidade, hoje]);
 
   const resetarDatasParaPadrao = () => {
-    setDataPedido(hoje);
     setDataEntrega(addDays(hoje, 30));
     setDataValidade(addDays(hoje, 60));
   };
@@ -1185,6 +1194,15 @@ export default function SuprimentosPedidoNovo() {
         })),
       }));
 
+      // Recarimbo da Data do Pedido no instante do envio. Cobre o caso do wizard
+      // aberto atravessando a meia-noite: o pedido entra no ERP com a data em que
+      // foi efetivamente enviado, nunca com a data em que a tela foi aberta.
+      const dataPedidoEnvio = hojeNormalizado();
+      const dataCompetenciaEnvio = startOfMonth(dataPedidoEnvio);
+      if (dataPedidoEnvio.getTime() !== dataPedido.getTime()) {
+        setDataPedido(dataPedidoEnvio);
+      }
+
       const input: NovoPedidoInput = {
         user_id: user.id,
         analista_nome: profile?.full_name || user.email || "Analista",
@@ -1203,10 +1221,10 @@ export default function SuprimentosPedidoNovo() {
         nome_cond_pag: nomeCondPag,
         tipo_entrega: tipoEntrega,
 
-        data_pedido: format(dataPedido, "yyyy-MM-dd"),
+        data_pedido: format(dataPedidoEnvio, "yyyy-MM-dd"),
         data_entrega: format(dataEntrega, "yyyy-MM-dd"),
         data_validade: format(dataValidade, "yyyy-MM-dd"),
-        data_competencia: format(dataCompetencia, "yyyy-MM-dd"),
+        data_competencia: format(dataCompetenciaEnvio, "yyyy-MM-dd"),
 
         parcelas,
         arquivos,
@@ -1624,7 +1642,7 @@ export default function SuprimentosPedidoNovo() {
               <div>
                 <h2 className="text-lg font-semibold text-foreground">Datas do Pedido</h2>
                 <p className="text-sm text-muted-foreground">
-                  Datas sugeridas automaticamente. Você pode editar conforme necessário.
+                  Data do Pedido e Competência são automáticas. Entrega e Validade você pode editar.
                 </p>
               </div>
               {!datasNoPadrao && (
@@ -1636,33 +1654,21 @@ export default function SuprimentosPedidoNovo() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Data do Pedido */}
+              {/* Data do Pedido (carimbada pelo sistema, não editável) */}
               <div className="space-y-2">
-                <Label>Data do Pedido *</Label>
-                <Popover open={dataPedidoPopoverOpen} onOpenChange={setDataPedidoPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {format(dataPedido, "dd/MM/yyyy", { locale: ptBR })}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={dataPedido}
-                      onSelect={(d) => {
-                        if (d) {
-                          setDataPedido(d);
-                          setDataPedidoPopoverOpen(false);
-                        }
-                      }}
-                      initialFocus
-                      className={cn("p-3 pointer-events-auto")}
-                      locale={ptBR}
-                    />
-                  </PopoverContent>
-                </Popover>
-                <p className="text-[11px] text-muted-foreground">Data oficial de emissão do pedido. Default: hoje.</p>
+                <Label className="flex items-center gap-2">
+                  Data do Pedido
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    automática
+                  </Badge>
+                </Label>
+                <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 h-10">
+                  <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">{format(dataPedido, "dd/MM/yyyy", { locale: ptBR })}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Data de criação do pedido, carimbada no envio. Não editável.
+                </p>
               </div>
 
               {/* Data da Competência (derivada) */}
