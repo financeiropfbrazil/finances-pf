@@ -26,7 +26,9 @@ Responda sempre em português brasileiro.
 - Edição de código é **direta neste repo** (você edita → build → push → Lovable puxa via GitHub sync no `main`).
 - **PROIBIDO** usar `send_message`, `create_project` ou `deploy_project` do MCP do Lovable. Do MCP do Lovable, apenas tools de **leitura** (`read_file`, `list_files`, `get_diff`, `list_edits`) — e só se necessário.
 - **Um escritor por vez:** enquanto você estiver ativo neste repo, ninguém prompta no Lovable.
-- `npm run build` (ou bun, conforme lockfile) DEVE passar limpo antes de todo push. O projeto usa TS estrito (`noUnusedLocals`) — import órfão quebra o build.
+- `bun run build` DEVE passar limpo antes de todo push. **Mas `build` é só `vite build` e NÃO faz type-check** — erro de tipo e código morto passam batido. Verificado em 31/07/2026: `tsconfig.json` e `tsconfig.app.json` têm `noUnusedLocals: false`, `noUnusedParameters: false`, `strict: false`. Não existe a "rede de proteção do TS estrito" que este arquivo afirmava antes.
+- **Type-check é passo separado e manual:** `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.app.json`. ⚠️ **Nunca confie em `tsc --noEmit` na raiz** — o `tsconfig.json` é solution-style (`"files": []`, só `references`), então checa **zero** arquivos e sai **0 enganosamente**. `npx tsc` também não serve nesta máquina (pega o pacote errado); use o binário local via `node`.
+- Lint (`npx eslint <arquivo>`) tem ~13 erros pré-existentes de `no-explicit-any` em vários arquivos. Antes de culpar sua mudança, compare com o HEAD (`git stash push -- <arquivo>` → lint → `git stash pop`).
 - Commits pequenos e descritivos. **Nunca** push forçado. Rollback = `git revert` + push.
 - Push no `main` atualiza o preview do Lovable; o app **publicado** só muda com Publish manual no Lovable.
 - Package manager deste repo: **bun** (`bun.lock` é o lockfile vigente; `package-lock.json` está obsoleto). Nesta máquina, `bun install` exige `--backend=copyfile` (antivírus bloqueia o padrão com EPERM).
