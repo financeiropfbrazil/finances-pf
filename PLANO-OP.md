@@ -1197,7 +1197,7 @@ vazamento desde o primeiro dia. Linha de base: `ManualAlvo` em 71/71.
 ### 10.8 — Evidência de demanda: o comportamento já começou sozinho
 
 RM `0000002251`, 30/07 07:23: `"Peças de Cateter TRIC - OP. 2026-0228"` — **1 em 71**, do mesmo dia,
-exatamente no formato projetado na §10.2, com 37 dos 40 caracteres.
+exatamente no formato projetado na §6.2 (Fase 0 · teste de escrita), com 37 dos 40 caracteres.
 ⇒ A Fase 2 **dá ferramenta a um comportamento existente**, não impõe processo novo.
 
 ### 10.9 — ⚠ Pré-requisito de dados
