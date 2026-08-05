@@ -70,9 +70,9 @@ Transições permitidas (mapa completo, válido desde já): RASCUNHO→ABERTA ·
 | OP-1.0 | Reconhecimento read-only do terreno | CONCLUÍDA | 22/07/2026 | Achados e ajustes na seção 4.1. Timestamps EN (`created_at`/`updated_at`); permissões pontilhadas `modulo.recurso.acao`; espelho = `stock_products`; RLS Suprimentos aberta; `profiles` sem `setor`. |
 | OP-1.1 | Migração: tabelas + seeds + numeração | CONCLUÍDA | 23/07/2026 | Aplicada e **verificada empiricamente via `pg_catalog` (MCP read-only, fingerprint 1686)**: 5 tabelas com RLS ligada (`op_ordens`=28 col, `op_ordem_itens`=9, `op_status_historico`=7, `op_tipos`=6, `op_numeracao`=2); contagens `op_tipos`=3, `op_numeracao`=1, demais=0; **seed 2026=500**; `op_proximo_numero()` SECURITY DEFINER + `search_path=public` + CASE `v_n>9999`; `op_set_updated_at()` `search_path=public`; trigger `trg_op_ordens_updated_at`; 4 CHECKs (status 6 estados, destino, tipo_ordem, tipo_produto). Bloco canônico: `sql/OP-1.1.sql`. |
 | OP-1.2 | RLS + RPCs de escrita | CONCLUÍDA | 23/07/2026 | Aplicada (v2) e **verificada via `pg_catalog`** (fingerprint 1686): colunas `fechada_por`/`fechada_em`; 4 policies SELECT (`op_tipos`/`op_ordens`/`op_ordem_itens`/`op_status_historico`; `op_numeracao` deny-all); 3 permissões `producao.*` + papéis `operador_producao`(wiring=2)/`gestor_producao`(wiring=3); 5 RPCs `SECURITY DEFINER`+`search_path=public`; lockdown `op_proximo_numero` (execute=false p/ authenticated+anon), RPCs execute=true. Bloco: `sql/OP-1.2.sql`. |
-| OP-1.3 | Frontend: seção Produção + lista de OPs | EM ANDAMENTO | 23/07/2026 | **Código pronto no preview do Lovable** (build limpo). Nav "Produção" gateada por `producao.access`, rota `/producao/ordens`, lista no molde `SuprimentosPedidos`, chips de contagem, filtros server-side, service `src/services/opService.ts`, status `src/lib/statusOP.ts`, permissões espelhadas em `constants/permissions.ts`. **Aguarda validação + Publish manual do Pedro.** |
-| OP-1.4 | Modal de abertura (USER 1) | EM ANDAMENTO | 23/07/2026 | **Entregue (código no preview) — validação PENDENTE (OP-1.6).** Build limpo. Modal XL espelhando o FRM-07-11: cabeçalho + grade de itens com picker de SKU dedicado (busca server-side `codigo_alternativo`+`nome_produto`+`codigo_produto`, `codigo_barras` fora), fluxo de teclado (selecionar→foco na qtd, Enter→volta à busca), dedup de SKU, dirty-check, "Salvar rascunho"/"Salvar e abrir" via `op_criar_ordem`(+`op_transicao_status`). **Aguarda validação + Publish do Pedro** (teste real: espelhar a 2026-0007, 3 SKUs de válvula). |
-| OP-1.5 | Detalhe da OP + transições | EM ANDAMENTO | 23/07/2026 | **Entregue (código no preview) — validação PENDENTE (OP-1.6).** Build limpo. Rota `/producao/ordens/:id` (clique na linha navega, substitui o toast): cabeçalho com número + badges, bloco de campos (`DataSection`/`Field`), tabela de itens, timeline do histórico; ações por status/permissão: Editar (RASCUNHO→modal em modo edição via `op_atualizar_rascunho`), Abrir (RASCUNHO), Cancelar com motivo (RASCUNHO/ABERTA/EM_ANDAMENTO, gate manage), Registrar aprovação/comunicação (carimbos, gate manage). **Aguarda validação + Publish do Pedro** (cancelar 0501/0502 com motivo "OP de teste da Fase 1"). |
+| OP-1.3 | Frontend: seção Produção + lista de OPs | CONCLUÍDA | 23/07/2026 | **Validada e publicada em 23/07/2026 (ver OP-1.6).** **Código pronto no preview do Lovable** (build limpo). Nav "Produção" gateada por `producao.access`, rota `/producao/ordens`, lista no molde `SuprimentosPedidos`, chips de contagem, filtros server-side, service `src/services/opService.ts`, status `src/lib/statusOP.ts`, permissões espelhadas em `constants/permissions.ts`. **Aguarda validação + Publish manual do Pedro.** |
+| OP-1.4 | Modal de abertura (USER 1) | CONCLUÍDA | 23/07/2026 | **Validada e publicada em 23/07/2026 (ver OP-1.6).** **Entregue (código no preview) — validação PENDENTE (OP-1.6).** Build limpo. Modal XL espelhando o FRM-07-11: cabeçalho + grade de itens com picker de SKU dedicado (busca server-side `codigo_alternativo`+`nome_produto`+`codigo_produto`, `codigo_barras` fora), fluxo de teclado (selecionar→foco na qtd, Enter→volta à busca), dedup de SKU, dirty-check, "Salvar rascunho"/"Salvar e abrir" via `op_criar_ordem`(+`op_transicao_status`). **Aguarda validação + Publish do Pedro** (teste real: espelhar a 2026-0007, 3 SKUs de válvula). |
+| OP-1.5 | Detalhe da OP + transições | CONCLUÍDA | 23/07/2026 | **Validada e publicada em 23/07/2026 (ver OP-1.6).** **Entregue (código no preview) — validação PENDENTE (OP-1.6).** Build limpo. Rota `/producao/ordens/:id` (clique na linha navega, substitui o toast): cabeçalho com número + badges, bloco de campos (`DataSection`/`Field`), tabela de itens, timeline do histórico; ações por status/permissão: Editar (RASCUNHO→modal em modo edição via `op_atualizar_rascunho`), Abrir (RASCUNHO), Cancelar com motivo (RASCUNHO/ABERTA/EM_ANDAMENTO, gate manage), Registrar aprovação/comunicação (carimbos, gate manage). **Aguarda validação + Publish do Pedro** (cancelar 0501/0502 com motivo "OP de teste da Fase 1"). |
 | OP-1.6 | Validação ponta a ponta + saneamento + fechamento Fase 1 | CONCLUÍDA | 23/07/2026 | **SELADA — Publish feito; saneamento reconferido no selo (0/0/0/500, fingerprint 1693).** Bateria completa VERDE (visual + banco, fingerprint 1692): Bloco A (carimbos provados na 0504; qtd 0; dirty-check; edição sem itens; cancelamento c/ e sem motivo), Bloco B (dark/light, filtro+F5 via URL, console limpo), **Bloco C gate real provado** — `nfe@pfbrazil.com` **não-admin**: create efetivo (0505 ABERTA emitida por ele), manage negado, **revogação** (`revogado_em`) tira acesso, higiene dos demais papéis preservada. Numeração 0501–0505, contador=505. Critério **reformulado** (sem recriar a 2026-0007 — BPF). **Saneamento AUTORIZADO** (`sql/OP-1.6-saneamento.sql`). **Falta selar:** Pedro aplica saneamento (reconferir op_ordens=0 / contador=500) + Publish → então OP-1.6 e Fase 1 CONCLUÍDAS. IVC 41 presente+ativo (sem pendência). BL-1 no backlog §8. |
 | OP-2.0 | Reconhecimento read-only do terreno de ESTOQUE e RECEBIMENTO | CONCLUÍDA | 28/07/2026 | Achados completos e **consolidados** na **seção 6.3** (retificações da 1ª redação em §6.3-N). Sessão de leitura (Lab de API + SQL read-only no Hub), **sem escrita no Alvo**. **Fluxo de recebimento provado ponta a ponta em 4 tempos:** (1) fiscal lança NF → `MovEstq` tipo `E0000158` com **`ControlaEstoque="Não"`** → **cria o lote** com a quantidade cheia, validade e destino `001`, **sem gerar saldo**; (2) sistema gera **um Laudo por lote** (`Emitido`); (3) Qualidade analisa (`QuantidadeAprovada`/`QuantidadeReprovada`); (4) conclusão → `MovEstq` `E0000163` com `ControlaEstoque="Sim"` → **só a quantidade aprovada vira saldo**. Prova numérica no laudo `0000002070`: lote de 60, aprovadas 21 + reprovadas 39, entrada de **21** un (chave 18072). ⇒ **material reprovado nunca fica disponível para requisição**; a RM pode confiar no saldo do `001`. **Não existe transferência 015→001** — o local de inspeção não é modelado no Alvo. Endpoints provados: `MovEstq/RetornaFichaEstoque`, `MovEstq/Load`, `Laudo/Load`, `laudo/GetListForComponents`. Junção **bidirecional**: `laudo.ChaveMovEstq`→origem e `ficha.Documento`=**número do laudo**→entrada. Valorização **se lê** (`BaseCustoMedio`/`CustoUnitario`); **`CustoMedio` da ficha não é confiável** (2 evidências). **O lote do fornecedor não entra no Alvo** — ruptura da rastreabilidade está no **recebimento**, não na transformação. **Única lacuna que o Hub preenche de forma nativa: o momento físico entre recebimento e inspeção** (`DataRecepcao` é preenchida na conclusão, 3 de 3 casos). |
 
@@ -94,6 +94,10 @@ Transições permitidas (mapa completo, válido desde já): RASCUNHO→ABERTA ·
 
 | REC-2.1 | Fila de Inspeção: KPI de valor | **CONCLUÍDA** | 29/07/2026 | **Código entregue e CONFERIDO contra o banco (29/07/2026): recorte padrão `Emitido` = R$ 963.505,23 com `sem_valor = 0`, batendo com o KPI previsto. Falta só o Publish pelo Pedro. Commit `9ce2582`.** Um KPI a mais no bloco existente, mesmo `KpiCard`, **no fim da lista** (nenhum KPI existente mudou de posição, rótulo ou cálculo). Soma `valor_custo_lote` do conjunto **já filtrado** — os KPIs são calculados no client sobre o array que a tela usa, então o novo herda status, produto, NF, faixa de dias e período sem query nova. **Regra do nulo:** `valor_custo_lote` null (enriquecimento do passo C ainda não alcançou o laudo) **não entra na soma** e é contado à parte; havendo n > 0, o card mostra "n lotes sem valor" na linha `sub` — o total nunca aparece menor sem explicação, e o aviso some sozinho quando o passo C terminar. Formato **BRL sem centavos** (`maximumFractionDigits: 0`), `tabular-nums`, sem cor (valor não é exceção). **Uma decisão além do texto do prompt:** o rótulo acompanha o recorte, como já fazia o de lotes — "Valor aguardando liberação" (Emitido), "Valor inspecionado" (Concluído), "Valor total" (Todos); chamar de *aguardando liberação* um total que inclui concluídos seria falso. Reverter para rótulo fixo é uma linha. Também incluído `valor_custo_lote` no `select` explícito do service (a query não o trazia) e na conversão `numeric`→número. **Números esperados na validação** (28/07/2026): Emitido **R$ 963.505 / 0 sem valor**; Concluído **R$ 1.135.471 / 360 sem valor**; Todos **R$ 2.098.976 / 360 sem valor**. |
 | REC-3.0 | Releitura condicional do passo B + flag de ausência no passo A | **CONCLUÍDA** | 30/07/2026 | **Deployada e PROVADA em produção (30/07/2026).** Commit `1b28765`; DDL em `sql/REC-3.0.sql`. **(A) Releitura condicional.** O passo B só relia `enriquecido_em is null`; 120 laudos `Emitido` já tinham sido lidos **vazios** (a inspeção ainda não acontecera) e, ao serem concluídos, ficariam com quantidade_aprovada/reprovada, valor_reprovado, texto_resultado, data_recepcao e examinador **zerados para sempre** — o KPI de valor reprovado somaria R$ 0 numa reprova real. **Defeito já consumado quando a tarefa foi escrita:** laudo `0000002149` (água destilada, 180 un) estava `Concluído`/`Aprovado` no espelho com `quantidade_aprovada = 0`. Novas colunas `load_status_lido` e `load_resultado_lido` guardam o estado da última leitura; a fila do passo B passa a ser `enriquecido_em is null OR precisa_releitura`. **(B) Flag de ausência.** O passo A faz upsert e nunca delete — laudo excluído no Alvo virava fantasma. Agora marca `ausente_desde` em quem está no espelho e não voltou na listagem, **sem apagar**, e limpa se reaparecer. Guardas: só marca com listagem completa e sem erro; se os ausentes passarem de **5% do ano**, não marca nada e registra em `detalhes` (falha fechada). **Provado:** `relidos_por_mudanca=1`, `ausentes=0`, `total_erros=0`; o `2149` voltou com 180 aprovadas e `data_recepcao` preenchida. |
+| OP-2.1 | Whitelist no erp-proxy: `reqMat/GetListForComponents` + `ReqMat/Load`; remover `Produto/GetRegistros` no mesmo commit (BL-6) | PENDENTE | — | Leitura pura, risco zero. Repo `erp-proxy`. |
+| OP-2.2 | DDL do espelho de RM — `sql/OP-2.2.sql`, aplicado pelo Pedro no SQL Editor | PENDENTE | — | Schema; diferenças vs `compras_pedidos` na §10.12. |
+| OP-2.3 | Edge Function `sync-reqmat` — dois passos, molde do `sync-laudos` | PENDENTE | — | Leitura. |
+| OP-2.4 | Tela: fila de requisições + consolidado por OP | PENDENTE | — | Frontend. |
 
 Status possíveis: PENDENTE · EM ANDAMENTO · CONCLUÍDA · BLOQUEADA (com motivo).
 
@@ -375,8 +379,8 @@ Executado em 22/07/2026, **read-only**, projeto `hbtggrbauguukewiknew` (fingerpr
 
 1. **OP também no Alvo ou só no Hub?** O `ReqMat/Load` referencia `OrdProducObject` — se a P&F usar o módulo nativo de OP do Alvo, o Hub abre a OP lá e amarra; senão, vínculo via `Descricao`/`Texto` da ReqMat. Fase 0 (item 1) informa. **→ RESPONDIDA (meio-fechada) na Fase 0 (23/07/2026):** OP nativa **não é usada** (`OrdProduc` vazio em 46 reqs + 3 Loads) ⇒ vínculo do Hub via `Descricao`. Ver §6.1.
 2. **Quem atende a requisição?** USER 2 pelo Hub (inserir + atender em sequência) ou almoxarifado no Alvo? Define quando o movimento entra no ledger e a permissão. **→ RESPONDIDA na Fase 0 (23/07/2026):** atendimento é do **almoxarifado, por item** ⇒ Fase 2 **sem rota de atender**; o Hub lê o atendido via Load e **gera o ledger pelo ATENDIDO**. Ver §6.1.
-3. **Reprova movimenta estoque?** Só analítica (default proposto) ou transferência física para local segregado (ReqMat Transferência)?
-4. **Como o produto acabado entra no estoque Alvo hoje?** Define a Fase 4 e o fluxo semi-acabado → Encapsulamento.
+3. **Reprova movimenta estoque?** Só analítica (default proposto) ou transferência física para local segregado (ReqMat Transferência)? **→ METADE FECHADA por construção (31/07/2026):** A §6.3-B provou que só a quantidade **aprovada** vira saldo (laudo `0000002070`: lote de 60, aprovadas 21, entrada de 21). Material reprovado no recebimento **nunca chega a existir como saldo** — não há o que transferir, e a pergunta "só analítica ou ReqMat Transferência?" não se aplica a este momento. **Continua aberta apenas para a PRODUÇÃO**, onde a peça já saiu pela RM e foi consumida.
+4. **Como o produto acabado entra no estoque Alvo hoje?** Define a Fase 4 e o fluxo semi-acabado → Encapsulamento. **→ CONTINUA ABERTA, e maior do que estava escrito (31/07/2026):** Não se sabe como os insumos saem do ponto de vista do fechamento, nem como a sobra volta. Sem isso, a OP fecha sem zerar o saldo em aberto. **Decisão de sequenciamento:** Q4 é da **Fase 4** e **não trava a Fase 2**. Investigação adiada por decisão explícita.
 5. **Segundo número dos formulários** (2025-0183 etc.): referência do ano anterior ou resíduo de planilha? (Por ora: `numero_referencia`.)
 
 ---
@@ -422,7 +426,7 @@ Provado com a requisição `0000002236` (**criada e deletada**). Espécime adici
 **DESCOBERTAS:**
 1. **`CodigoCentroControle` enviado é IGNORADO** — o centro gravado **deriva do funcionário** (enviei `00009.00001.00001`, gravou `00010.00002.00003` do func. `0000149`). ⇒ verificar na Fase 2 com o funcionário correto; o **de-para `profiles.funcionario_alvo_codigo` ganha importância dobrada**.
 2. **`Origem="Importação"`** — requisições via API nascem com marcador próprio (vs `ManualAlvo` = tela) ⇒ **carimbo de auditoria gratuito** para reconciliação.
-3. **`TipoAtendimento="Automático"` é o default de nascimento** (via API — payload não tem o campo — E via UI). n=2 requisições Automático **com estoque disponível ficaram Abertas sem atender** ⇒ **semântica de "Automático" segue DESCONHECIDA** (pergunta oficial ao almoxarifado).
+3. **`TipoAtendimento="Automático"` é o default de nascimento** (via API — payload não tem o campo — E via UI). n=2 requisições Automático **com estoque disponível ficaram Abertas sem atender** ⇒ **semântica de "Automático" segue DESCONHECIDA** (pergunta oficial ao almoxarifado). → resolvido em 31/07/2026 — ver "Resolvidas" abaixo.
 4. **`DataValidade` nasce null via API** (a UI punha +1 ano) — verificar impacto.
 5. **Inserção (UI e API) NÃO baixa estoque** — baixa **só no atendimento** (confirmado em `2235` e `2236`).
 6. **`DeletarReqMat`:** o parâmetro é **`reqMatNumero`** (não `numero`); `'Registro não encontrado'` = `BrokenRulesException` padrão. **Padrão Riosoft:** parâmetros com **prefixo da entidade** — conferir swagger antes de chutar.
@@ -431,6 +435,59 @@ Provado com a requisição `0000002236` (**criada e deletada**). Espécime adici
 9. **Cadastro de tipos** tem também `0000005` SAÍDA DE MATERIAL e `0000003` EPI'S além dos mapeados; **nenhum tipo com cara de Devolução** visto ainda — descobrir o código na conversa/cadastro.
 
 **Pendências humanas (§5 + novas — para o almoxarifado/Pedro):** semântica do `Automático`; **código do tipo Devolução**; **quem deleta requisições** (`2196`/`2230` sumidas); reprova movimenta estoque? (§5 Q3); como o acabado entra no estoque? (§5 Q4); segundo número do FRM (§5 Q5).
+
+#### Resolvidas em 31/07/2026 (sessão de investigação)
+
+**`TipoAtendimento = "Automático"` (resolve §6.2-3)**
+
+Era n=2 com semântica "DESCONHECIDA". Agora **n=71**, correlação perfeita, confirmada em segunda
+amostra n=69:
+
+| Tipo | Status | Baixou estoque |
+|---|---|---|
+| Automático (4) | `Aberta`, todas | `Não`, todas |
+| Manual (67) | `Atendida Total` ou `Parcial`, todas | `Sim`, todas |
+
+> 🔴 **REQUISITO DE CÓDIGO DA FASE 2.** `"Automático"` é o **default de nascimento via API**.
+> Se o mapper não enviar `TipoAtendimento = "Manual"` **explicitamente**, toda requisição criada
+> pelo Hub nasce morta — aberta para sempre, sem baixar estoque, **sem erro**.
+
+*Ressalva: correlação não prova causa. Mas enviar Manual custa zero e o risco de não enviar é total.*
+
+**Empenho — fecha a investigação do botão Empenhos**
+
+`GeraEmpenho: "Não"` no cabeçalho e em **22/22 itens** da `2251`. É opção **por item**, e ninguém liga.
+
+⇒ **Requisição aberta não reserva estoque.** É a `2187`/`2231` da §6.1-10 acontecendo.
+⇒ **Consequência de tela:** o saldo exibido é uma foto. Mostrar o horário da consulta e **não
+prometer**. *(n=1; confirmar em outra requisição.)*
+
+**`ControlaLote` do item não prediz lote (retifica §9.7-3)**
+
+**756/756** itens de `MovEstq` com laudo: `ControlaLote = "Não"` em todos e **todos** com
+`CtrlLoteItemMovEstqChildList` preenchido. O fenômeno **não é** da importação — é universal.
+Mesma classe de erro do "nunca filtrar por `CodigoTipoLanc`".
+
+**NOVO · `Saldo ≠ Quantidade − Atendida`**
+
+Na `2251`: pedido **2.850** × atendido **2.918**. O excedente vai para `QuantidadeAtendidaMaior`
+(item 18: +47; item 19: +121); o `Saldo` não fica negativo.
+
+⇒ **O `Status` do cabeçalho não é indicador confiável.** A `2251` está `"Atendida Parcial"` porque
+**um** item ficou zerado, escondendo excesso em dois outros. **Conferência é por item.**
+
+**NOVO · O almoxarifado aloca por FEFO**
+
+5/5 itens multi-lote, sempre da validade mais antiga, inclusive drenando resto.
+A soma dos lotes bate com o **atendido**.
+⇒ `CtrlLoteItemReqMatChildList` é a genealogia de saída nativa. Fase 5 servida sem replay.
+
+**NOVO · Cinco requisições apagadas — nenhuma movimentou estoque**
+
+Faltam `2196`, `2230`, `2235`, `2236`, `2246` (7% do período). O cruzamento com os 65 movimentos
+`Especie == 'RM'` de julho bate exatamente com as 69 do export menos as 4 abertas.
+⇒ Foram apagadas ainda `Aberta`.
+⇒ **Requisito de DDL: `ausente_desde` no espelho de RM.**
 
 ---
 
@@ -686,6 +743,11 @@ Sete lotes do fornecedor. Padrão = **`AAMMDD` da fabricação**; validade = fab
 
 #### M) Impacto no desenho dos módulos
 
+> ⚠ **SUPERADO em 31/07/2026 — ver §9.9.**
+> O desenho do `est_saldos` como *replay* dos `MovEstq` com `ControlaEstoque="Sim"` foi abandonado.
+> O texto abaixo fica registrado como o raciocínio da época; **não implementar**.
+> Quem abrir a Fase 2 deve ler a §9.9 antes de qualquer schema de saldo.
+
 1. **Espelho de estoque (`est_saldos`)** = replay dos lotes do `MovEstq` **com `ControlaEstoque="Sim"`**, chave `(produto, local, lote)`. Reconciliação contra `RetornaFichaEstoque` com janela de 1 dia.
 2. **Lote com movimento de estoque = disponível · lote sem movimento = em inspeção.** As duas perguntas são respondidas pela mesma fonte.
 3. **A RM pode confiar no saldo do `001`** — a Qualidade já filtrou a montante (§6.3-B). **Não** precisa filtrar por aprovação do laudo.
@@ -708,6 +770,27 @@ Sete lotes do fornecedor. Padrão = **`AAMMDD` da fabricação**; validade = fab
 | "A ligação laudo ⇄ entrada só existe num sentido" | **ERRADO.** O movimento `E0000163` traz o **número do laudo** no campo `Documento` — visível já na ficha. |
 | §6.3-D: "laudos `2073`/`2074`/`2075` têm todos `SequenciaItMovEstq = 1`" | **ERRADO (retificado em 29/07/2026, REC-2.0).** No espelho são **1, 2 e 3** — um item do `MovEstq` por laudo. Medido no conjunto inteiro: o par **`(chave_movestq, sequencia_it_movestq)` é único em 751/751** ⇒ a ligação item⇄laudo é **1:1**, não N:1. O código do passo C ainda trata N laudos por par, porque unicidade observada não é garantia estrutural do ERP. |
 | "`E0000158` e `E0000163` são os tipos de lançamento do recebimento" | **Incompleto (29/07/2026).** A importação usa **`E0000160`**. O que se mantém constante é **`ControlaEstoque` do cabeçalho** (§6.3-C) — **nunca filtrar por `CodigoTipoLanc`**, sob pena de perder as importações inteiras no replay do `est_saldos`. |
+
+**Retificações de 31/07/2026**
+
+**⚠ Local NÃO é constante**
+
+O plano e o relatório de 30/07 registram `001` como único local com base em 746/746 itens de
+`MovEstq` e 71/71 requisições. **O cadastro de produto mostra que existe o `003 PRODUÇÃO`**
+(`ProdLocArmazChildList` do `001.003.00047`, com `Prioridade` 1 contra 0 do `001`).
+
+O que as amostras provavam é que *entrada por laudo* e *requisição* usam o `001`.
+**Local é dimensão, não constante.** Entra assim no DDL do OP-2.2.
+
+**⚠ `UnidadeMedidaMovimentacaoEstoque` não é gate**
+
+42 dos 82 produtos de `001.003` não têm nenhuma unidade com o flag `Sim` — e movimentam
+normalmente (verificado no `001.003.00056`, dezenas de saídas desde janeiro).
+É preferência de tela.
+
+**⚠ Os exports da tela não são paginados**
+
+O rodapé "1 de 2" é paginação **horizontal das colunas**. A ressalva anterior está errada.
 
 ---
 
@@ -776,6 +859,7 @@ Sete lotes do fornecedor. Padrão = **`AAMMDD` da fabricação**; validade = fab
 | 30/07/2026 | REC-3.0 | **Releitura condicional + flag de ausência — deployada e PROVADA.** Fingerprint **1752**. **Duas correções minhas que o agente fez e estão certas.** (a) Eu propus backfillar `load_status_lido = status` (o estado atual). Isso zeraria a fila **e tornaria o bug permanente exatamente nos registros que o manifestam** — o `2149` sairia da fila e as 180 unidades aprovadas ficariam 0 para sempre. O backfill correto deriva de **`raw_load`**, que é o registro do que a última leitura enxergou; copiá-lo reconstrói o estado anterior, e a fila fica com **exatamente 1 laudo**, que é o resultado desejado. (b) Eu especifiquei "um predicado SQL" comparando duas colunas — **o PostgREST não compara colunas entre si**. Sem uma 4ª coluna o predicado teria de rodar no client, lendo a tabela inteira e ficando à mercê do `db-max-rows` (1.000 por padrão), que **corta a resposta em silêncio**: com ~1.300 laudos/ano isso estoura em meses e a fila passa a ignorar os antigos sem um único erro no log. Solução: coluna **gerada e indexada** `precisa_releitura`, que mantém predicado e teto `LOAD_BATCH` dentro do Postgres. **Ordem de aplicação (crítica):** todo o SQL primeiro, deploy por último — a função nova referencia `precisa_releitura` e, sem a coluna, o passo B falha inteiro com 400 no PostgREST; o inverso é seguro. **Cron confirmado:** `45 11,14,17,20 * * 1-5` UTC = **08:45 / 11:45 / 14:45 / 17:45 BRT** (o relatório do agente dizia 07h30/12h30/16h30 — errado). |
 | 30/07/2026 | — | **ACHADO DE MÉTODO: `bun run build` e `tsc --noEmit` NUNCA validaram as Edge Functions.** O `tsconfig.app.json` tem `include: ["src"]` e as functions vivem em `supabase/functions/` — estão **fora do escopo do typecheck**. Aceitamos "build limpo" como evidência em REC-1.4, REC-2.0 e REC-2.1; não era evidência de nada (as três funcionaram, mas por prova empírica, não por tipo). **Regra nova do repo:** para Edge Function, a checagem é `node node_modules/typescript/bin/tsc --noEmit --noResolve --skipLibCheck supabase/functions/<nome>/index.ts` — os erros de `Cannot find module` de URL remota são esperados e ignorados; o que importa é sintaxe e tipo local. `npx tsc` não funciona (typescript não é dependência raiz). Não existem testes automatizados para `sync-laudos`. |
 | 30/07/2026 | — | **Investigação do momento da INSPEÇÃO no Alvo (não é software, é achado).** Medido em 752 laudos: existem **4 estados e só isso** — Aprovado (617), Emitido/Nenhum (120), Aprovado Parcial (14), Reprovado (1). **Nenhum** laudo destruído, enviado a laboratório externo ou com análise química, embora a entidade tenha esses campos. **1.760 unidades reprovadas no ano, `quantidade_devolvida = 0` em 15 de 15** e `data_devolvida` nula em todas. **A causa é estrutural, não de disciplina:** a tela do Laudo **não expõe** o campo de devolução (nem quantidade aprovada/reprovada); a grade de listagem mostra as duas colunas de *destruição* e nenhuma de devolução. Cinco examinadores distintos escrevem "devolvido ao fornecedor" no **Comentário** (`TextoResultado`) porque é o único lugar que existe. Quatro laudos afirmam devolução em texto — o `0000002070` diz "**serão** devolvidas" (futuro, 29/06) e ninguém voltou para confirmar. **Dois casos mal classificados:** `0000001408` é divergência de quantidade entregue ("veio menos do que a NF"), não defeito; `0000002047` são 468 un da LFU **liberadas sob condição** de produção-sob-risco previamente aprovada — se a condição não foi cumprida, há material em uso com pendência que não aparece em campo nenhum. **Taxa de reprova: 15 em 632 concluídos (2,4%)** — não é problema de qualidade de fornecimento; é uma operação que aprova quase tudo e não sabe dizer o que faz com o resto. |
+| 31/07/2026 | Fase 2 · investigação (30–31/07) | **Sessão de investigação, sem código.** Sete pendências fechadas por medição: `TipoAtendimento="Automático"` nunca atende — n=71 (§6.2-3) · Empenho não é usado — `GeraEmpenho: "Não"` em 22/22 (fecha o botão Empenhos) · `est_saldos` não será construído — quatro provas, decisão na §9.9 · Lote vem da child list, nunca do `ControlaLote` — 756/756 (retifica §9.7-3) · Payload do `FiltrarSaldoProduto` é obrigatório completo; `produto: ""` quebra (fecha §9.9) · Q3 fechada pela metade — a parte do recebimento não precisa da Qualidade · Cinco RMs apagadas não movimentaram estoque. **Endpoints novos mapeados:** `reqMat/GetListForComponents`, `ReqMat/Load`, `movEstq/GetListForComponents`, `MovEstq/Load`, `MovEstq/RetornaFichaEstoque`, `Produto/Load` (parâmetro `codigo`), `produto/GetListForComponents`, `unidMedida/GetListForComponents`. Dialeto do `Filter` provado em três entidades. **Escopo da Fase 2 reformulado** pelas decisões do Pedro: tela própria de RM com seletor de OP obrigatório; OP não tem lista de insumos; consolidado soma o atendido. **Três retificações minhas:** local não é constante (existe `003 PRODUÇÃO`); `UnidadeMedidaMovimentacaoEstoque` não é gate; exports da tela não são paginados. **Achados de valorização** (não são software — são para o Pedro): a `2211` registrou R$ 3.897.408 onde o custo médio dava R$ 16.073,64; a ficha do `001.003.00056` documenta a gênese de um custo médio negativo em 02/06; `ValorSaida` desconectado de `QtdSaida × CustoMedio` em dois produtos distintos. **Achados operacionais:** a `2251` entregou 68 unidades a mais do que o pedido; `DataConferencia` == `DataEntrega` ao milissegundo em 68/71 — não há conferência, há carimbo; 13/71 sem registro de custódia; lead time bimodal (mediana 1,1 h, p90 308 h); 20% ficam `Atendida Parcial` sem fechar; a `2187` está aberta há 30 dias; classificação contábil em 4 de 22 itens da `2251`. **Cadastro de unidades:** piloto da família `001.003` (82 produtos) concluído — 23 com múltiplas unidades, 10 com divergência. Planilha de trabalho entregue. `MIL` e `MILHEI` são o mesmo nome no cadastro do ERP; `UN` e `UNID` são equivalentes. **Adiado por decisão explícita:** como os insumos saem e como a sobra volta (Q4 / Fase 4). |
 
 ---
 
@@ -792,6 +876,15 @@ Sete lotes do fornecedor. Padrão = **`AAMMDD` da fabricação**; validade = fab
 | 23/07/2026 | OP-1.5 | **Detalhe da OP + transições (código pronto no preview; build limpo).** Params das RPCs reconfirmados ao vivo (fingerprint 1686): `op_atualizar_rascunho(p_op_id,p_dados,p_itens)`, `op_registrar_aprovacao(p_op_id,p_depto)`, `op_registrar_comunicacao(p_op_id,p_comunicado_a,p_depto)`, `op_transicao_status(p_op_id,p_para,p_motivo)`. Nova página `src/pages/ProducaoOrdemDetalhe.tsx` (rota `/producao/ordens/:id`; clique na linha da lista agora **navega** — substituiu o toast placeholder): cabeçalho com número em destaque (mono/tabular) + badges de status e tipo_ordem; bloco de campos via `DataSection`/`Field` (todos os campos do FRM, incluindo blocos condicionais de aprovação/comunicação/cancelamento/fechamento e motivo); tabela de itens planejados; **timeline do histórico** (`op_status_historico`, de→para + motivo + usuário + data, rótulos via `getStatusOP`). Ações condicionais por status/permissão: **Editar** (só RASCUNHO, gate create — reabre o `NovaOPModal` em **modo edição** via novo prop `edicao`, salvando por `op_atualizar_rascunho`; "Salvar e abrir" faz update+`op_transicao_status` ABERTA), **Abrir** (RASCUNHO, create), **Cancelar** (RASCUNHO/ABERTA/EM_ANDAMENTO, gate manage, **motivo obrigatório** via dialog → `op_transicao_status` CANCELADA), **Registrar aprovação** e **Registrar comunicação** (botões-carimbo, gate manage, dialogs → `op_registrar_aprovacao`/`op_registrar_comunicacao`; disponíveis enquanto status≠CANCELADA). Toda mutação invalida `op_detalhe`/`op_lista`/`op_counts`. Serviços novos em `opService.ts`: `obterOrdem`/`atualizarRascunho`/`transicionar`/`registrarAprovacao`/`registrarComunicacao`. `NovaOPModal` ganhou modo edição (prop `edicao`, `ymdToDate`, título/toast condicionais). **Aguarda Publish do Pedro** — na validação, cancelar 2026-0501/0502 com motivo "OP de teste da Fase 1". |
 | 23/07/2026 | OP-1.4 | **Modal de abertura de OP (código pronto no preview; build limpo).** Verificado ao vivo (fingerprint 1686): `stock_products` tem `codigo_produto`/`codigo_alternativo`/`nome_produto`/`unidade_medida`/`ativo`; RPCs `op_criar_ordem(p_dados jsonb, p_itens jsonb)→uuid` e `op_transicao_status(p_op_id uuid, p_para text, p_motivo text)→void`. Novo `src/components/producao/NovaOPModal.tsx` (Dialog XL `max-w-4xl`, cabeçalho em cima + grade de itens embaixo, ordem do FRM-07-11): tipo de OP (select `op_tipos`), tipo_ordem/tipo_produto/destino (radios horizontais, rótulos do form), `produto_familia` default "Tricvalve", lote/`data_fim_planejada`/`numero_referencia`/observações opcionais, `data_inicio` default hoje, `emitido_depto` pré-preenchido com o último valor do usuário (`ultimoDeptoDoUsuario`). Defaults: `tipo_ordem=FABRICACAO`; **destino e tipo_produto sem default** (decisão consciente). Número prometido, não reservado (RPC gera no salvar; texto "Nº automático 2026-05xx"). Picker de SKU **dedicado** (não mexi no `ProductCombobox` compartilhado): busca server-side debounce 300ms + race-guard em `stock_products` por `codigo_alternativo`+`nome_produto`+`codigo_produto` (**`codigo_barras` fora**), só `ativo=true`, exibe "alternativo · hierárquico · nome · unidade"; selecionar→snapshot na linha + foco na quantidade, Enter→volta à busca; **SKU repetido bloqueado** com aviso; mín. 1 item, qtd>0. Ações "Salvar rascunho" e "Salvar e abrir" (2ª faz `op_criar_ordem`+`op_transicao_status` RASCUNHO→ABERTA), validação idêntica. Dirty-check via AlertDialog "Descartar alterações?". Botão "Nova OP" só com `producao.ordens.create`. Após salvar: toast "OP 2026-05xx criada" + invalidação de `op_lista`/`op_counts` (lista e chips atualizam). Serviços novos em `opService.ts`: `buscarProdutos`/`ultimoDeptoDoUsuario`/`criarOrdem`/`abrirOrdem`. **Aguarda Publish do Pedro.** |
 | 23/07/2026 | OP-1.3 | **Frontend: nav Produção + lista de OPs (código pronto no preview; build limpo).** Novos: `src/lib/statusOP.ts` (6 estados no padrão sóbrio, molde de `statusPedido.ts`), `src/services/opService.ts` (`listarOrdens`/`contarPorStatus`/`listarTipos`; leitura direta gateada pela RLS; resolve tipo, agregado de itens e nome do emissor via `profiles` em lote por `.in()`), `src/pages/ProducaoOrdens.tsx` (lista no molde `SuprimentosPedidos`: Nº tabular-nums, tipo, tipo_ordem, resumo "N SKUs · Q un", badge de status, data_inicio, emitido por; filtros server-side status/tipo/período/busca com persistência na URL, ordenação padrão `created_at desc`, chips de contagem por status clicáveis, empty state com "Nova OP"). Editados: `App.tsx` (rota `/producao/ordens` gateada por `PermissionRoute permKey="producao.access"`), `AppSidebar.tsx` (grupo colapsável "Produção" ícone `Factory`, injetado nos dois caminhos do bloco `nf_entrada` + guard ampliado para quem só tem `producao.access`), `constants/permissions.ts` (3 permissões `PRODUCAO_*` + papéis `OPERADOR_PRODUCAO`/`GESTOR_PRODUCAO`). "Nova OP"→toast (modal = OP-1.4); clique na linha→toast (detalhe = OP-1.5). **Aguarda Publish manual do Pedro.** Para ver a tela, um usuário precisa do papel `operador_producao`/`gestor_producao` (ou admin) — senão o menu/rota não aparecem (RBAC) e a RLS retorna vazio. | (sem executar nada; tarefa OP-1.2 é a mesma). Gate do `op_transicao_status` confirmado (abrir/iniciar=create; cancelar/avançar/fechar/reabrir=manage). **Achado empírico:** `fechada_por`/`fechada_em` **não existiam** em `op_ordens` (verificado: 28 colunas, sem elas — a OP-1.1 não as criou; não estavam "órfãs") ⇒ v2 adiciona no topo `alter table op_ordens add column if not exists fechada_por uuid / fechada_em timestamptz` (aditivo, nullable, 0 registros; rollback = drop column) e o ramo `p_para='FECHADA'` passa a carimbar `fechada_por=auth.uid()`/`fechada_em=now()` (antes caía no else genérico). **Duas RPCs novas** (gate `producao.ordens.manage`, SECURITY DEFINER + `search_path=public`, mesmo revoke public/grant authenticated): `op_registrar_aprovacao(p_op_id,p_depto)` → `aprovado_por/aprovado_em/aprovado_depto`; `op_registrar_comunicacao(p_op_id,p_comunicado_a,p_depto)` → `comunicado_a/comunicado_depto/comunicado_em`; ambas exigem OP existente e `status<>'CANCELADA'`. **Perf/segurança:** 4 policies de SELECT com gate em subselect `((select user_has_permission(auth.uid(),'producao.access')))` (InitPlan 1x/consulta, não 1x/linha); **`op_numeracao` perde a policy (deny-all; RLS segue habilitada)** — nenhuma tela lê o contador, RPCs acessam por dentro do definer ⇒ contagem de policies `op_*` = **4**. Verificação do arquivo ampliada: `has_function_privilege` (proxnum=false p/ authenticated+anon; 5 RPCs=true p/ authenticated), policies=4, e `pg_get_functiondef(_user_has_perm)`. **Evidência do gate interno:** `_user_has_perm(text)` é `STABLE SECURITY DEFINER search_path=public,auth`, usa **`auth.uid()`** (`hub_user_roles→hub_role_permissions→hub_permissions`, `revogado_em IS NULL`, bypass `_is_admin()`). Normalização `nullif(depto,'')` nas RPCs de aprovação/comunicação (padrão do arquivo). |
+| BL-5 | Sessão 30–31/07/2026 | **Gate de papel no `Produto/SavePartial`.** 🔴 O passthrough valida só o JWT. Enquanto a linha existir na whitelist, qualquer um dos 100+ usuários grava no cadastro de produtos do ERP. **Não amarrar ao fim da carga de unidades.** Gate aditivo no proxy, ou correção pela tela do Alvo e remoção do endpoint. |
+| BL-6 | Sessão 30–31/07/2026 | **Remover `Produto/GetRegistros` da whitelist.** Entrada morta — não existe no Alvo. Risco zero. |
+| BL-7 | Sessão 30–31/07/2026 | **Confirmar `GeraEmpenho` em 2ª requisição.** n=1 hoje. Campo é por item. |
+| BL-8 | Sessão 30–31/07/2026 | **Testar devolução contra a requisição original.** Existem `QuantidadeDevolvida` no item **e** no lote, e `CodigoFuncionarioDevolveu` no cabeçalho. Se procede, o bloqueio da Fase 4 (§6.2-9) **deixa de existir**. |
+| BL-9 | Sessão 30–31/07/2026 | **`NumeroOrdProduc` é gravável na tela?** Null em 71/71 — inclusive na `2251`, que tem a OP escrita à mão. Se for gravável, o vínculo vira estruturado e a §10.4 muda. |
+| BL-10 | Sessão 30–31/07/2026 | **Capturar Estoque Transitório da CSALDOPROD.** Candidato a onde vivem as 1.433 un de pericárdio retidas. Toca a §6.3-O-6. |
+| BL-11 | Sessão 30–31/07/2026 | **Varredura de valorização nos 827 produtos.** Sinais: `CustoMedio` negativo; `ValorSaldo` ≠ `QtdSaldo × CustoMedio`; `ValorSaida` ≠ `QtdSaida × CustoMedio`. **Mirar agosto** por decisão do Pedro. |
+| BL-12 | Sessão 30–31/07/2026 | **Varredura de unidades nas demais famílias.** `001.010` (185), `001.007` (117), `001.002` (80)… Piloto de `001.003` feito. |
+| BL-13 | Sessão 30–31/07/2026 | **Duplicidade `MIL` / `MILHEI` no cadastro de unidades.** Mesmo nome ("MILHEIRO"), dois códigos. Enquanto ambos existirem, o erro do `00067` se repete em produto novo. |
 
 ---
 
@@ -911,7 +1004,7 @@ A diferença de R$ 408,90 é frete 308,83 + II 84,63 + SISCOMEX 15,44. **O ICMS 
 
 1. **Ligação laudo ⇄ item é o par `(chave_movestq, sequencia_it_movestq)`** — único em 751/751. Retifica a §6.3-D.
 2. **`CodigoTipoLanc` varia:** `E0000158` (nacional), `E0000160` (importação). **Nunca filtrar por ele** — usar `ControlaEstoque` (§6.3-C). Vale sobretudo para o replay do `est_saldos` na Fase 2: filtrar por código perderia as importações inteiras.
-3. **`ControlaLote = "Não"` convive com laudo existente** (importação). Laudo e controle de lote são independentes.
+3. **`ControlaLote = "Não"` convive com laudo existente** (importação). Laudo e controle de lote são independentes. ⚠ Retificado em 31/07/2026 — o fenômeno é universal (756/756), não da importação; ver §6.2/Resolvidas.
 4. **`MovEstqPedCompChildList` vem vazio em importação** ⇒ não há como amarrar `compras_pedidos` em todos os casos.
 5. **A NF `4530`** — os 2 lotes mais antigos da fila, 110 dias — **é importação intercompany da PEF Austria** (`CodigoEntidade 0000017`, `SiglaPaisEntidade "AUS"`), com desembaraço (II 851,37 · SISCOMEX 192,79). Material do próprio grupo parado na inspeção, não de fornecedor externo.
 
@@ -996,4 +1089,153 @@ podem ser omitidos. E falta capturar o botão **Lote** dessa tela — saldo por 
 escolher de qual lote requisitar. Os botões **Reservas** e **Empenhos** dão o comprometido: "disponível" de verdade é
 saldo menos empenho.
 
+⚠ Respondido em 31/07/2026 — ver a decisão abaixo.
+
 **Nota:** `SaldoEstoqueTotal` e `SaldoEstoqueDisponivel` vêm **0** no `Produto/Load` mesmo em produto com saldo — não são confiáveis.
+
+**DECISÃO FECHADA (31/07/2026): o `est_saldos` não será construído**
+
+**As provas**
+
+| Peça | Fonte | Estado |
+|---|---|---|
+| Saldo por produto/local | `Produto/FiltrarSaldoProduto` — uma chamada por SKU | **provado** |
+| Lote de **entrada** + validade | já no `raw_movestq_item` do `rec_laudos` | **provado** — 756/756 |
+| Lote **consumido** | `CtrlLoteItemReqMatChildList` lido no atendimento | **provado** — soma bate com o atendido em 5/5 |
+| Saldo **remanescente por lote** | sem fonte nativa | única peça que exigiria replay |
+
+**A decisão**
+
+**Não haverá tabela `est_saldos`.** A RM consulta o saldo **sob demanda**, uma chamada por SKU no
+momento em que o requisitante escolhe o produto. Sem cron, sem espelho, sem divergência.
+
+1. **O replay não teria consumidor.** A RM não precisa de saldo por lote — quem escolhe é o
+   almoxarifado, que já faz FEFO. O Hub lê de volta a alocação real.
+2. **Não existe varredura em lote.** `produto: ""` devolve `SqlException 156` (o Alvo concatena SQL).
+   Um espelho custaria N chamadas por ciclo num gateway compartilhado com 100+ usuários.
+3. **Ler, nunca calcular.**
+
+**O custo aceito, explicitamente**
+
+Acoplamento: se o Alvo ou o Render caírem, a tela não mostra saldo. Aceitável para uma tela de
+requisição; **não** seria para um painel de cobertura de estoque — isso seria outra decisão.
+
+**⚠ Limite de escopo — registrar junto**
+
+O `FiltrarSaldoProduto` devolve **quantidade, nunca valor**. Valorização de estoque continua sem
+fonte nativa confiável. Esta decisão resolve a Fase 2 e **não** resolve valorização.
+
+**⚠ Armadilha de leitura (obrigatória para quem implementar)**
+
+A resposta repete a mesma quantidade em três eixos — locais reais × linha sintética
+`Saldo Disponível` (`Codigo: null`), elemento `Total Disponível` no topo, e a mesma quantidade em
+cada unidade cadastrada. **Somar ingenuamente infla o saldo.**
+Regra: filtrar empresa → local com `Codigo != null` → **uma** unidade pelo código.
+
+---
+
+## 10. Fase 2 — A RM nasce da OP (especificação · 31/07/2026)
+
+### 10.1 — A regra
+
+**Nenhuma Requisição de Material sem Ordem de Produção.**
+OP aberta → produção recebe → produção abre a(s) RM(s) contra ela.
+
+### 10.2 — Forma: tela própria, não sub-tela da OP
+
+**Tela separada "Abrir Requisição de Material"**, com campo **OP obrigatório** — um **seletor de OPs
+pendentes**, não texto livre.
+
+Motivo decisivo: **são pessoas diferentes.** Quem abre a OP e quem requisita não trabalham no mesmo
+momento. Entrar pela tela da OP obrigaria o requisitante a navegar pelo trabalho de outra pessoa.
+
+*(Substitui a hipótese descartada de "Abrir requisição" como botão dentro do detalhe da OP.)*
+
+### 10.3 — A OP **não** tem lista de insumos — só de itens finais
+
+Os itens da OP são a **saída**; a RM pede a **entrada**. Conjuntos diferentes de produtos.
+
+⇒ **Não existe** sugestão de itens planejados na grade da RM.
+⇒ **Não existe** marcação de "item fora do plano" — não há plano de insumo contra o que comparar.
+⇒ O picker da RM é o catálogo (`stock_products`), filtrado por saldo disponível.
+
+*(Corrige duas hipóteses de desenho levantadas e descartadas na mesma sessão.)*
+
+### 10.4 — O consolidado da OP soma o ATENDIDO
+
+A produção requisita como quiser — uma RM ou dez. A OP acumula.
+
+Tela da OP ganha **seção de Requisições**: uma linha por RM (número, data, quem abriu, status do
+Alvo) e abaixo o consolidado por insumo — requisitado × **atendido** × saldo em aberto, com lotes.
+
+> 🔴 **Somar `QuantidadeAtendida`, nunca `Quantidade`.** Coerente com a §6.1-1, e agora com prova
+> de campo (§6.2/Resolvidas · `Saldo ≠ Quantidade − Atendida`).
+
+Isso é a conferência que hoje não existe no processo, e **não exige trabalho novo de ninguém**.
+
+### 10.5 — Equação do balanço, sem BOM
+
+```
+disponibilizado = Σ atendido − Σ devolvido
+fechamento:  disponibilizado = consumido + reprovado + perdas + saldo em aberto
+```
+
+Rendimento contra BOM continua sendo camada analítica separada — e agora está claro **por quê**:
+sem plano de insumo, o balanço físico não pode depender dele.
+
+### 10.6 — Arquitetura — nada de novo
+
+Sync no molde do `sync-laudos`, já provado em produção:
+**passo A** `reqMat/GetListForComponents` com `Filter` por período →
+**passo B** `ReqMat/Load` por número, para itens e lotes.
+
+### 10.7 — Vazamento pela tela do Alvo — medir antes de decidir
+
+`Origem` distingue nativamente `Importação` (API) de `ManualAlvo` (tela) ⇒ dá para **medir** o
+vazamento desde o primeiro dia. Linha de base: `ManualAlvo` em 71/71.
+
+### 10.8 — Evidência de demanda: o comportamento já começou sozinho
+
+RM `0000002251`, 30/07 07:23: `"Peças de Cateter TRIC - OP. 2026-0228"` — **1 em 71**, do mesmo dia,
+exatamente no formato projetado na §10.2, com 37 dos 40 caracteres.
+⇒ A Fase 2 **dá ferramenta a um comportamento existente**, não impõe processo novo.
+
+### 10.9 — ⚠ Pré-requisito de dados
+
+`CodigoCentroControle` é **ignorado** — o centro deriva do funcionário (§6.2-1).
+Cobertura: **44 de 51** usuários ativos com `profiles.funcionario_alvo_codigo`.
+⇒ Gate na RPC, desenhado agora e não descoberto na primeira requisição órfã.
+
+### 10.10 — Decisões de desenho ainda em aberto
+
+1. **Quais OPs no seletor?** `ABERTA` e `EM_ANDAMENTO`. Filtrar também por OP já comunicada?
+   Daria uso real ao carimbo da OP-1.5.
+2. **O que dispara `ABERTA → EM_ANDAMENTO`?** Criação da RM ou atendimento.
+3. **Vínculo OP↔RM:** `numero_op_detectado` derivado ao lado do texto cru, ou campo único?
+
+### 10.11 — Por que a leitura primeiro
+
+1. Arquitetura já provada em produção (`sync-laudos`).
+2. **Entrega valor antes de o Hub criar uma única RM**: as 14 parciais que nunca fecham, a `2187`
+   há 30 dias, os 68 itens a mais — nada disso é visível hoje.
+3. **É pré-requisito do lado de escrita de qualquer forma**: assim que o Hub criar uma RM, precisa
+   ler de volta o atendido para o consolidado da OP.
+
+### 10.12 — O que muda no DDL em relação ao `compras_pedidos`
+
+O `compras_pedidos` é o padrão a copiar (cabeçalho em colunas, filhos em `jsonb`, `synced_at`,
+`detalhes_carregados`, e o par `criado_no_hub` / `status_local` / `enviado_em` / `erro_envio`).
+
+1. **`ausente_desde`** — pelas cinco requisições apagadas.
+2. **Releitura por status, não por data** — a `2187` está aberta há 30 dias e ainda pode ser
+   atendida. Tudo que não é `Atendida Total` volta a ser lido, sempre.
+3. **Local como dimensão**, não constante.
+4. **Itens em tabela própria**, não só `jsonb` — o consolidado soma atendido por produto.
+
+### 10.13 — Onde o módulo está (31/07/2026)
+
+**A Fase 2 não tem mais incógnita técnica.** Saldo, local, lote, empenho, listagem, `Load`, sintaxe
+de filtro, requisito do `TipoAtendimento` e pré-requisito do de-para: tudo medido.
+
+**O que resta é humano**, e é uma conversa só com o almoxarifado — nove perguntas, listadas na
+§8.2 do `RELATORIO-31-07-2026.md`. Nenhuma delas bloqueia o espelho de leitura.
