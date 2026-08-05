@@ -948,6 +948,8 @@ whitelist estava correta e a requisição atravessou o proxy.
 
 | 05/08/2026 | Fase 2 · testes de escrita no Alvo (RMs 2271–2275) | **O ciclo COMPLETO foi provado POR API — criar → corrigir → atender → ratear lote —, e isso muda o escopo do que a Fase 2 *pode* fazer.** Cinco RMs de teste (`0000002271`–`0000002275`). 🔴 **O atendimento por API funciona** (§10.19): `ValidarAtendimento` → `FinalizarAtendimento`, objeto inteiro sem envelope, o segundo recebendo **exatamente** o que o primeiro devolveu — provado na `2273` **sem tocar a tela do Alvo** (estoque 6 → 4 galões). A §6.1-1 decidiu que o atendimento fica com o almoxarifado; isso **continua sendo a decisão de processo**, mas agora é **escolha, não limitação**. **Genealogia de lote mapeada** (§10.20): uma linha por lote na `CtrlLoteItemReqMatChildList`, com **regra de fechamento** — a soma de `QuantidadeProdUnidMedPrincipal` tem de bater EXATAMENTE com o atendido, e o Alvo não deixa salvar com diferença. ⚠ **`QuantidadeBruta` NÃO é a quantidade do lote e seu significado não está fechado** (5 na `2275` com 1 galão; 4 nas duas linhas da `2272` com 4 galões — a hipótese de "unidade secundária" explica uma e não a outra) ⇒ quem somar `QuantidadeBruta` conta errado. E **FEFO é MANUAL**: a tela lista os lotes sem sugerir nada, o rateio 1+3 da `2272` foi escolha da pessoa ⇒ **oportunidade para o Hub pré-preencher por validade**. Rateio entre lotes montado à mão e aceito por API (`2273`). **Requisitos da tela derivados dos testes em §10.21**, com a regra que o dia inteiro ensinou: 🔴 **validar no Hub ANTES de enviar** — o Alvo responde `NullReferenceException` sem dizer qual campo falta, e foi assim que 4 tentativas se perderam. **BL-9 FECHADO:** `NumeroOrdProduc` **não é gravável** — `Update` com "2026-0500" devolveu `Friendly_Message_FK_Reference`; é **FK para a `OrdProduc` nativa do Alvo**, vazia em 679/679 e com módulo não usado. Usá-la exigiria criar a OP dentro do ERP (escrita dupla, duas numerações, risco de acordar MRP/empenho) ⇒ **o vínculo OP↔RM fica no Hub definitivamente — impedimento estrutural, não preferência.** **Três retificações na §6.3-N:** 🔴 **`CodigoCentroCtrl` é escolha do usuário**, não derivado do funcionário (a `2271` nasceu com o centro do Pedro, CONTROLADORIA/FINANCEIRO) — afeta a §10.9 e o `comment on` da OP-2.2; 🔴 **`CodigoFuncionarioAtendente` não é quem atendeu** ("Maria Alves" em todos os atendimentos do Pedro; a rastreabilidade real está nos campos de Entrega, que gravam — provado na `2273` por API e na `2274` pela tela); e **`TipoAtendimento` volta para "Manual" após atendimento manual** (`2273` e `2275` nasceram Automático, não passaram por Update e terminaram Manual) ⇒ refina o BL-19: `Automático` **nunca atende SOZINHO**, e o campo **não é imutável**. **`Texto` confirmado como carregador da OP:** aceita 398 caracteres sem truncar e é **exibido na tela de atendimento** — sem o limite de 40 da `Descricao`. **Abertos: BL-21** (capturar o endpoint de lotes disponíveis — última peça do atendimento, o `FiltrarSaldoProduto` não dá saldo por lote) e **BL-22** (limpar as 5 RMs; quatro baixaram estoque, e o glutaraldeído foi de 11 para 1 galão — avisar quem repõe; deletar exige estorno, cujo payload vale capturar porque a Fase 3 vai precisar dele). |
 
+| 05/08/2026 | Fase 2 · escopo da tela e RBAC | **Escopo da tela de RM fechado, e um bloqueio de piloto que não era técnico.** **Tela `Produção > RM` (entrada nova no menu), 1ª versão = LEITURA + CRIAÇÃO**, com `CodigoTipoReqMat = "0000002"` **fixo**; atendimento fora (depende do BL-21 e contraria a §6.1-1). Os quatro tipos foram inspecionados um a um (§10.22): `0000002` produção (279) · `0000004` consumo (357) · `0000005` (35) · null (8). ⚠ **`0000005` NÃO é Devolução** — a §6.1-3 procurava esse código desde julho e **não é este**: são baixas administrativas, 26 delas "AJUSTE DE INVENTARIO RETROATIVO" de 28/02/2026, nenhuma de qualidade. ⇒ **A hipótese de que a reprova teria lastro nativo no Alvo não se confirma**, e a pergunta "em que tipo a Qualidade lança?" fica aberta; se não usa RM, a Fase 3 registra no Hub, como a §1-2 já previa. As 8 sem tipo também foram olhadas: nenhuma é de produção ⇒ o filtro não perde nada. **A tela é para UMA pessoa:** MARIA.EDUARDA abriu **246 das 279** RMs de produção do ano (88%) ⇒ validar o desenho com ela antes de construir, e registrar o **risco de ponto único de falha**. 🔴 **Dois achados de RBAC que bloqueiam o piloto** (§10.23): **ninguém tem `gestor_producao` nem `operador_producao`** (zero atribuições em 52 usuários) e **`producao.access` é órfã do papel `admin`** — que concede 42 de 55 permissões, faltando 13, todas criadas depois dele. ⇒ **Só quem tem `is_admin` enxerga o módulo Produção — hoje, uma pessoa** — e isso **provavelmente explica os 2 registros em `op_ordens`**: a Fase 1 está entregue, validada e publicada desde 23/07, e **invisível para o chão de fábrica**. Não é falta de adesão, é falta de atribuição de papel ⇒ **atribuir os papéis vem ANTES de construir tela nova**. Mesmo padrão em `analista_fiscal` (existe, zero usuários). ⚠ E como o Pedro é o único `is_admin`, **erro de permissão não aparece para ele** — toda tela nova precisa ser testada com usuário sem a flag, como a OP-1.6 fez com `nfe@pfbrazil.com`. Permissões `producao.rm.*` propostas com o mapeamento por papel, e a regra para não repetir o defeito: **mapear toda permissão nova ao `admin` no mesmo bloco**. **BL-23 aberto** (custo negativo em 41 produtos, reportado pela operação em 18 RMs entre 22/05 e 14/07 porque não havia outro canal — frente própria de Controller, mas pode explicar parte do BL-18). **BL-22 fechado** com uma ressalva que importa: as 5 RMs de teste foram estornadas e excluídas, **mas faltou 1 galão** (`001.003.00032`, 11 → 10) ⇒ **o estorno pode não devolver tudo**, e a Fase 3 depende dessa operação. |
+
 ---
 
 ## 8. Backlog / ajustes futuros (não bloqueiam a Fase 1)
@@ -973,7 +975,8 @@ whitelist estava correta e a requisição atravessou o proxy.
 | BL-12 | Sessão 30–31/07/2026 | **Varredura de unidades nas demais famílias.** `001.010` (185), `001.007` (117), `001.002` (80)… Piloto de `001.003` feito. |
 | BL-13 | Sessão 30–31/07/2026 | **Duplicidade `MIL` / `MILHEI` no cadastro de unidades.** Mesmo nome ("MILHEIRO"), dois códigos. Enquanto ambos existirem, o erro do `00067` se repete em produto novo. |
 | BL-14 | Sessão 04/08/2026 | **Contrato do `ReqMat/InserirAlterarRequisicaoMaterial` capturado do swagger (04/08/2026).** Cabeçalho: `CodigoEmpresaFilial`, `Numero`, `Descricao`, `Data`, `CodigoTipoRequisicaoMaterial`, `Operacao`, `CodigoFuncionario`, `CodigoCentroControle`, `Texto`, `CodigoDepositoMix`, `CodigoLocalArmazenagem`, `CodigoMix`, `Itens[]`, `ListaMensagem[]`. Item: `Operacao`, `CodigoProduto`, `Sequencia`, `Quantidade`, `CodigoUnidadeMedida`, `PosicaoUnidadeMedida`, `CodigoLocalArmazenagem`, `Observacao`, `CodigoCatalogoMix`, `CodigoDepositoMix`. ⚠ **Os nomes da ESCRITA ≠ os da LEITURA** — `Itens` vs `ItemReqMatChildList`; `CodigoUnidadeMedida`/`PosicaoUnidadeMedida` vs `CodigoProdUnidMed`/`PosicaoProdUnidMed`; `CodigoLocalArmazenagem` vs `CodigoLocArmaz`; `CodigoCentroControle` vs `CodigoCentroCtrl`. O mapper traduz nos dois sentidos. |
-| BL-22 | 05/08/2026 | **Limpar as 5 RMs de teste: `0000002271` a `0000002275`.** Quatro **baixaram estoque**; a `2272` está **parcial** (6 galões + 2 sapólios ainda em aberto). ⚠ **Consumo real do dia, avisar quem repõe:** `001.003.00032` (GLUTARALDEIDO 2% C/5L) foi de **11 para 1 galão** e `001.003.00056` de **7 para 4**. Deletar RM atendida provavelmente exige **ESTORNO antes** (campo `Estornado` no item; função existe na tela, §6.2-8). O estorno devolve material ao estoque e é operação que a **Fase 3 vai precisar de qualquer forma** (reprova, devolução) ⇒ **capturar o payload ao fazer** — é captura de graça de um endpoint que já está no caminho. |
+| BL-23 | 05/08/2026 | 🔴 **Custo negativo é fenômeno de estoque, não caso isolado — 41 produtos afetados.** A operação reportou o problema pelo **único canal que tinha**: **18 RMs com "CUSTO NEGATIVO" na `Descricao`**, escritas por 3 pessoas (CAIO.RAFAEL, MARIA.EDUARDA, RYAN.PAGANOTTO) entre **22/05 e 14/07/2026** — 12 delas só em junho. **10 seguem abertas.** Os 41 produtos dessas RMs **são a varredura que a §6 do relatório de 31/07 pediu, já feita à mão** (é o BL-11, agora com lista concreta). **Padrões:** (a) 8 produtos da família `001.008` aparecem, sempre com os maiores saldos (210, 130, 50); (b) a janela é de ~3 semanas ⇒ tem cara de **EVENTO**, não de degradação gradual; (c) `001.003.00047` — o espécime da §F.2 do `Endpoints_Alvo.md`, item **FABRICADO** com custo médio negativo anterior a julho — **está na lista**; (d) candidato a causa raiz: os **26 "AJUSTE DE INVENTARIO RETROATIVO" de 28/02/2026** (tipo `0000005`, §10.22), que foram **ATENDIDOS** e portanto **baixaram estoque de verdade**. **Investigar com `MovEstq/RetornaFichaEstoque` nos produtos da lista, recuando a antes de junho.** ⚠ Pergunta em aberto: **por que os relatos pararam em 14/07** — problema resolvido, ou as pessoas desistiram de reportar? ⇒ **Assunto de Controller, sessão própria. Não bloqueia o módulo**, mas **pode explicar parte do BL-18**: se custo negativo impede o atendimento, parte das 11 mil unidades em aberto está presa por isso, e não por desleixo. |
+| ~~BL-22~~ | 05/08/2026 | ✅ **FEITO em 05/08/2026 — as 5 RMs foram estornadas e excluídas**, confirmado por `412` no `Load` das cinco. ⚠ **Mas faltou 1 galão de `001.003.00032`: 11 → 10.** Oito dos nove estornaram — **indício de que o estorno pode não devolver tudo**, o que é **relevante para a Fase 3** (reprova e devolução dependem justamente dessa operação). Investigar antes de a Fase 3 confiar no estorno. Texto original abaixo. ~~**Limpar as 5 RMs de teste: `0000002271` a `0000002275`.**~~ Quatro **baixaram estoque**; a `2272` está **parcial** (6 galões + 2 sapólios ainda em aberto). ⚠ **Consumo real do dia, avisar quem repõe:** `001.003.00032` (GLUTARALDEIDO 2% C/5L) foi de **11 para 1 galão** e `001.003.00056` de **7 para 4**. Deletar RM atendida provavelmente exige **ESTORNO antes** (campo `Estornado` no item; função existe na tela, §6.2-8). O estorno devolve material ao estoque e é operação que a **Fase 3 vai precisar de qualquer forma** (reprova, devolução) ⇒ **capturar o payload ao fazer** — é captura de graça de um endpoint que já está no caminho. |
 | BL-21 | 05/08/2026 | **Capturar o endpoint que lista LOTES DISPONÍVEIS.** É a **última peça faltante** do atendimento. A tela "Seleção Lote (Saída)" mostra nº do lote, validade, `Saldo Calc` e `Saldo` — e o `FiltrarSaldoProduto` **NÃO devolve saldo por lote** (§9.9, onde isso já estava registrado como a peça sem fonte nativa). A chamada dispara **quando o modal abre**, ANTES do `ValidarAtendimento`, e escapou de 3 tentativas de captura. **Protocolo:** Network com **Preserve log LIGADO ANTES** de clicar em Atendimento; abrir a seleção de lote; copiar a chamada **sem clicar em mais nada**. **Pré-requisito da tela de atendimento no Hub (§10.21); não bloqueia a criação.** |
 | BL-18 | 05/08/2026 | 🔴 **11 mil unidades em saldo de RM aberta, e 67 produtos com RMs abertas SIMULTÂNEAS.** Topo: `001.004.00072` em **16** RMs; `001.008.00003` em **13** (707 un, fev→jul); `001.003.00056` em **12**. É a §6.1-10 (`2187`/`2231`, **risco de BAIXA EM DOBRO**) em escala: material re-requisitado enquanto o saldo antigo segue vivo. **Atender um saldo velho hoje tira material que já saiu por outra RM.** ⚠ Destes, **1.980 un estão em 13 RMs `Automático`**, que NUNCA teriam como ser atendidas — **causa sistêmica, não desleixo** (§10.16 e BL-19). Os outros ~8.300 são `Manual`: pendência administrativa. Achado de Controller, **acionável sem o módulo**: limpar/cancelar antes de qualquer bloqueio do Alvo. **Custo colateral para o sync:** RM não-terminal nunca sai da fila do passo B ⇒ o platô de `precisa_releitura` inclui dívida administrativa, não só trabalho real. |
 | BL-19 | 05/08/2026 | **`TipoAtendimento` não é visível nem editável na tela do Alvo.** O campo **não existe no formulário de RM** — ninguém escolheu `"Automático"` nas 27 do ano; o valor é atribuído **por baixo**. Seis usuários distintos, ano inteiro, incluindo ontem; e os **MESMOS** usuários também criam RMs `Manual` ⇒ **não é hábito, não é permissão, não é automação de etapa**. Hipótese: caminho de criação alternativo (cópia de RM, importação, outro fluxo da tela). Fonte mais direta para fechar: **botão `Log` da RM**, que já resolveu a investigação de unidades (§9.8). A correção já existe e está provada (`SaveReqMat` `Update`, §10.16) — o que falta é entender a **causa**, senão o Hub corrige o próprio sintoma e o das outras origens continua. |
@@ -1642,3 +1645,105 @@ Produto com **`ControlaLote = "Sim"` EXIGE indicar o lote** no atendimento. Prod
 **Modal de atendimento** (se e quando o atendimento vier para o Hub): grade de lotes com nº, validade e saldo, **ordenada por validade**; quantidade editável por linha; contador **Pedido / Alocado / Diferença** com a confirmação **travada até zerar** (é a regra de fechamento da §10.20, reproduzida do lado de cá).
 
 > 🔴 **VALIDAR NO HUB ANTES DE ENVIAR.** O Alvo responde `NullReferenceException` **sem dizer qual campo falta** (§6.3-N). Quatro tentativas foram perdidas assim em 05/08. O Hub deve conferir, antes do POST: soma dos lotes = quantidade atendida · quantidade ≤ saldo do lote · unidade válida · funcionário com de-para. **Erro de usuário não pode virar exceção de ERP.**
+
+---
+
+### 10.22 — Escopo decidido da tela de RM (05/08/2026)
+
+**Local no menu:** `Produção > RM` — a entrada **não existe ainda**; será criada.
+
+**Tipo de RM: SOMENTE `0000002` (REQUISIÇÃO PRODUÇÃO).** É o único que representa material saindo do estoque **para uma OP**. Medição do ano de 2026 (679 RMs):
+
+| Tipo | Nome | RMs | Destino |
+|---|---|---|---|
+| `0000002` | REQUISIÇÃO PRODUÇÃO | 279 | **módulo Produção** |
+| `0000004` | SAÍDA MATERIAL DE CONSUMO | 357 | Estoques (futuro) |
+| `0000005` | Baixa / Ajuste de inventário | 35 | Estoques (futuro) |
+| `null` | sem tipo | 8 | ruído — ver abaixo |
+
+⚠ **`0000005` NÃO é Devolução.** A §6.1-3 procurava o código da devolução desde julho — **não é este**. É baixa administrativa: das 35, **26 são "AJUSTE DE INVENTARIO RETROATIVO" de 28/02/2026** (usuários LUANA e RIOSOFT — evento único, provável virada/implantação), 5 são baixa de vencidos (PEDRO.GOBE), 2 ajustes (ADM), 1 "TESTE" (RIOSOFT) e 1 avulsa. **Nenhuma menciona OP e nenhuma é de qualidade.**
+
+⇒ **A hipótese de que a reprova da Qualidade teria lastro nativo no Alvo NÃO se confirma.** Pergunta em aberto: quando a Qualidade reprova material de uma OP, **em qual tipo ela lança?** Se não usa RM, a **Fase 3 registra no Hub** — como o princípio §1-2 (ledger imutável, correção por estorno) já previa.
+
+⚠ As **8 sem tipo** foram inspecionadas uma a uma: ajustes do ADM (jan/2026), 1 transferência de produto, "insumos logistica" e "CUSTO NEGATIVO - AGUA LABORATORIO". **Nenhuma é de produção** ⇒ o filtro `codigo_tipo_req_mat = '0000002'` **não perde nada relevante**. (Confirma a decisão da §10.4 e do `comment on` da coluna: o espelho guarda os quatro, quem filtra é quem consome.)
+
+**Escopo da 1ª versão: LEITURA + CRIAÇÃO.** O **atendimento fica de fora** — depende do BL-21 (endpoint de lotes) e contraria a §6.1-1. A criação nasce com `CodigoTipoReqMat = "0000002"` **FIXO**; o Hub não oferece escolha de tipo.
+*(Registrar para não se perder: a criação por API **aceita qualquer tipo** — se Estoques ganhar tela de saída de consumo, é o mesmo endpoint da §10.16 com `0000004`.)*
+
+**Quem requisita hoje** (279 RMs tipo `0000002`, ano 2026):
+
+| Usuário | RMs |
+|---|---|
+| MARIA.EDUARDA | **246 (88%)** |
+| RYAN.PAGANOTTO | 16 |
+| CAIO.RAFAEL | 10 |
+| GUILHERME.LUCAS | 6 (parou em jan) |
+| ADM | 1 |
+| PEDRO.SCRIGNOLI | 1 (teste de hoje) |
+
+⇒ **A tela é desenhada para uma pessoa.** Vale validar o desenho **com ela** antes de construir.
+⇒ ⚠ **Risco de continuidade:** com o Alvo bloqueado para os demais, a requisição vira **ponto único de falha**.
+
+**Decisões ainda ABERTAS** (não travam a tela — hoje só o Pedro usa):
+
+1. **Quem abre OP no Hub** (PCP? produção? qualidade?) — define se `gestor_producao` vai para uma pessoa ou um time.
+2. **Quem atende no almoxarifado** — os dados **não dizem**: o `CodigoFuncionarioAtendente` é sempre `0000165 - Maria Alves`, padrão do local `001` (§6.3-N). É uma das nove perguntas do almoxarifado (§8.2 do relatório de 31/07).
+3. **Se a RM precisa da distinção `view_own`/`view_all`.** No chão de fábrica a RM **não** é documento privado como a requisição de compra — provavelmente não precisa.
+
+---
+
+### 10.23 — Permissões: estado medido e proposta (05/08/2026)
+
+O módulo `producao` **existe** no RBAC, com **3 permissões** — `producao.access`, `producao.ordens.create`, `producao.ordens.manage` — e **2 papéis**: `gestor_producao` (as 3) e `operador_producao` (as 2 primeiras).
+
+⚠ **Nenhuma permissão de Requisição de Material.** A RLS das tabelas `op_reqmat*` (OP-2.2) usa `producao.access` — o **gate de módulo**, não um gate próprio.
+
+> 🔴 **DOIS ACHADOS QUE BLOQUEIAM O PILOTO:**
+> 1. **Ninguém tem `gestor_producao` nem `operador_producao`** — **zero atribuições** em 52 usuários ativos.
+> 2. **`producao.access` é órfã do papel `admin`.** O papel concede **42 de 55** permissões; as 13 não mapeadas são as 4 de `cartao`, as **3 de `producao`**, 5 de `compras` (`cadastros.sync`, `nfe.access`, `nfe.create`, `nfe.lancar`, `pedidos.view_own`) e `intercompany.master.download_pdf` — **todas criadas DEPOIS do papel**.
+
+⇒ **Só quem tem `profiles.is_admin = true` enxerga o módulo Produção — hoje, uma pessoa.**
+
+⇒ 🔴 **Isto provavelmente explica por que `op_ordens` tem apenas 2 registros.** A Fase 1 foi entregue, validada e publicada em 23/07 — mas **ninguém do chão de fábrica consegue abrir a tela**. **Não é falta de adesão: é falta de atribuição de papel.** ⇒ **Atribuir os papéis é pré-requisito do piloto, e vem ANTES de construir tela nova.**
+
+⇒ Mesmo padrão em NF-e: `analista_fiscal` existe, concede `compras.nfe.lancar`, e tem **zero** usuários.
+
+⚠ **Pedro é o único `is_admin`** ⇒ ele vê tudo por bypass e **erro de permissão não aparece para ele**. **Toda tela nova precisa ser testada com usuário sem a flag** — foi exatamente o que a OP-1.6 fez com `nfe@pfbrazil.com` para provar o gate real, e o motivo de aquilo ter valido a pena.
+
+**Permissões PROPOSTAS para RM** (padrão `modulo.recurso.acao`, molde de `compras.requisicoes`):
+`producao.rm.access` · `producao.rm.create` · `producao.rm.view_all` · `producao.rm.view_own` · `producao.rm.atender` (futuro).
+
+Mapeamento sugerido:
+
+| Papel | Permissões |
+|---|---|
+| `gestor_producao` | access + view_all + create |
+| `operador_producao` | access + view_own + create |
+| `almoxarife` (novo) | access + view_all + atender |
+
+⚠ **Ao criar permissão nova, mapeá-la TAMBÉM ao papel `admin`** — senão nasce com o mesmo defeito das 13 órfãs, e o bug se repete na próxima tela.
+
+> Detalhamento completo do RBAC no relatório `Permissoes_e_Roles_v2.md` (medido em 05/08/2026: 12 papéis, 55 permissões). ⚠ **Pegadinha de JOIN registrada lá:** `hub_user_roles.user_id` casa com **`profiles.user_id`**, não com `profiles.id`.
+
+---
+
+## 11. Ponto de retomada — 06/08/2026
+
+**Feito em 05/08:** OP-2.2 aplicada · OP-2.3 no ar (**679 espelhados, 0 erros, ~370 ms/Load**) · **ciclo completo provado por API** (criar → corrigir → atender → ratear lote) · escopo da tela fechado · RBAC medido.
+
+**Próximo passo: construir `Produção > RM` (leitura + criação).** Antes dela, **nesta ordem**:
+
+1. **Mapear as 13 permissões órfãs ao papel `admin`** (§10.23) — senão as permissões novas de RM **nascem com o mesmo defeito**.
+2. **Criar as permissões `producao.rm.*`** e mapeá-las aos papéis.
+3. **Atribuir `gestor_producao` / `operador_producao`** a quem abre OP — **destrava a Fase 1, que está construída e invisível**.
+4. **Alguém precisa abrir OP real no Hub.** `op_ordens` tem 2 registros; **sem OP, o dropdown da tela de criação não tem o que oferecer** — e a OP obrigatória é a regra fundadora da Fase 2 (§10.1).
+
+⚠ Os passos 1–3 são de **permissão, não de código**, e explicam por que a Fase 1 parece sem uso.
+
+**Em aberto, sem bloquear:**
+
+- **BL-21** — endpoint de lotes disponíveis; pré-requisito **só do atendimento**, não da criação.
+- **BL-22** — ✅ **as 5 RMs de teste FORAM estornadas e excluídas em 05/08**, confirmado por `412` no `Load` das cinco. ⚠ **Falta 1 galão de `001.003.00032` (11 → 10)**: oito dos nove estornaram — indício de que **o estorno pode não devolver tudo**, o que é relevante para a Fase 3.
+- **BL-23** — valorização / custo negativo (41 produtos). Frente própria de Controller.
+- **As nove perguntas do almoxarifado** (§8.2 do relatório de 31/07), entre elas quem realmente atende.
+- **Descomentar o agendamento do cron** (§10.15) — a medição do 1º disparo já existe; falta a decisão.
