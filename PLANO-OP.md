@@ -96,7 +96,7 @@ Transições permitidas (mapa completo, válido desde já): RASCUNHO→ABERTA ·
 | REC-3.0 | Releitura condicional do passo B + flag de ausência no passo A | **CONCLUÍDA** | 30/07/2026 | **Deployada e PROVADA em produção (30/07/2026).** Commit `1b28765`; DDL em `sql/REC-3.0.sql`. **(A) Releitura condicional.** O passo B só relia `enriquecido_em is null`; 120 laudos `Emitido` já tinham sido lidos **vazios** (a inspeção ainda não acontecera) e, ao serem concluídos, ficariam com quantidade_aprovada/reprovada, valor_reprovado, texto_resultado, data_recepcao e examinador **zerados para sempre** — o KPI de valor reprovado somaria R$ 0 numa reprova real. **Defeito já consumado quando a tarefa foi escrita:** laudo `0000002149` (água destilada, 180 un) estava `Concluído`/`Aprovado` no espelho com `quantidade_aprovada = 0`. Novas colunas `load_status_lido` e `load_resultado_lido` guardam o estado da última leitura; a fila do passo B passa a ser `enriquecido_em is null OR precisa_releitura`. **(B) Flag de ausência.** O passo A faz upsert e nunca delete — laudo excluído no Alvo virava fantasma. Agora marca `ausente_desde` em quem está no espelho e não voltou na listagem, **sem apagar**, e limpa se reaparecer. Guardas: só marca com listagem completa e sem erro; se os ausentes passarem de **5% do ano**, não marca nada e registra em `detalhes` (falha fechada). **Provado:** `relidos_por_mudanca=1`, `ausentes=0`, `total_erros=0`; o `2149` voltou com 180 aprovadas e `data_recepcao` preenchida. |
 | OP-2.1 | Whitelist no erp-proxy: `reqMat/GetListForComponents` + `ReqMat/Load`; remover `Produto/GetRegistros` no mesmo commit (BL-6) | CONCLUÍDA | 04/08/2026 | **Verificada em campo (04/08/2026): `ReqMat/Load` 200; `Produto/GetRegistros` 403.** Commit `45db047` no `erp-proxy`. Leitura pura, risco zero. Repo `erp-proxy`. |
 | OP-2.2 | DDL do espelho de RM — `sql/OP-2.2.sql`, aplicado pelo Pedro no SQL Editor | **CONCLUÍDA** | 05/08/2026 | **Aplicada pelo Pedro e verificada empiricamente contra o arquivo, coluna a coluna** (MCP read-only, fingerprint `compras_pedidos` = **1796**): 4 tabelas com **28 / 28 / 17 / 12** colunas — nomes, ordem, tipos, precisão (`numeric(18,9)` nas 10 quantidades), nullability e defaults **idênticos** ao `sql/OP-2.2.sql`; `precisa_releitura` com `attgenerated='s'` (**STORED**) e a expressão preservada (o Postgres normalizou `not in ('Atendida Total')` para `<> 'Atendida Total'` — forma canônica de `NOT IN` de elemento único, semanticamente igual); **20 índices** (16 + 4 PKs), os 3 parciais com o predicado certo; **RLS ligada nas 4**, 4 policies, todas `SELECT` `to authenticated`, **nenhuma de escrita**; trigger `trg_op_reqmat_updated_at` reusando `op_set_updated_at()`; FKs com `ON DELETE CASCADE` e `numero_reqmat` **sem** FK, como desenhado; 0 linhas. **Zero divergências.** ⚠ Duas colunas faltaram por leitura equivocada de 04/08 e entram aditivas na OP-2.3 (`codigo_tipo_req_mat`, `numero_ord_produc` no cabeçalho) — a OP-2.2 **não foi alterada**. |
-| OP-2.3 | Edge Function `sync-reqmat` — dois passos, molde do `sync-laudos` | **EM ANDAMENTO** (código entregue; NADA aplicado, NADA deployado) | 05/08/2026 | **Payload da listagem VALIDADO EM CAMPO pelo Pedro (05/08/2026) antes de virar código** — era a única incógnita bloqueante. Entregues `supabase/functions/sync-reqmat/index.ts` e `sql/OP-2.3.sql`. Type-check no arquivo (`tsc --noEmit --noResolve --skipLibCheck`) com **perfil idêntico ao do molde**: só o módulo remoto e `Deno`, zero erro local. **Estado em 05/08/2026, fim do dia:** seções 1–4 do SQL **aplicadas** (CHECK, kill-switch, 2 colunas + índices, RPC) — a 1ª tentativa abortou com `23502` por `schedule_cron` NOT NULL e foi corrigida. Função **deployada**, mas **nenhum disparo bem-sucedido ainda**: faltavam o `verify_jwt=false` no `config.toml` e o `call_sync_reqmat_cron`, que eu havia deixado comentado junto com o agendamento. **Pendente para CONCLUÍDA, nesta ordem:** (1) aplicar a **seção 5** do `sql/OP-2.3.sql` (disparador); (2) **redeploy** `supabase functions deploy sync-reqmat --project-ref hbtggrbauguukewiknew` — é o redeploy que aplica o `verify_jwt=false` já commitado; (3) `select public.call_sync_reqmat_cron('manual_admin');` no SQL Editor, com medição de `duracao_ms`; (4) só então descomentar o agendamento (seção 6). Detalhe em §10.15. |
+| OP-2.3 | Edge Function `sync-reqmat` — dois passos, molde do `sync-laudos` | **CONCLUÍDA** | 05/08/2026 | **Validada em campo (05/08/2026): 679 RMs espelhadas, 0 erros, ciclo completo provado na RM 0000002271.** **Payload da listagem VALIDADO EM CAMPO pelo Pedro (05/08/2026) antes de virar código** — era a única incógnita bloqueante. Entregues `supabase/functions/sync-reqmat/index.ts` e `sql/OP-2.3.sql`. Type-check no arquivo (`tsc --noEmit --noResolve --skipLibCheck`) com **perfil idêntico ao do molde**: só o módulo remoto e `Deno`, zero erro local. **Estado em 05/08/2026, fim do dia:** seções 1–4 do SQL **aplicadas** (CHECK, kill-switch, 2 colunas + índices, RPC) — a 1ª tentativa abortou com `23502` por `schedule_cron` NOT NULL e foi corrigida. Função **deployada**, mas **nenhum disparo bem-sucedido ainda**: faltavam o `verify_jwt=false` no `config.toml` e o `call_sync_reqmat_cron`, que eu havia deixado comentado junto com o agendamento. **Sequência de fechamento, executada pelo Pedro no mesmo dia:** (1) seção 5 do `sql/OP-2.3.sql` (disparador) aplicada; (2) redeploy com o `verify_jwt=false` do `config.toml`; (3) `select public.call_sync_reqmat_cron('manual_admin');` — **679 RMs espelhadas, `total_erros = 0`, ~370 ms por `ReqMat/Load`**; a fila entrou em **platô**, como previsto (`precisa_releitura` não zera para RM não-terminal). ⏸ **Único item ainda aberto: descomentar o agendamento (seção 6)** — decisão do Pedro depois de olhar a medição. Detalhe em §10.15; ciclo completo em §10.18. |
 | OP-2.4 | Tela: fila de requisições + consolidado por OP | PENDENTE | — | Frontend. |
 
 Status possíveis: PENDENTE · EM ANDAMENTO · CONCLUÍDA · BLOQUEADA (com motivo).
@@ -810,6 +810,33 @@ existe — o DocFin usa SavePartial, POST) e `ReqMat/Load` sem `?numero=`. Nos d
 whitelist estava correta e a requisição atravessou o proxy.
 ⇒ 404 NÃO é sintoma de whitelist. Diagnosticar pelo corpo, nunca só pelo status.
 
+**Achados de 05/08/2026**
+
+- 🔴 **`NullReferenceException` do Alvo = PAYLOAD INCOMPLETO.** O ERP **não diz qual campo
+  falta**: estoura. Visto em `ReqMatRules.cs:277` (`InserirAlterarRequisicaoMaterial`) e em
+  `ProdutoRules.cs:3223` (`FiltrarSaldoProduto`, faltando `idProdutoId`/`todasUnidades`/
+  `empresas`). ⇒ **Nunca completar payload por tentativa e erro: CAPTURAR do Network.** Foi o
+  que resolveu os dois casos, e é a razão de a §10.16 existir. Some-se isto à taxonomia acima:
+  é uma **quinta** forma de falha, e a mais silenciosa, porque parece bug do servidor.
+- **`item.BaixaEstoque` ≠ `cabecalho.BaixouEstoque`.** O do **item** é REGRA ("este item baixa
+  quando atendido" — vem `"Sim"` mesmo em RM aberta); o do **cabeçalho** é FATO ("já baixou").
+  Confundir os dois leva a concluir que o material saiu quando ele está no estoque. Entra na
+  família da §6.3-J.
+- **Campos "2"** (`Quantidade2`, `QuantidadeAtendida2`, `QuantidadeSaldo2`…) = quantidade na
+  **SEGUNDA unidade de medida**, não duplicata. Ficam no `raw` do espelho, fora do núcleo.
+- **`FiltrarSaldoProduto` — payload completo:** `produto`, `idProdutoId`, `unidMedida`,
+  `posicao`, `todasUnidades`, `empresas`. **Leitura:** empresa → `ListaLocArmaz` com
+  `Codigo != null` → unidade. Os de `Codigo` null são **agregados** ("Saldo Disponível",
+  "Total Disponível") — é a armadilha já registrada na §9.9, agora com o payload fechado.
+- **`CodigoTipoReqMatObject` traz `ObrigatorioRelacionarOP`** (hoje `"Não"`) e `SolicitaLote`
+  (`"Não"`) no tipo `0000002`. ⚠ **Se `ObrigatorioRelacionarOP` se referir à `OrdProduc` NATIVA
+  do Alvo** — que não é usada e vem null em 679 RMs — **ligá-lo TRAVARIA as requisições**.
+  Investigar o que o campo exige **antes** de sequer considerar usá-lo como gate de disciplina.
+- **O atendimento devolve campos que o `Load` NÃO traz:** `ControlaLote`, `ControlaEstoque`,
+  `CodigoTipoProduto`, `ProdutoNome`, `PossuiNumSerie`. ⇒ **testar `loadOneToOne=All` no
+  `ReqMat/Load`**: se trouxer, o espelho ganha `ControlaLote` — discriminador de
+  rastreabilidade, e peça do BL-20 — **de graça**, sem endpoint novo.
+
 ---
 
 #### O) Pendências desta investigação
@@ -888,6 +915,8 @@ whitelist estava correta e a requisição atravessou o proxy.
 
 | 05/08/2026 | OP-2.3 · disparo | **`sync-reqmat` devolvia 401 em todas as tentativas de disparo. Duas causas, ambas minhas, e a mais grave só apareceria no primeiro disparo automático.** Sintoma: `{"error":"Não autorizado"}` no PowerShell com anon key, no painel Invoke com role postgres, e `UNAUTHORIZED_ASYMMETRIC_JWT` pelo browser. **Causa 1 — erro de agrupamento no `sql/OP-2.3.sql`:** deixei `call_sync_reqmat_cron` DENTRO do bloco comentado do agendamento. Mas aquela função **é** o caminho de disparo manual — é ela que lê o secret do Vault e monta o header `x-cron-secret`. Comentá-la junto com o `cron.schedule` deixou a Edge Function sem NENHUM caminho de disparo: o gate é `CRON_SECRET` e nenhuma credencial de usuário serve (anon, service_role, sessão, painel — nenhum manda esse header). Movida para a seção 5, aplicada; só o `cron.schedule` segue comentado. **Causa 2, a séria — `supabase/config.toml` não tinha `[functions.sync-reqmat] verify_jwt = false`.** Todos os crons têm, e o próprio arquivo já explicava por quê num comentário do `notify-pedido-criador`. Sem essa entrada o deploy deixa `verify_jwt=true` e o gateway do Supabase barra o `pg_net` — que não manda JWT — **antes** da função: o `CRON_SECRET` nem seria avaliado e o cron **nunca rodaria**, sem erro visível até alguém notar a fila parada. Corrigido; ⚠ `verify_jwt` é lido **no deploy** ⇒ redeploy obrigatório. **Como o `sync-laudos` roda hoje, já que não tem botão na tela** (fato levantado pelo Pedro e confirmado no banco): `_sync_cron_resolve` só conhece `'compras'`/`'nfe'`/`'intercompany'`, e Despesas/DocFin têm RPC dedicada — laudos, produtos, lote e reqmat **não têm tela**. O caminho é o SQL Editor: `select public.call_sync_laudos_cron('manual_admin');`. Prova de que funciona: `net._http_response` id 19988, `200`, 05/08 14:45, `"triggered_by":"pg_cron"` com o fingerprint 1796. **Convenção escrita pela primeira vez em §10.15 → "Como um cron é disparado neste projeto"**, incluindo a taxonomia do 401 pelo idioma da resposta (inglês = gateway do Supabase; português = gate `CRON_SECRET` da função) — que é o atalho de diagnóstico que faltou aqui. **Achado lateral:** `call_sync_laudos_cron` está com execute para `anon` e `authenticated` (**BL-17**); a `call_sync_reqmat_cron` já nasce com `revoke`. **Sequência combinada com o Pedro:** config.toml → SQL → redeploy (dele) → `select public.call_sync_reqmat_cron('manual_admin')` (dele). Invertê-la reproduz o 401 e manda procurar o erro no lugar errado. |
 
+| 05/08/2026 | Fase 2 · fechamento do dia | **A Fase 2 saiu do papel: espelho no ar e ciclo de escrita provado ponta a ponta.** **OP-2.2 aplicada** (4 tabelas, conferidas coluna a coluna contra o arquivo, zero divergências) e **OP-2.3 CONCLUÍDA** — `sync-reqmat` deployada e rodando: **679 RMs espelhadas, `total_erros = 0`, ~370 ms por `ReqMat/Load`**, fila em **platô** exatamente como o desenho previa (`precisa_releitura` não zera para RM não-terminal). O caminho até lá teve **dois tropeços meus, ambos de suposição**: `sql/OP-2.3.sql` abortou com `23502` (`schedule_cron` é NOT NULL e eu o tratei como opcional porque o cron estava comentado — e, como o arquivo não roda em transação única, o aborto derrubou as seções 3 e 4 junto); e depois **nenhum disparo funcionava**, por duas causas somadas: `call_sync_reqmat_cron` comentada junto com o agendamento (mas ela **é** o caminho de disparo manual — é quem lê o secret do Vault e monta o `x-cron-secret`) e a falta de `[functions.sync-reqmat] verify_jwt = false` no `config.toml`, sem o que o gateway barra o `pg_net` **antes** da função e o cron nunca rodaria, em silêncio. Disso saiu a convenção que **não estava escrita em lugar nenhum** (§10.15, "Como um cron é disparado neste projeto"), incluindo o atalho de diagnóstico pelo idioma do 401 — inglês = gateway do Supabase, português = gate `CRON_SECRET`. **🔴 BL-15 FECHADO, e com retificação de rota:** a Fase 2 **não** usa o `InserirAlterarRequisicaoMaterial` do swagger (4 tentativas, todas `NullReferenceException` em `ReqMatRules.cs:277`); usa **`ReqMat/SaveReqMat`** com envelope `{Action, ClassObject}` e os nomes da **leitura** — o que desfaz a tradução de duas vias que o BL-14 previa. A RM criada por API **nasce `Automático` e Automático nunca atende** (13 de 13 abertas contra 266 Manual, 0 aberta), então o **`Update` com `TipoAtendimento: "Manual"` é passo obrigatório**, não polimento; e o `op_requisicoes` da OP-2.2 já cobria os três passos sem tocar no schema. **Fluxo de atendimento mapeado** (`ValidarAtendimento` → `FinalizarAtendimento`, objeto inteiro sem envelope): a quantidade é **digitada** — origem do `QuantidadeAtendidaMaior` —, o `E0000023` é aplicado pelo servidor, e 🔴 **`CodigoFuncionarioAtendente` não é quem atendeu** (na `2271`, atendida pelo Pedro, veio "Maria Alves", padrão do local; quem executou está em `CodigoUsuario`) — qualquer relatório de "quem atendeu" por esse campo mede a coisa errada. **Ciclo completo validado na RM `0000002271`** (§10.18): criar → corrigir → atender → **estoque 31 → 30** → espelhar → sair da fila, o que de quebra prova a expressão STORED da OP-2.2 com um caso terminal real (`'Atendida Total'` deixou de ser hipótese). ⚠ Aquela RM **baixou estoque de verdade** e segue em produção. **Vazamento medido: 96,4%** — só 10 das 279 RMs de produção do ano citam OP na `Descricao`, em 5 formatos, e as 9 OPs citadas são de papel (numeradas abaixo de 500, não existem em `op_ordens`) ⇒ **não há consolidação retroativa; o módulo começa nas OPs do Hub**. **Regra nova do repo:** `NullReferenceException` do Alvo significa **payload incompleto** — o ERP não diz qual campo falta, estoura; capturar do Network, nunca completar por tentativa (§6.3-N). **Abertos: BL-18** (11 mil un em RM aberta, 67 produtos com RMs simultâneas — a §6.1-10 em escala, com risco de baixa em dobro), **BL-19** (`TipoAtendimento` não existe na tela: ninguém escolheu "Automático", o valor vem por baixo — investigar pelo botão `Log`) e **BL-20** (rastreabilidade de lote parcial: 110 de 175 produtos, três causas distintas, só uma é lacuna regulatória). |
+
 ---
 
 ## 8. Backlog / ajustes futuros (não bloqueiam a Fase 1)
@@ -913,6 +942,9 @@ whitelist estava correta e a requisição atravessou o proxy.
 | BL-12 | Sessão 30–31/07/2026 | **Varredura de unidades nas demais famílias.** `001.010` (185), `001.007` (117), `001.002` (80)… Piloto de `001.003` feito. |
 | BL-13 | Sessão 30–31/07/2026 | **Duplicidade `MIL` / `MILHEI` no cadastro de unidades.** Mesmo nome ("MILHEIRO"), dois códigos. Enquanto ambos existirem, o erro do `00067` se repete em produto novo. |
 | BL-14 | Sessão 04/08/2026 | **Contrato do `ReqMat/InserirAlterarRequisicaoMaterial` capturado do swagger (04/08/2026).** Cabeçalho: `CodigoEmpresaFilial`, `Numero`, `Descricao`, `Data`, `CodigoTipoRequisicaoMaterial`, `Operacao`, `CodigoFuncionario`, `CodigoCentroControle`, `Texto`, `CodigoDepositoMix`, `CodigoLocalArmazenagem`, `CodigoMix`, `Itens[]`, `ListaMensagem[]`. Item: `Operacao`, `CodigoProduto`, `Sequencia`, `Quantidade`, `CodigoUnidadeMedida`, `PosicaoUnidadeMedida`, `CodigoLocalArmazenagem`, `Observacao`, `CodigoCatalogoMix`, `CodigoDepositoMix`. ⚠ **Os nomes da ESCRITA ≠ os da LEITURA** — `Itens` vs `ItemReqMatChildList`; `CodigoUnidadeMedida`/`PosicaoUnidadeMedida` vs `CodigoProdUnidMed`/`PosicaoProdUnidMed`; `CodigoLocalArmazenagem` vs `CodigoLocArmaz`; `CodigoCentroControle` vs `CodigoCentroCtrl`. O mapper traduz nos dois sentidos. |
+| BL-18 | 05/08/2026 | 🔴 **11 mil unidades em saldo de RM aberta, e 67 produtos com RMs abertas SIMULTÂNEAS.** Topo: `001.004.00072` em **16** RMs; `001.008.00003` em **13** (707 un, fev→jul); `001.003.00056` em **12**. É a §6.1-10 (`2187`/`2231`, **risco de BAIXA EM DOBRO**) em escala: material re-requisitado enquanto o saldo antigo segue vivo. **Atender um saldo velho hoje tira material que já saiu por outra RM.** ⚠ Destes, **1.980 un estão em 13 RMs `Automático`**, que NUNCA teriam como ser atendidas — **causa sistêmica, não desleixo** (§10.16 e BL-19). Os outros ~8.300 são `Manual`: pendência administrativa. Achado de Controller, **acionável sem o módulo**: limpar/cancelar antes de qualquer bloqueio do Alvo. **Custo colateral para o sync:** RM não-terminal nunca sai da fila do passo B ⇒ o platô de `precisa_releitura` inclui dívida administrativa, não só trabalho real. |
+| BL-19 | 05/08/2026 | **`TipoAtendimento` não é visível nem editável na tela do Alvo.** O campo **não existe no formulário de RM** — ninguém escolheu `"Automático"` nas 27 do ano; o valor é atribuído **por baixo**. Seis usuários distintos, ano inteiro, incluindo ontem; e os **MESMOS** usuários também criam RMs `Manual` ⇒ **não é hábito, não é permissão, não é automação de etapa**. Hipótese: caminho de criação alternativo (cópia de RM, importação, outro fluxo da tela). Fonte mais direta para fechar: **botão `Log` da RM**, que já resolveu a investigação de unidades (§9.8). A correção já existe e está provada (`SaveReqMat` `Update`, §10.16) — o que falta é entender a **causa**, senão o Hub corrige o próprio sintoma e o das outras origens continua. |
+| BL-20 | 05/08/2026 | **Rastreabilidade de lote é parcial.** **110 de 175** produtos requisitados em 2026 têm lote registrado (965 linhas) — e isso é **piso, não teto**: só **236 das 679** RMs estão detalhadas, e lote só existe em item **atendido**. Os 65 restantes misturam **três causas diferentes**: (a) produto com `ControlaLote = "Não"` (ex.: `001.004.00021`, sapólio — consumível); (b) produto nunca atendido; (c) RM ainda não detalhada pelo passo B. **Só (a) é lacuna regulatória.** Para classe III/IV o que importa é identificar quais **INSUMOS DE PRODUTO** estão sem controle de lote — não o consumível de limpeza. Depende de saber `ControlaLote` por produto, que hoje o `ReqMat/Load` não traz (ver §6.3-N, `loadOneToOne=All`). Fase 5. |
 | BL-17 | OP-2.3 · 05/08/2026 | 🟡 **`call_sync_laudos_cron` tem execute para `anon` e `authenticated`.** Qualquer usuário autenticado dispara o sync de laudos. Mesma classe do BL-5: permissão larga numa rota que ninguém revisou. Impacto baixo (é leitura; pior caso é carga no gateway compartilhado), correção é uma linha de `revoke`. Achado em 05/08/2026 ao diagnosticar o disparo do `sync-reqmat`. `call_sync_reqmat_cron` já nasce com `revoke`. |
 | BL-16 | OP-2.3 · 05/08/2026 | **`sync-compras-status-cron` tem `paused_at` preenchido desde 26/05/2026 e está rodando.** Medido: a linha em `sync_settings` está com `enabled=true` **e** `paused_at=2026-05-26 14:57` + `paused_by` — par que a RPC `sync_cron_pause` **nunca produziria** (ela grava os quatro campos juntos, e `sync_cron_resume` limpa os quatro), logo é resíduo de UPDATE manual. O cron executou **50 vezes nos últimos 7 dias** (`job_type='bicephalous'`, última 05/08 13:00), porque o código lê só `enabled`. **Duas perguntas, nesta ordem:** (1) alguém tentou pausar aquele cron em maio e ele nunca parou? (2) se não, limpar o `paused_at` órfão para a tela de cron não mentir. ⚠ **Não corrigido de propósito:** é o cron do Suprimentos (100+ usuários) e a tarefa era outra. Como consequência de desenho, o `sync-reqmat` já nasce lendo `enabled=false` **OU** `paused_at` — falha fechada; se o Pedro quiser uniformizar os outros 7, é tarefa própria, com regressão. |
 | BL-15 | Sessão 04/08/2026 | 🔴 **`TipoAtendimento` NÃO EXISTE no contrato de integração** (confirmado no swagger, não é omissão de captura) — e é o campo que decide se a RM atende. `Automático` nunca atende (n=71). Nem `DataValidade` está no contrato. **Teste decisivo, antes da tela de criação:** criar RM pelo Lab COM `TipoAtendimento: "Manual"` no payload e reler com `ReqMat/Load`. Se voltar `Manual`, o binder aceita campo não documentado e o assunto morre. Se voltar `Automático`, a Fase 2 precisa de segundo passo (alteração após criar, ou correção pela tela) — e isso muda o desenho de `op_requisicoes.status_envio`. Deletar a RM de teste, como na `0000002236`. **Bloqueia a criação, não o espelho.** |
@@ -1265,6 +1297,21 @@ Sync no molde do `sync-laudos`, já provado em produção:
 `Origem` distingue nativamente `Importação` (API) de `ManualAlvo` (tela) ⇒ dá para **medir** o
 vazamento desde o primeiro dia. Linha de base: `ManualAlvo` em 71/71.
 
+**MEDIDO em 05/08/2026: 3,6%.** Só **10 das 279** requisições de produção do ano mencionam OP na
+`Descricao` ⇒ **vazamento de 96,4%**. E em **cinco formatos distintos** — `"OP. 2026-0228"`,
+`"OP-2026-0177"`, `"(OP-2026-0156)"`, `"OP 2026-0122"`, `"- OP 2026-0105"` —, mais uma com ano
+provavelmente errado (`"OP 2025-0056"` numa RM de 10/03/2026, com 900 un ainda em aberto).
+
+⚠ **As 9 OPs citadas são numeradas abaixo de 500** ⇒ são **OPs de papel** (FRM-07-11) e **não
+existem em `op_ordens`**, que tem 2 registros — o Hub semeou 2026 em 500 justamente para não
+colidir com a faixa manual (§3).
+
+⇒ **Não há consolidação retroativa. O módulo começa nas OPs do Hub.** Recriar as históricas e
+vincular por parse da `Descricao` é **opção, não pressuposto** — e esbarra na mesma objeção de
+BPF da OP-1.6 (registro de produção reconstruído a posteriori). A §10.8 (a RM `2251` que já
+escrevia a OP à mão) continua valendo como evidência de demanda; o que a medição acrescenta é a
+escala: o comportamento existe em 1 de cada 28 requisições, não como praxe.
+
 ### 10.8 — Evidência de demanda: o comportamento já começou sozinho
 
 RM `0000002251`, 30/07 07:23: `"Peças de Cateter TRIC - OP. 2026-0228"` — **1 em 71**, do mesmo dia,
@@ -1434,7 +1481,72 @@ Existe uma `call_sync_*_cron` por job. Cada uma é `SECURITY DEFINER`, lê `sync
 
 ---
 
-**Ordem de aplicação (crítica, mesma lição da REC-3.0):** todo o SQL primeiro, deploy depois, **agendamento por último**. `LOAD_BATCH=60` / `LOAD_CHUNK=4` foram escolhidos **sem medição** do custo do `ReqMat/Load` (o `Laudo/Load` levava 1–3 s; o `MovEstq/Load` ~370 ms; o ReqMat traz 22 itens + lotes por RM) — o 1º disparo é que dá o número. Agendar antes de medir é convidar um cron que estoura o watchdog 4×/dia num gateway compartilhado com 100+ usuários. Janela definida pelo Pedro: **`15 12,15,18,21 * * 1-5`** (09:15/12:15/15:15/18:15 BRT) — 30 min depois de cada rodada do `sync-laudos`, mesma cadência, sem disputar o gateway.
+**Ordem de aplicação (crítica, mesma lição da REC-3.0):** todo o SQL primeiro, deploy depois, **agendamento por último**. `LOAD_BATCH=60` / `LOAD_CHUNK=4` foram escolhidos **sem medição** do custo do `ReqMat/Load` (o `Laudo/Load` levava 1–3 s; o `MovEstq/Load` ~370 ms; o ReqMat traz 22 itens + lotes por RM) — o 1º disparo é que dá o número. Agendar antes de medir é convidar um cron que estoura o watchdog 4×/dia num gateway compartilhado com 100+ usuários. **→ MEDIDO em 05/08/2026: ~370 ms por `ReqMat/Load`, 679 RMs espelhadas, `total_erros = 0`.** O teto de 60 está folgado; a fila entrou em platô, como o desenho previa.
+
+---
+
+### 10.16 — Receita de ESCRITA da RM (capturada do Network, 05/08/2026)
+
+> 🔴 **RETIFICAÇÃO DE ROTA.** A Fase 2 **NÃO** usa `ReqMat/InserirAlterarRequisicaoMaterial` — o endpoint do swagger, que a §6.2 documentou em 23/07/2026 e que o BL-14 detalhou. **Quatro tentativas por ele falharam com `NullReferenceException` em `ReqMatRules.cs:277`, sem mensagem útil.** A tela do Alvo usa **outro** endpoint, e é esse que a Fase 2 usa. A §6.2 permanece como registro do que se sabia; o contrato vigente é este.
+
+**1. CRIAR** — `POST ReqMat/SaveReqMat`, envelope `{ "Action": "Insert", "ClassObject": { … } }`
+
+O `ClassObject` usa os nomes da **LEITURA** (`CodigoTipoReqMat`, `CodigoCentroCtrl`, `ItemReqMatChildList`, `CodigoProdUnidMed`) — **não** os do swagger. Isso desfaz a tradução de duas vias que o BL-14 previa: escrita e leitura falam a mesma língua neste endpoint.
+
+São **22 campos no cabeçalho** e **15 no item**. O servidor preenche sozinho `Data`, `Operacao`, `DataValidade`, `Status` e `EspecieDocumento`.
+
+- **Cabeçalho:** `CodigoEmpresaFilial`, `Numero` (`""`), `Descricao`, `CodigoTipoReqMat`, `CodigoFuncionario`, `CodigoCentroCtrl`, `CodigoLocArmaz`, `EspecieDocumento` (`"RM"`), `AlarmeValidade`, `Origem` (`"ManualAlvo"`), `TipoFormulario` (`"Normal"`), `IsEstorno` (`false`), `ExisteRetiradaDaTransferencia`, `ExisteTransferenciadaRetirada`, `CodigoFuncionarioAtendente`/`Devolveu`/`Recebeu` (null), `CodigoLocArmazDestino` (null), `DataRecebimento` (null), `MensagemRetorno` (`""`), `UploadIdentify` (`""`), `ItemReqMatChildList`.
+- **Item:** `CodigoEmpresaFilial` (`""`), `NumeroReqMat` (`""`), `Sequencia`, `CodigoProduto`, `CodigoAlternativoProduto`, `CodigoProdUnidMed`, `PosicaoProdUnidMed`, `CodigoLocArmaz`, `QuantidadeProdUnidMedPrincipal`, `QuantidadeSaldoProdUnidMedPrincipal`, `QuantidadeEmpenharProdUnidMedPrincipal`, `Quantidade2`, `QuantidadeSaldo2`, `QuantidadeEmpenhar2`, `AvisoRetorno` (`""`).
+
+⚠ **Placeholders do item no Insert são STRING VAZIA, não `-1`** — diferente do padrão do `DocFin/SavePartial` e do que a §6.2 registrou para o outro endpoint.
+⚠ **`Numero: ""` funciona AQUI.** No `InserirAlterar` o mesmo valor causava `SqlException 156` (§6.2). O comportamento é do endpoint, não da entidade.
+
+**2. CORRIGIR o `TipoAtendimento`** — `POST ReqMat/SaveReqMat` com `"Action": "Update"`, o mesmo `ClassObject` com `Numero` e `NumeroReqMat` preenchidos e `"TipoAtendimento": "Manual"`.
+
+> 🔴 **PASSO OBRIGATÓRIO, não opcional.** A RM criada por API **nasce `Automático`** — provado na `0000002271` — e RM `Automático` **NUNCA atende**. Medido no universo de produção do ano (n=279): **13 `Automático` = 13 `Aberta`; 266 `Manual` = 0 aberta.** Sem este segundo passo, toda RM do Hub nasce morta: aberta para sempre, sem baixar estoque e **sem erro**.
+
+O `Update` **aceita o campo** mesmo ele não estando em contrato nenhum (nem no swagger, nem no payload de Insert). Confirmado por `Load` independente no Lab.
+
+**3. CONFIRMAR** — `GET ReqMat/Load?numero=X&loadChild=All`, verificando `TipoAtendimento = "Manual"`.
+
+⇒ **Isto FECHA o BL-15.** E o `op_requisicoes` da OP-2.2 já cobre os três passos sem mudança nenhuma de schema: `status_envio` `pendente` → `enviado` (Insert devolveu `Numero`) → `confirmado` (Load confirmou `Manual`). O desenho de 04/08 sobreviveu ao contato com o endpoint real.
+
+---
+
+### 10.17 — Fluxo de ATENDIMENTO no Alvo (mapeado em campo, 05/08/2026)
+
+Tela: módulo RM → ação **"Atendimento"** (modal). Dois endpoints, **nesta ordem**:
+
+```
+POST ReqMat/ValidarAtendimento   →   POST ReqMat/FinalizarAtendimento
+```
+
+Ambos recebem o objeto ReqMat **INTEIRO** (103 campos), **sem** o envelope `Action`/`ClassObject` do `SaveReqMat`. O `Finalizar` devolve `{ AtendimentoRealizado: bool, ReqMat: {…}, Messages: [] }`.
+
+- **A quantidade atendida é DIGITADA por item** (campo editável). **Nada impede digitar mais que o pedido** ⇒ é a origem do `QuantidadeAtendidaMaior` (§10.4: +47 e +121 na `2251`). O excedente não é anomalia de sistema, é digitação.
+- **`CodigoTipoLanc = E0000023`** (SAIDA BAIXA REQUISICAO DE MATERIAL) é aplicado **pelo servidor** no atendimento, não escolhido na tela. Por isso é `null` nas RMs abertas — e por isso a coluna só se preenche via `ReqMat/Load`, nunca pela listagem.
+- 🔴 **`CodigoFuncionarioAtendente` NÃO É EDITÁVEL e NÃO é quem atendeu.** Na `2271`, atendida pelo Pedro, veio **`0000165 - Maria Alves`** — provável padrão do local `001`. **Quem executou está em `CodigoUsuario`.** Qualquer relatório de "quem atendeu" construído sobre esse campo mede a coisa errada. Entra na lista de campos que enganam (§6.3-J).
+- No payload do `Finalizar`, `Status` ainda vem `"Aberta"` e `BaixouEstoque` `"Não"` — **quem muda é o servidor**. O recálculo para `"Atendida Total"` só aparece **na releitura**, o que confirma o desenho do passo B do sync.
+- A seção **"Separação"** existe e é **OPCIONAL** (ficou vazia no teste). Os campos de **Entrega** (Funcionário Entregou / Retirou / Conferiu) **são editáveis** e dariam rastreabilidade real de pessoas — hoje não preenchidos, e é o que explica os 13/71 sem registro de custódia da sessão de 31/07.
+
+---
+
+### 10.18 — Ciclo completo validado (RM `0000002271`, 05/08/2026)
+
+Espécime: **`001.004.00021`** (SAPÓLIO CREMOSO 250ML), 1 UNID, local `001`, `ControlaLote = "Não"`.
+
+| Etapa | Como | Resultado |
+|---|---|---|
+| Criar | `SaveReqMat` `Insert` | nasce **`Automático`** |
+| Corrigir | `SaveReqMat` `Update` | vira **`Manual`** (confirmado por `Load` no Lab) |
+| Atender | `ValidarAtendimento` + `FinalizarAtendimento` | **`Atendida Total`**, `BaixouEstoque = Sim` |
+| Estoque | `FiltrarSaldoProduto` | **31 → 30** |
+| Espelhar | `sync-reqmat` | automático, sem intervenção |
+| Sair da fila | coluna gerada | `precisa_releitura` = **false** |
+
+⇒ Prova a cadeia inteira: escrita no Alvo → atendimento → baixa real de estoque → espelho → fila. E **valida a expressão STORED da OP-2.2 com um caso terminal real** — a última linha é a confirmação empírica de que `'Atendida Total'` é mesmo o literal terminal, que em 04/08 era só hipótese.
+
+⚠ **A RM `0000002271` tem baixa de estoque e permanece em produção** até ser deletada ou estornada. Não é lixo de teste inerte: mexeu no saldo. Janela definida pelo Pedro: **`15 12,15,18,21 * * 1-5`** (09:15/12:15/15:15/18:15 BRT) — 30 min depois de cada rodada do `sync-laudos`, mesma cadência, sem disputar o gateway.
 
 **⚠ `sync_settings.schedule_cron` é NOT NULL e sem default** — e é **documental**: quem agenda é o `pg_cron`. As duas pontas (a linha da tabela e o `cron.schedule` comentado) têm de ser mantidas em sincronia, porque a tela de cron do Hub exibe a coluna como se fosse a verdade.
 
