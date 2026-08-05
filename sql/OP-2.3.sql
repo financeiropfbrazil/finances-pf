@@ -3,7 +3,26 @@
 -- =============================================================================
 -- Projeto Supabase: hbtggrbauguukewiknew  (Financial Hub)
 -- Aplicar no SQL EDITOR. NÃO usar supabase db push (proibido neste projeto).
--- Idempotente e reexecutável. Verificação e rollback no fim do arquivo.
+-- Idempotente e reexecutável DO ZERO. Verificação e rollback no fim do arquivo.
+--
+-- ⚠ ESTE ARQUIVO NÃO RODA NUMA TRANSAÇÃO ÚNICA — só a seção 1 tem begin/commit
+--   próprio, porque ela mexe numa tabela gravada por crons ativos. Logo, um
+--   comando que falha NO MEIO deixa o banco pela metade, com tudo que vem
+--   depois por aplicar. Aconteceu na 1ª tentativa (05/08/2026): o INSERT em
+--   sync_settings abortou com 23502 (`schedule_cron` é NOT NULL e foi omitido)
+--   e derrubou as seções 3 e 4 junto.
+--   ⇒ Ao aplicar, CONFIRA A SAÍDA DE CADA COMANDO, não só a do último. E, se
+--     algo falhar, corrija e rode o arquivo INTEIRO de novo — ele foi escrito
+--     para isso (ver a nota de re-execução abaixo).
+--
+-- RE-EXECUÇÃO SEGURA — cada seção é idempotente por um mecanismo próprio:
+--   §1 `drop constraint if exists` ANTES do `add`  ⇒ reaplicar o CHECK que já
+--      existe não dá erro (e o ADD revalida as linhas job_type='reqmat' já
+--      gravadas, que passam porque o valor está na lista);
+--   §2 `on conflict (job_name) do nothing`  ⇒ há UNIQUE em job_name
+--      (`sync_settings_job_name_key`, conferido no banco);
+--   §3 `add column if not exists` / `create index if not exists`;
+--   §4 `create or replace function` + revoke/grant idempotentes.
 --
 -- ⚠ ORDEM DE APLICAÇÃO É CRÍTICA: TODO ESTE SQL PRIMEIRO, DEPLOY DEPOIS.
 --   A função nova referencia `codigo_tipo_req_mat` e chama
@@ -63,11 +82,41 @@ commit;
 
 
 -- ─── 2. Kill-switch ──────────────────────────────────────────────────────────
--- `enabled=false` faz a função registrar "Pausado" em sync_runs e sair SEM
--- tocar no Alvo. Sem esta linha o job roda igual (a função trata ausência como
+-- Pausar faz a função registrar "Pausado" em sync_runs e sair SEM tocar no
+-- Alvo. Sem esta linha o job roda igual (a função trata ausência como
 -- habilitado), mas não haveria como desligá-lo sem redeploy.
-insert into public.sync_settings (job_name, enabled)
-values ('sync-reqmat', true)
+--
+-- ⚠ `schedule_cron` é **NOT NULL e SEM DEFAULT** (conferido no schema real em
+--   05/08/2026). Omiti-lo aborta com 23502 — e, como este arquivo NÃO roda numa
+--   transação única, o aborto derruba tudo que vem DEPOIS, deixando o banco
+--   pela metade. Foi exatamente o que aconteceu na 1ª aplicação: só a seção 1
+--   entrou.
+--
+-- ⚠ A coluna é DOCUMENTAL: quem agenda de verdade é `cron.schedule()`, que
+--   segue comentado na seção 5. O valor aqui é o horário pretendido — 30 min
+--   depois de cada rodada do `sync-laudos` ('45 11,14,17,20 * * 1-5'), mesma
+--   cadência, sem colidir com ele no gateway compartilhado.
+--   Se o agendamento real mudar, ATUALIZE esta linha junto: a tela de cron do
+--   Hub exibe `schedule_cron` como se fosse a verdade.
+--
+-- COMO SE PAUSA (medido no banco em 05/08/2026, não suposto):
+--   A RPC `sync_cron_pause(motivo, job)` grava os quatro campos JUNTOS —
+--   `enabled=false, paused_at=now(), paused_by, paused_reason` — e
+--   `sync_cron_resume(job)` limpa os quatro. A tela de cron do Hub calcula
+--   `isPaused = !enabled`, e os 8 crons existentes leem só `enabled`.
+--   ⇒ Pelo caminho da tela, `enabled` e `paused_at` andam sempre juntos.
+--
+-- ⚠ MAS há uma linha em estado que a RPC nunca produziria: o
+--   `sync-compras-status-cron` está com `enabled=true` E `paused_at` de
+--   26/05/2026 (resíduo de UPDATE manual). Ele roda normalmente — 50 execuções
+--   nos últimos 7 dias, `job_type='bicephalous'` — porque o código lê só
+--   `enabled`. Se a intenção de quem escreveu aquele `paused_at` era desligá-lo,
+--   ele NUNCA esteve desligado. Isso é achado operacional, não desta tarefa:
+--   NÃO mexemos naquela linha nem no código dos outros 7 crons.
+--   O `sync-reqmat` para por `enabled=false` OU por `paused_at` preenchido —
+--   falha fechada, para um pause escrito por fora da RPC não ser ignorado.
+insert into public.sync_settings (job_name, enabled, schedule_cron)
+values ('sync-reqmat', true, '15 12,15,18,21 * * 1-5')
 on conflict (job_name) do nothing;
 
 
@@ -124,6 +173,17 @@ create index if not exists idx_op_reqmat_tipo
 -- NÃO é `user_has_permission` (auth.uid() seria null e a função nunca rodaria).
 -- O gate é o GRANT: revogada de public/anon/authenticated, concedida só a
 -- service_role. Mesmo padrão de lockdown de `op_proximo_numero()` (OP-1.2).
+--
+-- RLS: as três tabelas têm RLS ligada e NENHUMA policy de escrita — de propósito
+-- (OP-2.2). Conferido no banco em 05/08/2026 que a gravação passa mesmo assim:
+-- as tabelas são `owner = postgres` com `relforcerowsecurity = false`, e o
+-- SECURITY DEFINER roda como o owner, que não é submetido à própria RLS. Por
+-- cima disso, `postgres` e `service_role` têm `rolbypassrls`. ⚠ Ligar FORCE ROW
+-- LEVEL SECURITY em qualquer uma delas quebraria esta função em silêncio.
+--
+-- `search_path = public` é suficiente: `gen_random_uuid()` (default da PK de
+-- op_reqmat_lotes) é built-in de `pg_catalog` no PG 17 — não depende do schema
+-- `extensions` estar no path.
 --
 -- CONTRATO. `p_cabecalho` traz APENAS as chaves que vieram na resposta do Alvo;
 -- cada coluna só é tocada se a chave existir (`jsonb_exists`). Isso preserva o
@@ -286,10 +346,14 @@ grant execute on function public.op_reqmat_aplicar_load(text,text,jsonb,jsonb,js
 -- antes de medir é convidar um cron que estoura o watchdog quatro vezes ao dia
 -- num gateway compartilhado com 100+ usuários de Suprimentos.
 --
--- JANELA ESCOLHIDA: minuto 50, dias úteis. Ocupado hoje (UTC): hora cheia
--- (compras, 11–20), minutos 00/10/30 (despesas/docfin/intercompany, às 10/15/19),
--- minuto 45 (sync-laudos, às 11/14/17/20) e */15 (notify-*). O minuto 50 está
--- livre e fica 5 min depois do sync-laudos, sem disputar o gateway com ele.
+-- JANELA ESCOLHIDA: '15 12,15,18,21 * * 1-5' = 09:15 / 12:15 / 15:15 / 18:15 BRT.
+-- Fica 30 min depois de cada rodada do `sync-laudos` ('45 11,14,17,20'), mesma
+-- cadência de 4×/dia útil, sem disputar o gateway com ele. Ocupado hoje (UTC):
+-- hora cheia (compras, 11–20), minutos 00/10/30 (despesas/docfin/intercompany,
+-- às 10/15/19), minuto 45 (laudos) e */15 (notify-*). O minuto 15 nas horas
+-- 12/15/18/21 está livre.
+-- ⚠ Este valor TEM de bater com `sync_settings.schedule_cron` da seção 2 — a
+--   tela de cron do Hub mostra aquela coluna como se fosse a verdade.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- -- Disparador (espelha call_sync_laudos_cron; MESMO secret do Vault de todos
@@ -336,10 +400,10 @@ grant execute on function public.op_reqmat_aplicar_load(text,text,jsonb,jsonb,js
 -- revoke all on function public.call_sync_reqmat_cron(text) from anon;
 -- revoke all on function public.call_sync_reqmat_cron(text) from authenticated;
 --
--- -- 08:50 / 11:50 / 14:50 / 17:50 BRT, dias úteis.
+-- -- 09:15 / 12:15 / 15:15 / 18:15 BRT, dias úteis.
 -- select cron.schedule(
 --   'sync-reqmat-4x-dia',
---   '50 11,14,17,20 * * 1-5',
+--   '15 12,15,18,21 * * 1-5',
 --   $cron$ select public.call_sync_reqmat_cron('pg_cron'); $cron$
 -- );
 --
@@ -362,8 +426,9 @@ grant execute on function public.op_reqmat_aplicar_load(text,text,jsonb,jsonb,js
 --   select pg_get_constraintdef(oid) from pg_constraint
 --    where conrelid='public.sync_runs'::regclass and conname='sync_runs_job_type_check';
 --
--- 2) kill-switch
---   select job_name, enabled from sync_settings where job_name='sync-reqmat';
+-- 2) kill-switch (esperado: enabled=true, paused_at null, schedule_cron preenchido)
+--   select job_name, enabled, schedule_cron, paused_at, paused_reason
+--     from sync_settings where job_name='sync-reqmat';
 --
 -- 3) colunas novas (esperado: op_reqmat com 30 colunas, era 28)
 --   select column_name, data_type from information_schema.columns
@@ -372,7 +437,8 @@ grant execute on function public.op_reqmat_aplicar_load(text,text,jsonb,jsonb,js
 --   select count(*) as colunas_op_reqmat from information_schema.columns
 --    where table_schema='public' and table_name='op_reqmat';
 --
--- 4) índices novos (esperado: 8 índices em op_reqmat, eram 6 + PK)
+-- 4) índices novos (esperado: 9 no total — eram 6 + a PK; entram idx_op_reqmat_fila
+--    e idx_op_reqmat_tipo)
 --   select indexname, indexdef from pg_indexes
 --    where schemaname='public' and tablename='op_reqmat' order by indexname;
 --

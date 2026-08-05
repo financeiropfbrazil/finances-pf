@@ -107,6 +107,11 @@
 //   total_mudaram     = RMs detalhadas via ReqMat/Load nesta execução
 //   total_erros       = falhas (lista, gravação, Load ou ausência)
 //
+// KILL-SWITCH: `sync_settings.job_name='sync-reqmat'`. Para por
+//   `enabled = false` OU `paused_at` preenchido — ver o bloco no handler para a
+//   medição que justifica ler os dois. ⚠ `schedule_cron` é NOT NULL naquela
+//   tabela e é DOCUMENTAL (quem agenda é o pg_cron); manter os dois em sincronia.
+//
 // SECRETS (reusados dos outros crons):
 //   CRON_SECRET, ERP_PROXY_URL, ERP_PROXY_SYSTEM_SECRET,
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
@@ -1533,14 +1538,38 @@ Deno.serve(async (req: Request) => {
   const supabase = createClient(supabaseUrl, supabaseServiceRole);
 
   // ── Kill-switch (sync_settings) ──
+  //
+  // ⚠ Paramos por `enabled = false` **OU** por `paused_at` preenchido. Os
+  // outros 8 crons do Hub olham SÓ `enabled`, e a razão de aqui ser diferente
+  // está medida (05/08/2026):
+  //
+  //   · a RPC oficial `sync_cron_pause` grava os dois JUNTOS
+  //     (`enabled=false, paused_at=now(), paused_by, paused_reason`) e
+  //     `sync_cron_resume` limpa os dois — então, pelo caminho da tela, as duas
+  //     leituras concordam sempre e este OR não muda nada;
+  //   · MAS existe no banco uma linha em estado que a RPC nunca produziria:
+  //     `sync-compras-status-cron` com `enabled=true` E `paused_at` de
+  //     26/05/2026 — resíduo de UPDATE manual. Aquele job roda normalmente
+  //     (50 execuções nos últimos 7 dias), porque o código dele lê só
+  //     `enabled`. Se a intenção de quem escreveu `paused_at` era desligá-lo,
+  //     ele nunca esteve desligado.
+  //
+  // Ler os dois é falha FECHADA: um pause escrito por fora da RPC efetivamente
+  // para este job, em vez de ser ignorado em silêncio. O motivo real do bloqueio
+  // vai para `sync_runs.observacao` e para o retorno, para não virar mistério.
   const { data: settings } = await supabase
     .from("sync_settings")
-    .select("enabled, paused_reason")
+    .select("enabled, paused_at, paused_reason")
     .eq("job_name", "sync-reqmat")
     .maybeSingle();
 
-  if (settings && settings.enabled === false) {
-    console.log("[sync-reqmat] pausado:", settings.paused_reason);
+  const desligado = settings?.enabled === false;
+  const pausado = !!settings?.paused_at;
+
+  if (settings && (desligado || pausado)) {
+    const gatilho = desligado && pausado ? "enabled=false + paused_at" : desligado ? "enabled=false" : "paused_at";
+    const motivo = `Pausado (${gatilho}): ${settings.paused_reason || "sem motivo registrado"}`;
+    console.log(`[sync-reqmat] ${motivo}`);
     await supabase.from("sync_runs").insert({
       triggered_by: safeTrigger,
       job_type: "reqmat",
@@ -1549,10 +1578,10 @@ Deno.serve(async (req: Request) => {
       total_mudaram: 0,
       total_erros: 0,
       duracao_ms: Date.now() - startTime,
-      observacao: `Pausado: ${settings.paused_reason || "sem motivo"}`,
+      observacao: motivo,
       finished_at: new Date().toISOString(),
     });
-    return new Response(JSON.stringify({ skipped: true, reason: "sync_settings.enabled = false" }), {
+    return new Response(JSON.stringify({ skipped: true, reason: motivo, gatilho }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
