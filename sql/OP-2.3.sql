@@ -22,7 +22,7 @@
 --   §2 `on conflict (job_name) do nothing`  ⇒ há UNIQUE em job_name
 --      (`sync_settings_job_name_key`, conferido no banco);
 --   §3 `add column if not exists` / `create index if not exists`;
---   §4 `create or replace function` + revoke/grant idempotentes.
+--   §4 e §5 `create or replace function` + revoke/grant idempotentes.
 --
 -- ⚠ ORDEM DE APLICAÇÃO É CRÍTICA: TODO ESTE SQL PRIMEIRO, DEPLOY DEPOIS.
 --   A função nova referencia `codigo_tipo_req_mat` e chama
@@ -32,12 +32,29 @@
 --   antiga — é seguro: colunas novas ficam nulas, RPC fica sem chamador.
 --   Mesma lição da REC-3.0.
 --
--- CONTEÚDO
---   1. `sync_runs.job_type` estendido com 'reqmat'   ← SEM ISTO NADA RODA
---   2. kill-switch em `sync_settings`
---   3. duas colunas aditivas em `op_reqmat` (+ índice da fila do passo B)
---   4. RPC transacional `op_reqmat_aplicar_load`
---   5. disparador `call_sync_reqmat_cron` + agendamento (BLOCO COMENTADO)
+-- CONTEÚDO — e o que já está no banco (05/08/2026)
+--   1. `sync_runs.job_type` estendido com 'reqmat'      ✅ APLICADO
+--   2. kill-switch em `sync_settings`                    ✅ APLICADO
+--   3. duas colunas aditivas em `op_reqmat` + índices    ✅ APLICADO
+--   4. RPC transacional `op_reqmat_aplicar_load`         ✅ APLICADO
+--   5. disparador `call_sync_reqmat_cron`                🆕 NOVO nesta rodada
+--   6. agendamento `cron.schedule`                       ⏸ BLOCO COMENTADO
+--
+-- 🆕 O QUE MUDOU EM 05/08/2026 (2ª correção) — e por quê:
+--   O `call_sync_reqmat_cron` estava DENTRO do bloco comentado do agendamento.
+--   Isso foi erro de agrupamento: aquela função É o caminho de disparo MANUAL
+--   (é ela que lê o secret do Vault e monta o header `x-cron-secret`), então
+--   comentá-la junto com o `cron.schedule` deixou a função sem NENHUM caminho
+--   de disparo — todas as tentativas devolviam 401 do gate CRON_SECRET.
+--   Agora ela está na seção 5, aplicada; só o `cron.schedule` segue comentado.
+--
+--   ⚠ E o disparo só funciona com `[functions.sync-reqmat] verify_jwt = false`
+--     em `supabase/config.toml` (acrescentado na mesma rodada) + REDEPLOY. Sem
+--     isso o gateway do Supabase barra o pg_net — que não manda JWT — ANTES da
+--     função, e o CRON_SECRET nem chega a ser avaliado.
+--
+-- RE-EXECUTAR ESTE ARQUIVO INTEIRO É SEGURO mesmo com as seções 1–4 já no
+-- banco: ver a nota de idempotência abaixo. Nada dá erro na 2ª passada.
 --
 -- ⚠ NADA AQUI TOCA EM `op_requisicoes`. Aquela tabela é o livro do Hub e o
 --   sync nunca escreve nela.
@@ -331,13 +348,90 @@ grant execute on function public.op_reqmat_aplicar_load(text,text,jsonb,jsonb,js
 
 
 -- =============================================================================
--- 5. AGENDAMENTO — BLOCO COMENTADO DE PROPÓSITO
+-- 5. DISPARADOR — APLICAR (é o caminho de disparo MANUAL)
+-- =============================================================================
+-- Espelha `call_sync_laudos_cron`, que é como TODO cron deste projeto é chamado:
+-- o pg_cron não fala HTTP e o `pg_net` não tem onde guardar segredo, então quem
+-- monta a chamada é uma função SECURITY DEFINER que lê o secret do Vault.
+--
+-- ⚠ NÃO é só para o agendamento. Enquanto não existir esta função, NÃO HÁ COMO
+--   disparar a Edge Function — nem manualmente. O gate dela é o `CRON_SECRET`
+--   (header `x-cron-secret`), e nenhuma credencial de usuário serve: anon key,
+--   service_role, sessão do browser e o botão "Invoke" do painel devolvem todos
+--   401 `{"error":"Não autorizado"}`, porque nenhum deles manda esse header.
+--   Foi o que aconteceu em 05/08/2026, com esta função ainda comentada.
+--
+-- Secret: `sync_compras_cron_secret` no Vault — o MESMO CRON_SECRET de todos os
+-- crons do Hub. Não há secret por job.
+--
+-- DISPARO MANUAL, depois de aplicar isto e redeployar a função:
+--   select public.call_sync_reqmat_cron('manual_admin');
+-- Devolve o `request_id` do pg_net (a chamada é ASSÍNCRONA — o retorno não é o
+-- resultado do sync). O resultado chega em `sync_runs` e em `net._http_response`.
+create or replace function public.call_sync_reqmat_cron(p_triggered_by text default 'pg_cron')
+returns bigint
+language plpgsql
+security definer
+set search_path = public, vault, extensions
+as $fn$
+declare
+  v_secret       text;
+  v_request_id   bigint;
+  v_url          text := 'https://hbtggrbauguukewiknew.supabase.co/functions/v1/sync-reqmat';
+  v_safe_trigger text;
+begin
+  -- Mesmo contrato das outras call_sync_*: `sync_runs_triggered_by_check` só
+  -- aceita estes três valores.
+  if p_triggered_by not in ('pg_cron', 'manual_admin', 'test') then
+    v_safe_trigger := 'pg_cron';
+  else
+    v_safe_trigger := p_triggered_by;
+  end if;
+
+  select decrypted_secret into v_secret
+    from vault.decrypted_secrets
+   where name = 'sync_compras_cron_secret'
+   limit 1;
+
+  if v_secret is null then
+    raise exception 'Secret sync_compras_cron_secret nao encontrado no Vault';
+  end if;
+
+  -- Chamada HTTP assíncrona (pg_net não espera a resposta).
+  select net.http_post(
+    url     := v_url,
+    headers := jsonb_build_object('Content-Type','application/json','x-cron-secret', v_secret),
+    body    := jsonb_build_object('triggered_by', v_safe_trigger),
+    timeout_milliseconds := 180000
+  ) into v_request_id;
+
+  return v_request_id;
+end;
+$fn$;
+
+comment on function public.call_sync_reqmat_cron(text) is
+  'OP-2.3 · Dispara a Edge Function sync-reqmat com o CRON_SECRET do Vault no header x-cron-secret. É o ÚNICO caminho de disparo (a função recusa qualquer credencial de usuário). Usada pelo pg_cron e pelo disparo manual no SQL Editor: select public.call_sync_reqmat_cron(''manual_admin''). Assíncrona — devolve o request_id do pg_net, não o resultado do sync.';
+
+-- Lockdown: nem anon nem authenticated disparam o sync. O SQL Editor continua
+-- funcionando porque roda como `postgres`, e o pg_cron também.
+-- ⚠ Diferente da `call_sync_laudos_cron`, que hoje está aberta a authenticated
+--   e anon (BL-17) — não é o padrão a copiar.
+revoke all on function public.call_sync_reqmat_cron(text) from public;
+revoke all on function public.call_sync_reqmat_cron(text) from anon;
+revoke all on function public.call_sync_reqmat_cron(text) from authenticated;
+
+
+-- =============================================================================
+-- 6. AGENDAMENTO — BLOCO COMENTADO DE PROPÓSITO
 -- =============================================================================
 -- ⚠ NÃO habilitar junto com o resto. A sequência é:
---     (a) aplicar as seções 1–4 acima;
---     (b) `supabase functions deploy sync-reqmat --no-verify-jwt --project-ref hbtggrbauguukewiknew`;
---     (c) UM disparo manual, conferindo `sync_runs` (status distintos, campos da
---         listagem, total_erros, duracao_ms);
+--     (a) aplicar as seções 1–5 acima;
+--     (b) `[functions.sync-reqmat] verify_jwt = false` em supabase/config.toml
+--         (já commitado) + `supabase functions deploy sync-reqmat
+--          --project-ref hbtggrbauguukewiknew`  ← o redeploy é o que aplica o flag;
+--     (c) UM disparo manual — `select public.call_sync_reqmat_cron('manual_admin');`
+--         — conferindo `sync_runs` (status distintos, campos da listagem,
+--         total_erros, duracao_ms);
 --     (d) só então descomentar e aplicar este bloco.
 --
 -- Motivo: `LOAD_BATCH`/`LOAD_CHUNK` da função foram escolhidos SEM medição do
@@ -355,51 +449,10 @@ grant execute on function public.op_reqmat_aplicar_load(text,text,jsonb,jsonb,js
 -- ⚠ Este valor TEM de bater com `sync_settings.schedule_cron` da seção 2 — a
 --   tela de cron do Hub mostra aquela coluna como se fosse a verdade.
 --
+-- A função chamada aqui — `call_sync_reqmat_cron` — JÁ está aplicada, na seção
+-- 5. Este bloco é só o agendamento.
+--
 -- ─────────────────────────────────────────────────────────────────────────────
--- -- Disparador (espelha call_sync_laudos_cron; MESMO secret do Vault de todos
--- -- os crons do Hub).
--- create or replace function public.call_sync_reqmat_cron(p_triggered_by text default 'pg_cron')
--- returns bigint
--- language plpgsql
--- security definer
--- set search_path = public, vault, extensions
--- as $fn$
--- declare
---   v_secret       text;
---   v_request_id   bigint;
---   v_url          text := 'https://hbtggrbauguukewiknew.supabase.co/functions/v1/sync-reqmat';
---   v_safe_trigger text;
--- begin
---   if p_triggered_by not in ('pg_cron', 'manual_admin', 'test') then
---     v_safe_trigger := 'pg_cron';
---   else
---     v_safe_trigger := p_triggered_by;
---   end if;
---
---   select decrypted_secret into v_secret
---     from vault.decrypted_secrets
---    where name = 'sync_compras_cron_secret'
---    limit 1;
---
---   if v_secret is null then
---     raise exception 'Secret sync_compras_cron_secret nao encontrado no Vault';
---   end if;
---
---   select net.http_post(
---     url     := v_url,
---     headers := jsonb_build_object('Content-Type','application/json','x-cron-secret', v_secret),
---     body    := jsonb_build_object('triggered_by', v_safe_trigger),
---     timeout_milliseconds := 180000
---   ) into v_request_id;
---
---   return v_request_id;
--- end;
--- $fn$;
---
--- revoke all on function public.call_sync_reqmat_cron(text) from public;
--- revoke all on function public.call_sync_reqmat_cron(text) from anon;
--- revoke all on function public.call_sync_reqmat_cron(text) from authenticated;
---
 -- -- 09:15 / 12:15 / 15:15 / 18:15 BRT, dias úteis.
 -- select cron.schedule(
 --   'sync-reqmat-4x-dia',
@@ -407,17 +460,23 @@ grant execute on function public.op_reqmat_aplicar_load(text,text,jsonb,jsonb,js
 --   $cron$ select public.call_sync_reqmat_cron('pg_cron'); $cron$
 -- );
 --
--- -- Disparo manual (acelera a convergência inicial: 678 RMs nunca lidas contra
--- -- LOAD_BATCH=60 ⇒ ~12 execuções para a 1ª volta completa):
--- --   select public.call_sync_reqmat_cron('manual_admin');
+-- -- Reagendar (cron.schedule com o MESMO nome substitui o job existente):
+-- --   select cron.schedule('sync-reqmat-4x-dia', '<novo cron>',
+-- --     $cron$ select public.call_sync_reqmat_cron('pg_cron'); $cron$);
+-- --   ⚠ e atualizar sync_settings.schedule_cron junto.
 -- --
 -- -- Desagendar:
 -- --   select cron.unschedule('sync-reqmat-4x-dia');
 -- ─────────────────────────────────────────────────────────────────────────────
+--
+-- DISPARO MANUAL — não depende deste bloco, funciona assim que a seção 5 estiver
+-- aplicada e a função redeployada. Acelera a convergência inicial (678 RMs nunca
+-- lidas contra LOAD_BATCH=60 ⇒ ~12 execuções para a 1ª volta completa):
+--   select public.call_sync_reqmat_cron('manual_admin');
 
 
 -- =============================================================================
--- VERIFICAÇÃO (rodar DEPOIS de aplicar as seções 1–4)
+-- VERIFICAÇÃO (rodar DEPOIS de aplicar as seções 1–5)
 -- =============================================================================
 -- fingerprint do projeto (05/08/2026 ≈ 1796; cresce com o cron de compras)
 --   select count(*) as fingerprint from compras_pedidos;
@@ -458,6 +517,22 @@ grant execute on function public.op_reqmat_aplicar_load(text,text,jsonb,jsonb,js
 --   union all select 'op_reqmat_itens', count(*) from op_reqmat_itens
 --   union all select 'op_reqmat_lotes', count(*) from op_reqmat_lotes
 --   union all select 'op_requisicoes',  count(*) from op_requisicoes;  -- DEVE seguir 0: o sync não escreve aqui
+--
+-- 7) o disparador existe e está trancado (esperado: false, false, true)
+--   select has_function_privilege('authenticated','public.call_sync_reqmat_cron(text)','execute') as authenticated_pode,
+--          has_function_privilege('anon','public.call_sync_reqmat_cron(text)','execute')          as anon_pode,
+--          has_function_privilege('service_role','public.call_sync_reqmat_cron(text)','execute')  as service_role_pode;
+--
+-- 8) DISPARO MANUAL (só depois do redeploy com verify_jwt=false):
+--   select public.call_sync_reqmat_cron('manual_admin');
+--   -- devolve o request_id do pg_net. A chamada é ASSÍNCRONA: o retorno NÃO é
+--   -- o resultado do sync. Para ver o que o gateway respondeu:
+--   select id, status_code, left(content::text, 300) as corpo, created
+--     from net._http_response order by id desc limit 5;
+--   -- 200 com fingerprint  = rodou
+--   -- 401 {"error":"Não autorizado"}      = gate CRON_SECRET (secret do Vault ≠ CRON_SECRET da função)
+--   -- 401 UNAUTHORIZED_ASYMMETRIC_JWT     = gateway do Supabase: falta [functions.sync-reqmat]
+--   --                                       verify_jwt=false no config.toml + REDEPLOY
 --
 -- DEPOIS DO 1º DISPARO — o que olhar (esta é a tarefa de medição da OP-2.3):
 --   select id, started_at, duracao_ms, total_candidatos, total_consultados,

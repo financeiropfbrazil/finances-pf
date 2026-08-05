@@ -59,3 +59,13 @@ verify_jwt = false
 # A auth real é o gate CRON_SECRET (header x-cron-secret) dentro da função.
 [functions.sync-laudos]
 verify_jwt = false
+
+# sync-reqmat (OP-2.3): reachable sem JWT — o cron/pg_net não manda JWT.
+# A auth real é o gate CRON_SECRET (header x-cron-secret) dentro da função.
+# ⚠ Sem esta declaração o deploy deixa verify_jwt=true e o gateway do Supabase
+# barra o pg_net ANTES da função: o CRON_SECRET nunca é avaliado e o cron nunca
+# roda — sem erro visível até alguém notar a fila parada. Diagnosticado em
+# 05/08/2026, quando a ausência deste bloco produziu UNAUTHORIZED_ASYMMETRIC_JWT.
+# verify_jwt é lido NO DEPLOY, não em runtime ⇒ mudar isto exige redeploy.
+[functions.sync-reqmat]
+verify_jwt = false
