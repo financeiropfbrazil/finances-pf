@@ -837,6 +837,35 @@ whitelist estava correta e a requisição atravessou o proxy.
   `ReqMat/Load`**: se trouxer, o espelho ganha `ControlaLote` — discriminador de
   rastreabilidade, e peça do BL-20 — **de graça**, sem endpoint novo.
 
+**Retificações da sessão de testes (05/08/2026, RMs 2271–2275)**
+
+- 🔴 **`CodigoCentroCtrl` é ESCOLHA DO USUÁRIO na tela, NÃO derivado do funcionário.** A §6.2-1
+  registrou que o campo enviado é "ignorado" — isso vale para o endpoint de LEITURA/integração
+  que foi testado em 23/07. Na **criação pela tela**, quem define o centro é **quem abre a RM**:
+  a `2271` nasceu com **CONTROLADORIA/FINANCEIRO**, o centro do Pedro, e não PRODUCAO.
+  ⇒ **A tela da Fase 2 tem de expor o campo** (§10.21).
+  ⚠ **Isto afeta a §10.9**, que tratava o de-para `profiles.funcionario_alvo_codigo` como a
+  fonte do centro de custo — ele continua necessário para `CodigoFuncionario`, mas **não**
+  determina mais o centro. E afeta o `comment on` de `op_reqmat.codigo_centro_ctrl` (OP-2.2),
+  que repete a formulação antiga — corrigir num SQL futuro, é só comentário.
+- 🔴 **`CodigoFuncionarioAtendente` NÃO É EDITÁVEL e NÃO é quem atendeu.** Veio
+  **`0000165 - Maria Alves`** em **todos** os atendimentos feitos pelo Pedro — provável padrão
+  do local `001`. ⇒ A rastreabilidade **REAL** de pessoas vem dos campos de **Entrega**
+  (`CodigoFuncionarioEntregou` / `Retirou` / `Conferiu`), que são editáveis e **provadamente
+  gravam**: `2273` por API e `2274` pela tela, com pessoas distintas. (Detalhe em §10.17.)
+- **`TipoAtendimento` VOLTA para `"Manual"` após um atendimento manual.** A `2273` e a `2275`
+  nasceram `"Automático"`, **não** passaram por `Update` e terminaram `"Manual"`.
+  ⇒ **Refina o BL-19:** a formulação correta é que **`Automático` nunca atende SOZINHO**, e
+  atender manualmente **o converte**. Não invalida a regra de negócio (13 `Automático` = 13
+  `Aberta`, §10.16) — invalida a leitura de que o campo é **imutável**.
+- **O `Texto` do cabeçalho aceita texto longo** (398 caracteres gravados **sem truncar**) e é
+  **exibido na tela de atendimento**. ⇒ É o carregador da OP para quem atende no Alvo, **sem o
+  limite de 40 caracteres da `Descricao`** (§6.2). Confirma o desenho da §10.16.
+- **O atendimento devolve campos resolvidos que o `Load` não traz** — lista completa, ampliando
+  o item acima: `ControlaLote`, `ControlaEstoque`, `CodigoTipoProduto`, `ProdutoNome`,
+  **`ProdutoCodigoAlternativo`**, `PossuiNumSerie`, **`PesoFatorDivisor`**, **`Peso`**,
+  **`LocArmazNome`**.
+
 ---
 
 #### O) Pendências desta investigação
@@ -917,6 +946,8 @@ whitelist estava correta e a requisição atravessou o proxy.
 
 | 05/08/2026 | Fase 2 · fechamento do dia | **A Fase 2 saiu do papel: espelho no ar e ciclo de escrita provado ponta a ponta.** **OP-2.2 aplicada** (4 tabelas, conferidas coluna a coluna contra o arquivo, zero divergências) e **OP-2.3 CONCLUÍDA** — `sync-reqmat` deployada e rodando: **679 RMs espelhadas, `total_erros = 0`, ~370 ms por `ReqMat/Load`**, fila em **platô** exatamente como o desenho previa (`precisa_releitura` não zera para RM não-terminal). O caminho até lá teve **dois tropeços meus, ambos de suposição**: `sql/OP-2.3.sql` abortou com `23502` (`schedule_cron` é NOT NULL e eu o tratei como opcional porque o cron estava comentado — e, como o arquivo não roda em transação única, o aborto derrubou as seções 3 e 4 junto); e depois **nenhum disparo funcionava**, por duas causas somadas: `call_sync_reqmat_cron` comentada junto com o agendamento (mas ela **é** o caminho de disparo manual — é quem lê o secret do Vault e monta o `x-cron-secret`) e a falta de `[functions.sync-reqmat] verify_jwt = false` no `config.toml`, sem o que o gateway barra o `pg_net` **antes** da função e o cron nunca rodaria, em silêncio. Disso saiu a convenção que **não estava escrita em lugar nenhum** (§10.15, "Como um cron é disparado neste projeto"), incluindo o atalho de diagnóstico pelo idioma do 401 — inglês = gateway do Supabase, português = gate `CRON_SECRET`. **🔴 BL-15 FECHADO, e com retificação de rota:** a Fase 2 **não** usa o `InserirAlterarRequisicaoMaterial` do swagger (4 tentativas, todas `NullReferenceException` em `ReqMatRules.cs:277`); usa **`ReqMat/SaveReqMat`** com envelope `{Action, ClassObject}` e os nomes da **leitura** — o que desfaz a tradução de duas vias que o BL-14 previa. A RM criada por API **nasce `Automático` e Automático nunca atende** (13 de 13 abertas contra 266 Manual, 0 aberta), então o **`Update` com `TipoAtendimento: "Manual"` é passo obrigatório**, não polimento; e o `op_requisicoes` da OP-2.2 já cobria os três passos sem tocar no schema. **Fluxo de atendimento mapeado** (`ValidarAtendimento` → `FinalizarAtendimento`, objeto inteiro sem envelope): a quantidade é **digitada** — origem do `QuantidadeAtendidaMaior` —, o `E0000023` é aplicado pelo servidor, e 🔴 **`CodigoFuncionarioAtendente` não é quem atendeu** (na `2271`, atendida pelo Pedro, veio "Maria Alves", padrão do local; quem executou está em `CodigoUsuario`) — qualquer relatório de "quem atendeu" por esse campo mede a coisa errada. **Ciclo completo validado na RM `0000002271`** (§10.18): criar → corrigir → atender → **estoque 31 → 30** → espelhar → sair da fila, o que de quebra prova a expressão STORED da OP-2.2 com um caso terminal real (`'Atendida Total'` deixou de ser hipótese). ⚠ Aquela RM **baixou estoque de verdade** e segue em produção. **Vazamento medido: 96,4%** — só 10 das 279 RMs de produção do ano citam OP na `Descricao`, em 5 formatos, e as 9 OPs citadas são de papel (numeradas abaixo de 500, não existem em `op_ordens`) ⇒ **não há consolidação retroativa; o módulo começa nas OPs do Hub**. **Regra nova do repo:** `NullReferenceException` do Alvo significa **payload incompleto** — o ERP não diz qual campo falta, estoura; capturar do Network, nunca completar por tentativa (§6.3-N). **Abertos: BL-18** (11 mil un em RM aberta, 67 produtos com RMs simultâneas — a §6.1-10 em escala, com risco de baixa em dobro), **BL-19** (`TipoAtendimento` não existe na tela: ninguém escolheu "Automático", o valor vem por baixo — investigar pelo botão `Log`) e **BL-20** (rastreabilidade de lote parcial: 110 de 175 produtos, três causas distintas, só uma é lacuna regulatória). |
 
+| 05/08/2026 | Fase 2 · testes de escrita no Alvo (RMs 2271–2275) | **O ciclo COMPLETO foi provado POR API — criar → corrigir → atender → ratear lote —, e isso muda o escopo do que a Fase 2 *pode* fazer.** Cinco RMs de teste (`0000002271`–`0000002275`). 🔴 **O atendimento por API funciona** (§10.19): `ValidarAtendimento` → `FinalizarAtendimento`, objeto inteiro sem envelope, o segundo recebendo **exatamente** o que o primeiro devolveu — provado na `2273` **sem tocar a tela do Alvo** (estoque 6 → 4 galões). A §6.1-1 decidiu que o atendimento fica com o almoxarifado; isso **continua sendo a decisão de processo**, mas agora é **escolha, não limitação**. **Genealogia de lote mapeada** (§10.20): uma linha por lote na `CtrlLoteItemReqMatChildList`, com **regra de fechamento** — a soma de `QuantidadeProdUnidMedPrincipal` tem de bater EXATAMENTE com o atendido, e o Alvo não deixa salvar com diferença. ⚠ **`QuantidadeBruta` NÃO é a quantidade do lote e seu significado não está fechado** (5 na `2275` com 1 galão; 4 nas duas linhas da `2272` com 4 galões — a hipótese de "unidade secundária" explica uma e não a outra) ⇒ quem somar `QuantidadeBruta` conta errado. E **FEFO é MANUAL**: a tela lista os lotes sem sugerir nada, o rateio 1+3 da `2272` foi escolha da pessoa ⇒ **oportunidade para o Hub pré-preencher por validade**. Rateio entre lotes montado à mão e aceito por API (`2273`). **Requisitos da tela derivados dos testes em §10.21**, com a regra que o dia inteiro ensinou: 🔴 **validar no Hub ANTES de enviar** — o Alvo responde `NullReferenceException` sem dizer qual campo falta, e foi assim que 4 tentativas se perderam. **BL-9 FECHADO:** `NumeroOrdProduc` **não é gravável** — `Update` com "2026-0500" devolveu `Friendly_Message_FK_Reference`; é **FK para a `OrdProduc` nativa do Alvo**, vazia em 679/679 e com módulo não usado. Usá-la exigiria criar a OP dentro do ERP (escrita dupla, duas numerações, risco de acordar MRP/empenho) ⇒ **o vínculo OP↔RM fica no Hub definitivamente — impedimento estrutural, não preferência.** **Três retificações na §6.3-N:** 🔴 **`CodigoCentroCtrl` é escolha do usuário**, não derivado do funcionário (a `2271` nasceu com o centro do Pedro, CONTROLADORIA/FINANCEIRO) — afeta a §10.9 e o `comment on` da OP-2.2; 🔴 **`CodigoFuncionarioAtendente` não é quem atendeu** ("Maria Alves" em todos os atendimentos do Pedro; a rastreabilidade real está nos campos de Entrega, que gravam — provado na `2273` por API e na `2274` pela tela); e **`TipoAtendimento` volta para "Manual" após atendimento manual** (`2273` e `2275` nasceram Automático, não passaram por Update e terminaram Manual) ⇒ refina o BL-19: `Automático` **nunca atende SOZINHO**, e o campo **não é imutável**. **`Texto` confirmado como carregador da OP:** aceita 398 caracteres sem truncar e é **exibido na tela de atendimento** — sem o limite de 40 da `Descricao`. **Abertos: BL-21** (capturar o endpoint de lotes disponíveis — última peça do atendimento, o `FiltrarSaldoProduto` não dá saldo por lote) e **BL-22** (limpar as 5 RMs; quatro baixaram estoque, e o glutaraldeído foi de 11 para 1 galão — avisar quem repõe; deletar exige estorno, cujo payload vale capturar porque a Fase 3 vai precisar dele). |
+
 ---
 
 ## 8. Backlog / ajustes futuros (não bloqueiam a Fase 1)
@@ -936,12 +967,14 @@ whitelist estava correta e a requisição atravessou o proxy.
 | BL-6 | Sessão 30–31/07/2026 | **Remover `Produto/GetRegistros` da whitelist.** Entrada morta — não existe no Alvo. Risco zero. |
 | BL-7 | Sessão 30–31/07/2026 | **Confirmar `GeraEmpenho` em 2ª requisição.** n=1 hoje. Campo é por item. |
 | BL-8 | Sessão 30–31/07/2026 | **Testar devolução contra a requisição original.** Existem `QuantidadeDevolvida` no item **e** no lote, e `CodigoFuncionarioDevolveu` no cabeçalho. Se procede, o bloqueio da Fase 4 (§6.2-9) **deixa de existir**. |
-| BL-9 | Sessão 30–31/07/2026 | **`NumeroOrdProduc` é gravável na tela?** Null em 71/71 — inclusive na `2251`, que tem a OP escrita à mão. Se for gravável, o vínculo vira estruturado e a §10.4 muda. |
+| ~~BL-9~~ | Sessão 30–31/07/2026 | ~~**`NumeroOrdProduc` é gravável na tela?**~~ Null em 71/71 — inclusive na `2251`, que tem a OP escrita à mão. Se for gravável, o vínculo vira estruturado e a §10.4 muda. ✅ **FECHADO em 05/08/2026.** `NumeroOrdProduc` **não é gravável** com número de OP do Hub: um `Update` do `SaveReqMat` com `"2026-0500"` devolveu `BrokenRulesException: Friendly_Message_FK_Reference`. É **chave estrangeira** para a `OrdProduc` **NATIVA do Alvo** — que está vazia (null em **679/679**) e cujo módulo não é usado. Usá-lo exigiria **criar a OP DENTRO do Alvo**: escrita dupla, duas numerações e risco de acionar módulo dormente (MRP, empenho, apropriação). ⇒ **O vínculo OP↔RM fica no Hub, definitivamente** (§10.14). **Não é preferência: é impedimento estrutural.** |
 | BL-10 | Sessão 30–31/07/2026 | **Capturar Estoque Transitório da CSALDOPROD.** Candidato a onde vivem as 1.433 un de pericárdio retidas. Toca a §6.3-O-6. |
 | BL-11 | Sessão 30–31/07/2026 | **Varredura de valorização nos 827 produtos.** Sinais: `CustoMedio` negativo; `ValorSaldo` ≠ `QtdSaldo × CustoMedio`; `ValorSaida` ≠ `QtdSaida × CustoMedio`. **Mirar agosto** por decisão do Pedro. |
 | BL-12 | Sessão 30–31/07/2026 | **Varredura de unidades nas demais famílias.** `001.010` (185), `001.007` (117), `001.002` (80)… Piloto de `001.003` feito. |
 | BL-13 | Sessão 30–31/07/2026 | **Duplicidade `MIL` / `MILHEI` no cadastro de unidades.** Mesmo nome ("MILHEIRO"), dois códigos. Enquanto ambos existirem, o erro do `00067` se repete em produto novo. |
 | BL-14 | Sessão 04/08/2026 | **Contrato do `ReqMat/InserirAlterarRequisicaoMaterial` capturado do swagger (04/08/2026).** Cabeçalho: `CodigoEmpresaFilial`, `Numero`, `Descricao`, `Data`, `CodigoTipoRequisicaoMaterial`, `Operacao`, `CodigoFuncionario`, `CodigoCentroControle`, `Texto`, `CodigoDepositoMix`, `CodigoLocalArmazenagem`, `CodigoMix`, `Itens[]`, `ListaMensagem[]`. Item: `Operacao`, `CodigoProduto`, `Sequencia`, `Quantidade`, `CodigoUnidadeMedida`, `PosicaoUnidadeMedida`, `CodigoLocalArmazenagem`, `Observacao`, `CodigoCatalogoMix`, `CodigoDepositoMix`. ⚠ **Os nomes da ESCRITA ≠ os da LEITURA** — `Itens` vs `ItemReqMatChildList`; `CodigoUnidadeMedida`/`PosicaoUnidadeMedida` vs `CodigoProdUnidMed`/`PosicaoProdUnidMed`; `CodigoLocalArmazenagem` vs `CodigoLocArmaz`; `CodigoCentroControle` vs `CodigoCentroCtrl`. O mapper traduz nos dois sentidos. |
+| BL-22 | 05/08/2026 | **Limpar as 5 RMs de teste: `0000002271` a `0000002275`.** Quatro **baixaram estoque**; a `2272` está **parcial** (6 galões + 2 sapólios ainda em aberto). ⚠ **Consumo real do dia, avisar quem repõe:** `001.003.00032` (GLUTARALDEIDO 2% C/5L) foi de **11 para 1 galão** e `001.003.00056` de **7 para 4**. Deletar RM atendida provavelmente exige **ESTORNO antes** (campo `Estornado` no item; função existe na tela, §6.2-8). O estorno devolve material ao estoque e é operação que a **Fase 3 vai precisar de qualquer forma** (reprova, devolução) ⇒ **capturar o payload ao fazer** — é captura de graça de um endpoint que já está no caminho. |
+| BL-21 | 05/08/2026 | **Capturar o endpoint que lista LOTES DISPONÍVEIS.** É a **última peça faltante** do atendimento. A tela "Seleção Lote (Saída)" mostra nº do lote, validade, `Saldo Calc` e `Saldo` — e o `FiltrarSaldoProduto` **NÃO devolve saldo por lote** (§9.9, onde isso já estava registrado como a peça sem fonte nativa). A chamada dispara **quando o modal abre**, ANTES do `ValidarAtendimento`, e escapou de 3 tentativas de captura. **Protocolo:** Network com **Preserve log LIGADO ANTES** de clicar em Atendimento; abrir a seleção de lote; copiar a chamada **sem clicar em mais nada**. **Pré-requisito da tela de atendimento no Hub (§10.21); não bloqueia a criação.** |
 | BL-18 | 05/08/2026 | 🔴 **11 mil unidades em saldo de RM aberta, e 67 produtos com RMs abertas SIMULTÂNEAS.** Topo: `001.004.00072` em **16** RMs; `001.008.00003` em **13** (707 un, fev→jul); `001.003.00056` em **12**. É a §6.1-10 (`2187`/`2231`, **risco de BAIXA EM DOBRO**) em escala: material re-requisitado enquanto o saldo antigo segue vivo. **Atender um saldo velho hoje tira material que já saiu por outra RM.** ⚠ Destes, **1.980 un estão em 13 RMs `Automático`**, que NUNCA teriam como ser atendidas — **causa sistêmica, não desleixo** (§10.16 e BL-19). Os outros ~8.300 são `Manual`: pendência administrativa. Achado de Controller, **acionável sem o módulo**: limpar/cancelar antes de qualquer bloqueio do Alvo. **Custo colateral para o sync:** RM não-terminal nunca sai da fila do passo B ⇒ o platô de `precisa_releitura` inclui dívida administrativa, não só trabalho real. |
 | BL-19 | 05/08/2026 | **`TipoAtendimento` não é visível nem editável na tela do Alvo.** O campo **não existe no formulário de RM** — ninguém escolheu `"Automático"` nas 27 do ano; o valor é atribuído **por baixo**. Seis usuários distintos, ano inteiro, incluindo ontem; e os **MESMOS** usuários também criam RMs `Manual` ⇒ **não é hábito, não é permissão, não é automação de etapa**. Hipótese: caminho de criação alternativo (cópia de RM, importação, outro fluxo da tela). Fonte mais direta para fechar: **botão `Log` da RM**, que já resolveu a investigação de unidades (§9.8). A correção já existe e está provada (`SaveReqMat` `Update`, §10.16) — o que falta é entender a **causa**, senão o Hub corrige o próprio sintoma e o das outras origens continua. |
 | BL-20 | 05/08/2026 | **Rastreabilidade de lote é parcial.** **110 de 175** produtos requisitados em 2026 têm lote registrado (965 linhas) — e isso é **piso, não teto**: só **236 das 679** RMs estão detalhadas, e lote só existe em item **atendido**. Os 65 restantes misturam **três causas diferentes**: (a) produto com `ControlaLote = "Não"` (ex.: `001.004.00021`, sapólio — consumível); (b) produto nunca atendido; (c) RM ainda não detalhada pelo passo B. **Só (a) é lacuna regulatória.** Para classe III/IV o que importa é identificar quais **INSUMOS DE PRODUTO** estão sem controle de lote — não o consumível de limpeza. Depende de saber `ControlaLote` por produto, que hoje o `ReqMat/Load` não traz (ver §6.3-N, `loadOneToOne=All`). Fase 5. |
@@ -1483,6 +1516,12 @@ Existe uma `call_sync_*_cron` por job. Cada uma é `SECURITY DEFINER`, lê `sync
 
 **Ordem de aplicação (crítica, mesma lição da REC-3.0):** todo o SQL primeiro, deploy depois, **agendamento por último**. `LOAD_BATCH=60` / `LOAD_CHUNK=4` foram escolhidos **sem medição** do custo do `ReqMat/Load` (o `Laudo/Load` levava 1–3 s; o `MovEstq/Load` ~370 ms; o ReqMat traz 22 itens + lotes por RM) — o 1º disparo é que dá o número. Agendar antes de medir é convidar um cron que estoura o watchdog 4×/dia num gateway compartilhado com 100+ usuários. **→ MEDIDO em 05/08/2026: ~370 ms por `ReqMat/Load`, 679 RMs espelhadas, `total_erros = 0`.** O teto de 60 está folgado; a fila entrou em platô, como o desenho previa.
 
+Janela definida pelo Pedro: **`15 12,15,18,21 * * 1-5`** (09:15/12:15/15:15/18:15 BRT) — 30 min depois de cada rodada do `sync-laudos`, mesma cadência, sem disputar o gateway.
+
+**⚠ `sync_settings.schedule_cron` é NOT NULL e sem default** — e é **documental**: quem agenda é o `pg_cron`. As duas pontas (a linha da tabela e o `cron.schedule` comentado) têm de ser mantidas em sincronia, porque a tela de cron do Hub exibe a coluna como se fosse a verdade.
+
+**Kill-switch — como se pausa de verdade (medido em 05/08/2026).** A RPC `sync_cron_pause` grava `enabled=false` + `paused_at` + `paused_by` + `paused_reason` **juntos**, e `sync_cron_resume` limpa os quatro; a tela calcula `isPaused = !enabled` e os 8 crons existentes leem só `enabled`. ⚠ Mas existe uma linha em estado que a RPC nunca produziria: `sync-compras-status-cron` com **`enabled=true` E `paused_at` de 26/05/2026** — e ele **roda normalmente** (50 execuções nos últimos 7 dias, `job_type='bicephalous'`), porque o código lê só `enabled`. Se a intenção de quem escreveu aquele `paused_at` era desligá-lo, **ele nunca esteve desligado**. Achado operacional, registrado e **não corrigido** (é cron compartilhado, fora do escopo desta tarefa). O `sync-reqmat` para por `enabled=false` **OU** `paused_at` preenchido — falha fechada, e o gatilho real vai para `sync_runs.observacao`.
+
 ---
 
 ### 10.16 — Receita de ESCRITA da RM (capturada do Network, 05/08/2026)
@@ -1546,8 +1585,60 @@ Espécime: **`001.004.00021`** (SAPÓLIO CREMOSO 250ML), 1 UNID, local `001`, `C
 
 ⇒ Prova a cadeia inteira: escrita no Alvo → atendimento → baixa real de estoque → espelho → fila. E **valida a expressão STORED da OP-2.2 com um caso terminal real** — a última linha é a confirmação empírica de que `'Atendida Total'` é mesmo o literal terminal, que em 04/08 era só hipótese.
 
-⚠ **A RM `0000002271` tem baixa de estoque e permanece em produção** até ser deletada ou estornada. Não é lixo de teste inerte: mexeu no saldo. Janela definida pelo Pedro: **`15 12,15,18,21 * * 1-5`** (09:15/12:15/15:15/18:15 BRT) — 30 min depois de cada rodada do `sync-laudos`, mesma cadência, sem disputar o gateway.
+⚠ **A RM `0000002271` tem baixa de estoque e permanece em produção** até ser deletada ou estornada. Não é lixo de teste inerte: mexeu no saldo. Ver **BL-22** (limpeza das cinco RMs de teste).
 
-**⚠ `sync_settings.schedule_cron` é NOT NULL e sem default** — e é **documental**: quem agenda é o `pg_cron`. As duas pontas (a linha da tabela e o `cron.schedule` comentado) têm de ser mantidas em sincronia, porque a tela de cron do Hub exibe a coluna como se fosse a verdade.
+---
 
-**Kill-switch — como se pausa de verdade (medido em 05/08/2026).** A RPC `sync_cron_pause` grava `enabled=false` + `paused_at` + `paused_by` + `paused_reason` **juntos**, e `sync_cron_resume` limpa os quatro; a tela calcula `isPaused = !enabled` e os 8 crons existentes leem só `enabled`. ⚠ Mas existe uma linha em estado que a RPC nunca produziria: `sync-compras-status-cron` com **`enabled=true` E `paused_at` de 26/05/2026** — e ele **roda normalmente** (50 execuções nos últimos 7 dias, `job_type='bicephalous'`), porque o código lê só `enabled`. Se a intenção de quem escreveu aquele `paused_at` era desligá-lo, **ele nunca esteve desligado**. Achado operacional, registrado e **não corrigido** (é cron compartilhado, fora do escopo desta tarefa). O `sync-reqmat` para por `enabled=false` **OU** `paused_at` preenchido — falha fechada, e o gatilho real vai para `sync_runs.observacao`.
+### 10.19 — Receita de ATENDIMENTO por API (05/08/2026)
+
+> 🔴 **Isto NÃO estava previsto.** A §6.1-1 decidiu que o atendimento fica com o almoxarifado, no Alvo, e a Fase 2 nasceu **sem rota de atender**. Essa continua sendo a decisão de **PROCESSO** — mas agora está provado que é **tecnicamente possível pelo Hub**. Deixar o atendimento no Alvo passa a ser **escolha, não limitação**.
+
+**DOIS PASSOS, nesta ordem:**
+
+1. **`POST ReqMat/ValidarAtendimento`** — objeto ReqMat **INTEIRO** (103 campos), **SEM** o envelope `Action`/`ClassObject` (diferente do `SaveReqMat`, §10.16). Devolve o objeto **carimbado**.
+2. **`POST ReqMat/FinalizarAtendimento`** — **o MESMO objeto que o Validar devolveu**, sem alteração. Devolve `{ AtendimentoRealizado: bool, ReqMat: {…}, Messages: [] }`.
+
+**Gabarito confirmado:** o payload do `Finalizar` capturado da tela ainda diz `Status = "Aberta"`, `BaixouEstoque = "Não"` e `TipoAtendimento = "Automático"` — **quem muda tudo é o SERVIDOR**. Não tentar "corrigir" esses campos no payload: o gabarito é o que o `Validar` devolveu.
+
+**O que o cabeçalho precisa ter para o atendimento:**
+`CodigoTipoLanc = "E0000023"` · `CodigoFuncionarioAtendente = "0000165"` · `DataEntrega` · `DataConferencia` · `DataRecebimento` · e, **opcionalmente**, `CodigoFuncionarioEntregou` / `Retirou` / `Conferiu` (ver §10.20 e a retificação na §6.3-N — são estes que carregam a rastreabilidade real de pessoas).
+
+**No item:** `QuantidadeAtendida*` preenchida, `QuantidadeSaldo*` ajustada, `DataAtendimento`.
+
+**PROVADO na RM `0000002273`** (2 galões + 1 sapólio), **sem tocar a tela do Alvo**: `Status` → `"Atendida Total"`, `BaixouEstoque` → `"Sim"`, estoque **6 → 4** galões.
+
+---
+
+### 10.20 — Genealogia de LOTE (05/08/2026)
+
+Produto com **`ControlaLote = "Sim"` EXIGE indicar o lote** no atendimento. Produto com `"Não"` (ex.: `001.004.00021`, sapólio) **não abre seleção nenhuma**.
+
+**Estrutura.** A `CtrlLoteItemReqMatChildList` do item recebe **UMA LINHA POR LOTE**:
+`CodigoEmpresaFilial` · `CodigoProduto` · `NumeroReqMat` · `SequenciaItemReqMat` · `CodigoLocArmaz` · `NumeroCtrlLote` · `DataValidadeCtrlLote` · **`QuantidadeProdUnidMedPrincipal`** (a parte DESTE lote) · `Operacao = "Saída"` · `CodigoProdUnidMed` · `PosicaoProdUnidMed` · `Quantidade2` · `QuantidadeUnidadeItem` · `QuantidadeBruta`.
+
+> 🔴 **REGRA DE FECHAMENTO:** a soma de `QuantidadeProdUnidMedPrincipal` dos lotes tem de bater **EXATAMENTE** com a quantidade atendida do item. O modal do Alvo mostra `Quantidade Item / Quantidade Utilizada / Diferença` e **não deixa salvar com diferença ≠ 0**.
+
+⚠ No modal, **"Quantidade Item" é a quantidade que se está ATENDENDO AGORA**, não a do item da RM. Em atendimento parcial de 4 sobre 10 pedidos, o campo tem de ser mudado para 4.
+
+⚠ **NÃO SOMAR `QuantidadeBruta`.** Ela **não** é a quantidade do lote e seu significado **não está fechado**: RM `2275` (1 galão atendido, 1 lote) → `QuantidadeBruta = 5`; RM `2272` (4 galões, 2 lotes) → **4 em ambas as linhas**. A hipótese de "quantidade na unidade secundária" (1 galão = 5 litros, `Peso = 1` + `PesoFatorDivisor = "Fator"`) explica a `2275` e **NÃO** explica a `2272`. ⇒ Usar **SEMPRE** `QuantidadeProdUnidMedPrincipal`. **Quem somar `QuantidadeBruta` conta errado.**
+
+**FEFO é MANUAL.** A tela "Seleção Lote (Saída)" lista os lotes com saldo (nº, validade, `Saldo Calc`, `Saldo`), com checkbox e quantidade editável por linha, **sem sugestão automática**. Na `2272`, o rateio 1 (lote `0002311`, val. 17/12/2027) + 3 (lote `0002312`, val. 02/03/2028) foi **escolha da pessoa**. ⇒ **Oportunidade para o Hub: pré-preencher FEFO por validade.** (Refina a §6.3-G e a §6.2/Resolvidas, que registraram FEFO como praticado — o que não se sabia é que é praticado *à mão*.)
+
+**Rateio entre lotes funciona por API:** RM `2273`, 1 galão do `0002312` + 1 do `0002696`, montado à mão e aceito.
+
+**Item não atendido tem ZERO lotes** — a lista de lotes é escrita **no atendimento**, não na criação. ⇒ Retifica a leitura errada de 4 RMs abertas com lote: são **4 em 316**, anedota e não padrão; investigar só se voltar a aparecer.
+
+---
+
+### 10.21 — O que a TELA do Hub precisa (derivado dos testes de 05/08)
+
+**Modal "Nova Requisição de Material".**
+
+- **Do usuário:** OP (dropdown **obrigatório**), grade de produtos + quantidades, observação.
+- **Preenchido pelo Hub:** `CodigoFuncionario` (via de-para), `CodigoTipoReqMat = "0000002"`, `CodigoLocArmaz`, `Numero = ""`, placeholders `""` no item, e as quantidades espelhadas (`Quantidade2` / `QuantidadeSaldo*` / `QuantidadeEmpenhar*` = a pedida).
+- ⚠ **`CodigoCentroCtrl` é ESCOLHA DO USUÁRIO** — ver a retificação na §6.3-N. Dropdown, ou fixado por pessoa no perfil. **Isto muda o desenho:** a §10.9 tratava o centro como derivado do funcionário.
+- ⚠ **Risco conhecido:** `CodigoProdUnidMed` tem de casar com o cadastro. A família `001.003` tem divergência de unidade documentada (§9.8) — **é onde se espera o primeiro erro em produção**.
+
+**Modal de atendimento** (se e quando o atendimento vier para o Hub): grade de lotes com nº, validade e saldo, **ordenada por validade**; quantidade editável por linha; contador **Pedido / Alocado / Diferença** com a confirmação **travada até zerar** (é a regra de fechamento da §10.20, reproduzida do lado de cá).
+
+> 🔴 **VALIDAR NO HUB ANTES DE ENVIAR.** O Alvo responde `NullReferenceException` **sem dizer qual campo falta** (§6.3-N). Quatro tentativas foram perdidas assim em 05/08. O Hub deve conferir, antes do POST: soma dos lotes = quantidade atendida · quantidade ≤ saldo do lote · unidade válida · funcionário com de-para. **Erro de usuário não pode virar exceção de ERP.**
