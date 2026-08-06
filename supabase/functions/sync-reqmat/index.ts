@@ -148,14 +148,34 @@ const FILIAL_PADRAO = "1.01";
 // Volume de 2026 YTD: 678 (~97/mês ⇒ projeção ~1.160/ano). 2000 dá ~1,7×.
 const LIST_PAGE_SIZE = 2000;
 
-// Teto de Loads por execução. ⚠ NÃO MEDIDO ainda para esta entidade: o
-// `Laudo/Load` levava 1–3 s e o `MovEstq/Load` ~370 ms, mas o
-// `ReqMat/Load` traz 22 itens + lotes por RM e deve ser mais pesado.
-// 60 é conservador de propósito — o gateway é compartilhado com
-// Suprimentos (100+ usuários), Despesas, Intercompany e NF-e, e a §9.7
-// registra que ESPAÇAR É PREFERÍVEL A ACELERAR. Calibrar depois do 1º
-// disparo, olhando `duracao_ms` em sync_runs.
-const LOAD_BATCH = 60;
+// Teto de Loads por execução.
+//
+// 🔴 SUBIU DE 60 PARA 150 EM 06/08/2026 — e o motivo é INANIÇÃO POR
+// PRIORIDADE, não desempenho.
+//
+// A fila ordena por `codigo_tipo_req_mat asc NULLS LAST` (ver `passoDetalhe`),
+// e '0000002' (REQUISIÇÃO PRODUÇÃO) é o MENOR dos quatro códigos observados.
+// Como RM não-terminal nunca sai da fila por desenho (`precisa_releitura` não
+// zera), as 120 RMs de produção em aberto ocupavam o lote INTEIRO a cada
+// execução: com teto 60, `120 >= 60` sempre, e as ~400 RMs de outros tipos
+// (`0000004`, `0000005`, null) NUNCA chegavam ao topo. Não é atraso, é fome —
+// e ela é visível nas 6 execuções de 05/08, onde `fila_restante` desceu
+// 646→621→589→549→520 e então ESTACIONOU em 520.
+//
+// Com 150, as 120 de produção cabem e sobram ~30 por rodada para as demais,
+// que drenam em ~14 dias úteis sem pressão extra no gateway.
+//
+// CUSTO MEDIDO (6 execuções reais, 05/08/2026): 20,6–25,5 s com teto 60,
+// `total_erros = 0`, ~370 ms por `ReqMat/Load`.
+//   150 Loads ÷ LOAD_CHUNK 4 = 38 chunks × (~370 ms + 250 ms de sleep) ≈ 24 s
+//   + passo A (~4 s) ≈ 28 s   contra WATCHDOG_MS de 110 s  ⇒  ~4× de folga.
+//
+// ⚠ Subir mais que isso exige medir de novo. A §9.7 registra que ESPAÇAR É
+// PREFERÍVEL A ACELERAR: o gateway é compartilhado com Suprimentos (100+
+// usuários), Despesas, Intercompany e NF-e.
+//
+// ⚠ Mudar esta constante exige REDEPLOY da função — ela é lida no bundle.
+const LOAD_BATCH = 150;
 
 const LOAD_CHUNK = 4;
 const SLEEP_BETWEEN_CHUNKS_MS = 250;

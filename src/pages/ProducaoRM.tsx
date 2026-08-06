@@ -20,6 +20,7 @@ import {
   Building2,
   Package,
   AlertTriangle,
+  Trash2,
   LayoutGrid,
   List,
   ArrowUpDown,
@@ -32,7 +33,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { getStatusRM, STATUS_RM_ORDER } from "@/lib/statusRM";
+import { getStatusRM, getStatusRMVisual, STATUS_RM_ORDER, STATUS_RM_FILTER_OPTIONS } from "@/lib/statusRM";
 import { listarRMs, contarPorStatus, listarRequisitantes } from "@/services/reqMatService";
 
 // ── Formatadores ─────────────────────────────────────────────────────────────
@@ -257,7 +258,7 @@ export default function ProducaoRM() {
           Todas <span className="tabular-nums">{contagem?.total ?? 0}</span>
         </button>
         {STATUS_RM_ORDER.map((key) => {
-          const cfg = getStatusRM(key);
+          const cfg = getStatusRMVisual(key);
           const n = contagem?.porStatus[key] || 0;
           const ativo = filtroStatus === key;
           return (
@@ -276,6 +277,27 @@ export default function ProducaoRM() {
             </button>
           );
         })}
+        {/* Excluídas no ERP — chip PRÓPRIO, e só quando existe pelo menos uma.
+            Não é status do Alvo (é carimbo do Hub) e por isso não entra na
+            contagem dos três acima. Chip fixo em zero seria ruído permanente:
+            hoje é 1 em 280, e no dia em que for 0 ele some sozinho. */}
+        {(contagem?.ausentes ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={() => setFiltroStatus(filtroStatus === "ausente_alvo" ? "todos" : "ausente_alvo")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              filtroStatus === "ausente_alvo"
+                ? getStatusRMVisual("ausente_alvo").className
+                : "border-border text-muted-foreground hover:bg-muted/60",
+            )}
+            title={getStatusRMVisual("ausente_alvo").tooltip}
+          >
+            <Trash2 className="h-3 w-3" />
+            Excluídas no ERP <span className="tabular-nums">{contagem?.ausentes}</span>
+          </button>
+        )}
+
         <span className="mx-1 h-4 w-px bg-border" aria-hidden />
         {/* Exceção, não status: material requisitado que ainda não saiu do
             estoque. Medido nos ITENS (`quantidade_saldo > 0`), não deduzido do
@@ -328,9 +350,9 @@ export default function ProducaoRM() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
-                {STATUS_RM_ORDER.map((key) => (
-                  <SelectItem key={key} value={key}>
-                    {getStatusRM(key).label}
+                {STATUS_RM_FILTER_OPTIONS.map((op) => (
+                  <SelectItem key={op.value} value={op.value}>
+                    {op.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -510,7 +532,7 @@ export default function ProducaoRM() {
                 </thead>
                 <tbody>
                   {rms.map((r) => {
-                    const sv = getStatusRM(r.status);
+                    const sv = getStatusRM(r);
                     return (
                       <tr
                         key={r.numero}
@@ -578,7 +600,7 @@ export default function ProducaoRM() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {rms.map((r) => {
-            const sv = getStatusRM(r.status);
+            const sv = getStatusRM(r);
             return (
               <Card
                 key={r.numero}

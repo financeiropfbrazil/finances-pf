@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { aplicarFiltroStatusRM } from "@/lib/statusRM";
 
 /**
  * Service do módulo Produção > RM (OP-2.4 — LEITURA do espelho).
@@ -155,9 +156,12 @@ export interface RMDetalhe {
 }
 
 export interface ContagemRM {
+  /** Só das RMs VIVAS no Alvo — as ausentes saem daqui e vão para `ausentes`. */
   porStatus: Record<string, number>;
   total: number;
   comSaldo: number;
+  /** RMs que sumiram do Alvo (`ausente_desde` carimbado pelo sync). */
+  ausentes: number;
 }
 
 // ── Filtros server-side ──────────────────────────────────────────────────────
@@ -170,7 +174,10 @@ export interface ContagemRM {
 function aplicarFiltros(query: any, p: FiltrosRM): any {
   query = query.eq("codigo_tipo_req_mat", TIPO_RM_PRODUCAO);
 
-  if (p.status && p.status !== "todos") query = query.eq("status", p.status);
+  // Status EFETIVO: o filtro vive em `statusRM.ts`, junto do badge, porque a
+  // ausência precede o status do Alvo e as duas metades têm de andar juntas.
+  query = aplicarFiltroStatusRM(query, p.status);
+
   if (p.usuario && p.usuario !== "todos") query = query.eq("codigo_usuario", p.usuario);
 
   if (p.busca) {
@@ -369,17 +376,27 @@ export async function listarRMs(params: ListarRMsParams): Promise<{ rms: RMListI
  */
 export async function contarPorStatus(params: Omit<FiltrosRM, "status">): Promise<ContagemRM> {
   const restricao = await resolverRestricao(params);
-  if (restricao === "vazio") return { porStatus: {}, total: 0, comSaldo: 0 };
+  if (restricao === "vazio") return { porStatus: {}, total: 0, comSaldo: 0, ausentes: 0 };
 
-  const linhas = await buscarTudo<{ numero: string; status: string | null }>((de, ate) => {
-    let q = (supabase as any).from("op_reqmat").select("numero, status");
-    q = aplicarFiltros(q, params);
-    q = aplicarRestricao(q, restricao);
-    return q.range(de, ate);
-  });
+  const linhas = await buscarTudo<{ numero: string; status: string | null; ausente_desde: string | null }>(
+    (de, ate) => {
+      let q = (supabase as any).from("op_reqmat").select("numero, status, ausente_desde");
+      q = aplicarFiltros(q, params);
+      q = aplicarRestricao(q, restricao);
+      return q.range(de, ate);
+    },
+  );
 
+  // Espelha a precedência de `getStatusRM`: RM ausente NÃO conta no status do
+  // Alvo. Sem isso, o chip "Atendida Total" somaria uma RM que a tela mostra
+  // riscada como "Excluída no ERP" — filtro e badge divergindo na contagem.
   const porStatus: Record<string, number> = {};
+  let ausentes = 0;
   linhas.forEach((r) => {
+    if (r.ausente_desde) {
+      ausentes++;
+      return;
+    }
     const k = r.status || "";
     porStatus[k] = (porStatus[k] || 0) + 1;
   });
@@ -387,7 +404,7 @@ export async function contarPorStatus(params: Omit<FiltrosRM, "status">): Promis
   const comSaldoSet = await numerosComSaldo();
   const comSaldo = linhas.filter((r) => comSaldoSet.has(r.numero)).length;
 
-  return { porStatus, total: linhas.length, comSaldo };
+  return { porStatus, total: linhas.length, comSaldo, ausentes };
 }
 
 /** Requisitantes distintos (`codigo_usuario`) das RMs de produção — para o filtro. */
@@ -510,6 +527,8 @@ export interface ConsolidadoRequisicao {
   descricao: string | null;
   status: string | null;
   origem: string | null;
+  /** Carimbo de exclusão no Alvo — precede o status na exibição (getStatusRM). */
+  ausente_desde: string | null;
   itens_count: number;
 }
 
@@ -562,7 +581,7 @@ export async function consolidadoDaOP(opId: string): Promise<ConsolidadoOP> {
       ? buscarTudo<any>((de, ate) =>
           (supabase as any)
             .from("op_reqmat")
-            .select("numero, data, descricao, status, origem")
+            .select("numero, data, descricao, status, origem, ausente_desde")
             .in("numero", numeros)
             .eq("codigo_tipo_req_mat", TIPO_RM_PRODUCAO)
             .range(de, ate),
@@ -616,6 +635,7 @@ export async function consolidadoDaOP(opId: string): Promise<ConsolidadoOP> {
       descricao: c?.descricao ?? null,
       status: c?.status ?? null,
       origem: c?.origem ?? null,
+      ausente_desde: c?.ausente_desde ?? null,
       itens_count: l.numero_reqmat ? itensPorRM.get(l.numero_reqmat) || 0 : 0,
     };
   });

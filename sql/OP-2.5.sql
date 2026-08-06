@@ -1,0 +1,153 @@
+-- =============================================================================
+-- OP-2.5 · Agendamento do `sync-reqmat` no pg_cron
+-- =============================================================================
+-- Projeto Supabase: hbtggrbauguukewiknew  (Financial Hub)
+-- Aplicar no SQL EDITOR. NÃO usar supabase db push (proibido neste projeto).
+-- Idempotente e reexecutável. Verificação e rollback no fim do arquivo.
+--
+-- ESCOPO: SOMENTE o `cron.schedule`. É o bloco que ficou comentado na seção 6
+-- do `sql/OP-2.3.sql`, agora com a medição que faltava para descomentá-lo.
+-- Nenhuma tabela, coluna, função, policy ou grant é criado ou alterado aqui.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PRÉ-REQUISITO — LEIA ANTES DE APLICAR
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 🔴 REDEPLOY DA EDGE FUNCTION PRIMEIRO. O `LOAD_BATCH` subiu de 60 para 150
+--    no mesmo commit deste arquivo, e a constante é lida NO BUNDLE:
+--
+--      supabase functions deploy sync-reqmat --project-ref hbtggrbauguukewiknew
+--
+--    Agendar antes do redeploy funciona, mas o cron roda com o teto ANTIGO e a
+--    inanição descrita abaixo continua — o agendamento pareceria não resolver.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- POR QUE AGENDAR AGORA (medido em 06/08/2026)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- O espelho só anda quando alguém dispara à mão: as 6 execuções registradas em
+-- `sync_runs` são TODAS `triggered_by = 'manual_admin'`, a última em
+-- 05/08 19:16. Sem cron, três coisas simplesmente não acontecem:
+--   · RM criada no Alvo hoje não aparece na tela (≈2 RMs de produção/dia útil);
+--   · atendimento feito hoje não atualiza o "atendido" do consolidado da OP;
+--   · ausência nova não é detectada (é o `marcarAusencias`, com cross-check).
+--
+-- ⚠ O que o cron NÃO resolve, e por isso não foi ele que consertou o bug do
+--   dia: a RM 0000002271 já estava com `ausente_desde` carimbado desde 05/08
+--   19:16 — quem não mostrava era a TELA. Isso foi corrigido em `statusRM.ts`
+--   no mesmo commit. Cron é saúde do dado, não o conserto daquele sintoma.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- INANIÇÃO POR PRIORIDADE — o achado que mudou o `LOAD_BATCH`
+-- ─────────────────────────────────────────────────────────────────────────────
+-- A fila do passo B ordena por `codigo_tipo_req_mat asc NULLS LAST`, e
+-- '0000002' é o MENOR dos quatro códigos. RM não-terminal nunca sai da fila
+-- (é desenho: `precisa_releitura` não zera). Logo, as 120 RMs de produção em
+-- aberto ocupavam o lote inteiro a cada execução — com teto 60, `120 >= 60`
+-- SEMPRE, e as ~400 de outros tipos nunca chegavam ao topo.
+--
+-- Visível em `sync_runs`: `fila_restante` 646 → 621 → 589 → 549 → 520 → 520.
+-- Estacionou. Não era platô de convergência; era fome.
+--
+-- Medido em 06/08: das 400 nunca lidas, **ZERO são do tipo produção** — a tela
+-- de RM (que filtra '0000002') está com 280/280 detalhadas. As 400 são material
+-- de consumo, ajuste e sem tipo, e só passam a importar quando Estoques ganhar
+-- tela própria.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- JANELA
+-- ─────────────────────────────────────────────────────────────────────────────
+-- '15 12,15,18,21 * * 1-5'  =  09:15 / 12:15 / 15:15 / 18:15 BRT, dias úteis.
+-- 30 min depois de cada rodada do `sync-laudos-4x-dia` (jobid 23,
+-- '45 11,14,17,20 * * 1-5'), mesma cadência, sem disputar o gateway com ele.
+--
+-- ✅ CONFERIDO EM 06/08/2026: `sync_settings.schedule_cron` do job
+--    'sync-reqmat' JÁ está com exatamente este valor, e `enabled = true` com
+--    `paused_at = null`. As duas pontas nascem em sincronia.
+--
+-- ⚠ REGRA PERMANENTE: se o agendamento real mudar, ATUALIZE
+--   `sync_settings.schedule_cron` na mesma transação — a tela de cron do Hub
+--   exibe aquela coluna como se fosse a verdade, e hoje já existe uma linha
+--   mentindo no Hub por causa disso (BL-16, `sync-compras-status-cron`).
+-- =============================================================================
+
+-- Idempotência: `cron.schedule` com o MESMO nome substitui o job existente,
+-- mas o `unschedule` explícito deixa o efeito legível e evita depender desse
+-- comportamento. O `where exists` impede o erro "could not find valid entry"
+-- quando o job ainda não existe (é o caso da 1ª aplicação).
+do $$
+begin
+  if exists (select 1 from cron.job where jobname = 'sync-reqmat-4x-dia') then
+    perform cron.unschedule('sync-reqmat-4x-dia');
+  end if;
+end $$;
+
+select cron.schedule(
+  'sync-reqmat-4x-dia',
+  '15 12,15,18,21 * * 1-5',
+  $cron$ select public.call_sync_reqmat_cron('pg_cron'); $cron$
+);
+
+-- =============================================================================
+-- VERIFICAÇÃO EMPÍRICA (rodar no SQL Editor logo após aplicar)
+-- =============================================================================
+-- a) o job existe, está ativo e com o comando certo:
+--
+--   select jobid, jobname, schedule, active, command
+--     from cron.job where jobname = 'sync-reqmat-4x-dia';
+--
+--   Esperado: 1 linha, active = true, schedule = '15 12,15,18,21 * * 1-5'.
+--
+-- b) as duas pontas em sincronia (a tela de cron mostra a coluna como verdade):
+--
+--   select (select schedule from cron.job where jobname='sync-reqmat-4x-dia') as no_pg_cron,
+--          (select schedule_cron from sync_settings where job_name='sync-reqmat') as no_sync_settings,
+--          (select enabled from sync_settings where job_name='sync-reqmat') as enabled,
+--          (select paused_at from sync_settings where job_name='sync-reqmat') as paused_at;
+--
+--   Esperado: as duas primeiras IGUAIS, enabled = true, paused_at = null.
+--
+-- c) DEPOIS da primeira execução automática (09:15/12:15/15:15/18:15 BRT) —
+--    é aqui que se confirma se o LOAD_BATCH=150 saiu no redeploy:
+--
+--   select started_at, duracao_ms, total_erros, triggered_by, observacao
+--     from sync_runs where job_type='reqmat' order by started_at desc limit 3;
+--
+--   Esperado: `triggered_by = 'pg_cron'` (as 6 anteriores são 'manual_admin'),
+--   `duracao_ms` na casa dos 25.000–35.000 (contra watchdog de 110.000),
+--   `total_erros = 0`, e na observação `detalhados=150` — se vier
+--   `detalhados=60`, o REDEPLOY NÃO ACONTECEU.
+--
+--   E a prova de que a inanição acabou: `fila_restante` tem de VOLTAR A CAIR
+--   execução após execução (estava travada em 520).
+--
+-- d) execução do próprio job (se nada aparecer em sync_runs):
+--
+--   select jobid, status, return_message, start_time
+--     from cron.job_run_details
+--    where jobid = (select jobid from cron.job where jobname='sync-reqmat-4x-dia')
+--    order by start_time desc limit 5;
+--
+--   Lembrando que a chamada é ASSÍNCRONA: `call_sync_reqmat_cron` devolve o
+--   request_id do pg_net, não o resultado. A resposta do gateway fica em
+--   `net._http_response`. Taxonomia do 401 (§10.15): resposta em INGLÊS
+--   (`UNAUTHORIZED_ASYMMETRIC_JWT`) = gateway do Supabase barrou (falta
+--   `verify_jwt=false` no config.toml + redeploy); em PORTUGUÊS
+--   (`{"error":"Não autorizado"}`) = gate CRON_SECRET dentro da função.
+
+-- =============================================================================
+-- ROLLBACK
+-- =============================================================================
+-- Desagendar (o espelho para de andar sozinho; o disparo manual continua
+-- funcionando por `select public.call_sync_reqmat_cron('manual_admin');`):
+--
+--   select cron.unschedule('sync-reqmat-4x-dia');
+--
+-- Pausa TEMPORÁRIA sem desagendar (kill-switch lido pela própria função —
+-- ela para por `enabled = false` OU por `paused_at` preenchido).
+-- ⚠ A assinatura é `(p_reason, p_job)` — MOTIVO PRIMEIRO. Conferida em
+--   `pg_proc` em 06/08/2026; os parâmetros nomeados evitam a inversão:
+--
+--   select public.sync_cron_pause(p_reason => 'motivo aqui', p_job => 'sync-reqmat');
+--   select public.sync_cron_resume(p_job => 'sync-reqmat');
+--
+-- Reverter o LOAD_BATCH é mudança de CÓDIGO (constante no
+-- `supabase/functions/sync-reqmat/index.ts`) + redeploy — não sai por SQL.

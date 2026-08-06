@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -6,11 +6,17 @@ import { Badge } from "@/components/ui/badge";
 import { DataSection, Field } from "@/components/DataSection";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Loader2, ArrowLeft, AlertTriangle, Boxes } from "lucide-react";
+import { Loader2, ArrowLeft, AlertTriangle, Boxes, RefreshCw, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
 import { getStatusRM } from "@/lib/statusRM";
 import { obterRM, type RMItem } from "@/services/reqMatService";
+import {
+  conferirRMNoAlvo,
+  isReqMatInexistenteNoAlvo,
+  type ResultadoConferencia,
+} from "@/services/alvoReqMatLoadService";
 
 const numeroFmt = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 });
 
@@ -49,6 +55,61 @@ export default function ProducaoRMDetalhe() {
     enabled: !!numero,
   });
 
+  // ── Conferência sob demanda (só leitura) ──────────────────────────────────
+  // Não é sincronização: o resultado vive em memória e NÃO vai para o espelho.
+  // `conferencia` = última leitura bem-sucedida; `avisoConferencia` = o que
+  // impediu a leitura (412, exceção do ERP, guarda anti-wipe, rede).
+  const [conferindo, setConferindo] = useState(false);
+  const [conferencia, setConferencia] = useState<ResultadoConferencia | null>(null);
+  const [avisoConferencia, setAvisoConferencia] = useState<{ titulo: string; texto: string } | null>(null);
+
+  const conferir = async () => {
+    if (!data || !numero) return;
+    setConferindo(true);
+    setAvisoConferencia(null);
+    try {
+      const r = await conferirRMNoAlvo(numero, {
+        status: data.cabecalho.status,
+        tipo_atendimento: data.cabecalho.tipo_atendimento,
+        baixou_estoque: data.cabecalho.baixou_estoque,
+        itens: data.itens.map((i) => ({
+          sequencia: i.sequencia,
+          quantidade: i.quantidade,
+          quantidade_atendida: i.quantidade_atendida,
+          quantidade_saldo: i.quantidade_saldo,
+        })),
+      });
+      setConferencia(r);
+      if (r.diferencas.length === 0) {
+        // Sucesso silencioso: nada mudou é a resposta mais comum, e um toast a
+        // cada clique vira ruído. O carimbo "conferida às HH:MM" já informa.
+        toast.success("Conferido — nada mudou no ERP.");
+      } else {
+        toast.warning(`${r.diferencas.length} diferença(s) entre o Hub e o ERP.`, {
+          description: "Veja o painel no topo da página.",
+        });
+      }
+    } catch (e: unknown) {
+      // Falha NUNCA é fatal: a tela continua mostrando o espelho.
+      setConferencia(null);
+      if (isReqMatInexistenteNoAlvo(e)) {
+        setAvisoConferencia({
+          titulo: "Não encontrada no ERP",
+          texto:
+            "Esta requisição pode ter sido excluída no Alvo. O que está abaixo é o último estado conhecido — " +
+            "a sincronização confirma. O Hub não marca exclusão a partir de uma consulta isolada.",
+        });
+      } else {
+        setAvisoConferencia({
+          titulo: "Não foi possível conferir agora",
+          texto: `${e instanceof Error ? e.message : "Erro desconhecido"}. Os dados abaixo seguem sendo o último estado sincronizado.`,
+        });
+      }
+    } finally {
+      setConferindo(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -70,7 +131,9 @@ export default function ProducaoRMDetalhe() {
   }
 
   const c = data.cabecalho;
-  const sv = getStatusRM(c.status);
+  // Linha inteira, não só o status: `ausente_desde` precede o literal do Alvo
+  // (o badge do cabeçalho acompanha a faixa vermelha logo abaixo).
+  const sv = getStatusRM(c);
 
   // Totais do cabeçalho somados a partir dos ITENS. `quantidade_saldo` entra
   // como o Alvo entregou — NUNCA `pedido − atendido`: quando o almoxarifado
@@ -93,53 +156,113 @@ export default function ProducaoRMDetalhe() {
   return (
     <div className="grid grid-cols-1 gap-6 p-6">
       {/* Header */}
-      <div className="flex items-start gap-3">
-        <Button variant="ghost" size="sm" className="mt-1 h-8 w-8 p-0" onClick={() => navigate("/producao/rm")}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-mono text-2xl font-bold tracking-tight tabular-nums text-foreground">{c.numero}</h1>
-            <Badge variant="outline" className={cn(sv.className, "flex items-center gap-1.5")}>
-              <sv.Icon className="h-3 w-3" />
-              {sv.label}
-            </Badge>
-            <Badge variant="outline" className="border-border text-muted-foreground">
-              {c.origem || "origem —"}
-            </Badge>
-            {c.tipo_atendimento && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "cursor-help",
-                        c.tipo_atendimento === "Automático"
-                          ? "border-red-500/30 bg-red-500/15 text-red-700 dark:text-red-400"
-                          : "border-border text-muted-foreground",
-                      )}
-                    >
-                      {c.tipo_atendimento}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs text-xs">
-                    {c.tipo_atendimento === "Automático"
-                      ? "RM com TipoAtendimento “Automático” nunca é atendida sozinha — medido no ano inteiro: 13 Automático = 13 Abertas."
-                      : "Atendimento manual pelo almoxarifado — é o modo que efetivamente baixa estoque."}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="sm" className="mt-1 h-8 w-8 p-0" onClick={() => navigate("/producao/rm")}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="font-mono text-2xl font-bold tracking-tight tabular-nums text-foreground">{c.numero}</h1>
+              <Badge variant="outline" className={cn(sv.className, "flex items-center gap-1.5")}>
+                <sv.Icon className="h-3 w-3" />
+                {sv.label}
+              </Badge>
+              <Badge variant="outline" className="border-border text-muted-foreground">
+                {c.origem || "origem —"}
+              </Badge>
+              {c.tipo_atendimento && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "cursor-help",
+                          c.tipo_atendimento === "Automático"
+                            ? "border-red-500/30 bg-red-500/15 text-red-700 dark:text-red-400"
+                            : "border-border text-muted-foreground",
+                        )}
+                      >
+                        {c.tipo_atendimento}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs text-xs">
+                      {c.tipo_atendimento === "Automático"
+                        ? "RM com TipoAtendimento “Automático” nunca é atendida sozinha — medido no ano inteiro: 13 Automático = 13 Abertas."
+                        : "Atendimento manual pelo almoxarifado — é o modo que efetivamente baixa estoque."}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {c.descricao || "(sem descrição)"} · {data.itens.length} {data.itens.length === 1 ? "item" : "itens"} ·{" "}
+              <span className="tabular-nums">
+                {numeroFmt.format(totalAtendido)} de {numeroFmt.format(totalPedido)} atendido
+              </span>
+            </p>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {c.descricao || "(sem descrição)"} · {data.itens.length} {data.itens.length === 1 ? "item" : "itens"} ·{" "}
-            <span className="tabular-nums">
-              {numeroFmt.format(totalAtendido)} de {numeroFmt.format(totalPedido)} atendido
-            </span>
+        </div>
+
+        {/* Conferência sob demanda — LEITURA. Não sincroniza, não grava. */}
+        <Button variant="outline" onClick={conferir} disabled={conferindo} className="shrink-0">
+          {conferindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Conferir no ERP
+        </Button>
+      </div>
+
+      {/* Resultado da conferência — sempre em memória, nunca no espelho. */}
+      {avisoConferencia && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+          <p className="font-medium text-amber-700 dark:text-amber-400">{avisoConferencia.titulo}</p>
+          <p className="mt-0.5 text-muted-foreground">{avisoConferencia.texto}</p>
+        </div>
+      )}
+
+      {conferencia && conferencia.diferencas.length === 0 && (
+        <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
+          <span className="text-muted-foreground">
+            Conferido no ERP às {format(conferencia.conferidoEm, "HH:mm", { locale: ptBR })} — nada mudou.
+          </span>
+        </div>
+      )}
+
+      {conferencia && conferencia.diferencas.length > 0 && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+            O ERP está diferente do que esta tela mostra ({conferencia.diferencas.length}{" "}
+            {conferencia.diferencas.length === 1 ? "diferença" : "diferenças"})
+          </p>
+          <div className="mt-2 w-0 min-w-full overflow-x-auto">
+            <table className="w-max min-w-full text-xs">
+              <thead>
+                <tr className="text-left uppercase text-muted-foreground">
+                  <th className="py-1 pr-4 font-medium">Campo</th>
+                  <th className="py-1 pr-4 font-medium">Nesta tela</th>
+                  <th className="py-1 font-medium">No ERP agora</th>
+                </tr>
+              </thead>
+              <tbody>
+                {conferencia.diferencas.map((d) => (
+                  <tr key={d.campo} className="border-t border-amber-500/20">
+                    <td className="py-1 pr-4">{d.campo}</td>
+                    <td className="py-1 pr-4 tabular-nums text-muted-foreground line-through">{d.noHub}</td>
+                    <td className="py-1 font-medium tabular-nums">{d.noAlvo}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* O usuário precisa saber que isto NÃO foi gravado — senão sai da
+              tela achando que a lista já está corrigida. */}
+          <p className="mt-2 text-xs text-muted-foreground">
+            Valores conferidos agora no ERP, às {format(conferencia.conferidoEm, "HH:mm", { locale: ptBR })}. Esta
+            consulta <strong>não altera o Hub</strong> — a lista e o consolidado atualizam na próxima sincronização.
           </p>
         </div>
-      </div>
+      )}
 
       {c.ausente_desde && (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">

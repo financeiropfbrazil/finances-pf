@@ -389,7 +389,10 @@ export default function ProducaoOrdemDetalhe() {
                 </thead>
                 <tbody>
                   {consolidado.requisicoes.map((r, idx) => {
-                    const sv = r.status ? getStatusRM(r.status) : null;
+                    // Linha inteira: RM excluída no ERP aparece riscada também
+                    // aqui, senão o consolidado da OP afirma "Atendida Total"
+                    // sobre uma requisição que não existe mais.
+                    const sv = r.status || r.ausente_desde ? getStatusRM(r) : null;
                     return (
                       <tr
                         key={r.numero_reqmat || `pendente-${idx}`}
