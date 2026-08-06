@@ -23,6 +23,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { getStatusOP } from "@/lib/statusOP";
+import { getStatusRM } from "@/lib/statusRM";
 import { NovaOPModal, type EdicaoOP } from "@/components/producao/NovaOPModal";
 import {
   obterOrdem,
@@ -30,6 +31,7 @@ import {
   registrarAprovacao,
   registrarComunicacao,
 } from "@/services/opService";
+import { consolidadoDaOP } from "@/services/reqMatService";
 
 const TIPO_ORDEM_LABEL: Record<string, string> = { FABRICACAO: "Fabricação", EMBALAGEM_FINAL: "Embalagem final" };
 const TIPO_PRODUTO_LABEL: Record<string, string> = { ACABADO: "Acabado", EM_PROCESSO: "Em processo" };
@@ -74,6 +76,14 @@ export default function ProducaoOrdemDetalhe() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["op_detalhe", id],
     queryFn: () => obterOrdem(id!),
+    enabled: !!id,
+  });
+
+  // Consolidado de material da OP. Query separada de propósito: a seção é
+  // informativa e não pode impedir o detalhe de renderizar se falhar.
+  const { data: consolidado, isLoading: carregandoRM } = useQuery({
+    queryKey: ["op_consolidado", id],
+    queryFn: () => consolidadoDaOP(id!),
     enabled: !!id,
   });
 
@@ -341,6 +351,157 @@ export default function ProducaoOrdemDetalhe() {
             </tbody>
           </table>
         </div>
+      </DataSection>
+
+      {/* Requisições de Material + consolidado por insumo */}
+      <DataSection
+        title="Requisições de Material"
+        subtitle={
+          carregandoRM
+            ? "carregando…"
+            : `${consolidado?.requisicoes.length ?? 0} RM(s) · ${consolidado?.insumos.length ?? 0} insumo(s)`
+        }
+      >
+        {carregandoRM ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
+          </div>
+        ) : !consolidado || consolidado.requisicoes.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhuma requisição aberta contra esta OP pelo Hub. Requisições criadas direto na tela do Alvo não têm
+            vínculo com a OP e não entram neste consolidado.
+          </p>
+        ) : (
+          <div className="space-y-6">
+            {/* Parte 1 — uma linha por RM */}
+            <div className="w-0 min-w-full overflow-x-auto">
+              <table className="w-max min-w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Nº</th>
+                    <th className="px-3 py-2 font-medium">Data</th>
+                    <th className="px-3 py-2 font-medium">Descrição</th>
+                    <th className="px-3 py-2 font-medium">Aberta por</th>
+                    <th className="px-3 py-2 font-medium">Envio (Hub)</th>
+                    <th className="px-3 py-2 font-medium">Status (Alvo)</th>
+                    <th className="px-3 py-2 text-right font-medium">Itens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {consolidado.requisicoes.map((r, idx) => {
+                    const sv = r.status ? getStatusRM(r.status) : null;
+                    return (
+                      <tr
+                        key={r.numero_reqmat || `pendente-${idx}`}
+                        className={cn(
+                          "border-b last:border-b-0",
+                          r.numero_reqmat && "cursor-pointer transition-colors hover:bg-muted/40",
+                        )}
+                        onClick={() => r.numero_reqmat && navigate(`/producao/rm/${r.numero_reqmat}`)}
+                      >
+                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs tabular-nums">
+                          {r.numero_reqmat || "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 tabular-nums">{formatData(r.data)}</td>
+                        <td className="max-w-[240px] px-3 py-2">
+                          <span className="line-clamp-1">{r.descricao || "—"}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2">{r.criado_por_nome || "—"}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.status_envio}</td>
+                        <td className="px-3 py-2">
+                          {sv ? (
+                            <Badge variant="outline" className={cn(sv.className, "flex w-fit items-center gap-1.5")}>
+                              <sv.Icon className="h-3 w-3" />
+                              {sv.label}
+                            </Badge>
+                          ) : (
+                            // Já existe no livro, mas o sync ainda não a leu.
+                            <span className="text-xs text-muted-foreground">aguardando sincronização</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{r.itens_count}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Parte 2 — consolidado por insumo */}
+            {consolidado.insumos.length > 0 && (
+              <div>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Consolidado por insumo
+                </h4>
+                <div className="w-0 min-w-full overflow-x-auto">
+                  <table className="w-max min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                        <th className="px-3 py-2 font-medium">Código</th>
+                        <th className="px-3 py-2 font-medium">Insumo</th>
+                        <th className="px-3 py-2 font-medium">Unid.</th>
+                        <th className="px-3 py-2 text-right font-medium">Requisitado</th>
+                        <th className="px-3 py-2 text-right font-medium">Atendido</th>
+                        <th className="px-3 py-2 text-right font-medium">Saldo</th>
+                        <th className="px-3 py-2 font-medium">Lotes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {consolidado.insumos.map((i) => (
+                        <tr key={i.codigo_produto} className="border-b last:border-b-0">
+                          <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                            <span className="font-medium">{i.codigo_alternativo_produto || "—"}</span>
+                            <span className="text-muted-foreground"> · {i.codigo_produto}</span>
+                          </td>
+                          <td className="max-w-[280px] px-3 py-2">
+                            <span className="line-clamp-1">{i.produto_nome || "—"}</span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{i.unidade || "—"}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                            {numeroFmt.format(i.qtd_pedida)}
+                          </td>
+                          {/* A base do consolidado é o ATENDIDO: é o que saiu do
+                              estoque para esta OP. Por isso vem em destaque. */}
+                          <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums">
+                            {numeroFmt.format(i.qtd_atendida)}
+                            {i.qtd_excedente > 0 && (
+                              <span
+                                className="ml-1.5 rounded border border-amber-500/30 bg-amber-500/15 px-1 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+                                title="Excedente carimbado pelo Alvo (quantidade digitada no atendimento), não cálculo do Hub."
+                              >
+                                +{numeroFmt.format(i.qtd_excedente)}
+                              </span>
+                            )}
+                          </td>
+                          <td
+                            className={cn(
+                              "px-3 py-2 text-right tabular-nums",
+                              i.qtd_saldo > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground",
+                            )}
+                          >
+                            {numeroFmt.format(i.qtd_saldo)}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground">
+                            {i.lotes.length === 0
+                              ? "—"
+                              : i.lotes
+                                  .map(
+                                    (l) =>
+                                      `${l.numero_ctrl_lote || "?"} (${numeroFmt.format(l.quantidade)}${
+                                        l.data_validade_ctrl_lote ? ` · val. ${formatData(l.data_validade_ctrl_lote)}` : ""
+                                      })`,
+                                  )
+                                  .join(" · ")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </DataSection>
 
       {/* Histórico de status */}

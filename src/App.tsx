@@ -65,6 +65,8 @@ import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import ProducaoOrdens from "./pages/ProducaoOrdens";
 import ProducaoOrdemDetalhe from "./pages/ProducaoOrdemDetalhe";
+import ProducaoRM from "./pages/ProducaoRM";
+import ProducaoRMDetalhe from "./pages/ProducaoRMDetalhe";
 import RecebimentoFila from "./pages/RecebimentoFila";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
 import ConfigContasDespesas from "@/pages/despesas/ConfigContasDespesas";
@@ -320,6 +322,27 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="producao.access">
               <ProducaoOrdemDetalhe />
+            </PermissionRoute>
+          }
+        />
+
+        {/* Requisições de Material — gate próprio (`producao.rm.access`), e não
+            o gate de módulo: a RM tem permissões dedicadas no RBAC desde
+            06/08/2026. O parâmetro do detalhe é o NÚMERO da RM no Alvo
+            (a chave natural do espelho), não um uuid. */}
+        <Route
+          path="/producao/rm"
+          element={
+            <PermissionRoute permKey="producao.rm.access">
+              <ProducaoRM />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/producao/rm/:numero"
+          element={
+            <PermissionRoute permKey="producao.rm.access">
+              <ProducaoRMDetalhe />
             </PermissionRoute>
           }
         />

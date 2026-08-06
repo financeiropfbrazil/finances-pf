@@ -118,7 +118,12 @@ const suprimentosSubItems: { label: string; url: string; icon: any; perm?: strin
   { label: "Atualizar Cadastros", url: "/suprimentos/cadastros", icon: RefreshCw, perm: "compras.cadastros.sync" },
 ];
 
-const producaoSubItems = [{ label: "Ordens de Produção", url: "/producao/ordens", icon: ClipboardList }];
+// `perm` opcional, mesmo contrato do `suprimentosSubItems`: o grupo inteiro é
+// liberado por `producao.access`, mas a RM tem gate próprio (`producao.rm.access`).
+const producaoSubItems: { label: string; url: string; icon: any; perm?: string }[] = [
+  { label: "Ordens de Produção", url: "/producao/ordens", icon: ClipboardList },
+  { label: "RM", url: "/producao/rm", icon: Package, perm: "producao.rm.access" },
+];
 
 // Recebimento (admin-only) — material recebido aguardando a Qualidade.
 // Sem permissão nova no RBAC: o gate é a RLS de rec_laudos (_is_admin).
@@ -268,7 +273,7 @@ export function AppSidebar() {
   add("email-nfe", true, () => itemEmailNfe());
   add("recebimento", isAdmin, () => renderRecebimentoGroup(t, isRecebimentoActive));
   add("estoques", hasAccess("inventory"), () => renderInventoryGroup(t, isInventoryActive));
-  add("producao", hasAccess("producao.access"), () => renderProducaoGroup(t, isProducaoActive));
+  add("producao", hasAccess("producao.access"), () => renderProducaoGroup(t, isProducaoActive, hasAccess));
 
   // 3) financeiro
   add("cash", true, () => itemSolto("/cash"));
@@ -593,7 +598,14 @@ function renderSuprimentosGroup(t: any, isActive: boolean, hasAccess: (perm: str
   );
 }
 
-function renderProducaoGroup(t: any, isActive: boolean) {
+function renderProducaoGroup(t: any, isActive: boolean, hasAccess: (perm: string) => boolean) {
+  const subItens = producaoSubItems.filter((sub) => !sub.perm || hasAccess(sub.perm));
+  // Grupo sem nenhum sub-item visível não renderiza: um menu que abre vazio
+  // parece defeito. Hoje isso não acontece (Ordens não tem `perm`, então quem
+  // passa no gate do grupo sempre vê ao menos ela), mas a guarda evita que o
+  // primeiro sub-item gateado que alguém acrescentar crie o estado.
+  if (subItens.length === 0) return null;
+
   return (
     <Collapsible defaultOpen={isActive} className="group/collapsible-producao">
       <SidebarMenuItem>
@@ -610,7 +622,7 @@ function renderProducaoGroup(t: any, isActive: boolean) {
         </CollapsibleTrigger>
         <CollapsibleContent>
           <SidebarMenuSub>
-            {producaoSubItems.map((sub) => (
+            {subItens.map((sub) => (
               <SidebarMenuSubItem key={sub.url}>
                 <SidebarMenuSubButton asChild>
                   <NavLink

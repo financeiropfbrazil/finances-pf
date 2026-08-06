@@ -63,6 +63,15 @@ export const PERMISSIONS = {
   PRODUCAO_ACCESS: "producao.access",
   PRODUCAO_ORDENS_CREATE: "producao.ordens.create",
   PRODUCAO_ORDENS_MANAGE: "producao.ordens.manage",
+
+  // ─── Módulo Produção / Requisição de Material (RM) ──────────────
+  // Já existem no banco e mapeadas a admin + gestor_producao +
+  // operador_producao (a `atender`, só a admin). `CREATE` e `ATENDER` ficam
+  // declaradas aqui sem uso: a criação é a próxima etapa e o atendimento
+  // depende do endpoint de lotes disponíveis (BL-21).
+  PRODUCAO_RM_ACCESS: "producao.rm.access",
+  PRODUCAO_RM_CREATE: "producao.rm.create",
+  PRODUCAO_RM_ATENDER: "producao.rm.atender",
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
