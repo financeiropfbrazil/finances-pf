@@ -149,6 +149,9 @@ const ferramentasSubItems = [
   { label: "Cron Despesas DocFin", url: "/ferramentas/cron-docfin", icon: Coins },
   { label: "Cron NF-e", url: "/ferramentas/cron-nfe", icon: FileText },
   { label: "Cron Intercompany", url: "/ferramentas/cron-intercompany", icon: Building2 },
+  // OP-2.6 — "RM (Produção)" e não "Requisições": a entrada acima já é o cron
+  // das Requisições de COMPRA (Suprimentos). São jobs diferentes.
+  { label: "Cron RM (Produção)", url: "/ferramentas/cron-reqmat", icon: Package },
 ];
 
 const entidadesSubItems = [

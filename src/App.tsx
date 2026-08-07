@@ -63,6 +63,7 @@ import CronDespesasDashboard from "./pages/ferramentas/CronDespesasDashboard";
 import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
 import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
+import CronReqMatDashboard from "./pages/ferramentas/CronReqMatDashboard";
 import ProducaoOrdens from "./pages/ProducaoOrdens";
 import ProducaoOrdemDetalhe from "./pages/ProducaoOrdemDetalhe";
 import ProducaoRM from "./pages/ProducaoRM";
@@ -596,6 +597,19 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="ferramentas_cron_req">
               <CronIntercompanyDashboard />
+            </PermissionRoute>
+          }
+        />
+        {/* OP-2.6 — mesmo gate das outras cinco: `ferramentas_cron_req` é a
+            menu_key que o `usePermissions` traduz para `ferramentas.cron.view`.
+            Nenhuma rota de cron consta do `routePermMap` do AppSidebar (o menu
+            é gateado no grupo Ferramentas, não item a item), então esta
+            também não entra lá — molde preservado. */}
+        <Route
+          path="/ferramentas/cron-reqmat"
+          element={
+            <PermissionRoute permKey="ferramentas_cron_req">
+              <CronReqMatDashboard />
             </PermissionRoute>
           }
         />
