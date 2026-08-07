@@ -19,6 +19,8 @@
 7. `CREATE OR REPLACE FUNCTION` **não preserva** `SECURITY DEFINER` nem `SET search_path` — sempre redeclarar os dois. Mudança de assinatura exige `DROP FUNCTION` antes (evita overload duplicado).
 8. **Teste final SEMPRE com usuário não-admin** (Ana). Pedro é o único `is_admin=true` (bypass total) — erro de permissão NUNCA aparece para ele (Permissoes_v2 §9.3).
 9. Helpers de permissão: usar a família **`_user_has_perm('x')` / `_is_admin()`** (a que Projetos e OP já usam). Não misturar com `user_has_permission(auth.uid(),'x')` na mesma policy/RPC.
+10. ⚡ **Regra de método acrescentada em 07/08 (achado do L2.9):** **nada de `create temp table` nos blocos SQL.** No SQL Editor do Supabase a temp table não sobrevive entre execuções e o bloco quebra. Os blocos devem **retornar o resultado direto** — se forem vários cenários, quebrar em blocos pequenos e independentes, um `select` final por bloco.
+11. ⚡ **Verificação de comportamento nunca por `ilike` no fonte** (achado do L2.3): `pg_get_functiondef` devolve o corpo **com os comentários**, então `ilike '%palavra%'` casa menção em comentário e dá falso positivo. Verificar por **atribuição/chamada** (regex tipo `coluna\s*=\s*valor`) ou por **md5 ≠ baseline**.
 
 ## 0.5. Pre-flight Supabase (obrigatório antes de qualquer query)
 
@@ -64,6 +66,7 @@ Projeto: **`hbtggrbauguukewiknew`**. Pedro tem OUTROS projetos Supabase — veri
 | D-10 | Estouro de teto: `RAISE` (como registrado no L2.1.g) ou retorno `success:false`? | **APROVADO em 07/08 — com condição obrigatória: R-1 do L4.** O item L2.1(g) é internamente incompatível: `RAISE` aborta a transação e **desfaz o `INSERT` do evento `teto_rejeitado`** feito uma linha antes — não dá para ter os dois. Entregue como **retorno `{success:false, erro_codigo:'teto_excedido', saldo_disponivel, valor_solicitado, excedente}`**, que preserva o evento (objetivo declarado do item: "ouro para report de controle"). **Todos os demais erros continuam `RAISE`.** Consequência no L4: `salvarPedido` checa `success === false` antes de olhar `error`. Se o Pedro preferir `RAISE`, é uma linha no SQL — e o evento deixa de existir. |
 | D-11 | Formato de retorno das RPCs de pedido | **APROVADO em 07/08.** Envelope `{success, operacao, pedido: <linha>}` em vez de `to_jsonb(linha)` puro (L2.1.k), porque D-10 exige um retorno de falha distinguível no mesmo canal. Mantém o espírito do padrão Cartões (a linha volta, dispensa releitura). |
 | D-9 | Gate de `aprovar_budget_projeto` (complementa o L2.4) | Além da troca `criado_por` → `responsavel_id` em `enviar_budget_para_aprovacao`, **adicionar `_user_has_perm('projetos.approve')`** ao gate de `aprovar_budget_projeto`. Hoje ela só checa `aprovador_id`, então um aprovador com o **papel revogado continuaria aprovando**. |
+| D-14 | No L3, a policy de UPDATE de `projetos` fica **só** `_is_admin()`? | **PROPOSTA — aguarda aval.** **Não:** o ramo `edit_own` precisa sobreviver, **migrado para `responsavel_id`** (mantendo `fase_atual='budget'`). Fechar o UPDATE de `projetos` em admin quebraria a edição de projeto pelo Responsável — que o próprio **L4.3 declara manter** como está (`Projetos.tsx`, fora do escopo, P-1). O ramo do **aprovador**, esse sim, **sai**: o L0.2 provou que `aprovar_budget_projeto` faz o `UPDATE` por dentro (SECURITY DEFINER), então a policy não precisa cobri-lo. Mesmo tratamento em `projetos_delete` (`delete_own` migrado para `responsavel_id`). |
 | D-12 | Um pedido existente pode ter a `fase` trocada por payload? | **NÃO — APROVADO em 07/08 (definitivo).** `projeto_pedido_salvar` rejeita quando `linha.fase <> fase do payload`. Sem esse gate, um payload com `fase='actual'` reescreveria a fase de um pedido do Budget já aprovado. **O Budget aprovado é registro histórico imutável.** |
 | D-13 | Exclusão de pedido de fase já encerrada | **NÃO — APROVADO em 07/08 (definitivo).** `projeto_pedido_excluir` só aceita pedido cuja `fase` = `projeto.fase_atual`. Mesma razão do D-12: não se apaga histórico de fase encerrada. |
 
@@ -95,7 +98,7 @@ Tabelas fechadas no RLS (SELECT com escopo; INSERT/UPDATE/DELETE sem policy p/ a
 |---|---|---|---|
 | L0 | Levantamento de schema + assinatura das RPCs existentes + snapshot pg_policies (baseline) | SQL/MCP read-only | ✅ 07/08 — baseline na seção 10 |
 | L1 | Migration: tabela `projeto_eventos` + índices + colunas faltantes | SQL (Pedro executa) | 🟡 SQL entregue 07/08 — aguardando execução do Pedro |
-| L2 | RPCs novas: `projeto_pedido_salvar` · `projeto_pedido_excluir` · `projeto_pedido_marcar_enviado` + correção de gate das 2 RPCs de fase | SQL (Pedro executa) | ⬜ |
+| L2 | RPCs novas: `projeto_pedido_salvar` · `projeto_pedido_excluir` · `projeto_pedido_marcar_enviado` + correção de gate das 2 RPCs de fase | SQL (Pedro executa) | ✅ 07/08 — aplicado e validado por dry-run |
 | L3 | RLS: refazer policies de `projetos` e `projeto_requisicoes` (escopo `responsavel_id`, escrita fechada) | SQL (Pedro executa) | ⬜ |
 | L4 | Frontend: `projetosService.ts` novo + `ProjetoRequisicoes.tsx` chamando RPCs + botão Novo no Actual + erro completo | finances-pf (agente edita+push) | ⬜ |
 | L5 | Reports: views `v_projeto_resumo` e `v_projeto_eventos_report` | SQL (Pedro executa) | ⬜ |
@@ -221,6 +224,10 @@ Vale para as três RPCs: `projeto_pedido_salvar`, `projeto_pedido_excluir` e `pr
 2. **`v_projeto_eventos_report`** — eventos com nomes resolvidos (join profiles por `usuario_id = profiles.user_id`), pronto para filtrar por período/evento/projeto. Inclui os `teto_rejeitado` (quantas vezes tentaram estourar, quem, quanto).
 3. RLS: views herdam das tabelas (security_invoker default) — conferir que o SELECT de `projeto_eventos` (L3.3) cobre.
 
+#### L5-R — Requisito adicional do L5 (item NOVO de 07/08; não substitui os 3 acima)
+
+**R-2 (achado do dry-run do L2).** `numeric` serializado em `jsonb` **não normaliza a escala**: o mesmo valor apareceu como `110000` em `valor_antes` e `110000.00` em `valor_depois` — é só representação, o valor é idêntico. As views **DEVEM comparar como `numeric`**, nunca como texto: `(detalhes->'campos_alterados'->'valor_total'->>'antes')::numeric` etc. Comparar as strings produziria falso positivo de "campo alterado" em todo evento de edição. Vale também para o `campos_alterados` gravado pela `projeto_pedido_salvar` (o `is distinct from` lá é entre `jsonb`, então a mesma diferença de escala **registra** a chave — o report é que não pode tratá-la como mudança real de valor).
+
 ### L6 — Validação fim-a-fim (operação real, evidências no diário)
 Roteiro na ordem, com print/console de cada passo:
 1. **Ana (não-admin):** edita um dos 5 pedidos do Actual → salva OK (o bug morre aqui).
@@ -255,6 +262,8 @@ Roteiro na ordem, com print/console de cada passo:
 | P-1 | Padronizar também o CRUD de `projetos` (Projetos.tsx) em RPC depois? | **ABERTA** | nada |
 | P-2 | Notificar o Responsável por e-mail quando o Budget for aprovado (hoje ninguém avisa a Ana)? Se sim, Edge nova padrão estado+scan (molde PLANO-PEDIDOS) | **ABERTA** | nada |
 | P-3 | Destravar Fernando: senha temporária via `hub-reset-user-password` + entrega fora de banda — **quando?** | **ABERTA** (operacional) | L6.6 |
+| P-5 | **`projeto_pedido_auditoria` fica fora do L3?** Suas policies ainda usam `criado_por` (SELECT e INSERT). Não morde hoje (criado_por = responsavel_id nos 3 projetos), mas fica como a única divergência de titularidade depois do L3 | **ABERTA** — o L3 registrado não a inclui; entra como lote novo se o Pedro quiser | nada |
+| P-6 | **`Projetos.tsx` edita projeto via `.upsert()`** — mesma classe do bug 42501: o upsert avalia a WITH CHECK do **INSERT** de `projetos`, que exige `criado_por = auth.uid()`. Enquanto responsável = criador, funciona; no dia em que divergirem, a edição de projeto quebra para o responsável | **ABERTA** — resolvida de vez pelo P-1 (CRUD de projetos em RPC) | nada hoje |
 | P-4 | **Projeto de teste com folga orçamentária** — os 2 projetos reais estão exatamente no teto (achado A-5), e com D-1 ativo nenhuma edição que aumente valor passa | **ASSUMIDA pelo Pedro** (07/08): ele cria o projeto antes do L6 | **Pré-requisito do L6** (roteiro inteiro, em especial L6.1 e L6.3) |
 
 ---
@@ -275,6 +284,7 @@ Roteiro na ordem, com print/console de cada passo:
 | Data | Item | Registro |
 |---|---|---|
 | 2026-08-07 | v2 criada | Plano de refatoração completo escrito a partir do diagnóstico das sessões 06–07/08 + levantamento de padrões do Hub. Decisões D-1..D-5 fechadas pelo Pedro. Nenhum lote executado. |
+| 2026-08-07 | **L2 CONCLUÍDO E VALIDADO** | 6 funções no ar, confirmadas por leitura: todas `secdef=true`, `search_path=public, auth`, todas chamando `projeto_evento_log`; helper com `auth_exec=false`; as 5 expostas com `auth_exec=true`. **Prova de que o L2.4 pegou:** md5 das RPCs de fase **mudaram** (`d23f744a…` e `030b22ef…` ≠ baseline `afc3f2dc…`/`eb594b06…`). **Dry-runs (Ana, não-admin):** `pedido_editado` no Actual → **o 42501 morreu**; `teto_rejeitado` gravado com `orcamento=180000, outros=70000, saldo=110000, excedente=1000` → **D-1 e D-10 provados na prática: o evento sobreviveu, que é exatamente o que o `RAISE` teria desfeito**; `pedido_excluido` com snapshot completo. Os 3 eventos com `usuario_email=ana.sanches@pfbrazil.com` → `profiles.user_id` resolveu (§2.4 respeitada). **Teste negativo (D-12)** abortou com a mensagem esperada. Integridade pós-rollback: 23 pedidos · 0 eventos · 0 sujeira. **Duas notas do Pedro viraram regra/requisito:** Regra 10 (sem `temp table` no SQL Editor) e **R-2 no L5** (`numeric` em `jsonb` não normaliza escala — `110000` vs `110000.00`; comparar como numeric, senão falso positivo de "alterado"). |
 | 2026-08-07 | **L2.3 aplicado · falso positivo na verificação** | Pedro reportou `tem_literal_sistema = true` no L2.3 (esperado `false`). **Não era a função — era a minha verificação.** `pg_get_functiondef` devolve o corpo **com os comentários**, e o comentário do D-8 cita a palavra; a checagem por menção textual não serve. Conferido por atribuição direto no banco: `enviado_alvo_por = 'sistema'` → **false**; `enviado_alvo_por = v_quem` → **true**; `v_quem` = e-mail via `profiles.user_id` com fallback uuid (linhas 57-59 e 69 do functiondef). **D-8 cumprida, função não precisa ser reaplicada.** Corrigida a verificação no `PROJ-L2.3` (regex de atribuição + coluna `grava_usuario_real`, e uma nota explicando a armadilha). Lição geral: **verificação de comportamento não pode ser `ilike` no fonte** — os comentários entram no match. |
 | 2026-08-07 | **L1 + L2.0 aplicados · SQL versionado em `sql/`** | **L1 confirmado por leitura:** `projeto_eventos` 11 colunas · RLS on · 0 policies · 3 índices · 0 eventos; `atualizado_por` criada; fingerprint 23. **`projeto_evento_log` idem** (`secdef=true`, `search_path=public, auth`, `auth_executa=false` — o revoke pegou). **Correção a uma premissa:** as 2 RPCs de fase **NÃO tinham sido recriadas** — md5 idênticos ao baseline (`afc3f2dc…`/`eb594b06…`), `tem_evento=false`, `tem_responsavel_id=false`, `tem_perm_approve=false`; o `search_path=public, auth` delas já vinha do baseline e não era sinal de reaplicação. Por decisão do Pedro, **todo bloco SQL virou arquivo versionado** em `sql/PROJ-*.sql` (índice na **seção 11**) — ele copia do GitHub e o fonte deixa de existir só no banco. Aplicação segue **função a função**. |
 | 2026-08-07 | **Avais D-10..D-13 + requisito R-1** | Pedro aprovou: **D-10** (teto retorna `success:false`) **com condição obrigatória** — o L4 tem de tratar `success !== true` como erro (toast destrutivo, não fecha modal, não invalida query), registrado como **R-1** dentro do L4 para não depender de memória: é o mesmo padrão de falha do A-2 que a refatoração corrige. **D-11** (envelope) aprovado. **D-12** e **D-13** (gates extras de fase na edição e na exclusão) aprovados **em definitivo** — Budget aprovado é registro histórico imutável. **D-3 confirmada inclusive para o admin** (integridade Hub×ERP, não permissão). Pedro executa L1→L2→dry-runs na sequência. |
@@ -672,10 +682,11 @@ Constraints: **só** `PRIMARY KEY (id)` + `FK projeto_id → projetos(id) ON DEL
 |---|---|---|
 | `sql/PROJ-L1-projeto_eventos.sql` | tabela `projeto_eventos` + índices + RLS sem policy + `atualizado_por` | ✅ aplicado 07/08 |
 | `sql/PROJ-L2.0-projeto_evento_log.sql` | helper interna de log (catálogo fechado de eventos; e-mail por `profiles.user_id`) | ✅ aplicado 07/08 |
-| `sql/PROJ-L2.1-projeto_pedido_salvar.sql` | RPC de create/update (D-1, D-2, D-6, D-10, D-11, D-12) | ⬜ pendente |
-| `sql/PROJ-L2.2-projeto_pedido_excluir.sql` | RPC de exclusão (D-3 inclusive p/ admin, D-13) | ⬜ pendente |
-| `sql/PROJ-L2.3-projeto_pedido_marcar_enviado.sql` | RPC do pós-envio ao Alvo — **correção do A-2** (D-7, D-8) | ⬜ pendente |
-| `sql/PROJ-L2.4-rpcs_de_fase.sql` | reaplicação das 2 RPCs de fase (responsavel_id, eventos, D-9) | ⬜ pendente |
-| `sql/PROJ-L2.9-dryruns.sql` | dry-runs da L2.6 (bloco A: 3 cenários; bloco B: teste negativo do D-12) | ⬜ pendente |
+| `sql/PROJ-L2.1-projeto_pedido_salvar.sql` | RPC de create/update (D-1, D-2, D-6, D-10, D-11, D-12) | ✅ aplicado 07/08 |
+| `sql/PROJ-L2.2-projeto_pedido_excluir.sql` | RPC de exclusão (D-3 inclusive p/ admin, D-13) | ✅ aplicado 07/08 |
+| `sql/PROJ-L2.3-projeto_pedido_marcar_enviado.sql` | RPC do pós-envio ao Alvo — **correção do A-2** (D-7, D-8) | ✅ aplicado 07/08 |
+| `sql/PROJ-L2.4-rpcs_de_fase.sql` | reaplicação das 2 RPCs de fase (responsavel_id, eventos, D-9) | ✅ aplicado 07/08 (md5 novos: `d23f744a…` / `030b22ef…`) |
+| `sql/PROJ-L2.9-dryruns.sql` | dry-runs da L2.6 (bloco A: 3 cenários; bloco B: teste negativo do D-12) | ✅ executado 07/08 — **rodado sem a temp table** (ver Regra 10) |
+| `sql/PROJ-L3-rls.sql` | RLS: fecha a escrita direta e migra o escopo para `responsavel_id` | ⬜ pendente — **lote de maior risco** |
 
 Ordem de execução: **L1 → L2.0 → L2.1 → L2.2 → L2.3 → L2.4 → L2.9**. Cada arquivo termina com verificação por leitura e bloco de rollback comentado. O rollback do L2.4 é o fonte original preservado na seção 10.3.
