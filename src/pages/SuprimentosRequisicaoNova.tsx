@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { enviarRequisicao, enviarRequisicaoComArquivos, type ArquivoInput } from "@/services/requisicoesService";
+import { submeterRequisicao, type ArquivoInput } from "@/services/requisicoesService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -377,12 +377,19 @@ export default function SuprimentosRequisicaoNova() {
         })),
       };
 
-      const result =
-        arquivos.length > 0
-          ? await enviarRequisicaoComArquivos({ ...inputBase, arquivos })
-          : await enviarRequisicao(inputBase);
+      // A submissão persiste o rascunho e roteia pela RPC submeter_requisicao:
+      // pode parar para aprovação do líder (PENDENTE) ou seguir direto ao ERP.
+      const result = await submeterRequisicao(
+        arquivos.length > 0 ? { ...inputBase, arquivos } : inputBase,
+      );
 
-      if (result.sucesso) {
+      if (result.rota === "PENDENTE") {
+        toast({
+          title: "Requisição enviada para aprovação do líder",
+          description: "Ela só será enviada ao ERP depois que o líder do centro de custo aprovar.",
+        });
+        navigate("/suprimentos/requisicoes");
+      } else if (result.sucesso) {
         toast({
           title: "Requisição enviada com sucesso!",
           description: result.numero_alvo
@@ -390,6 +397,27 @@ export default function SuprimentosRequisicaoNova() {
             : "Requisição sincronizada com o ERP.",
         });
         navigate("/suprimentos/requisicoes");
+      } else if (result.rota === null) {
+        // Recusa no roteamento (permissão, status, centro de custo): nada foi ao ERP.
+        toast({
+          title: "Requisição não submetida",
+          description: result.erro,
+          variant: "destructive",
+        });
+      } else if (result.numero_alvo) {
+        // Chegou ao ERP, mas o Hub não conseguiu registrar o desfecho. A mensagem do
+        // service já diz o que fazer (e que reenviar duplicaria a requisição).
+        toast({
+          title: "Requisição criada no ERP, mas não registrada no Hub",
+          description: result.erro,
+          variant: "destructive",
+        });
+      } else if (result.rota === "AUTO_APROVADA") {
+        toast({
+          title: "Aprovada automaticamente, mas o envio ao ERP falhou",
+          description: `Use "Reenviar" no detalhe da requisição — a aprovação foi preservada. Erro: ${result.erro}`,
+          variant: "destructive",
+        });
       } else {
         toast({
           title: "Falha ao enviar ao ERP",

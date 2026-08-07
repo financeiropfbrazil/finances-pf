@@ -298,10 +298,69 @@ function montarFormDataMultipart(payload: any, arquivos: Array<{ guid: string; b
 // ─── Funções principais ───
 
 /**
- * Envia requisição SEM arquivos (rota JSON puro /req-comp/insert).
- * Mantida para compatibilidade e para o caminho rápido sem anexos.
+ * Grava a mensagem de erro na requisição SEM mexer no status (a linha já está em
+ * 'rascunho'). Se por algum motivo ela estiver num estado protegido pelo trigger
+ * `trg_req_protege_aprovacao` (pendente_aprovacao/aprovada/rejeitada), o banco
+ * recusa a escrita direta — por isso a falha aqui é apenas logada: o que vale para
+ * o usuário é a mensagem devolvida pelo fluxo, que nunca é silenciosa.
  */
-export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<EnvioResult> {
+async function tentarRegistrarErroNoRascunho(requisicaoId: string, mensagem: string): Promise<void> {
+  try {
+    const { error } = await (supabase as any).from("compras_requisicoes").upsert(
+      {
+        id: requisicaoId,
+        status: "rascunho",
+        erro_ultimo_envio: mensagem,
+        tentativa_envio_em: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    );
+    if (error) {
+      console.warn(`[requisicoes] erro não registrado na requisição ${requisicaoId}: ${error.message}`);
+    }
+  } catch (err: any) {
+    console.warn(`[requisicoes] erro não registrado na requisição ${requisicaoId}: ${err?.message || err}`);
+  }
+}
+
+/**
+ * Persiste o desfecho do envio pela RPC `registrar_envio_requisicao` (Fase 1, R4).
+ * Devolve `null` quando registrou; senão, a descrição do problema — nunca engole.
+ */
+async function registrarDesfechoViaRpc(
+  requisicaoId: string,
+  numeroAlvo: string | null,
+  erro: string | null,
+): Promise<string | null> {
+  const { data, error } = await (supabase as any).rpc("registrar_envio_requisicao", {
+    p_req_id: requisicaoId,
+    p_numero_alvo: numeroAlvo,
+    p_erro: erro,
+  });
+
+  if (error) return error.message;
+
+  const retorno = String(data ?? "");
+  const esperado = numeroAlvo !== null ? "SINCRONIZADA" : "ERRO_REGISTRADO";
+  return retorno === esperado ? null : `retorno inesperado "${retorno}"`;
+}
+
+/**
+ * FASE 2 — split do antigo `enviarRequisicao` (one-shot: criava e enviava na mesma
+ * função, sem deixar um `id` para rotear).
+ *
+ * `criarRequisicao` só PERSISTE: cabeçalho + itens + rateios + anexos, em
+ * `status='rascunho'`, e devolve o id. Nada vai ao ERP aqui.
+ *
+ * Por que 'rascunho' e não o antigo 'pendente_envio': a RPC `submeter_requisicao`
+ * (R1) exige rascunho. O estado transitório 'pendente_envio' continua existindo —
+ * quem passa a gravá-lo é `enviarRequisicaoAlvo` no modo de persistência legado.
+ */
+export async function criarRequisicao(input: NovaRequisicaoInput): Promise<string> {
+  if (input.arquivos && input.arquivos.length > 3) {
+    throw new Error("Máximo de 3 arquivos por requisição.");
+  }
+
   const textoCompleto = montarTexto(input);
   let requisicaoId: string | null = null;
 
@@ -310,7 +369,7 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
       .from("compras_requisicoes")
       .upsert({
         requisitante_user_id: input.user_id,
-        status: "pendente_envio",
+        status: "rascunho",
         codigo_empresa_filial: EMPRESA_FILIAL,
         codigo_funcionario: input.codigo_funcionario,
         codigo_centro_ctrl: input.codigo_centro_ctrl,
@@ -331,7 +390,7 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
       throw new Error(`Erro ao criar requisição: ${errCreate?.message}`);
     }
 
-    requisicaoId = reqCriada.id;
+    requisicaoId = reqCriada.id as string;
 
     for (let idx = 0; idx < input.itens.length; idx++) {
       const item = input.itens[idx];
@@ -368,6 +427,12 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
       }
     }
 
+    if (input.arquivos && input.arquivos.length > 0) {
+      for (const arquivo of input.arquivos) {
+        await salvarArquivoNoStorage(requisicaoId, arquivo, input.user_id);
+      }
+    }
+
     await (supabase as any).from("compras_requisicoes_auditoria").upsert({
       requisicao_id: requisicaoId,
       evento: "criada",
@@ -376,110 +441,14 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
       sucesso: true,
     });
 
-    const payload = montarPayloadReqComp({
-      codigo_centro_ctrl: input.codigo_centro_ctrl,
-      codigo_finalidade_compra: input.codigo_finalidade_compra,
-      codigo_funcionario: input.codigo_funcionario,
-      data_necessidade_ymd: input.data_necessidade,
-      descricao: input.descricao,
-      texto: textoCompleto,
-      itens: input.itens,
-    });
-
-    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-      requisicao_id: requisicaoId,
-      evento: "envio_tentado",
-      user_id: input.user_id,
-      user_nome: input.requisitante_nome,
-      payload_enviado: payload,
-      sucesso: true,
-    });
-
-    try {
-      const respData = await callGatewayReqComp("/req-comp/insert", "POST", payload);
-
-      const numeroAlvo = respData?.Numero || "";
-
-      await (supabase as any).from("compras_requisicoes").upsert(
-        {
-          id: requisicaoId,
-          requisitante_user_id: input.user_id,
-          status: "sincronizada",
-          numero_alvo: numeroAlvo,
-          enviado_em: new Date().toISOString(),
-          codigo_empresa_filial: EMPRESA_FILIAL,
-          codigo_funcionario: input.codigo_funcionario,
-          codigo_centro_ctrl: input.codigo_centro_ctrl,
-          codigo_finalidade_compra: input.codigo_finalidade_compra,
-          data_necessidade: input.data_necessidade,
-          total_itens: input.itens.length,
-        },
-        { onConflict: "id" },
-      );
-
-      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-        requisicao_id: requisicaoId,
-        evento: "envio_sucesso",
-        user_id: input.user_id,
-        user_nome: input.requisitante_nome,
-        resposta_alvo: respData,
-        sucesso: true,
-      });
-
-      return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
-    } catch (errEnvio: any) {
-      const msgErro = errEnvio?.message || String(errEnvio);
-
-      await (supabase as any).from("compras_requisicoes").upsert(
-        {
-          id: requisicaoId,
-          requisitante_user_id: input.user_id,
-          status: "rascunho",
-          erro_ultimo_envio: msgErro,
-          tentativa_envio_em: new Date().toISOString(),
-          codigo_empresa_filial: EMPRESA_FILIAL,
-          codigo_funcionario: input.codigo_funcionario,
-          codigo_centro_ctrl: input.codigo_centro_ctrl,
-          codigo_finalidade_compra: input.codigo_finalidade_compra,
-          data_necessidade: input.data_necessidade,
-          total_itens: input.itens.length,
-        },
-        { onConflict: "id" },
-      );
-
-      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-        requisicao_id: requisicaoId,
-        evento: "envio_falha",
-        user_id: input.user_id,
-        user_nome: input.requisitante_nome,
-        sucesso: false,
-        mensagem_erro: msgErro,
-      });
-
-      return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
-    }
+    return requisicaoId;
   } catch (errCriacao: any) {
-    // Captura erros que ocorrem ANTES do envio ao Alvo (criação de itens, rateios, etc).
-    // Se requisicaoId já foi criado, marca como rascunho para não ficar órfã.
+    // Erro no meio da persistência (itens, rateios, upload). Se a linha já existe,
+    // ela fica como rascunho com o erro visível — mesmo comportamento de antes.
     const msgErro = errCriacao?.message || String(errCriacao);
 
     if (requisicaoId) {
-      await (supabase as any).from("compras_requisicoes").upsert(
-        {
-          id: requisicaoId,
-          requisitante_user_id: input.user_id,
-          status: "rascunho",
-          erro_ultimo_envio: `Erro durante criação: ${msgErro}`,
-          tentativa_envio_em: new Date().toISOString(),
-          codigo_empresa_filial: EMPRESA_FILIAL,
-          codigo_funcionario: input.codigo_funcionario,
-          codigo_centro_ctrl: input.codigo_centro_ctrl,
-          codigo_finalidade_compra: input.codigo_finalidade_compra,
-          data_necessidade: input.data_necessidade,
-          total_itens: input.itens.length,
-        },
-        { onConflict: "id" },
-      );
+      await tentarRegistrarErroNoRascunho(requisicaoId, `Erro durante criação: ${msgErro}`);
 
       await (supabase as any).from("compras_requisicoes_auditoria").upsert({
         requisicao_id: requisicaoId,
@@ -490,166 +459,193 @@ export async function enviarRequisicao(input: NovaRequisicaoInput): Promise<Envi
         mensagem_erro: `Erro durante criação: ${msgErro}`,
       });
 
-      return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+      const err = new Error(msgErro) as Error & { requisicaoId?: string };
+      err.requisicaoId = requisicaoId;
+      throw err;
     }
 
-    // Se nem conseguiu criar a linha no banco, propaga o erro
+    // Nem a linha do cabeçalho existe — propaga cru.
     throw errCriacao;
   }
 }
 
 /**
- * Envia requisição COM arquivos (rota multipart /req-comp/insert-multipart).
- * Os arquivos são primeiro salvos no Supabase Storage + tabela de metadados,
- * depois enviados ao Alvo junto com o payload JSON.
+ * Como o desfecho do envio é persistido:
+ *
+ * - `legado`: exatamente o que o app faz desde sempre — upsert direto
+ *   ('pendente_envio' antes; 'sincronizada' + numero_alvo + enviado_em no sucesso;
+ *   'rascunho' + erro_ultimo_envio + tentativa_envio_em na falha). Válido só para
+ *   requisição fora do gate (SEM_GATE), que nunca está em estado protegido.
+ * - `rpc`: desfecho EXCLUSIVAMENTE via `registrar_envio_requisicao`. Obrigatório
+ *   quando a req está 'aprovada' — o trigger `trg_req_protege_aprovacao` recusa
+ *   qualquer escrita direta nesse estado (e é por design: escrita direta rebaixaria
+ *   a req a rascunho e apagaria a decisão do líder). A auditoria desse caminho é
+ *   gravada pela própria RPC (`envio_pos_aprovacao_sucesso` / `_falha`).
  */
-export async function enviarRequisicaoComArquivos(input: NovaRequisicaoInput): Promise<EnvioResult> {
-  if (!input.arquivos || input.arquivos.length === 0) {
-    // Sem arquivos → redireciona para a função padrão
-    return enviarRequisicao(input);
+export type PersistenciaEnvio = "legado" | "rpc";
+
+export interface EnvioAlvoOptions {
+  userId: string;
+  userName: string;
+  persistencia: PersistenciaEnvio;
+}
+
+/**
+ * Caminho de envio ao Alvo (o de hoje, isolado numa função própria): lê a requisição
+ * já persistida, monta o ReqComp, escolhe a rota (JSON puro ou multipart, conforme
+ * haja anexos) e persiste o desfecho no modo pedido em `opts.persistencia`.
+ *
+ * ⚠️ Homônimo: existe outra `enviarRequisicaoAlvo` em `alvoProjetoPedidoService.ts`
+ * (módulo de Projetos, outra entidade). São funções distintas, em módulos distintos.
+ */
+export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvoOptions): Promise<EnvioResult> {
+  const { data: req, error: errReq } = await (supabase as any)
+    .from("compras_requisicoes")
+    .select("*")
+    .eq("id", requisicaoId)
+    .single();
+
+  if (errReq || !req) throw new Error(`Requisição não encontrada: ${errReq?.message}`);
+
+  const { data: itens } = await (supabase as any)
+    .from("compras_requisicoes_itens")
+    .select("*")
+    .eq("requisicao_id", requisicaoId)
+    .order("sequencia", { ascending: true });
+
+  if (!itens || itens.length === 0) throw new Error("Requisição sem itens.");
+
+  const { data: arquivos } = await (supabase as any)
+    .from("compras_requisicoes_arquivos")
+    .select("*")
+    .eq("requisicao_id", requisicaoId)
+    .order("created_at", { ascending: true });
+
+  const temArquivos = !!arquivos && arquivos.length > 0;
+
+  const itensNormalizados = itens.map((item: any) => ({
+    item_servico: item.item_servico,
+    codigo_produto: item.codigo_produto,
+    codigo_alternativo_produto: item.codigo_alternativo_produto,
+    codigo_prod_unid_med: item.codigo_prod_unid_med,
+    quantidade: Number(item.quantidade),
+    observacao: item.observacao || "",
+  }));
+
+  const guids: string[] | undefined = temArquivos
+    ? arquivos.map((a: any) => a.upload_identify_guid as string)
+    : undefined;
+
+  const payload = montarPayloadReqComp({
+    codigo_centro_ctrl: req.codigo_centro_ctrl,
+    codigo_finalidade_compra: req.codigo_finalidade_compra,
+    codigo_funcionario: req.codigo_funcionario,
+    data_necessidade_ymd: String(req.data_necessidade),
+    descricao: req.descricao || "",
+    texto: req.texto || "",
+    itens: itensNormalizados,
+    arquivos_guids: guids,
+  });
+
+  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+    requisicao_id: requisicaoId,
+    evento: "envio_tentado",
+    user_id: opts.userId,
+    user_nome: opts.userName,
+    payload_enviado: payload,
+    sucesso: true,
+  });
+
+  if (opts.persistencia === "legado") {
+    await (supabase as any).from("compras_requisicoes").upsert(
+      {
+        id: requisicaoId,
+        requisitante_user_id: req.requisitante_user_id,
+        status: "pendente_envio",
+        codigo_empresa_filial: req.codigo_empresa_filial,
+        codigo_funcionario: req.codigo_funcionario,
+        codigo_centro_ctrl: req.codigo_centro_ctrl,
+        codigo_finalidade_compra: req.codigo_finalidade_compra,
+        data_necessidade: req.data_necessidade,
+        total_itens: req.total_itens,
+        tentativa_envio_em: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    );
   }
 
-  if (input.arquivos.length > 3) {
-    throw new Error("Máximo de 3 arquivos por requisição.");
-  }
-
-  const textoCompleto = montarTexto(input);
-  let requisicaoId: string | null = null;
+  // A chamada ao ERP fica isolada: um erro de PERSISTÊNCIA depois do sucesso no
+  // Alvo não pode ser confundido com falha de envio (a req já existe no ERP).
+  let respData: any = null;
+  let msgErro: string | null = null;
 
   try {
-    // 1. Criar requisição no Supabase
-    const { data: reqCriada, error: errCreate } = await (supabase as any)
-      .from("compras_requisicoes")
-      .upsert({
-        requisitante_user_id: input.user_id,
-        status: "pendente_envio",
-        codigo_empresa_filial: EMPRESA_FILIAL,
-        codigo_funcionario: input.codigo_funcionario,
-        codigo_centro_ctrl: input.codigo_centro_ctrl,
-        codigo_finalidade_compra: input.codigo_finalidade_compra,
-        descricao: input.descricao || null,
-        cnpj_sugestao_requisicao: input.cnpj_sugestao_requisicao || null,
-        data_necessidade: input.data_necessidade,
-        texto: textoCompleto,
-        funcionario_nome: input.funcionario_nome,
-        centro_ctrl_nome: null,
-        finalidade_compra_label: input.finalidade_compra_label,
-        total_itens: input.itens.length,
-      })
-      .select("id")
-      .single();
+    if (temArquivos) {
+      const arquivosParaUpload: Array<{ guid: string; blob: Blob; nome: string }> = [];
+      for (const arq of arquivos) {
+        const { data: blob, error: dlErr } = await supabase.storage.from(STORAGE_BUCKET).download(arq.storage_path);
+        if (dlErr || !blob) {
+          throw new Error(`Erro ao baixar arquivo "${arq.nome_original}" do Storage: ${dlErr?.message}`);
+        }
+        arquivosParaUpload.push({ guid: arq.upload_identify_guid, blob, nome: arq.nome_original });
+      }
 
-    if (errCreate || !reqCriada) {
-      throw new Error(`Erro ao criar requisição: ${errCreate?.message}`);
+      const formData = montarFormDataMultipart(payload, arquivosParaUpload);
+      respData = await callGatewayReqCompMultipart("/req-comp/insert-multipart", formData);
+    } else {
+      respData = await callGatewayReqComp("/req-comp/insert", "POST", payload);
     }
+  } catch (errEnvio: any) {
+    msgErro = errEnvio?.message || String(errEnvio);
+  }
 
-    requisicaoId = reqCriada.id;
+  // ── Sucesso no Alvo ──
+  if (msgErro === null) {
+    const numeroAlvo = respData?.Numero || "";
 
-    // 2. Criar itens + rateios
-    for (let idx = 0; idx < input.itens.length; idx++) {
-      const item = input.itens[idx];
-      const { data: itemCriado, error: errItem } = await (supabase as any)
-        .from("compras_requisicoes_itens")
-        .upsert({
+    if (opts.persistencia === "rpc") {
+      const problema = await registrarDesfechoViaRpc(requisicaoId, numeroAlvo, null);
+      if (problema) {
+        return {
+          sucesso: false,
           requisicao_id: requisicaoId,
-          sequencia: idx + 1,
-          item_servico: item.item_servico,
-          codigo_produto: item.codigo_produto,
-          codigo_alternativo_produto: item.codigo_alternativo_produto,
-          codigo_prod_unid_med: item.codigo_prod_unid_med,
-          quantidade: item.quantidade,
-          data_necessidade: input.data_necessidade,
-          codigo_centro_ctrl: input.codigo_centro_ctrl,
-          observacao: item.observacao || null,
-          produto_nome: item.produto_nome,
-          produto_unidade: item.produto_unidade,
-        })
-        .select("id")
-        .single();
-
-      if (errItem || !itemCriado) {
-        throw new Error(`Erro ao criar item ${idx + 1}: ${errItem?.message}`);
+          numero_alvo: numeroAlvo,
+          erro:
+            `A requisição FOI criada no ERP (nº ${numeroAlvo}), mas o Hub não conseguiu registrar o desfecho: ` +
+            `${problema}. NÃO reenvie — isso duplicaria a requisição no ERP. Avise o suporte.`,
+        };
       }
-
-      for (const r of item.rateio) {
-        await (supabase as any).from("compras_requisicoes_itens_classe_rec_desp").upsert({
-          item_id: itemCriado.id,
-          codigo_classe_rec_desp: r.codigo_classe_rec_desp,
-          classe_rec_desp_label: r.classe_rec_desp_label,
-          percentual: r.percentual,
-        });
-      }
-    }
-
-    // 3. Upload dos arquivos para Storage + tabela de metadados
-    for (const arquivo of input.arquivos) {
-      await salvarArquivoNoStorage(requisicaoId, arquivo, input.user_id);
-    }
-
-    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-      requisicao_id: requisicaoId,
-      evento: "criada",
-      user_id: input.user_id,
-      user_nome: input.requisitante_nome,
-      sucesso: true,
-    });
-
-    // 4. Montar payload multipart
-    const guids = input.arquivos.map((a) => a.upload_identify_guid);
-    const payload = montarPayloadReqComp({
-      codigo_centro_ctrl: input.codigo_centro_ctrl,
-      codigo_finalidade_compra: input.codigo_finalidade_compra,
-      codigo_funcionario: input.codigo_funcionario,
-      data_necessidade_ymd: input.data_necessidade,
-      descricao: input.descricao,
-      texto: textoCompleto,
-      itens: input.itens,
-      arquivos_guids: guids,
-    });
-
-    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-      requisicao_id: requisicaoId,
-      evento: "envio_tentado",
-      user_id: input.user_id,
-      user_nome: input.requisitante_nome,
-      payload_enviado: payload,
-      sucesso: true,
-    });
-
-    // 5. Chamar gateway multipart
-    try {
-      const formData = montarFormDataMultipart(
-        payload,
-        input.arquivos.map((a) => ({
-          guid: a.upload_identify_guid,
-          blob: a.file,
-          nome: a.file.name,
-        })),
-      );
-
-      const respData = await callGatewayReqCompMultipart("/req-comp/insert-multipart", formData);
-
-      const numeroAlvo = respData?.Numero || "";
-
-      // Atualizar requisição como sincronizada
+    } else {
       await (supabase as any).from("compras_requisicoes").upsert(
         {
           id: requisicaoId,
-          requisitante_user_id: input.user_id,
+          requisitante_user_id: req.requisitante_user_id,
           status: "sincronizada",
           numero_alvo: numeroAlvo,
           enviado_em: new Date().toISOString(),
-          codigo_empresa_filial: EMPRESA_FILIAL,
-          codigo_funcionario: input.codigo_funcionario,
-          codigo_centro_ctrl: input.codigo_centro_ctrl,
-          codigo_finalidade_compra: input.codigo_finalidade_compra,
-          data_necessidade: input.data_necessidade,
-          total_itens: input.itens.length,
+          erro_ultimo_envio: null,
+          codigo_empresa_filial: req.codigo_empresa_filial,
+          codigo_funcionario: req.codigo_funcionario,
+          codigo_centro_ctrl: req.codigo_centro_ctrl,
+          codigo_finalidade_compra: req.codigo_finalidade_compra,
+          data_necessidade: req.data_necessidade,
+          total_itens: req.total_itens,
         },
         { onConflict: "id" },
       );
 
-      // Marcar arquivos com o número do Alvo (via RPC para contornar bloqueio de PATCH no CORS)
+      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+        requisicao_id: requisicaoId,
+        evento: "envio_sucesso",
+        user_id: opts.userId,
+        user_nome: opts.userName,
+        resposta_alvo: respData,
+        sucesso: true,
+      });
+    }
+
+    // Marcar arquivos com o número do Alvo (RPC — PATCH direto é bloqueado por CORS)
+    if (guids) {
       for (const guid of guids) {
         const { error: errMarcar } = await (supabase as any).rpc("marcar_arquivo_req_enviado", {
           p_guid: guid,
@@ -659,84 +655,164 @@ export async function enviarRequisicaoComArquivos(input: NovaRequisicaoInput): P
           console.warn(`Aviso: falha ao marcar arquivo ${guid} como enviado:`, errMarcar.message);
         }
       }
-
-      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-        requisicao_id: requisicaoId,
-        evento: "envio_sucesso",
-        user_id: input.user_id,
-        user_nome: input.requisitante_nome,
-        resposta_alvo: respData,
-        sucesso: true,
-      });
-
-      return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
-    } catch (errEnvio: any) {
-      const msgErro = errEnvio?.message || String(errEnvio);
-
-      await (supabase as any).from("compras_requisicoes").upsert(
-        {
-          id: requisicaoId,
-          requisitante_user_id: input.user_id,
-          status: "rascunho",
-          erro_ultimo_envio: msgErro,
-          tentativa_envio_em: new Date().toISOString(),
-          codigo_empresa_filial: EMPRESA_FILIAL,
-          codigo_funcionario: input.codigo_funcionario,
-          codigo_centro_ctrl: input.codigo_centro_ctrl,
-          codigo_finalidade_compra: input.codigo_finalidade_compra,
-          data_necessidade: input.data_necessidade,
-          total_itens: input.itens.length,
-        },
-        { onConflict: "id" },
-      );
-
-      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-        requisicao_id: requisicaoId,
-        evento: "envio_falha",
-        user_id: input.user_id,
-        user_nome: input.requisitante_nome,
-        sucesso: false,
-        mensagem_erro: msgErro,
-      });
-
-      return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
     }
+
+    return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
+  }
+
+  // ── Falha no envio ──
+  if (opts.persistencia === "rpc") {
+    const problema = await registrarDesfechoViaRpc(requisicaoId, null, msgErro);
+    if (problema) {
+      msgErro = `${msgErro} (o Hub também não conseguiu registrar o erro: ${problema})`;
+    }
+  } else {
+    await (supabase as any).from("compras_requisicoes").upsert(
+      {
+        id: requisicaoId,
+        requisitante_user_id: req.requisitante_user_id,
+        status: "rascunho",
+        erro_ultimo_envio: msgErro,
+        tentativa_envio_em: new Date().toISOString(),
+        codigo_empresa_filial: req.codigo_empresa_filial,
+        codigo_funcionario: req.codigo_funcionario,
+        codigo_centro_ctrl: req.codigo_centro_ctrl,
+        codigo_finalidade_compra: req.codigo_finalidade_compra,
+        data_necessidade: req.data_necessidade,
+        total_itens: req.total_itens,
+      },
+      { onConflict: "id" },
+    );
+
+    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+      requisicao_id: requisicaoId,
+      evento: "envio_falha",
+      user_id: opts.userId,
+      user_nome: opts.userName,
+      sucesso: false,
+      mensagem_erro: msgErro,
+    });
+  }
+
+  return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+}
+
+/** Rotas devolvidas pela RPC `submeter_requisicao` que seguem o fluxo adiante. */
+export type RotaSubmissao = "SEM_GATE" | "AUTO_APROVADA" | "PENDENTE";
+
+export interface SubmissaoResult {
+  sucesso: boolean;
+  requisicao_id: string;
+  /** null quando a submissão foi recusada (nada foi enviado ao ERP). */
+  rota: RotaSubmissao | null;
+  numero_alvo?: string;
+  erro?: string;
+}
+
+/** Traduz os retornos de recusa da RPC. Nenhum deles envia nada ao ERP. */
+function mensagemRecusaSubmissao(retorno: string): string {
+  if (retorno.startsWith("STATUS_INVALIDO:")) {
+    const statusAtual = retorno.slice("STATUS_INVALIDO:".length) || "?";
+    return `A requisição não está em rascunho (status atual: ${statusAtual}). Nada foi enviado ao ERP.`;
+  }
+
+  switch (retorno) {
+    case "SEM_CENTRO_CUSTO":
+      return "Requisição sem centro de custo — não é possível determinar o aprovador. Nada foi enviado ao ERP.";
+    case "SEM_PERMISSAO":
+      return "Você não tem permissão para criar requisições (compras.requisicoes.create). Nada foi enviado ao ERP.";
+    case "NAO_AUTORIZADO":
+      return "Esta requisição pertence a outro usuário. Nada foi enviado ao ERP.";
+    case "NAO_ENCONTRADA":
+      return "Requisição não encontrada ao submeter. Nada foi enviado ao ERP.";
+    default:
+      return `Retorno inesperado da submissão: "${retorno}". Nada foi enviado ao ERP.`;
+  }
+}
+
+/**
+ * Submissão da requisição (ação final do wizard). Substitui o envio direto ao Alvo:
+ * persiste o rascunho, pede o roteamento à RPC `submeter_requisicao` e segue a rota.
+ *
+ *   SEM_GATE       → CC sem líder mapeado: envio ao Alvo com a persistência legada.
+ *   AUTO_APROVADA  → criador é líder do CC: envio ao Alvo, desfecho só via RPC R4.
+ *   PENDENTE       → para aqui: a req espera a decisão do líder (não vai ao ERP).
+ *   qualquer outro → recusa com mensagem visível. Nunca cai no envio por omissão.
+ */
+export async function submeterRequisicao(input: NovaRequisicaoInput): Promise<SubmissaoResult> {
+  let requisicaoId: string;
+
+  try {
+    requisicaoId = await criarRequisicao(input);
   } catch (errCriacao: any) {
-    // Captura erros que ocorrem ANTES do envio ao Alvo (criação de itens, upload de arquivo, etc).
-    const msgErro = errCriacao?.message || String(errCriacao);
-
-    if (requisicaoId) {
-      await (supabase as any).from("compras_requisicoes").upsert(
-        {
-          id: requisicaoId,
-          requisitante_user_id: input.user_id,
-          status: "rascunho",
-          erro_ultimo_envio: `Erro durante criação: ${msgErro}`,
-          tentativa_envio_em: new Date().toISOString(),
-          codigo_empresa_filial: EMPRESA_FILIAL,
-          codigo_funcionario: input.codigo_funcionario,
-          codigo_centro_ctrl: input.codigo_centro_ctrl,
-          codigo_finalidade_compra: input.codigo_finalidade_compra,
-          data_necessidade: input.data_necessidade,
-          total_itens: input.itens.length,
-        },
-        { onConflict: "id" },
-      );
-
-      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-        requisicao_id: requisicaoId,
-        evento: "envio_falha",
-        user_id: input.user_id,
-        user_nome: input.requisitante_nome,
+    const idParcial = (errCriacao as { requisicaoId?: string })?.requisicaoId;
+    if (idParcial) {
+      return {
         sucesso: false,
-        mensagem_erro: `Erro durante criação: ${msgErro}`,
-      });
-
-      return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+        requisicao_id: idParcial,
+        rota: null,
+        erro: errCriacao?.message || String(errCriacao),
+      };
     }
-
     throw errCriacao;
   }
+
+  const { data, error } = await (supabase as any).rpc("submeter_requisicao", { p_req_id: requisicaoId });
+
+  if (error) {
+    const msg = `Falha ao submeter a requisição para roteamento: ${error.message}. Nada foi enviado ao ERP.`;
+    await tentarRegistrarErroNoRascunho(requisicaoId, msg);
+    return { sucesso: false, requisicao_id: requisicaoId, rota: null, erro: msg };
+  }
+
+  const retorno = String(data ?? "");
+  const envio = { userId: input.user_id, userName: input.requisitante_nome };
+
+  if (retorno === "SEM_GATE") {
+    const result = await enviarRequisicaoAlvo(requisicaoId, { ...envio, persistencia: "legado" });
+    return { ...result, rota: "SEM_GATE" };
+  }
+
+  if (retorno === "AUTO_APROVADA") {
+    const result = await enviarRequisicaoAlvo(requisicaoId, { ...envio, persistencia: "rpc" });
+    return { ...result, rota: "AUTO_APROVADA" };
+  }
+
+  if (retorno === "PENDENTE") {
+    return { sucesso: true, requisicao_id: requisicaoId, rota: "PENDENTE" };
+  }
+
+  const msg = mensagemRecusaSubmissao(retorno);
+  await tentarRegistrarErroNoRascunho(requisicaoId, msg);
+  return { sucesso: false, requisicao_id: requisicaoId, rota: null, erro: msg };
+}
+
+/**
+ * Reenvio de requisição APROVADA cujo envio ao Alvo falhou (erro_ultimo_envio).
+ * Caminho novo, separado do `reenviarRequisicao` legado de propósito: aquele só
+ * aceita 'rascunho'/'pendente_envio' e REBAIXA a req a 'rascunho' quando falha, o
+ * que apagaria a decisão do líder (e hoje o trigger do banco recusa a escrita).
+ * Aqui não há nova aprovação: a req segue 'aprovada' até o envio dar certo.
+ */
+export async function reenviarRequisicaoAprovada(
+  requisicaoId: string,
+  userId: string,
+  userName: string,
+): Promise<EnvioResult> {
+  const { data: req, error: errReq } = await (supabase as any)
+    .from("compras_requisicoes")
+    .select("status")
+    .eq("id", requisicaoId)
+    .single();
+
+  if (errReq || !req) throw new Error(`Requisição não encontrada: ${errReq?.message}`);
+  if (req.status !== "aprovada") {
+    throw new Error(
+      `Este reenvio é exclusivo de requisições aprovadas aguardando envio ao ERP (status atual: ${req.status}).`,
+    );
+  }
+
+  return enviarRequisicaoAlvo(requisicaoId, { userId, userName, persistencia: "rpc" });
 }
 
 /**
@@ -751,6 +827,14 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
     .single();
 
   if (errReq || !req) throw new Error(`Requisição não encontrada: ${errReq?.message}`);
+  // Defesa em profundidade: este caminho rebaixa a req a 'rascunho' quando o envio
+  // falha — em requisição aprovada isso apagaria a decisão do líder (e o trigger
+  // trg_req_protege_aprovacao recusaria a escrita). Use reenviarRequisicaoAprovada.
+  if (req.status === "aprovada") {
+    throw new Error(
+      "Requisição aprovada: use o reenvio pós-aprovação (reenviarRequisicaoAprovada), que preserva a decisão do líder.",
+    );
+  }
   if (req.status !== "rascunho" && req.status !== "pendente_envio") {
     throw new Error("Só é possível reenviar requisições com status rascunho ou pendente de envio.");
   }

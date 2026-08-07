@@ -8,6 +8,7 @@ import { useHasPermission } from "@/hooks/useHasPermission";
 import { PERMISSIONS } from "@/constants/permissions";
 import {
   reenviarRequisicao,
+  reenviarRequisicaoAprovada,
   excluirRequisicao,
   sincronizarStatusRequisicao,
   listarArquivosDaRequisicao,
@@ -241,7 +242,10 @@ export default function SuprimentosRequisicaoDetalhe() {
   }
 
   const statusInfo = STATUS_MAP[req.status] || { label: req.status, className: "bg-muted text-muted-foreground" };
-  const podeReenviar = req.status === "rascunho" || req.status === "pendente_envio";
+  // Requisição aprovada cujo envio ao Alvo falhou também pode ser reenviada — por um
+  // caminho próprio (registrar_envio_requisicao), que não rebaixa a req a rascunho.
+  const aguardandoReenvioPosAprovacao = req.status === "aprovada" && !!req.erro_ultimo_envio;
+  const podeReenviar = req.status === "rascunho" || req.status === "pendente_envio" || aguardandoReenvioPosAprovacao;
 
   // ── E.9: Gerar Pedido a partir desta requisição ──────────
   // Aparece se: requisição foi enviada com sucesso ao Alvo (sincronizada),
@@ -276,7 +280,9 @@ export default function SuprimentosRequisicaoDetalhe() {
     if (!user) return;
     setIsReenviando(true);
     try {
-      const result = await reenviarRequisicao(req.id, user.id, profile?.full_name || "Usuário");
+      const result = aguardandoReenvioPosAprovacao
+        ? await reenviarRequisicaoAprovada(req.id, user.id, profile?.full_name || "Usuário")
+        : await reenviarRequisicao(req.id, user.id, profile?.full_name || "Usuário");
       if (result.sucesso) {
         toast({ title: "Requisição reenviada com sucesso!", description: `Número no ERP: ${result.numero_alvo}` });
       } else {
