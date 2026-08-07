@@ -6,8 +6,14 @@ import { aplicarFiltroStatusRM } from "@/lib/statusRM";
  *
  * Lê as tabelas `op_reqmat` / `op_reqmat_itens` / `op_reqmat_lotes` (espelho do
  * Alvo, escrito só pelo `sync-reqmat`) e `op_requisicoes` (o livro do Hub, onde
- * mora o vínculo OP↔RM). A RLS gateia a leitura; NADA aqui escreve — a criação
- * de RM é a Parte 3 e exige RPC nova + rota nova no erp-proxy.
+ * mora o vínculo OP↔RM). A RLS gateia a leitura.
+ *
+ * ⚠ Desde a OP-2.7 este arquivo TAMBÉM escreve — mas só no LIVRO e só por RPC
+ *   `SECURITY DEFINER` gateada por `producao.rm.create` (bloco no fim do
+ *   arquivo). `op_requisicoes` continua sem policy de INSERT/UPDATE para
+ *   `authenticated`: abrir a tabela seria a classe do BL-5. O espelho segue
+ *   escrito só pelo `sync-reqmat` (service_role), e a escrita no Alvo vive em
+ *   `alvoReqMatSaveService.ts`.
  *
  * Padrão da casa (igual `opService.ts`): `(supabase as any).from(...)` e
  * resolução de nomes EM LOTE por `.in(...)`, nunca N+1.
@@ -530,6 +536,12 @@ export interface ConsolidadoRequisicao {
   /** Carimbo de exclusão no Alvo — precede o status na exibição (getStatusRM). */
   ausente_desde: string | null;
   itens_count: number;
+  /**
+   * O espelho já viu esta RM? `false` = criada no Hub e ainda não sincronizada
+   * (o cron anda 4×/dia). Distingue "ainda não chegou" de "não existe" — sem
+   * isto, a linha aparece vazia e parece defeito.
+   */
+  no_espelho: boolean;
 }
 
 export interface ConsolidadoInsumo {
@@ -565,7 +577,9 @@ export interface ConsolidadoOP {
 export async function consolidadoDaOP(opId: string): Promise<ConsolidadoOP> {
   const { data: livro, error } = await (supabase as any)
     .from("op_requisicoes")
-    .select("numero_reqmat, status_envio, criado_em, criado_por")
+    // `payload_enviado` entra para a RM recém-criada não aparecer em branco: até
+    // o sync chegar (≤3h), é a ÚNICA cópia do que foi pedido (§10.14).
+    .select("numero_reqmat, status_envio, criado_em, criado_por, payload_enviado")
     .eq("op_id", opId)
     .order("criado_em", { ascending: false });
   if (error) throw new Error(error.message);
@@ -632,8 +646,11 @@ export async function consolidadoDaOP(opId: string): Promise<ConsolidadoOP> {
       criado_em: l.criado_em,
       criado_por_nome: l.criado_por ? nomePorUser.get(l.criado_por) ?? null : null,
       data: c?.data ?? null,
-      descricao: c?.descricao ?? null,
+      // Sem espelho ainda ⇒ mostra a descrição do próprio pedido, do livro.
+      descricao: c?.descricao ?? l.payload_enviado?.descricao ?? null,
       status: c?.status ?? null,
+      /** `false` enquanto o sync não trouxe o cabeçalho — a tela avisa. */
+      no_espelho: !!c,
       origem: c?.origem ?? null,
       ausente_desde: c?.ausente_desde ?? null,
       itens_count: l.numero_reqmat ? itensPorRM.get(l.numero_reqmat) || 0 : 0,
@@ -694,4 +711,269 @@ export async function consolidadoDaOP(opId: string): Promise<ConsolidadoOP> {
   );
 
   return { requisicoes, insumos };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// OP-2.7 — ESCRITA (só no livro, só por RPC) + apoio da tela de criação
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Retorno normalizado das RPCs do livro. */
+export interface ResultadoLivro {
+  ok: boolean;
+  mensagem?: string;
+  erroCodigo?: string;
+}
+
+/**
+ * Executa uma RPC do módulo e normaliza os DOIS modos de falha: erro do
+ * PostgREST (RAISE no banco) e envelope `success:false` (HTTP 200).
+ *
+ * Mesmo contrato do `chamarRpc` de `projetosService.ts` — que não é exportado,
+ * por isso a lógica aparece aqui. Se um dia virar utilitário compartilhado, os
+ * dois devem passar a importá-lo em vez de manter duas cópias.
+ */
+async function rpcLivro(nome: string, params: Record<string, unknown>): Promise<{ res: ResultadoLivro; data: any }> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc(nome, params);
+
+  if (error) {
+    console.error(`[reqMatService] ${nome} — erro`, { code: error.code, message: error.message, params });
+    return { res: { ok: false, mensagem: error.message || `Falha em ${nome}`, erroCodigo: error.code }, data: null };
+  }
+  if (data && typeof data === "object" && data.success === false) {
+    return {
+      res: { ok: false, mensagem: data.mensagem || `Falha em ${nome}`, erroCodigo: data.erro_codigo },
+      data,
+    };
+  }
+  return { res: { ok: true }, data };
+}
+
+/**
+ * Cria a linha do livro em `pendente`, ANTES do POST ao Alvo (§10.14).
+ *
+ * O `payload` inteiro vai para `payload_enviado`: entre o POST e o primeiro
+ * sync, é a ÚNICA cópia do que foi pedido — não existe tabela de itens do
+ * livro, por desenho.
+ */
+export async function criarRMNoLivro(
+  opId: string,
+  payload: Record<string, unknown>,
+): Promise<ResultadoLivro & { id: string }> {
+  const { res, data } = await rpcLivro("op_rm_criar", { p_op_id: opId, p_payload: payload });
+  return { ...res, id: (data?.id as string) ?? "" };
+}
+
+/**
+ * Registra o resultado do passo 1.
+ *
+ * Com número → `enviado` (a RM EXISTE no ERP), e o `erro` vai junto quando o
+ * passo 2 falhou depois. Sem número → `erro`.
+ */
+export async function marcarRMEnviada(
+  id: string,
+  numero: string | null,
+  resposta: unknown,
+  erro: string | null,
+): Promise<ResultadoLivro> {
+  const { res } = await rpcLivro("op_rm_marcar_enviado", {
+    p_id: id,
+    p_numero: numero,
+    p_resposta: resposta ?? null,
+    p_erro: erro,
+  });
+  return res;
+}
+
+/** Registra o passo 3 — só depois de o `Load` devolver `TipoAtendimento = "Manual"`. */
+export async function marcarRMConfirmada(id: string, resposta: unknown): Promise<ResultadoLivro> {
+  const { res } = await rpcLivro("op_rm_marcar_confirmado", { p_id: id, p_resposta: resposta ?? null });
+  return res;
+}
+
+// ── Apoio do modal ───────────────────────────────────────────────────────────
+
+export interface OPAberta {
+  id: string;
+  numero: string;
+  status: string;
+  data_inicio: string | null;
+  produto_familia: string | null;
+}
+
+/**
+ * OPs que podem receber RM. Só `ABERTA`/`EM_ANDAMENTO` — a mesma régua que a
+ * RPC `op_rm_criar` aplica no banco (defesa em profundidade).
+ */
+export async function listarOPsAbertas(): Promise<OPAberta[]> {
+  const { data, error } = await (supabase as any)
+    .from("op_ordens")
+    .select("id, numero, status, data_inicio, produto_familia")
+    .in("status", ["ABERTA", "EM_ANDAMENTO"])
+    .order("numero", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data || []) as OPAberta[];
+}
+
+export interface CentroCusto {
+  codigo: string;
+  nome: string;
+}
+
+/** Default do centro de custo — 105 das RMs de produção do ano usam este. */
+export const CENTRO_CUSTO_PADRAO = "00009.00001.00001";
+
+/**
+ * Centros de custo para o dropdown.
+ *
+ * 🔴 A FONTE É `cost_centers`, **NÃO** `rh_centros_custo`. As duas existem e
+ *    DIVERGEM no mesmo código: `00001.00005.00002` é "PRODUCAO VALVULAS" e
+ *    INATIVO na `cost_centers`, e "PRODUCAO PERICARDIO" e ATIVO na
+ *    `rh_centros_custo`. Pior: `00009.00001.00001` — o default, e o centro em
+ *    uso corrente — **não existe** na `rh_centros_custo` (a árvore para em
+ *    `00009.00001`). Quem escolher a tabela pelo nome mais óbvio pega a lista
+ *    errada e não percebe.
+ *
+ * (b) O filtro `is_active` some com CINCO centros históricos de produção —
+ *     SUPORTE PRODUCAO, PRODUCAO VALVULAS (162 RMs no ano!), PRODUCAO CATETER,
+ *     PRODUCAO CORTE PERICARDIO e ALMOXARIFADO/EXPEDICAO. É o certo: eles não
+ *     recebem RM nova. Se alguém perguntar por que uma RM antiga tem centro que
+ *     não está na lista, é por isto — não é bug.
+ */
+export async function listarCentrosCusto(): Promise<CentroCusto[]> {
+  const { data, error } = await (supabase as any)
+    .from("cost_centers")
+    .select("erp_code, name")
+    .eq("is_active", true)
+    .eq("group_type", "F")
+    .order("name", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data || []).map((c: any) => ({ codigo: c.erp_code, nome: c.name }));
+}
+
+export interface FuncionarioDoUsuario {
+  codigo: string;
+  nome: string;
+}
+
+/**
+ * (c) FUNCIONÁRIO: FIXO, do usuário logado. Sem dropdown.
+ *
+ * Decisão do Pedro (07/08/2026), e ela MUDA o uso atual de propósito: medimos
+ * que MARIA.EDUARDA criou RMs com cinco funcionários diferentes (214 com o
+ * dela, 17 com o da Rafaela…) e que 9 das 16 do Ryan saíram com o `0000098`.
+ * A regra passa a ser: **quem requisita responde pela requisição**; quem retira
+ * fica registrado nos campos de Entrega, no atendimento.
+ *
+ * Para virar editável depois, troque este resolvedor por um Combobox de
+ * `funcionarios_alvo_cache` (`status = 'Trabalhando'`) — não há mais nada preso
+ * a esta decisão.
+ *
+ * ⚠ Sem de-para, NÃO SE CRIA RM: 5 de 52 perfis estão sem
+ *   `funcionario_alvo_codigo`. É o gate do L7-B de Projetos, na mesma forma —
+ *   mensagem clara e caminho de saída, não erro genérico. Devolve `null`.
+ *
+ * ⚠ `profiles` casa por `user_id` (o uid do auth), NÃO por `id` — pegadinha
+ *   registrada no §10.23.
+ */
+export async function funcionarioDoUsuario(userId: string): Promise<FuncionarioDoUsuario | null> {
+  const { data: perfil } = await (supabase as any)
+    .from("profiles")
+    .select("funcionario_alvo_codigo")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const codigo = (perfil?.funcionario_alvo_codigo || "").trim();
+  if (!codigo) return null;
+
+  const { data: func } = await (supabase as any)
+    .from("funcionarios_alvo_cache")
+    .select("codigo, nome")
+    .eq("codigo", codigo)
+    .maybeSingle();
+
+  return { codigo, nome: func?.nome || codigo };
+}
+
+// ── Livro: o que ainda não chegou ao espelho ─────────────────────────────────
+
+export interface RMNoLivro {
+  id: string;
+  op_id: string;
+  op_numero: string | null;
+  numero_reqmat: string | null;
+  status_envio: string;
+  criado_em: string;
+  erro_mensagem: string | null;
+  descricao: string | null;
+  /** O payload guardado — a única cópia do pedido até o sync chegar. */
+  payload: any;
+}
+
+/**
+ * RMs do livro que o espelho AINDA NÃO VIU.
+ *
+ * A fila lê `op_reqmat`, que só anda 4×/dia — então uma RM criada agora fica
+ * invisível por até 3h e o operador conclui, com razão, que "criei e não
+ * apareceu". Estas linhas são renderizadas no topo com badge próprio e somem
+ * sozinhas quando o sync alcançar.
+ *
+ * Não é otimismo de UI: é o livro, que é dado real do Hub, gravado por RPC.
+ */
+export async function listarRMsPendentesSync(opId?: string): Promise<RMNoLivro[]> {
+  let q = (supabase as any)
+    .from("op_requisicoes")
+    .select("id, op_id, numero_reqmat, status_envio, criado_em, erro_mensagem, payload_enviado")
+    .in("status_envio", ["pendente", "enviado"])
+    .order("criado_em", { ascending: false });
+  if (opId) q = q.eq("op_id", opId);
+
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+
+  const linhas: any[] = data || [];
+  if (linhas.length === 0) return [];
+
+  // Quais já apareceram no espelho? Essas saem — quem manda é `op_reqmat`.
+  const numeros = linhas.map((l) => l.numero_reqmat).filter(Boolean) as string[];
+  const jaNoEspelho = new Set<string>();
+  if (numeros.length > 0) {
+    const { data: espelho } = await (supabase as any).from("op_reqmat").select("numero").in("numero", numeros);
+    (espelho || []).forEach((e: any) => jaNoEspelho.add(e.numero));
+  }
+
+  const pendentes = linhas.filter((l) => !l.numero_reqmat || !jaNoEspelho.has(l.numero_reqmat));
+  if (pendentes.length === 0) return [];
+
+  const opIds = Array.from(new Set(pendentes.map((l) => l.op_id).filter(Boolean)));
+  const mapaOp = new Map<string, string>();
+  if (opIds.length > 0) {
+    const { data: ops } = await (supabase as any).from("op_ordens").select("id, numero").in("id", opIds);
+    (ops || []).forEach((o: any) => mapaOp.set(o.id, o.numero));
+  }
+
+  return pendentes.map((l) => ({
+    id: l.id,
+    op_id: l.op_id,
+    op_numero: mapaOp.get(l.op_id) ?? null,
+    numero_reqmat: l.numero_reqmat,
+    status_envio: l.status_envio,
+    criado_em: l.criado_em,
+    erro_mensagem: l.erro_mensagem,
+    descricao: l.payload_enviado?.descricao ?? null,
+    payload: l.payload_enviado,
+  }));
+}
+
+/**
+ * A OP tem RM `enviado` NÃO confirmada?
+ *
+ * 🔴 É a trava anti-duplicata da tela. Nesse estado a RM existe no ERP e está
+ *    em `Automático` — ou seja, morta. O reflexo do operador ("não funcionou,
+ *    vou de novo") criaria uma SEGUNDA RM. Enquanto houver uma assim, "Nova RM"
+ *    fica indisponível para AQUELA OP e a tela oferece "Concluir envio".
+ */
+export async function rmPendenteDeConclusao(opId: string): Promise<RMNoLivro | null> {
+  const pendentes = await listarRMsPendentesSync(opId);
+  return pendentes.find((p) => p.status_envio === "enviado" && !!p.numero_reqmat) ?? null;
 }

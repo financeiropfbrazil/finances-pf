@@ -75,7 +75,9 @@ interface ItemRow {
 }
 
 // ── Picker de SKU (server-side, debounce 300ms, race-guard) ────────────────────
-const SkuPicker = forwardRef<{ focus: () => void }, { onPick: (p: StockPickerRow) => void; disabled?: boolean }>(
+// `export` acrescentado na OP-2.7 para o `NovaRMModal` reusar o MESMO picker em
+// vez de duplicar ~120 linhas. Nada mais mudou aqui — comportamento idêntico.
+export const SkuPicker = forwardRef<{ focus: () => void }, { onPick: (p: StockPickerRow) => void; disabled?: boolean }>(
   function SkuPicker({ onPick, disabled }, ref) {
     const [search, setSearch] = useState("");
     const [open, setOpen] = useState(false);

@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useHasPermission } from "@/hooks/useHasPermission";
+import { PERMISSIONS } from "@/constants/permissions";
+import { NovaRMModal } from "@/components/producao/NovaRMModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,11 +33,13 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Plus,
+  CloudUpload,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { getStatusRM, getStatusRMVisual, STATUS_RM_ORDER, STATUS_RM_FILTER_OPTIONS } from "@/lib/statusRM";
-import { listarRMs, contarPorStatus, listarRequisitantes } from "@/services/reqMatService";
+import { listarRMs, contarPorStatus, listarRequisitantes, listarRMsPendentesSync } from "@/services/reqMatService";
 
 // ── Formatadores ─────────────────────────────────────────────────────────────
 
@@ -70,7 +75,10 @@ const PAGE_SIZE = 30;
 
 export default function ProducaoRM() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const podeCriar = useHasPermission(PERMISSIONS.PRODUCAO_RM_CREATE);
+  const [modalOpen, setModalOpen] = useState(false);
 
   // ── Estado (inicializado pela URL, para sobreviver ao F5 e à volta do detalhe) ──
   const [buscaInput, setBuscaInput] = useState(() => searchParams.get("busca") || "");
@@ -152,6 +160,24 @@ export default function ProducaoRM() {
     queryFn: listarRequisitantes,
   });
 
+  // RMs que já existem no LIVRO mas o espelho ainda não viu (o cron anda
+  // 4×/dia). Sem isto, quem cria uma RM às 10h não a encontra na fila até as
+  // 12h25 e conclui, com razão, que "criei e não apareceu".
+  const { data: pendentesSync = [] } = useQuery({
+    queryKey: ["rm_pendentes_sync"],
+    queryFn: () => listarRMsPendentesSync(),
+  });
+
+  const aoCriar = () => {
+    queryClient.invalidateQueries({ queryKey: ["rm_lista"] });
+    queryClient.invalidateQueries({ queryKey: ["rm_counts"] });
+    queryClient.invalidateQueries({ queryKey: ["rm_requisitantes"] });
+    queryClient.invalidateQueries({ queryKey: ["rm_pendentes_sync"] });
+    queryClient.invalidateQueries({ queryKey: ["rm_pendente_conclusao"] });
+    // O consolidado da OP soma as RMs do livro — precisa acompanhar.
+    queryClient.invalidateQueries({ queryKey: ["op_consolidado"] });
+  };
+
   const { data: contagem } = useQuery({
     queryKey: ["rm_counts", filtrosComuns],
     queryFn: () => contarPorStatus(filtrosComuns),
@@ -218,9 +244,15 @@ export default function ProducaoRM() {
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Requisições de Material</h1>
           <p className="text-sm text-muted-foreground">
-            Requisições de produção espelhadas do Alvo. Leitura — a criação vem na próxima etapa.
+            Requisições de produção espelhadas do Alvo. Criação vinculada a uma Ordem de Produção.
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          {podeCriar && (
+            <Button onClick={() => setModalOpen(true)}>
+              <Plus className="h-4 w-4" /> Nova RM
+            </Button>
+          )}
         <div className="flex items-center rounded-md border border-border p-0.5">
           <Button
             variant={view === "lista" ? "secondary" : "ghost"}
@@ -241,7 +273,59 @@ export default function ProducaoRM() {
             <LayoutGrid className="h-4 w-4" />
           </Button>
         </div>
+        </div>
       </div>
+
+      {/* Aguardando sincronização — o livro do Hub antes do espelho.
+          O cron do `sync-reqmat` roda 4×/dia (09h25/12h25/15h25/18h25), então
+          uma RM criada agora só aparece na lista abaixo em até ~3h. Estas
+          linhas vêm de `op_requisicoes`, que é dado real gravado por RPC, e
+          somem sozinhas quando o sync alcançar. */}
+      {pendentesSync.length > 0 && (
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardContent className="space-y-2 p-4">
+            <div className="flex items-center gap-2">
+              <CloudUpload className="h-4 w-4 text-blue-600" />
+              <span className="text-sm font-semibold text-foreground">
+                Aguardando sincronização ({pendentesSync.length})
+              </span>
+              <span className="text-xs text-muted-foreground">
+                criadas no Hub; aparecem na lista após o próximo sync (09h25, 12h25, 15h25 e 18h25)
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {pendentesSync.map((p) => {
+                const incompleta = p.status_envio === "enviado" && !!p.erro_mensagem;
+                return (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border p-2 text-xs",
+                      incompleta ? "border-destructive/40 bg-destructive/5" : "border-border bg-background",
+                    )}
+                  >
+                    <Badge variant="outline" className="text-[11px]">
+                      {p.status_envio === "pendente" ? "Enviando…" : "Criada no ERP"}
+                    </Badge>
+                    <span className="font-mono font-medium">{p.numero_reqmat || "—"}</span>
+                    {p.op_numero && <span className="text-muted-foreground">OP {p.op_numero}</span>}
+                    {p.descricao && <span className="truncate text-muted-foreground">{p.descricao}</span>}
+                    <span className="ml-auto text-muted-foreground">
+                      {format(new Date(p.criado_em), "dd/MM 'às' HH:mm", { locale: ptBR })}
+                    </span>
+                    {incompleta && (
+                      <p className="w-full text-destructive">
+                        Envio incompleto — a RM está em atendimento Automático e não será atendida. Abra "Nova RM"
+                        nesta OP para concluir o passo 2.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Chips de contagem (clicáveis como filtro) + chip de exceção */}
       <div className="flex flex-wrap items-center gap-2">
@@ -726,6 +810,8 @@ export default function ProducaoRM() {
           </div>
         </div>
       )}
+
+      {podeCriar && <NovaRMModal open={modalOpen} onOpenChange={setModalOpen} onCreated={aoCriar} />}
     </div>
   );
 }

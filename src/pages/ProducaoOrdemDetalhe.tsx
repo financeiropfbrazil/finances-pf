@@ -417,9 +417,14 @@ export default function ProducaoOrdemDetalhe() {
                               <sv.Icon className="h-3 w-3" />
                               {sv.label}
                             </Badge>
-                          ) : (
+                          ) : !r.no_espelho ? (
                             // Já existe no livro, mas o sync ainda não a leu.
+                            // (OP-2.7: agora vem do campo, não de inferir pelo
+                            // status vazio — RM criada no Hub cai aqui por até
+                            // 3h, e é diferente de "não existe".)
                             <span className="text-xs text-muted-foreground">aguardando sincronização</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{r.itens_count}</td>
