@@ -50,6 +50,14 @@ import {
 import { format } from "date-fns";
 import { ProductCombobox } from "@/components/ProductCombobox";
 import { enviarRequisicaoAlvo } from "@/services/alvoProjetoPedidoService";
+import {
+  salvarPedido,
+  excluirPedido,
+  marcarEmailAprovacao,
+  descricaoErro,
+  falhou,
+  type DadosPedido,
+} from "@/services/projetosService";
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   pendente: {
@@ -391,8 +399,8 @@ export default function ProjetoRequisicoes() {
     setSaving(true);
     const condNome = condicoes.find((c) => c.codigo === condPag)?.nome || null;
 
-    const payload: any = {
-      projeto_id: projetoId,
+    // status, sequencia e criado_por são responsabilidade da RPC — não se envia daqui.
+    const dados: DadosPedido = {
       descricao,
       fornecedor_codigo: fornecedor?.codigo || null,
       fornecedor_nome: fornecedor?.nome || null,
@@ -402,19 +410,20 @@ export default function ProjetoRequisicoes() {
       itens: validItens,
       classe_rateio: classeRateio,
       valor_total: vt,
-      status: editingReq?.status || "rascunho",
       fase: currentFase,
-      criado_por: user?.id || null,
-      updated_at: new Date().toISOString(),
     };
 
-    if (editingReq) payload.id = editingReq.id;
-
-    const { error } = await supabase.from("projeto_requisicoes").upsert(payload);
+    const res = await salvarPedido(projetoId!, editingReq?.id ?? null, dados);
     setSaving(false);
 
-    if (error) {
-      toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
+    // R-1: success !== true é falha. Não fecha o modal e não invalida query —
+    // o usuário precisa corrigir sem perder o que digitou.
+    if (falhou(res)) {
+      toast({
+        title: res.codigo === "teto_excedido" ? "Orçamento excedido" : "Erro ao salvar",
+        description: descricaoErro(res),
+        variant: "destructive",
+      });
       return;
     }
 
@@ -502,9 +511,10 @@ export default function ProjetoRequisicoes() {
 
   async function handleDelete() {
     if (!deleteTarget) return;
-    const { error } = await supabase.from("projeto_requisicoes").delete().eq("id", deleteTarget.id);
-    if (error) {
-      toast({ title: "Erro ao excluir", description: error.message, variant: "destructive" });
+    const res = await excluirPedido(deleteTarget.id);
+    // R-1: só invalida as queries quando o banco confirmou a exclusão.
+    if (falhou(res)) {
+      toast({ title: "Erro ao excluir", description: descricaoErro(res), variant: "destructive" });
     } else {
       toast({ title: "Pedido de compra excluído!" });
       queryClient.invalidateQueries({ queryKey: ["projeto-requisicoes", projetoId] });
@@ -519,7 +529,15 @@ export default function ProjetoRequisicoes() {
     setEnviando(targetId);
     setEnviarTarget(null);
     const result = await enviarRequisicaoAlvo(targetId, (projeto as any).nome);
-    if (result.success) {
+    if (result.success && result.error) {
+      // Pedido entrou no ERP mas o Hub não registrou o status: NÃO é sucesso limpo.
+      // Era exatamente este o caso que passava batido antes (achado A-2).
+      toast({
+        title: "Enviado ao Alvo, mas o Hub não registrou",
+        description: result.error,
+        variant: "destructive",
+      });
+    } else if (result.success) {
       toast({ title: `Pedido ${result.numeroPedido || ""} criado no ERP Alvo` });
     } else {
       toast({ title: "Erro ao enviar", description: result.error, variant: "destructive" });
@@ -542,6 +560,7 @@ export default function ProjetoRequisicoes() {
       // 2. Chama Edge Function de email (não-bloqueante para o status, mas reporta erro)
       let emailEnviado = false;
       let emailError: string | null = null;
+      let avisoTimestamp: string | null = null;
       try {
         const {
           data: { session },
@@ -573,14 +592,15 @@ export default function ProjetoRequisicoes() {
         }
         emailEnviado = true;
 
-        // 3. Registra timestamp do envio (upsert pra evitar CORS PATCH)
-        const { data: projAtual } = await supabase.from("projetos").select("*").eq("id", projetoId).single();
-        if (projAtual) {
-          await supabase.from("projetos").upsert({
-            ...projAtual,
-            email_aprovacao_enviado_em: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
+        // 3. Registra timestamp do envio via RPC (A-7 / D-15).
+        // O .upsert() anterior falhava em silêncio para não-admin: neste ponto a
+        // fase já é 'budget_em_aprovacao' e a policy de UPDATE não cobre o
+        // responsável. Aqui o erro é logado e vai junto no toast — o e-mail já
+        // saiu, então não é motivo para alarmar como falha do envio.
+        const marcado = await marcarEmailAprovacao(projetoId);
+        if (falhou(marcado)) {
+          console.error("[handleEnviarParaAprovacao] e-mail enviado, timestamp não registrado:", marcado);
+          avisoTimestamp = descricaoErro(marcado);
         }
       } catch (emailErr: any) {
         emailError = emailErr?.message || String(emailErr);
@@ -591,7 +611,9 @@ export default function ProjetoRequisicoes() {
       if (emailEnviado) {
         toast({
           title: "Enviado para aprovação!",
-          description: `Email enviado para ${data?.aprovador_nome || data?.aprovador_email || "aprovador"}.`,
+          description:
+            `Email enviado para ${data?.aprovador_nome || data?.aprovador_email || "aprovador"}.` +
+            (avisoTimestamp ? ` (registro do envio não gravado: ${avisoTimestamp})` : ""),
         });
       } else {
         toast({

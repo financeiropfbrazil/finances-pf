@@ -1,5 +1,6 @@
 import { authenticateAlvo, clearAlvoToken } from "./alvoService";
 import { supabase } from "@/integrations/supabase/client";
+import { marcarEnviado, descricaoErro, falhou } from "./projetosService";
 
 const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
 const MAX_RETRIES = 3;
@@ -336,63 +337,33 @@ export async function enviarRequisicaoAlvo(
 
     console.log("[PedComp] Atualizando requisição:", requisicaoId, "pedido:", numeroPedido);
 
-    // Buscar registro completo para fazer upsert (POST, evita CORS block no PATCH)
-    const { data: reqAtual, error: fetchReqErr } = await supabase
-      .from("projeto_requisicoes")
-      .select("*")
-      .eq("id", requisicaoId)
-      .single();
+    // A-2: o pós-envio passa por RPC SECURITY DEFINER. O .upsert() anterior era
+    // barrado pela RLS para não-admin — o pedido entrava no ERP e o Hub não
+    // registrava nada, devolvendo success:true. A RPC também grava o usuário real
+    // em enviado_alvo_por (D-8), no lugar do literal "sistema".
+    const marcado = await marcarEnviado(requisicaoId, numeroPedido, true);
 
-    if (fetchReqErr || !reqAtual) {
-      console.error("[PedComp] Não encontrou requisição para atualizar:", fetchReqErr);
+    if (falhou(marcado)) {
+      console.error("[PedComp] Pedido criado no Alvo mas o Hub não registrou:", marcado);
       return {
         success: true,
         numeroPedido,
-        error: `Pedido criado no Alvo (#${numeroPedido}) mas não encontrou registro local para atualizar`,
+        error: `Pedido criado no Alvo (#${numeroPedido}) mas o Hub não registrou o status: ${descricaoErro(marcado)}`,
       };
     }
 
-    const { error: upsertError } = await supabase.from("projeto_requisicoes").upsert({
-      ...reqAtual,
-      status: "enviado",
-      numero_pedido_alvo: numeroPedido,
-      enviado_em: new Date().toISOString(),
-      erro_envio: null,
-      bloqueado: true,
-      enviado_alvo_em: new Date().toISOString(),
-      enviado_alvo_por: "sistema",
-      updated_at: new Date().toISOString(),
-    });
-
-    if (upsertError) {
-      console.error("[PedComp] Erro ao atualizar via upsert:", upsertError);
-      return {
-        success: true,
-        numeroPedido,
-        error: `Pedido criado no Alvo (#${numeroPedido}) mas erro ao atualizar status local: ${upsertError.message}`,
-      };
-    }
-
-    console.log("[PedComp] Requisição atualizada com sucesso via upsert:", requisicaoId);
+    console.log("[PedComp] Requisição atualizada via RPC:", requisicaoId);
 
     return { success: true, numeroPedido };
   } catch (err: any) {
     const msg = err.message || "Erro desconhecido";
     console.error("[PedComp] Erro ao enviar:", msg);
 
-    // Update requisição → erro (com log) via upsert pra evitar CORS PATCH
-    const { data: reqErr } = await supabase.from("projeto_requisicoes").select("*").eq("id", requisicaoId).single();
-
-    if (reqErr) {
-      const { error: errUpsert } = await supabase.from("projeto_requisicoes").upsert({
-        ...reqErr,
-        status: "erro",
-        erro_envio: msg,
-        updated_at: new Date().toISOString(),
-      });
-      if (errUpsert) {
-        console.error("[PedComp] Falha ao salvar erro via upsert:", errUpsert);
-      }
+    // A-2: registra o erro via RPC. O .upsert() anterior falhava pela mesma RLS
+    // que barrava o caminho de sucesso — ou seja, nem o status 'erro' era gravado.
+    const marcado = await marcarEnviado(requisicaoId, null, false, msg);
+    if (falhou(marcado)) {
+      console.error("[PedComp] Falha ao registrar o erro de envio no Hub:", marcado);
     }
 
     return { success: false, error: msg };
