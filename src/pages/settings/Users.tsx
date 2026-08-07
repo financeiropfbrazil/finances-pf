@@ -107,6 +107,11 @@ export default function Users() {
   const [editUser, setEditUser] = useState<UserWithRoles | null>(null);
   const [editName, setEditName] = useState("");
   const [editFuncionarioCodigo, setEditFuncionarioCodigo] = useState<string | null>(null);
+  // A-9: login do operador no ERP Alvo (profiles.alvo_usuario). Texto LIVRE —
+  // nunca derivado do nome nem do funcionário: o Ryan é funcionário 0000063,
+  // nome "ryan.santos" e login RYAN.PAGANOTTO. Deduzir gera identidade errada
+  // no ERP, que é justamente o que o L7-B veio matar.
+  const [editAlvoUsuario, setEditAlvoUsuario] = useState<string>("");
   const [funcionarios, setFuncionarios] = useState<FuncionarioAlvo[]>([]);
   const [funcSearch, setFuncSearch] = useState("");
   const [showDemitidos, setShowDemitidos] = useState(false);
@@ -271,9 +276,20 @@ export default function Users() {
     setEditUser(u);
     setEditName(u.full_name || "");
     setEditFuncionarioCodigo(u.funcionario_alvo_codigo || null);
+    setEditAlvoUsuario("");
     setFuncSearch("");
     setShowDemitidos(false);
     setEditOpen(true);
+
+    // alvo_usuario vem direto de profiles: a RPC hub_list_users_with_roles não
+    // devolve essa coluna, e alterar a assinatura dela afetaria outras telas.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: perfil } = await (supabase as any)
+      .from("profiles")
+      .select("alvo_usuario")
+      .eq("user_id", u.user_id)
+      .maybeSingle();
+    setEditAlvoUsuario(perfil?.alvo_usuario || "");
 
     const { data } = await (supabase as any)
       .from("funcionarios_alvo_cache")
@@ -293,6 +309,9 @@ export default function Users() {
         is_admin: editUser.is_admin,
         is_active: editUser.is_active,
         funcionario_alvo_codigo: editFuncionarioCodigo,
+        // A-9: gravado como digitado (só trim). Vazio vira null, que é o estado
+        // "sem login no Alvo" — e bloqueia o envio de pedidos por desenho.
+        alvo_usuario: editAlvoUsuario.trim() || null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" },
@@ -716,6 +735,26 @@ export default function Users() {
               </Popover>
               <p className="text-xs text-muted-foreground">
                 Vincular a um funcionário do Alvo é necessário para criar Requisições de Compra.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Login no ERP Alvo</Label>
+              <Input
+                value={editAlvoUsuario}
+                onChange={(e) => setEditAlvoUsuario(e.target.value)}
+                placeholder="Ex.: ANA.SANCHES — deixe vazio se não tiver"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <p className="text-xs text-muted-foreground">
+                Necessário para <strong>enviar Pedidos de Compra</strong> ao ERP. Sem ele, o envio é bloqueado — de
+                propósito, para o pedido nunca ser lançado com a identidade de outra pessoa.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Digite o login <strong>exatamente</strong> como existe no Alvo. Ele não segue o nome nem o código do
+                funcionário (ex.: <code className="text-[11px]">ryan.santos</code> tem login{" "}
+                <code className="text-[11px]">RYAN.PAGANOTTO</code>) — confirme no ERP antes de preencher.
               </p>
             </div>
           </div>
