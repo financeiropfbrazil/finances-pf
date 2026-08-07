@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -58,6 +58,7 @@ import {
   falhou,
   type DadosPedido,
 } from "@/services/projetosService";
+import { sincronizarPedidosDoProjeto, getStatusAlvoDoPedido } from "@/services/projetoAlvoLoadService";
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   pendente: {
@@ -263,6 +264,42 @@ export default function ProjetoRequisicoes() {
   const valorTotalItens = useMemo(() => itens.reduce((s, i) => s + i.quantidade * i.valor_unitario, 0), [itens]);
 
   const totalRateio = useMemo(() => classeRateio.reduce((s, c) => s + c.percentual, 0), [classeRateio]);
+
+  // ── Open-load do Alvo (L7-A) ──────────────────────────────────────────────
+  // Roda UMA vez por abertura do projeto, só para linhas com numero_pedido_alvo.
+  // Lê pelo erp-proxy (conta de serviço) e persiste via RPC. Um 404 aqui NÃO
+  // marca exclusão — só acende o aviso na linha (ver REGRA DURA no service).
+  const [syncAlvoRodando, setSyncAlvoRodando] = useState(false);
+  const jaSincronizou = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!projetoId || !requisicoes) return;
+    if (jaSincronizou.current === projetoId) return;
+
+    const comPedidoAlvo = (requisicoes as Array<{ id: string; numero_pedido_alvo?: string | null }>).filter(
+      (r) => !!r.numero_pedido_alvo,
+    );
+    if (comPedidoAlvo.length === 0) return;
+
+    jaSincronizou.current = projetoId;
+    setSyncAlvoRodando(true);
+
+    sincronizarPedidosDoProjeto(comPedidoAlvo)
+      .then((resultados) => {
+        const ausentes = resultados.filter((r) => !r.encontrado);
+        if (ausentes.length > 0) {
+          // Aviso, não veredito: pode ser instabilidade do ERP.
+          toast({
+            title: `${ausentes.length} pedido(s) não encontrado(s) no ERP`,
+            description: `Nº ${ausentes.map((a) => a.numero).join(", ")}. Os dados do Hub foram preservados — confira no Alvo antes de concluir que foram excluídos.`,
+            variant: "destructive",
+          });
+        }
+        queryClient.invalidateQueries({ queryKey: ["projeto-requisicoes", projetoId] });
+      })
+      .catch((err) => console.error("[open-load] falha geral na sincronização com o Alvo:", err))
+      .finally(() => setSyncAlvoRodando(false));
+  }, [projetoId, requisicoes, queryClient]);
 
   // ── Helpers de autorização específicos deste projeto ──
   const projetoAny = projeto as any;
@@ -670,6 +707,8 @@ export default function ProjetoRequisicoes() {
   // ── Render mobile card for a pedido ──
   const renderPedidoCard = (r: any, fase: "budget" | "actual", canEditRow: boolean) => {
     const rs = REQ_STATUS[r.status] || REQ_STATUS.rascunho;
+    const sa = fase === "actual" ? getStatusAlvoDoPedido(r) : null;
+    const IconAlvo = sa?.Icon;
     const isExpanded = expandedRow === r.id;
     const rItens = (r.itens as any[]) || [];
     const rClasse = (r.classe_rateio as any[]) || [];
@@ -689,6 +728,13 @@ export default function ProjetoRequisicoes() {
               )}
               <span className="text-xs text-muted-foreground">#{r.sequencia}</span>
               {fase === "actual" && <Badge className={`${rs.className} text-[10px] px-1.5 py-0`}>{rs.label}</Badge>}
+              {sa && IconAlvo && (
+                <Badge variant="outline" className={`${sa.className} text-[10px] px-1.5 py-0`}>
+                  <IconAlvo className={`mr-1 h-2.5 w-2.5 ${sa.iconAnimate ? "animate-spin" : ""}`} />
+                  {sa.label}
+                </Badge>
+              )}
+              {r.alvo_nao_encontrado_em && <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />}
             </div>
             <p className="mt-1 text-sm font-medium truncate">{r.descricao}</p>
             <p className="text-xs text-muted-foreground truncate">{r.fornecedor_nome || "Sem fornecedor"}</p>
@@ -853,6 +899,10 @@ export default function ProjetoRequisicoes() {
             <TableBody>
               {pedidos.map((r: any) => {
                 const rs = REQ_STATUS[r.status] || REQ_STATUS.rascunho;
+                // Status do ERP vem de src/lib/statusPedido.ts (fonte única do Hub);
+                // null enquanto o open-load não trouxe dados do Alvo.
+                const sa = fase === "actual" ? getStatusAlvoDoPedido(r) : null;
+                const IconAlvo = sa?.Icon;
                 const isExpanded = expandedRow === r.id;
                 const rItens = (r.itens as any[]) || [];
                 const rClasse = (r.classe_rateio as any[]) || [];
@@ -882,6 +932,38 @@ export default function ProjetoRequisicoes() {
                           <TooltipProvider>
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <Badge className={rs.className}>{rs.label}</Badge>
+                              {sa && IconAlvo && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="outline" className={`${sa.className} cursor-help`}>
+                                      <IconAlvo
+                                        className={`mr-1 h-3 w-3 ${sa.iconAnimate ? "animate-spin" : ""}`}
+                                      />
+                                      {sa.label}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs text-xs">
+                                    {sa.tooltip}
+                                    {r.alvo_synced_at && (
+                                      <div className="mt-1 opacity-70">
+                                        Lido do ERP em {format(new Date(r.alvo_synced_at), "dd/MM/yyyy HH:mm")}
+                                      </div>
+                                    )}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              {r.alvo_nao_encontrado_em && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs text-xs">
+                                    Não encontrado no ERP na última leitura (
+                                    {format(new Date(r.alvo_nao_encontrado_em), "dd/MM/yyyy HH:mm")}). Os dados do Hub
+                                    foram preservados — confirme no Alvo antes de concluir que o pedido foi excluído.
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
                               {r.status === "enviado" && r.numero_pedido_alvo && (
                                 <span className="text-xs font-medium text-green-600 dark:text-green-400">
                                   Pedido #{r.numero_pedido_alvo}
@@ -1245,7 +1327,14 @@ export default function ProjetoRequisicoes() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="font-semibold text-sm sm:text-base">Actual (Realizado)</h3>
-                <p className="text-xs text-muted-foreground">Pedidos de compra em execução</p>
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  Pedidos de compra em execução
+                  {syncAlvoRodando && (
+                    <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                      <Loader2 className="h-3 w-3 animate-spin" /> lendo status no ERP…
+                    </span>
+                  )}
+                </p>
               </div>
               {faseAtual === "actual" && (isAdmin || (canPedidosCreate && isResponsavel)) && (
                 <Button size="sm" className="h-8 text-xs sm:text-sm w-fit" onClick={() => openCreate("actual")}>
