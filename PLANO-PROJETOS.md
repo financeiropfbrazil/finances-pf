@@ -104,7 +104,9 @@ Tabelas fechadas no RLS (SELECT com escopo; INSERT/UPDATE/DELETE sem policy p/ a
 | L3 | RLS: refazer policies de `projetos` e `projeto_requisicoes` (escopo `responsavel_id`, escrita fechada) | SQL (Pedro executa) | ✅ 07/08 — aplicado e validado (smoke test) |
 | L4 | Frontend: `projetosService.ts` novo + `ProjetoRequisicoes.tsx` chamando RPCs + botão Novo no Actual + erro completo | finances-pf (agente edita+push) | ✅ **07/08 — publicado e VALIDADO EM PRODUÇÃO com usuário não-admin** |
 | L5 | Reports: views `v_projeto_resumo` e `v_projeto_eventos_report` | SQL (Pedro executa) | ⬜ |
-| L6 | Validação fim-a-fim com a Ana (não-admin) + Fernando (1º login + aprovação real) | operação real | ⬜ |
+| L6 | Validação fim-a-fim com a Ana (não-admin) + Fernando (1º login + aprovação real) | operação real | ⬜ — ⚠️ **L6.5 bloqueado pelo A-8** (ver seção 12): "Ana envia pedido ao Alvo" é **impossível hoje**; só destrava com o L7-B |
+| L7-A | Open-load do Alvo (leitura): migration dos campos + RPC de sync + front consumindo `/ped-comp` do gateway | SQL + finances-pf | ⬜ |
+| L7-B | Escrita e identidade no Alvo: rota `POST /ped-comp/insert` no erp-proxy + migração do envio para o gateway + `CodigoUsuario`/`CodigoComprador` corretos | **cross-repo** (erp-proxy + finances-pf) | ⬜ — Pedro revisa a rota antes de colar |
 
 Ordem: **L0 → L1 → L2 → L3 → L4 → L5 → L6**. L3 só depois de L2 (as RPCs precisam existir antes de fechar a escrita, senão o módulo para). L4 só depois de L3 (o front novo pressupõe o banco novo).
 
@@ -288,6 +290,7 @@ Roteiro na ordem, com print/console de cada passo:
 | Data | Item | Registro |
 |---|---|---|
 | 2026-08-07 | v2 criada | Plano de refatoração completo escrito a partir do diagnóstico das sessões 06–07/08 + levantamento de padrões do Hub. Decisões D-1..D-5 fechadas pelo Pedro. Nenhum lote executado. |
+| 2026-08-07 | **A-8 + L7 registrados** | Pedro leu o erp-proxy no GitHub Web e fechou o desenho do L7 (seção 12). **A-8:** o envio ao Alvo de Projetos autentica **direto no ERP com credenciais do localStorage** (não pelo gateway), carimba `CodigoUsuario` com fallback hardcoded `PEDRO.SCRIGNOLI` e `CodigoComprador` fixo `0000013` — que **é o `funcionario_alvo_codigo` do `cleber.rosa@pfbrazil.com`**, confirmado em `profiles`. **Impacto de controladoria:** os 2 pedidos históricos (`0004238` e `0004626`) foram ao ERP com autor e comprador errados; depois do L4 o Hub sabe quem fez e o ERP não — os dois sistemas discordam sobre o mesmo pedido. **L6.5 fica bloqueado** ("Ana envia ao Alvo" é impossível hoje) até o L7-B. Para o b5, os responsáveis de projeto sem `alvo_usuario` são **ana.sanches@** e **nfe@** (Fernando é aprovador, não envia). |
 | 2026-08-07 | **L4 VALIDADO EM PRODUÇÃO · D-16** | Teste real com **`nfe@pfbrazil.com`** (não-admin, `responsavel_projeto`, `is_admin=false`) no projeto "Teste Refatoração" (orçamento 100k). **Trilha completa e correta:** `pedido_criado` (budget, nfe) → `budget_enviado_aprovacao` (nfe) → `budget_aprovado` (**pedro**) → `pedido_excluido` (actual, nfe) → `pedido_criado` (actual, nfe) → `pedido_enviado_alvo`. **A segregação de papéis ficou registrada no dado**: a aprovação com o e-mail do Pedro, todo o resto com o do operador. **A-7 corrigido e comprovado:** `email_aprovacao_enviado_em = 15:32:54` gravado **por não-admin** — era null em todos os projetos da Ana. **R-1 confirmado na UI:** toast destrutivo com o saldo correto, modal aberto com os dados preservados, nada salvo. **O bug 42501 está morto e o A-2 não pode mais acontecer em silêncio.** Decisão nova **D-16**: teto segue barrando no front; `teto_rejeitado` vira alarme de anomalia, não métrica — fora do L5. |
 | 2026-08-07 | **L3 aplicado · L4 no `main`** | **L3 validado:** `projeto_requisicoes` ficou só com `pr_escrita_admin` (ALL) + `pr_select`; `projetos` migrado para `responsavel_id` com D-14 preservado; `projeto_eventos` só SELECT; RLS on nas 3. Smoke test: UPDATE direto da Ana → **0 linhas** (porta velha fechada), RPC da Ana → **success=true** com `atualizado_por` preenchido (porta nova aberta). **L4 entregue:** `src/services/projetosService.ts` (novo) + `ProjetoRequisicoes.tsx` + `alvoProjetoPedidoService.ts`. **Os 5 call sites da varredura cobertos** — `handleSave`, `handleDelete`, pós-envio OK, pós-envio erro e o A-7. Varredura final confirma **zero escrita direta** em `projeto_requisicoes`/`projeto_eventos`; sobra só `Projetos.tsx` sobre `projetos`, que é o que o L4.3 manda manter (P-1). **Type-check limpo · build ok · lint 71 vs 72 no HEAD** (um a menos, nada novo). **Ajuste técnico:** o `tsconfig` roda com `strict: false`, então `if (!res.ok)` não estreita a união — criado o type guard `falhou()` no service, usado nos 5 call sites. **Exceção ao R-1 registrada:** em `marcarEmailAprovacao` o erro é logado e anexado ao toast de sucesso em vez de toast destrutivo — o e-mail já saiu e o timestamp é auditoria; alarmar como falha seria enganoso. Nas 3 RPCs de pedido o R-1 é integral. |
 | 2026-08-07 | **Varredura de call sites pré-L3 (D-14 aprovado)** | Grep integral do repo por escrita direta nas tabelas do módulo. **`projeto_eventos`: nenhuma escrita no front** ✅ (só as RPCs). **`projeto_requisicoes`: 4 escritas diretas** — `ProjetoRequisicoes.tsx:413` (upsert/handleSave) e `:505` (delete/handleDelete); `alvoProjetoPedidoService.ts:355` (pós-envio OK) e `:387` (pós-envio erro). Todas já previstas no L4/L2.5. **Achado novo A-7:** `ProjetoRequisicoes.tsx:579` faz `.upsert()` em `projetos` para gravar `email_aprovacao_enviado_em` **sem capturar `error`** e **depois** da fase já ter virado `budget_em_aprovacao` — a policy de UPDATE (ramo `edit_own`, que exige `fase_atual='budget'`) não cobre, e a Ana não é aprovadora. **Já falha hoje, silenciosamente — comprovado nos dados:** os 2 projetos da Ana têm `enviado_para_aprovacao_em` preenchido e `email_aprovacao_enviado_em` **null**; o projeto "teste" (do Pedro, admin) tem os dois preenchidos. Proposta de correção em **D-15**. A Edge `notify-aprovador-budget` usa **service_role** (bypassa RLS) e só faz SELECT → imune ao L3. |
@@ -699,3 +702,40 @@ Constraints: **só** `PRIMARY KEY (id)` + `FK projeto_id → projetos(id) ON DEL
 | `sql/PROJ-L5-views.sql` | Views de report: `v_projeto_resumo` e `v_projeto_eventos_report` (R-2, R-3, D-16) | ⬜ pendente |
 
 Ordem de execução: **L1 → L2.0 → L2.1 → L2.2 → L2.3 → L2.4 → L2.9**. Cada arquivo termina com verificação por leitura e bloco de rollback comentado. O rollback do L2.4 é o fonte original preservado na seção 10.3.
+
+---
+
+## 12. L7 — Integração com o Alvo (leitura e identidade)
+
+### A-8 — o envio ao Alvo é um caminho de admin disfarçado (achado de 07/08)
+
+Diagnóstico do `src/services/alvoProjetoPedidoService.ts`, confirmado no código e no banco:
+
+| # | O quê | Onde | Consequência |
+|---|---|---|---|
+| 1 | Autentica **direto no Alvo** (`alvoService.authenticateAlvo` → `pef.it4you.inf.br/api/RsLogin/Login`) com `alvo_username`/`alvo_password` do **localStorage do navegador** | `alvoService.ts:87-111` | Sem credencial no navegador daquele usuário → `"Falha na autenticação ERP"`. **Não passa pelo erp-proxy.** É por isso que Suprimentos (que usa o gateway com conta de serviço) funciona para qualquer operador e Projetos não |
+| 2 | `CodigoUsuario = localStorage.getItem("alvo_username") \|\| "PEDRO.SCRIGNOLI"` — **fallback hardcoded**, sem nenhum lookup em `profiles` | `alvoProjetoPedidoService.ts:86` | O pedido chega ao ERP carimbado com o Pedro, **independentemente de quem clicou**. Não usa `resolverUsuarioAlvo` (que existe em `pedidosService.ts:252` e resolve por `profiles.user_id`) |
+| 3 | `CodigoComprador: "0000013"` — literal fixo | `alvoProjetoPedidoService.ts:223` | **`0000013` é o `funcionario_alvo_codigo` do `cleber.rosa@pfbrazil.com`** (confirmado em `profiles`). Todo pedido de projeto foi ao ERP com o Cleber como comprador. Contraria a decisão de 22/06 já registrada em `pedidosService.ts:281`, que manda `CodigoComprador: null` sempre |
+
+**Impacto de controladoria.** Todo pedido de projeto que chegou ao Alvo foi lançado com `CodigoUsuario=PEDRO.SCRIGNOLI` e `CodigoComprador=0000013` (Cleber), independentemente de quem clicou. Depois do L4 o Hub registra corretamente quem fez — `projeto_eventos` mostra o `nfe@` —, mas o ERP recebeu outra história: **os dois sistemas discordam sobre o mesmo pedido.** É rastreabilidade falsa no sistema contábil. Universo histórico afetado (medido 07/08): **2 pedidos** — `0004238` (projeto "teste", 18/06) e `0004626` ("Teste Refatoração", 07/08).
+
+**Efeito no L6:** o roteiro do **L6.5** prevê "Ana envia pedido ao Alvo". Isso é **impossível hoje** — ela não tem credencial de Alvo no navegador dela e o `alvo_usuario` do profile está null. O L6.5 fica bloqueado até o L7-B.
+
+### L7-A — Leitura (front-only; independente do outro repo)
+
+Open-load consumindo as rotas de leitura que o gateway **já** oferece (`requireSupabaseAuth` + conta de serviço; nenhuma credencial de navegador):
+`GET /ped-comp/:filial/:numero` (Load completo) e `GET /ped-comp/list?dataInicio&dataFim` (janela ≤31d).
+
+1. Roda a cada abertura do detalhe do projeto, **só** para linhas com `numero_pedido_alvo` preenchido.
+2. **Reusa `src/lib/statusPedido.ts`** — proibido criar mapa de status novo (foi assim que o bug do `.eq("id")` se espalhou na FH47).
+3. **REGRA DURA:** 404 isolado **NÃO** marca `excluido_alvo`. Em Suprimentos isso marcou 7 pedidos vivos. 404 = aviso na tela + dados locais preservados. Quem marca é o cross-check (404 no Load **E** ausência no `/ped-comp/list` da janela) — sem cross-check, o open-load **apenas avisa**.
+4. Migration dos campos do Alvo em `projeto_requisicoes`. O `status` atual (`rascunho`/`erro`/`enviado`) é **status_local** e **não** pode ser sobrescrito.
+5. Gravação **sempre por RPC** (D-4; a escrita direta está fechada desde o L3).
+
+### L7-B — Escrita e identidade (cross-repo — PARAR antes)
+
+- **b1.** Rota `POST /ped-comp/insert` no erp-proxy, espelhando o `/update` já existente: `callAlvo("PedComp/SavePartial?action=Insert", "POST", body)`, mesmas validações mínimas (`CodigoEmpresaFilial` + `ItemPedCompChildList` não-vazio). O `/insert-multipart` não serve: exige seis campos que Projetos não monta.
+- **b2.** `alvoProjetoPedidoService.ts` passa a chamar o gateway com `Authorization: Bearer <JWT do Supabase>`, como `pedidosService`.
+- **b3.** `CodigoComprador → null` (decisão de 22/06).
+- **b4.** `CodigoUsuario` via `resolverUsuarioAlvo` **importado** de `pedidosService` (ou extraído para módulo compartilhado) — **nunca copiado**; remover o fallback hardcoded da linha 86.
+- **b5.** Preencher `profiles.alvo_usuario`. **Quem precisa (responsáveis de projeto sem login do Alvo): `ana.sanches@pfbrazil.com` e `nfe@pfbrazil.com`.** O Pedro confirma o login real no Alvo antes de gravar — **não deduzir o padrão**: o caso Ryan previa `RYAN.SANTOS` e o real era `RYAN.PAGANOTTO`. (`fernando.oliveira@pfbrazil.com` é aprovador e não envia ao Alvo — não precisa.)
