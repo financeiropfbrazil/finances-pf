@@ -295,6 +295,18 @@ export default function ProjetoRequisicoes() {
             variant: "destructive",
           });
         }
+
+        // Leitura que não chegou a gravar precisa aparecer: senão a tela mostra
+        // dados velhos como se fossem atuais (foi o que aconteceu na 1ª versão).
+        const naoGravados = resultados.filter((r) => !r.persistido);
+        if (naoGravados.length > 0) {
+          toast({
+            title: "Status do ERP não pôde ser atualizado",
+            description: `Nº ${naoGravados.map((n) => n.numero).join(", ")}: ${naoGravados[0].erro ?? "erro desconhecido"}. Os dados exibidos podem estar desatualizados.`,
+            variant: "destructive",
+          });
+        }
+
         queryClient.invalidateQueries({ queryKey: ["projeto-requisicoes", projetoId] });
       })
       .catch((err) => console.error("[open-load] falha geral na sincronização com o Alvo:", err))

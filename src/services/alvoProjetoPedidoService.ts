@@ -1,10 +1,22 @@
-import { authenticateAlvo, clearAlvoToken } from "./alvoService";
 import { supabase } from "@/integrations/supabase/client";
 import { marcarEnviado, descricaoErro, falhou } from "./projetosService";
+import { resolverUsuarioAlvoOuNull } from "./pedidosService";
 
-const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
-const MAX_RETRIES = 3;
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/**
+ * L7-B — o envio passa pelo erp-proxy, não mais direto ao Alvo.
+ *
+ * Antes: authenticateAlvo() lia `alvo_username`/`alvo_password` do localStorage
+ * do navegador e postava em pef.it4you.inf.br. Consequências (achado A-8):
+ *   · quem não tivesse as credenciais no próprio navegador não conseguia enviar
+ *     ("Falha na autenticação ERP") — era o caso da Ana e do nfe@;
+ *   · o pedido ia ao ERP carimbado com o dono das credenciais, não com quem
+ *     clicou. Dois pedidos foram parar no Alvo como PEDRO.SCRIGNOLI.
+ *
+ * Agora: POST {ERP_PROXY_URL}/ped-comp/insert com o JWT do Supabase. O gateway
+ * autentica no Alvo por conta de serviço (env do Render) e faz o retry de
+ * 401/403/409 por dentro — por isso o loop de retry saiu daqui.
+ */
+const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 
 const SERVICO_TIPOS = ["05", "06", "07", "08", "09"];
 
@@ -77,13 +89,14 @@ function validarPedidoVsProjeto(req: any, projetoFase: { fase_atual: string; sta
 
 // ── Build Payload ──
 
-function buildPayload(req: any, condPag: any, projetoNome: string) {
+function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario: string) {
   const now = hoje();
   const nowStr = fmtDate(now);
   const itens = req.itens as any[];
   const rateio = req.classe_rateio as any[];
   const valorTotal = Number(req.valor_total) || 0;
-  const codigoUsuario = localStorage.getItem("alvo_username") || "PEDRO.SCRIGNOLI";
+  // b4: `codigoUsuario` chega resolvido de profiles.alvo_usuario (quem clicou).
+  // Não existe mais leitura de localStorage nem fallback hardcoded aqui.
 
   const texto = `Projeto: ${projetoNome} | Req #${req.sequencia} - ${req.descricao}`;
 
@@ -220,7 +233,11 @@ function buildPayload(req: any, condPag: any, projetoNome: string) {
     DataBaseVencimentoParcela: "Data do Pedido",
     DataCompetencia: dataCompetencia,
     CodigoEntidade: req.fornecedor_codigo,
-    CodigoComprador: "0000013",
+    // b3 — CodigoComprador SEMPRE null (decisão de 22/06, ver pedidosService.ts:281).
+    // O literal "0000013" que estava aqui é o funcionario_alvo_codigo do
+    // cleber.rosa@pfbrazil.com: todo pedido de projeto ia ao ERP com ele como
+    // comprador, sem que ninguém tivesse decidido isso.
+    CodigoComprador: null,
     CodigoUsuario: codigoUsuario,
     UsuarioLogado: codigoUsuario,
     Texto: texto,
@@ -258,47 +275,40 @@ function buildPayload(req: any, condPag: any, projetoNome: string) {
 
 // ── POST with retry ──
 
-async function postPedido(payload: any): Promise<any> {
-  clearAlvoToken();
-  let token = (await authenticateAlvo()).token;
-  if (!token) throw new Error("Falha na autenticação ERP");
+/**
+ * POST /ped-comp/insert no gateway.
+ *
+ * O `callAlvo` do proxy NÃO lança exceção — devolve o resultado e o proxy
+ * traduz em status HTTP. Então aqui o tratamento é por `resp.ok`/status, no
+ * molde do pedidosService: nada de try/catch esperando throw.
+ * Retry de 401/403/409 é responsabilidade do gateway.
+ */
+async function postPedidoViaGateway(payload: any, jwt: string): Promise<any> {
+  const resp = await fetch(`${ERP_PROXY_URL}/ped-comp/insert`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(payload),
+  });
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const resp = await fetch(`${ERP_BASE_URL}/PedComp/SavePartial?action=Insert`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "riosoft-token": token,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (resp.status === 409) {
-      console.warn(`[PedComp/Insert] 409 tentativa ${attempt}/${MAX_RETRIES}`);
-      if (attempt === MAX_RETRIES) throw new Error("Conflito de sessão persistente (409)");
-      clearAlvoToken();
-      await delay(1000 * attempt);
-      const reAuth = await authenticateAlvo();
-      if (!reAuth.token) throw new Error("Re-autenticação falhou");
-      token = reAuth.token;
-      continue;
-    }
-
-    const text = await resp.text();
-    let data: any;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
-    }
-
-    if (!resp.ok) {
-      const detail = typeof data === "string" ? data : JSON.stringify(data).substring(0, 500);
-      throw new Error(`HTTP ${resp.status}: ${detail}`);
-    }
-
-    return data;
+  const text = await resp.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = text;
   }
+
+  if (!resp.ok) {
+    const detalhe =
+      (data && typeof data === "object" && (data.error || data.message)) ||
+      (typeof data === "string" ? data : JSON.stringify(data)?.slice(0, 500));
+    throw new Error(`Gateway HTTP ${resp.status}: ${detalhe || "sem detalhe"}`);
+  }
+
+  return data;
 }
 
 // ── Public API ──
@@ -326,12 +336,31 @@ export async function enviarRequisicaoAlvo(
 
     validar(req);
 
+    // ── b2 + b4: identidade do operador ANTES de qualquer chamada ao ERP ──
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token || !session.user?.id) {
+      throw new Error("Sessão expirada — faça login novamente antes de enviar ao ERP.");
+    }
+
+    // b4: sem login do Alvo, o envio PARA. Nunca cair em fallback nem mandar o
+    // CodigoUsuario de outra pessoa — pedido no ERP com identidade errada é pior
+    // do que pedido não enviado (foi assim que 2 pedidos saíram como o Pedro).
+    const codigoUsuario = await resolverUsuarioAlvoOuNull(session.user.id, session.user.email);
+    if (!codigoUsuario) {
+      throw new Error(
+        "Usuário sem login do Alvo configurado — contate o administrador. " +
+          "O pedido NÃO foi enviado ao ERP para não ser lançado com a identidade de outra pessoa.",
+      );
+    }
+
     const condPag = await fetchCondPag(req.cond_pagamento_codigo);
-    const payload = buildPayload(req, condPag, projetoNome);
+    const payload = buildPayload(req, condPag, projetoNome, codigoUsuario);
 
-    console.log("[PedComp] Enviando payload:", JSON.stringify(payload).substring(0, 500));
+    console.log(`[PedComp] Enviando via gateway como ${codigoUsuario}:`, JSON.stringify(payload).substring(0, 500));
 
-    const result = await postPedido(payload);
+    const result = await postPedidoViaGateway(payload, session.access_token);
 
     const numeroPedido = result?.Numero || result?.numero || result?.NumeroPedComp || null;
 

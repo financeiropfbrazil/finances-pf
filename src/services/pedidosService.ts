@@ -249,7 +249,18 @@ async function callGatewayGet(path: string): Promise<any> {
 //
 // Robusto a esquema: tenta profiles.user_id = auth uid (chave canônica; NÃO é
 // profiles.id); se não achar, cai pra email; só então usa o fallback da conta de serviço.
-async function resolverUsuarioAlvo(userId: string, email?: string | null): Promise<string> {
+/**
+ * Lookup puro do login do Alvo, SEM fallback: devolve null quando o profile não
+ * tem `alvo_usuario`.
+ *
+ * Exportada porque o módulo de Projetos precisa da versão estrita — lá, mandar
+ * o login de outra pessoa é pior do que não enviar (dois pedidos foram parar no
+ * ERP carimbados com o Pedro; achado A-8 do PLANO-PROJETOS). Suprimentos segue
+ * usando `resolverUsuarioAlvo` logo abaixo, com o fallback de sempre.
+ *
+ * A lógica de busca vive AQUI e em nenhum outro lugar — não copiar.
+ */
+export async function resolverUsuarioAlvoOuNull(userId: string, email?: string | null): Promise<string | null> {
   const porId = await (supabase as any).from("profiles").select("alvo_usuario").eq("user_id", userId).maybeSingle();
   if (porId?.data?.alvo_usuario) return porId.data.alvo_usuario;
 
@@ -257,6 +268,13 @@ async function resolverUsuarioAlvo(userId: string, email?: string | null): Promi
     const porEmail = await (supabase as any).from("profiles").select("alvo_usuario").eq("email", email).maybeSingle();
     if (porEmail?.data?.alvo_usuario) return porEmail.data.alvo_usuario;
   }
+
+  return null;
+}
+
+async function resolverUsuarioAlvo(userId: string, email?: string | null): Promise<string> {
+  const achado = await resolverUsuarioAlvoOuNull(userId, email);
+  if (achado) return achado;
 
   console.error(
     `[resolverUsuarioAlvo] profile sem alvo_usuario (user=${userId} email=${email ?? "?"}) — fallback ${USUARIO_LOGADO}`,

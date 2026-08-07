@@ -50,7 +50,10 @@ export interface CamposAlvo {
 export interface ResultadoSync {
   id: string;
   numero: string;
+  /** false = o ERP respondeu 404 (aviso, NUNCA exclusão) */
   encontrado: boolean;
+  /** true = a leitura E a gravação concluíram; false = o Hub não registrou nada */
+  persistido: boolean;
   erro?: string;
 }
 
@@ -113,13 +116,19 @@ export async function carregarPedidoAlvo(
   return { encontrado: true, dados: extrairCamposAlvo(corpo) };
 }
 
-/** Persiste o retorno do Alvo via RPC (D-4 — escrita direta está fechada desde o L3). */
+/**
+ * Persiste o retorno do Alvo via RPC (D-4 — escrita direta está fechada desde o L3).
+ *
+ * Devolve a falha em vez de só logar: na primeira versão deste arquivo o erro
+ * morria no console e a tela não dizia nada — quando o open-load não gravou,
+ * ninguém soube. É a mesma classe de bug do A-2/A-7 e não se repete aqui.
+ */
 async function persistirSync(
   id: string,
   encontrado: boolean,
   dados: CamposAlvo | null,
   erro: string | null,
-): Promise<void> {
+): Promise<{ ok: boolean; erro?: string }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase as any).rpc("projeto_pedido_sync_alvo", {
     p_id: id,
@@ -127,6 +136,7 @@ async function persistirSync(
     p_dados: dados ?? {},
     p_erro: erro,
   });
+
   if (error) {
     console.error("[projetoAlvoLoadService] projeto_pedido_sync_alvo falhou", {
       code: error.code,
@@ -135,7 +145,10 @@ async function persistirSync(
       hint: error.hint,
       id,
     });
+    return { ok: false, erro: `${error.message}${error.code ? ` [${error.code}]` : ""}` };
   }
+
+  return { ok: true };
 }
 
 /**
@@ -153,13 +166,19 @@ export async function sincronizarPedidosDoProjeto(
     const numero = p.numero_pedido_alvo as string;
     try {
       const r = await carregarPedidoAlvo(numero);
-      await persistirSync(p.id, r.encontrado, r.dados ?? null, r.erro ?? null);
-      resultados.push({ id: p.id, numero, encontrado: r.encontrado, erro: r.erro });
+      const gravou = await persistirSync(p.id, r.encontrado, r.dados ?? null, r.erro ?? null);
+      resultados.push({
+        id: p.id,
+        numero,
+        encontrado: r.encontrado,
+        persistido: gravou.ok,
+        erro: gravou.ok ? r.erro : `não gravado no Hub: ${gravou.erro}`,
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[projetoAlvoLoadService] falha ao sincronizar ${numero}:`, msg);
-      // Erro de rede/sessão não é 404: registra o erro sem carimbar "não encontrado".
-      resultados.push({ id: p.id, numero, encontrado: true, erro: msg });
+      // Erro de rede/sessão não é 404: NÃO carimba "não encontrado" e NÃO grava nada.
+      resultados.push({ id: p.id, numero, encontrado: true, persistido: false, erro: msg });
     }
   }
 
