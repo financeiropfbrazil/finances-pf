@@ -275,6 +275,7 @@ Roteiro na ordem, com print/console de cada passo:
 | Data | Item | Registro |
 |---|---|---|
 | 2026-08-07 | v2 criada | Plano de refatoração completo escrito a partir do diagnóstico das sessões 06–07/08 + levantamento de padrões do Hub. Decisões D-1..D-5 fechadas pelo Pedro. Nenhum lote executado. |
+| 2026-08-07 | **L1 + L2.0 aplicados · SQL versionado em `sql/`** | **L1 confirmado por leitura:** `projeto_eventos` 11 colunas · RLS on · 0 policies · 3 índices · 0 eventos; `atualizado_por` criada; fingerprint 23. **`projeto_evento_log` idem** (`secdef=true`, `search_path=public, auth`, `auth_executa=false` — o revoke pegou). **Correção a uma premissa:** as 2 RPCs de fase **NÃO tinham sido recriadas** — md5 idênticos ao baseline (`afc3f2dc…`/`eb594b06…`), `tem_evento=false`, `tem_responsavel_id=false`, `tem_perm_approve=false`; o `search_path=public, auth` delas já vinha do baseline e não era sinal de reaplicação. Por decisão do Pedro, **todo bloco SQL virou arquivo versionado** em `sql/PROJ-*.sql` (índice na **seção 11**) — ele copia do GitHub e o fonte deixa de existir só no banco. Aplicação segue **função a função**. |
 | 2026-08-07 | **Avais D-10..D-13 + requisito R-1** | Pedro aprovou: **D-10** (teto retorna `success:false`) **com condição obrigatória** — o L4 tem de tratar `success !== true` como erro (toast destrutivo, não fecha modal, não invalida query), registrado como **R-1** dentro do L4 para não depender de memória: é o mesmo padrão de falha do A-2 que a refatoração corrige. **D-11** (envelope) aprovado. **D-12** e **D-13** (gates extras de fase na edição e na exclusão) aprovados **em definitivo** — Budget aprovado é registro histórico imutável. **D-3 confirmada inclusive para o admin** (integridade Hub×ERP, não permissão). Pedro executa L1→L2→dry-runs na sequência. |
 | 2026-08-07 | **L1 — NÃO aplicado (verificado por leitura)** | Antes de escrever o L2, releitura do banco (Regra 6): `projeto_eventos` **não existe em nenhum schema**, `projeto_requisicoes.atualizado_por` **não existe**, nenhuma função `projeto_*`. Fingerprint 23 pedidos (banco certo). O retorno dos blocos do L1 não chegou (veio placeholder). **L1 segue pendente de execução** — o SQL entregue continua válido (idempotente). |
 | 2026-08-07 | **L2 — SQL entregue** | Bloco único idempotente com: `projeto_evento_log` (helper interna, catálogo fechado de eventos substituindo o CHECK ausente, e-mail sempre por `profiles.user_id`, nunca `profiles.id` — FH47/§2.4; falha de e-mail não derruba a operação) · `projeto_pedido_salvar` (D-6: não atribui `sequencia`) · `projeto_pedido_excluir` · `projeto_pedido_marcar_enviado` (D-7/D-8) · `CREATE OR REPLACE` das 2 RPCs de fase (responsavel_id + eventos + D-9). Nomes de evento como **constantes declaradas no topo** de cada RPC, nunca literais soltos. Grants explícitos: helper revogada de `authenticated`. Dry-runs da L2.6 em bloco separado. **Levanta D-10 e D-11 para aval.** Aguardando L1 + execução. |
@@ -657,3 +658,23 @@ Constraints: **só** `PRIMARY KEY (id)` + `FK projeto_id → projetos(id) ON DEL
 **Falha** (`:387-392`) — `.upsert({...reqErr, …})` grava: `status='erro'` · `erro_envio = msg` · `updated_at`. **Não** limpa `numero_pedido_alvo` nem mexe em `bloqueado`.
 
 → `projeto_pedido_marcar_enviado(p_id, p_numero_alvo, p_sucesso, p_erro)` do L2.5 precisa cobrir exatamente esses dois conjuntos (timestamps passando a `now()` do banco), mais o evento `pedido_enviado_alvo`.
+
+---
+
+## 11. SQL versionado no repo (`sql/PROJ-*.sql`)
+
+> Decisão do Pedro em 07/08: **todo bloco SQL do módulo vira arquivo no repo antes de ser executado.** Motivo duplo — ele copia do GitHub sem risco de truncamento no chat, e acaba a situação que o L0 teve de remediar (RPC existindo só no banco, sem fonte em lugar nenhum). Segue a convenção que o diretório já usava (`OP-2.5.sql`, `REC-3.0.sql`): prefixo do módulo + lote.
+>
+> ⚠️ **Estes arquivos NÃO são migrations do CLI.** São para colar no SQL Editor. Vale a regra do CLAUDE.md: **nunca** `supabase db push` neste projeto.
+
+| Arquivo | Conteúdo | Estado |
+|---|---|---|
+| `sql/PROJ-L1-projeto_eventos.sql` | tabela `projeto_eventos` + índices + RLS sem policy + `atualizado_por` | ✅ aplicado 07/08 |
+| `sql/PROJ-L2.0-projeto_evento_log.sql` | helper interna de log (catálogo fechado de eventos; e-mail por `profiles.user_id`) | ✅ aplicado 07/08 |
+| `sql/PROJ-L2.1-projeto_pedido_salvar.sql` | RPC de create/update (D-1, D-2, D-6, D-10, D-11, D-12) | ⬜ pendente |
+| `sql/PROJ-L2.2-projeto_pedido_excluir.sql` | RPC de exclusão (D-3 inclusive p/ admin, D-13) | ⬜ pendente |
+| `sql/PROJ-L2.3-projeto_pedido_marcar_enviado.sql` | RPC do pós-envio ao Alvo — **correção do A-2** (D-7, D-8) | ⬜ pendente |
+| `sql/PROJ-L2.4-rpcs_de_fase.sql` | reaplicação das 2 RPCs de fase (responsavel_id, eventos, D-9) | ⬜ pendente |
+| `sql/PROJ-L2.9-dryruns.sql` | dry-runs da L2.6 (bloco A: 3 cenários; bloco B: teste negativo do D-12) | ⬜ pendente |
+
+Ordem de execução: **L1 → L2.0 → L2.1 → L2.2 → L2.3 → L2.4 → L2.9**. Cada arquivo termina com verificação por leitura e bloco de rollback comentado. O rollback do L2.4 é o fonte original preservado na seção 10.3.
