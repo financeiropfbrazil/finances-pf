@@ -43,8 +43,9 @@
 -- ✅ `sync_runs` já aceita o tipo: `sync_runs_job_type_check` enumera
 --    ('requisicoes','pedidos','bicephalous','despesas','docfin_despesas',
 --     'nfe','intercompany','lote','produtos','laudos','reqmat')
---    — 'reqmat' entrou na OP-2.3. Há 20 execuções registradas com esse tipo,
---    as 3 mais recentes `triggered_by='pg_cron'` e `total_erros=0`.
+--    — 'reqmat' entrou na OP-2.3. Execuções registradas desde 05/08/2026,
+--    TODAS com `total_erros = 0` (12 na conferência de 07/08 às 16h05 BRT,
+--    4 delas `triggered_by='pg_cron'`).
 --
 -- ✅ `cron.job` jobid 25 'sync-reqmat-4x-dia', schedule '25 12,15,18,21 * * 1-5',
 --    active = true — em sincronia com `sync_settings.schedule_cron`.
