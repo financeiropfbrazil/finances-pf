@@ -104,10 +104,10 @@ Tabelas fechadas no RLS (SELECT com escopo; INSERT/UPDATE/DELETE sem policy p/ a
 | L2 | RPCs novas: `projeto_pedido_salvar` · `projeto_pedido_excluir` · `projeto_pedido_marcar_enviado` + correção de gate das 2 RPCs de fase | SQL (Pedro executa) | ✅ 07/08 — aplicado e validado por dry-run |
 | L3 | RLS: refazer policies de `projetos` e `projeto_requisicoes` (escopo `responsavel_id`, escrita fechada) | SQL (Pedro executa) | ✅ 07/08 — aplicado e validado (smoke test) |
 | L4 | Frontend: `projetosService.ts` novo + `ProjetoRequisicoes.tsx` chamando RPCs + botão Novo no Actual + erro completo | finances-pf (agente edita+push) | ✅ **07/08 — publicado e VALIDADO EM PRODUÇÃO com usuário não-admin** |
-| L5 | Reports: views `v_projeto_resumo` e `v_projeto_eventos_report` | SQL (Pedro executa) | ⬜ |
-| L6 | Validação fim-a-fim com a Ana (não-admin) + Fernando (1º login + aprovação real) | operação real | ⬜ — ⚠️ **L6.5 bloqueado pelo A-8** (ver seção 12): "Ana envia pedido ao Alvo" é **impossível hoje**; só destrava com o L7-B |
-| L7-A | Open-load do Alvo (leitura): migration dos campos + RPC de sync + front consumindo `/ped-comp` do gateway | SQL + finances-pf | ⬜ |
-| L7-B | Escrita e identidade no Alvo: rota `POST /ped-comp/insert` no erp-proxy + migração do envio para o gateway + `CodigoUsuario`/`CodigoComprador` corretos | **cross-repo** (erp-proxy + finances-pf) | ⬜ — Pedro revisa a rota antes de colar |
+| L5 | Reports: views `v_projeto_resumo` e `v_projeto_eventos_report` | SQL (Pedro executa) | ✅ 07/08 — aplicado; as duas com `security_invoker=on` confirmado |
+| L6 | Validação fim-a-fim com a Ana (não-admin) + Fernando (1º login + aprovação real) | operação real | 🟡 **ABERTO** — L6.1–L6.4 e L6.7 ✅ (validados em produção); **falta L6.5** (envio real, destravado mas não exercitado) e **L6.6** (Fernando, bloqueado pela P-3) |
+| L7-A | Open-load do Alvo (leitura): migration dos campos + RPC de sync + front consumindo `/ped-comp` do gateway | SQL + finances-pf | ✅ 07/08 — aplicado e publicado; **caminho 404 validado**, caminho feliz pendente de dado vivo |
+| L7-B | Escrita e identidade no Alvo: rota `POST /ped-comp/insert` no erp-proxy + migração do envio para o gateway + `CodigoUsuario`/`CodigoComprador` corretos | **cross-repo** (erp-proxy + finances-pf) | ✅ 07/08 — b1 (rota no ar, deploy verde) · b2/b3/b4 (publicados) · b5 (`ANA.SANCHES` gravado). **Envio real ainda não exercitado** |
 
 Ordem: **L0 → L1 → L2 → L3 → L4 → L5 → L6**. L3 só depois de L2 (as RPCs precisam existir antes de fechar a escrita, senão o módulo para). L4 só depois de L3 (o front novo pressupõe o banco novo).
 
@@ -291,6 +291,7 @@ Roteiro na ordem, com print/console de cada passo:
 | Data | Item | Registro |
 |---|---|---|
 | 2026-08-07 | v2 criada | Plano de refatoração completo escrito a partir do diagnóstico das sessões 06–07/08 + levantamento de padrões do Hub. Decisões D-1..D-5 fechadas pelo Pedro. Nenhum lote executado. |
+| 2026-08-07 | **ENCERRAMENTO DA SESSÃO** | **Estado final medido no banco, não presumido.** ✅ **L1, L2, L3, L4, L5, L7-A, L7-B** aplicados e publicados. **L5:** as duas views existem com `security_invoker=on` (o R-3 pegou — sem ele, elas entregariam todos os projetos a qualquer autenticado). **b5:** `ana.sanches → ANA.SANCHES`, situação "pode enviar ao ERP". **L7-A validado no caminho 404 nos DOIS pedidos** (`0004238` e `0004626`): ambos carimbaram `alvo_nao_encontrado_em`, com aviso na tela, e **em nenhum caso `status_local` foi alterado** — a REGRA DURA se sustentou em produção; o `coalesce` preservou o primeiro avistamento do `0004626` numa releitura posterior. **20 eventos** em `projeto_eventos` (3 `pedido_criado`, 10 `pedido_editado`, 4 `pedido_enviado_alvo`, 1 `pedido_excluido`, 1 `budget_enviado_aprovacao`, 1 `budget_aprovado`). **PENDENTE DE VALIDAÇÃO, NÃO DE CÓDIGO:** o **caminho feliz** do open-load (Load 200 → grava `status_alvo`/`aprovado`/`comprado`) nunca foi exercitado, porque **os dois únicos pedidos que chegaram ao Alvo estão ambos excluídos de lá**. Só se prova quando houver pedido vivo no ERP — o que acontece no mesmo teste do envio da Ana. **L6 segue aberto:** falta L6.5 (envio real) e L6.6 (Fernando, bloqueado pela P-3). Achados sem lote registrados: **A-9** (modal — corrigido no commit `633e44b`) e **A-10** (novo, identidade emprestada em Suprimentos). |
 | 2026-08-07 | **L7-B b2/b3/b4 no `main`** | Rota `POST /ped-comp/insert` colada e no ar (Render verde). **Correções do Pedro ao b1, para o registro:** o `callAlvo` do gateway **não lança exceção** (devolve `{ok,status,data,error}`), `alvoMessage` é const inline no handler (não helper importado) e `requireSupabaseAuth` está no `index.ts` aplicado ao router inteiro — os três ajustados por ele antes de colar. A guarda anti-wipe ficou como proposto (alerta no log, sem 502). **b2:** envio via gateway com JWT; saem `authenticateAlvo`, `ERP_BASE_URL` e o retry de 409 (o gateway faz). **b3:** `CodigoComprador: null`. **b4:** `resolverUsuarioAlvoOuNull` **extraída e exportada** de `pedidosService` — o lookup segue num lugar só e Suprimentos mantém seu fallback; em Projetos, `alvo_usuario` nulo **bloqueia o envio**. **Bônus — causa da pendência do L7-A encontrada e não era o localStorage:** o SQL estava aplicado (9 colunas + RPC) e o gate passava; o que havia era falha minha — o erro da RPC de sync só ia ao console, então uma gravação que falhasse ficava invisível. `persistirSync` agora devolve a falha e a tela avisa. `tsc` limpo · build ok · lint **172 = HEAD**. |
 | 2026-08-07 | **L7-A entregue (código no `main`)** | SQL `PROJ-L7A-open_load_alvo.sql` (9 colunas do Alvo + RPC `projeto_pedido_sync_alvo`) + `src/services/projetoAlvoLoadService.ts` + integração na tela. **REGRA DURA implementada nos dois lados:** a RPC **não tem nenhum caminho** que escreva `excluido_alvo` (a verificação 3.2 do SQL falha se alguém introduzir um) e o front trata 404 como aviso, preservando os dados locais. **Zero mapa de status novo:** o badge do ERP sai de `src/lib/statusPedido.ts`; o service só adapta o shape (em Projetos `status` é o status local; lá é o do Alvo) e devolve `null` enquanto o open-load não trouxe dados — assim o badge só aparece quando há informação real. `tsc` limpo · build ok · lint **54 = igual ao HEAD**. Falta rodar o SQL e publicar. |
 | 2026-08-07 | **A-8 + L7 registrados** | Pedro leu o erp-proxy no GitHub Web e fechou o desenho do L7 (seção 12). **A-8:** o envio ao Alvo de Projetos autentica **direto no ERP com credenciais do localStorage** (não pelo gateway), carimba `CodigoUsuario` com fallback hardcoded `PEDRO.SCRIGNOLI` e `CodigoComprador` fixo `0000013` — que **é o `funcionario_alvo_codigo` do `cleber.rosa@pfbrazil.com`**, confirmado em `profiles`. **Impacto de controladoria:** os 2 pedidos históricos (`0004238` e `0004626`) foram ao ERP com autor e comprador errados; depois do L4 o Hub sabe quem fez e o ERP não — os dois sistemas discordam sobre o mesmo pedido. **L6.5 fica bloqueado** ("Ana envia ao Alvo" é impossível hoje) até o L7-B. Para o b5, os responsáveis de projeto sem `alvo_usuario` são **ana.sanches@** e **nfe@** (Fernando é aprovador, não envia). |
@@ -313,6 +314,7 @@ Roteiro na ordem, com print/console de cada passo:
 - **Destravar login do Fernando** (P-3) — operacional, pré-requisito do L6.6; senha temporária + Teams.
 - **E-mail ao Responsável na aprovação** (P-2) — hoje a Ana não é avisada quando o Fernando aprova.
 - **Relatório gerencial PDF** (gerado 06/08) tem um ponto a corrigir numa v2: tratava as duas vias de admin como equivalentes; a Permissoes_v2 §9.1 mostra que o papel `admin` tem 42/55 permissões (defasado). Não urgente.
+- **A-10 — `nfe@` e `pedro.scrignoli@` compartilham `funcionario_alvo_codigo = 0000149`**: requisição criada pela conta funcional em **Suprimentos** vai ao Alvo como se fosse o Pedro. Mesma classe do A-8, módulo diferente. Detalhe na seção 12; o lote pertence ao **PLANO-PEDIDOS**.
 - **`profiles.is_admin` único (só Pedro)** — considerar segundo admin de contingência (bus factor).
 - **Papel `admin` defasado (13 permissões órfãs)** — mapear as novas ao papel (checklist §8.7 da Permissoes_v2); não bloqueia Projetos.
 
@@ -702,8 +704,9 @@ Constraints: **só** `PRIMARY KEY (id)` + `FK projeto_id → projetos(id) ON DEL
 | `sql/PROJ-L2.9-dryruns.sql` | dry-runs da L2.6 (bloco A: 3 cenários; bloco B: teste negativo do D-12) | ✅ executado 07/08 — **rodado sem a temp table** (ver Regra 10) |
 | `sql/PROJ-L3-rls.sql` | RLS: fecha a escrita direta e migra o escopo para `responsavel_id` | ✅ aplicado 07/08 — validado por smoke test |
 | `sql/PROJ-L4.0-marcar_email_aprovacao.sql` | RPC `projeto_marcar_email_aprovacao` — corrige o **A-7** (D-15) | ✅ aplicado 07/08 — A-7 comprovadamente corrigido em produção |
-| `sql/PROJ-L5-views.sql` | Views de report: `v_projeto_resumo` e `v_projeto_eventos_report` (R-2, R-3, D-16) | ⬜ pendente |
-| `sql/PROJ-L7A-open_load_alvo.sql` | Campos do Alvo em `projeto_requisicoes` + RPC `projeto_pedido_sync_alvo` | ⬜ pendente — **rodar antes do Publish do L7-A** |
+| `sql/PROJ-L5-views.sql` | Views de report: `v_projeto_resumo` e `v_projeto_eventos_report` (R-2, R-3, D-16) | ✅ aplicado 07/08 — ambas com `security_invoker=on` verificado |
+| `sql/PROJ-L7A-open_load_alvo.sql` | Campos do Alvo em `projeto_requisicoes` + RPC `projeto_pedido_sync_alvo` | ✅ aplicado 07/08 |
+| `sql/PROJ-L7B-b5-alvo_usuario_ana.sql` | `profiles.alvo_usuario` da Ana (D-17) | ✅ aplicado 07/08 — `ANA.SANCHES` gravado |
 
 Ordem de execução: **L1 → L2.0 → L2.1 → L2.2 → L2.3 → L2.4 → L2.9**. Cada arquivo termina com verificação por leitura e bloco de rollback comentado. O rollback do L2.4 é o fonte original preservado na seção 10.3.
 
@@ -736,6 +739,27 @@ O modal "Editar Usuário" (`settings/Users`) gerencia **só** o `funcionario_alv
 **Dois cuidados obrigatórios:**
 1. **Formato livre (texto), NUNCA derivado** do nome nem do `funcionario_alvo_codigo`. Não há regra determinística ligando os dois: o Ryan tem funcionário `0000063`, nome `ryan.santos` e login `RYAN.PAGANOTTO`. Deduzir geraria identidade errada no ERP — o problema que o L7-B veio matar.
 2. **Gravação pelo mesmo caminho que o modal já usa** para o `funcionario_alvo_codigo` (RPC/upsert do padrão do Hub). Nunca `.update()` — CORS.
+
+### A-10 — identidade emprestada em **Suprimentos** (achado de 07/08; fora do escopo deste plano)
+
+`nfe@pfbrazil.com` e `pedro.scrignoli@pfbrazil.com` têm **o mesmo `funcionario_alvo_codigo = 0000149`** (confirmado em `profiles`).
+
+**Consequência:** requisição criada pela conta funcional em **Suprimentos** vai ao Alvo como se fosse o Pedro. É a **mesma classe do A-8** — identidade emprestada no ERP —, só que no outro módulo e por outro campo (`funcionario_alvo_codigo` em vez de `alvo_usuario`). O L7-B resolveu o caso de Projetos; este continua aberto.
+
+Registrado aqui para não se perder. **Não tem lote neste plano** — pertence ao PLANO-PEDIDOS.
+
+### Por que o L7-A precisava existir (nota de gestão)
+
+Antes do open-load, as duas telas de Projetos exibiam **"Enviado · Pedido #XXXX"** com confiança total para os dois únicos pedidos que chegaram ao ERP. Os dois estavam **excluídos do Alvo havia semanas** — e ninguém tinha como saber. O Hub afirmava um fato que o ERP já tinha desmentido.
+
+Depois do L7-A, os mesmos dois pedidos passaram a mostrar o aviso de "não encontrado no ERP" **sem perder o registro local** e **sem** ninguém decidir por conta própria que foram excluídos (REGRA DURA). Medido em 07/08:
+
+| Pedido | `status_local` | `alvo_nao_encontrado_em` | `alvo_sync_erro` |
+|---|---|---|---|
+| `0004238` | `enviado` (intacto) | 18:05:50 | "não encontrado no ERP (HTTP 404)" |
+| `0004626` | `enviado` (intacto) | **17:44:51** — primeiro avistamento **preservado** numa 2ª leitura às 18:05:38 | idem |
+
+O `coalesce` do primeiro avistamento funcionou como projetado: releituras não reescrevem a data do primeiro sinal.
 
 ### L7-A — Leitura (front-only; independente do outro repo)
 
