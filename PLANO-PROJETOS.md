@@ -53,6 +53,16 @@ Projeto: **`hbtggrbauguukewiknew`**. Pedro tem OUTROS projetos Supabase — veri
 | D-4 | Padrão de gravação | **RPC `SECURITY DEFINER`** via POST (geração moderna: OP/Intercompany/Cartões). Zero `.upsert()`/`.update()`/`.insert()`/`.delete()` direto do front nas tabelas do módulo. |
 | D-5 | Auditoria | **Tabela própria por evento** (seção 4, L1) para reports do controller. `projeto_pedido_auditoria` (desvios Actual×Budget) continua como está. |
 
+### 1.1 Decisões complementares — pós-L0 (Pedro, 07/08/2026)
+> Itens **novos**, decididos à luz dos achados do L0 (seção 10.6). Não alteram D-1..D-5 nem os itens já registrados na seção 4 — onde divergem de uma **hipótese** registrada, isso está dito explicitamente.
+
+| # | Questão | Decisão |
+|---|---|---|
+| D-6 | `sequencia`: migrar para `max+1` por projeto (hipótese do L2.1.i)? | **NÃO — manter o regime atual** (`DEFAULT nextval('projeto_requisicoes_sequencia_seq')` + cópia Budget→Actual na aprovação). O número compartilhado entre as duas fases é **design com valor** (correspondência visível ao operador); migrar criaria dois regimes na mesma tabela. **Consequência normativa para o L2.1(i): a RPC `projeto_pedido_salvar` NÃO atribui `sequencia` na criação — deixa o DEFAULT agir.** Substitui a hipótese "`coalesce(max(sequencia)+1,1)`" ali registrada. |
+| D-7 | A-2 (pós-envio ao Alvo via `.upsert()`) é padronização ou bug? | **BUG — mesma prioridade do 42501.** Hoje o pedido entra no ERP e o Hub não registra: divergência silenciosa, com `success:true` enganoso para o operador. `projeto_pedido_marcar_enviado` (L2.5) é **correção**, não migração de padrão. |
+| D-8 | `enviado_alvo_por` na RPC nova (A-4) | **Usuário real** — `auth.uid()` / e-mail via `profiles.user_id`. Nunca o literal `"sistema"`. |
+| D-9 | Gate de `aprovar_budget_projeto` (complementa o L2.4) | Além da troca `criado_por` → `responsavel_id` em `enviar_budget_para_aprovacao`, **adicionar `_user_has_perm('projetos.approve')`** ao gate de `aprovar_budget_projeto`. Hoje ela só checa `aprovador_id`, então um aprovador com o **papel revogado continuaria aprovando**. |
+
 ---
 
 ## 2. Arquitetura-alvo (o "depois" da refatoração)
@@ -78,7 +88,7 @@ Tabelas fechadas no RLS (SELECT com escopo; INSERT/UPDATE/DELETE sem policy p/ a
 | Lote | Conteúdo | Repo | Status |
 |---|---|---|---|
 | L0 | Levantamento de schema + assinatura das RPCs existentes + snapshot pg_policies (baseline) | SQL/MCP read-only | ✅ 07/08 — baseline na seção 10 |
-| L1 | Migration: tabela `projeto_eventos` + índices + colunas faltantes | SQL (Pedro executa) | ⬜ |
+| L1 | Migration: tabela `projeto_eventos` + índices + colunas faltantes | SQL (Pedro executa) | 🟡 SQL entregue 07/08 — aguardando execução do Pedro |
 | L2 | RPCs novas: `projeto_pedido_salvar` · `projeto_pedido_excluir` · `projeto_pedido_marcar_enviado` + correção de gate das 2 RPCs de fase | SQL (Pedro executa) | ⬜ |
 | L3 | RLS: refazer policies de `projetos` e `projeto_requisicoes` (escopo `responsavel_id`, escrita fechada) | SQL (Pedro executa) | ⬜ |
 | L4 | Frontend: `projetosService.ts` novo + `ProjetoRequisicoes.tsx` chamando RPCs + botão Novo no Actual + erro completo | finances-pf (agente edita+push) | ⬜ |
@@ -227,6 +237,7 @@ Roteiro na ordem, com print/console de cada passo:
 | P-1 | Padronizar também o CRUD de `projetos` (Projetos.tsx) em RPC depois? | **ABERTA** | nada |
 | P-2 | Notificar o Responsável por e-mail quando o Budget for aprovado (hoje ninguém avisa a Ana)? Se sim, Edge nova padrão estado+scan (molde PLANO-PEDIDOS) | **ABERTA** | nada |
 | P-3 | Destravar Fernando: senha temporária via `hub-reset-user-password` + entrega fora de banda — **quando?** | **ABERTA** (operacional) | L6.6 |
+| P-4 | **Projeto de teste com folga orçamentária** — os 2 projetos reais estão exatamente no teto (achado A-5), e com D-1 ativo nenhuma edição que aumente valor passa | **ASSUMIDA pelo Pedro** (07/08): ele cria o projeto antes do L6 | **Pré-requisito do L6** (roteiro inteiro, em especial L6.1 e L6.3) |
 
 ---
 
@@ -246,6 +257,8 @@ Roteiro na ordem, com print/console de cada passo:
 | Data | Item | Registro |
 |---|---|---|
 | 2026-08-07 | v2 criada | Plano de refatoração completo escrito a partir do diagnóstico das sessões 06–07/08 + levantamento de padrões do Hub. Decisões D-1..D-5 fechadas pelo Pedro. Nenhum lote executado. |
+| 2026-08-07 | **L0 aprovado + D-6..D-9 + P-4** | Pedro aprovou o L0 e decidiu os achados: A-1 → **D-6** (mantém `nextval`; a RPC de salvar não atribui `sequencia`), A-2 → **D-7** (é bug, prioridade do 42501), A-4 → **D-8** (`enviado_alvo_por` = usuário real), + **D-9** (`_user_has_perm('projetos.approve')` no gate de `aprovar_budget_projeto`), A-5 → **P-4** (projeto de teste com folga, pré-requisito do L6). Detalhes em 1.1 e seção 6. |
+| 2026-08-07 | **L1 — SQL entregue** | Migration completa entregue ao Pedro em bloco único idempotente (`create table if not exists projeto_eventos` + 2 índices + `enable row level security` **sem policy** + `add column if not exists projeto_requisicoes.atualizado_por` + `notify pgrst` + verificação por leitura no fim do bloco e um segundo bloco de re-verificação isolada exigido pela Regra 6). Bloco de reversão comentado incluído. **Aguardando execução e retorno.** Nada aplicado pelo agente — MCP read-only. |
 | 2026-08-07 | **L0 executado** (read-only) | **Pre-flight OK:** MCP ativo deste diretório = `https://mcp.supabase.com/mcp?project_ref=hbtggrbauguukewiknew&read_only=true&features=database` (`~/.claude.json:901-907`); fingerprint = `tabelas_modulo=3 · total_projetos=3 · total_pedidos=23` (critério de parada é `<>3` → passou; o plano previa `1\|10`, a operação andou). Baseline integral (policies, fonte das 4 funções, schema, índices) registrado na **seção 10**. **Nada contradiz a seção 7** — o diagnóstico do bug 42501 é confirmado linha a linha. **5 achados novos, 2 mexem no desenho do L2** (detalhe em 10.6): (A-1) `sequencia` **não é** max+1 por projeto — é `DEFAULT nextval('projeto_requisicoes_sequencia_seq')`, sequence **global**, **sem UNIQUE** — L2.1.i precisa de decisão do Pedro; (A-2) o pós-envio ao Alvo usa o **mesmo `.upsert()` da causa-raiz** → para não-admin o pedido entra no ERP e o status local não grava (divergência Hub×ERP latente) — eleva a prioridade do L2.5; (A-3) `responsavel_id` já preenchido = `criado_por` nos 3 projetos → virada de titularidade sem backfill; (A-4) `enviado_alvo_por` gravado como literal `"sistema"`; (A-5) os 2 projetos reais estão **exatamente no teto** — condiciona o roteiro do L6.1. |
 
 ## 9. Fora do escopo (não perder)
