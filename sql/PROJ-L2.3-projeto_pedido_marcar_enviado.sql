@@ -134,6 +134,11 @@ grant  execute on function public.projeto_pedido_marcar_enviado(uuid,text,boolea
 notify pgrst, 'reload schema';
 
 -- Verificacao por leitura
+--
+-- ATENCAO (licao de 07/08): NAO usar `ilike '%sistema%'` aqui.
+--   pg_get_functiondef devolve o corpo COM OS COMENTARIOS, e o comentario do
+--   D-8 acima cita a palavra "sistema" — a checagem por mencao deu FALSO
+--   POSITIVO na primeira aplicacao. A checagem correta e pela ATRIBUICAO.
 select p.proname,
        pg_get_function_identity_arguments(p.oid)                 as assinatura,
        p.prosecdef                                               as security_definer,
@@ -141,11 +146,21 @@ select p.proname,
        has_function_privilege('authenticated', p.oid, 'EXECUTE')  as auth_executa,
        has_function_privilege('anon',          p.oid, 'EXECUTE')  as anon_executa,
        (pg_get_functiondef(p.oid) ilike '%projeto_evento_log%')   as chama_evento_log,
-       (pg_get_functiondef(p.oid) ilike '%sistema%')              as tem_literal_sistema
+       (pg_get_functiondef(p.oid) ~* $re$enviado_alvo_por\s*=\s*'sistema'$re$) as grava_literal_sistema,
+       (pg_get_functiondef(p.oid) ~* $re$enviado_alvo_por\s*=\s*v_quem$re$)    as grava_usuario_real
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
  where n.nspname='public' and p.proname='projeto_pedido_marcar_enviado';
--- Esperado: true | {"search_path=public, auth"} | true | false | true | FALSE
---           (tem_literal_sistema DEVE ser false — e o ponto do D-8)
+-- Esperado: true | {"search_path=public, auth"} | true | false | true | FALSE | TRUE
+--   D-8 cumprida  <=>  grava_literal_sistema = false  E  grava_usuario_real = true
+
+-- Se quiser ver de onde vem qualquer mencao a "sistema" no corpo (deve ser so
+-- o comentario do D-8):
+--   select l.nro, l.linha
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace,
+--          lateral unnest(string_to_array(pg_get_functiondef(p.oid), chr(10)))
+--            with ordinality as l(linha, nro)
+--    where n.nspname='public' and p.proname='projeto_pedido_marcar_enviado'
+--      and l.linha ilike '%sistema%';
 
 -- =====================================================================
 -- ROLLBACK:
