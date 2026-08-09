@@ -257,7 +257,15 @@ export function NovaRMModal({ open, onOpenChange, onCreated, opIdInicial = null 
       onCreated(); // o livro mexeu em qualquer desfecho — o pai revalida sempre
 
       if (r.ok) {
-        toast.success(`RM ${r.numero} criada e em atendimento Manual.`);
+        if (r.avisoEspelho) {
+          // Passo 4 (semeadura do espelho) falhou com o ciclo do ERP OK. NÃO é
+          // falha de envio: a RM está correta lá. O que se perde é só a aparição
+          // imediata na fila — o sync a traz em ≤3h, e ela fica visível no bloco
+          // "Envios incompletos" enquanto isso. Aviso longo, sem auto-dismiss.
+          toast.warning(r.avisoEspelho, { duration: 12000 });
+        } else {
+          toast.success(`RM ${r.numero} criada e em atendimento Manual.`);
+        }
         setDirty(false);
         doClose();
         return;
@@ -295,7 +303,9 @@ export function NovaRMModal({ open, onOpenChange, onCreated, opIdInicial = null 
       });
       onCreated();
       if (r.ok) {
-        toast.success(`RM ${r.numero} agora está em atendimento Manual.`);
+        // Mesmo critério do `enviar`: o passo 4 falhando não é falha do envio.
+        if (r.avisoEspelho) toast.warning(r.avisoEspelho, { duration: 12000 });
+        else toast.success(`RM ${r.numero} agora está em atendimento Manual.`);
         await recarregarPendente();
       } else {
         toast.error(r.erro || "O passo 2 falhou de novo — confira a RM no Alvo.");

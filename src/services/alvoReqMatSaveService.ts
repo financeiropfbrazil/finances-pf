@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { criarRMNoLivro, marcarRMEnviada, marcarRMConfirmada } from "./reqMatService";
+import { semearEspelhoDaCriacao } from "./reqMatEspelhoService";
 
 /**
  * CRIAÇÃO DE RM NO ALVO — o ciclo de três passos.  ·  OP-2.7
@@ -20,6 +21,12 @@ import { criarRMNoLivro, marcarRMEnviada, marcarRMConfirmada } from "./reqMatSer
  *   passo 1  SaveReqMat  Action=Insert   → devolve `data.Numero`
  *   passo 2  SaveReqMat  Action=Update   → TipoAtendimento: "Manual"
  *   passo 3  ReqMat/Load                 → confirma que ficou "Manual"
+ *   passo 4  semear espelho              → a RM aparece na fila NA HORA (OP-2.8)
+ *
+ * O passo 4 nasceu do primeiro teste real (RM 0000002286, 08/08/2026): o ciclo
+ * inteiro passou em 10 s e a RM **não apareceu em lugar nenhum**, porque a fila
+ * lê `op_reqmat` e o espelho só anda 4×/dia — era sábado, e o cron roda
+ * `* * 1-5`. Detalhe e justificativa em `reqMatEspelhoService.ts`.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * CAMINHO: `POST {gateway}/alvo/passthrough` com o JWT do usuário, corpo
@@ -100,6 +107,12 @@ export interface ResultadoEnvioRM {
   numero: string | null;
   fase: FaseRM;
   erro?: string;
+  /**
+   * Passo 4 (OP-2.8) falhou com o ciclo do ERP OK. NÃO é falha de envio: a RM
+   * está correta no Alvo, só o espelho ficou para trás e o próximo sync
+   * conserta. A tela avisa; nada bloqueia.
+   */
+  avisoEspelho?: string;
 }
 
 export class ReqMatSaveError extends Error {
@@ -282,12 +295,32 @@ export async function concluirEnvioRM(
       return { ok: false, livroId, numero, fase: "load", erro };
     }
 
+    // ── Passo 4 — semear o espelho (OP-2.8) ──
+    // 🔴 ANTES do `marcarRMConfirmada`, e a ordem é EXIGÊNCIA, não estilo: a RPC
+    //    `op_reqmat_semear_criacao` só aceita linha do livro em `enviado`. É essa
+    //    janela que prova que a semeadura pertence a esta criação e não a uma
+    //    chamada solta — depois do carimbo `confirmado` ela recusaria, e com
+    //    razão.
+    //
+    // Semeia a partir de `data` (o corpo do Load), NUNCA do payload montado: o
+    // Alvo renumera a `Sequencia` do item (medido: enviamos 1, voltou 2).
+    const semeadura = await semearEspelhoDaCriacao(numero, data);
+
     const r = await marcarRMConfirmada(livroId, data);
+
+    // Nenhum dos dois desfechos abaixo é falha de ENVIO: a RM está correta no
+    // ERP em ambos. O que falta em cada caso é registro do lado do Hub, e o
+    // sync (≤3 h) fecha os dois.
+    const avisoEspelho = semeadura.ok
+      ? undefined
+      : `A RM ${numero} foi criada corretamente no ERP, mas ainda não pôde ser gravada na lista do Hub` +
+        `${semeadura.motivo ? ` (${semeadura.motivo})` : ""}. Ela aparece após a próxima sincronização.`;
+
     if (!r.ok) {
       // A RM está certa no ERP; só o livro não registrou. Não é falha do envio.
-      return { ok: true, livroId, numero, fase: "completo", erro: r.mensagem };
+      return { ok: true, livroId, numero, fase: "completo", erro: r.mensagem, avisoEspelho };
     }
-    return { ok: true, livroId, numero, fase: "completo" };
+    return { ok: true, livroId, numero, fase: "completo", avisoEspelho };
   } catch (e: any) {
     // Passo 3 falhando sozinho é benigno: o passo 2 já passou e o próximo sync
     // (≤3h) traz o `tipo_atendimento` real. Fica em `enviado` com a nota.

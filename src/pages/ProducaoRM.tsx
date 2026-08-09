@@ -39,7 +39,7 @@ import {
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { getStatusRM, getStatusRMVisual, STATUS_RM_ORDER, STATUS_RM_FILTER_OPTIONS } from "@/lib/statusRM";
-import { listarRMs, contarPorStatus, listarRequisitantes, listarRMsPendentesSync } from "@/services/reqMatService";
+import { listarRMs, contarPorStatus, listarRequisitantes, listarEnviosIncompletos } from "@/services/reqMatService";
 
 // ── Formatadores ─────────────────────────────────────────────────────────────
 
@@ -65,6 +65,34 @@ function paramToDate(s: string | null): Date | undefined {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) return undefined;
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/**
+ * Sinal "criada agora" (OP-2.8) — discreto de propósito.
+ *
+ * A RM semeada pela criação nasce com `detalhes_carregados_em` preenchido e
+ * atendimento zerado: a olho, é indistinguível de uma RM do Hub sincronizada há
+ * dias, porque `Origem = Importação` e `status = Aberta` valem nos dois casos. O
+ * que ela tem de particular é que o sync **ainda não passou por ela** — e é isso
+ * que o ícone diz.
+ *
+ * Some sozinho no primeiro sync (ver `criada_agora` em `reqMatService`): nada a
+ * limpar, nada a expirar. Um aviso que não se apaga vira ruído, e ruído deixa de
+ * ser lido — foi o critério que matou a versão "sempre avisar" da §10.26-1.
+ */
+function SinalCriadaAgora() {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <CloudUpload className="ml-1.5 inline h-3 w-3 shrink-0 cursor-help align-text-top text-blue-600" />
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs">
+          Criada no Hub agora. O atendimento é atualizado na próxima sincronização.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 type ViewMode = "lista" | "cards";
@@ -160,19 +188,22 @@ export default function ProducaoRM() {
     queryFn: listarRequisitantes,
   });
 
-  // RMs que já existem no LIVRO mas o espelho ainda não viu (o cron anda
-  // 4×/dia). Sem isto, quem cria uma RM às 10h não a encontra na fila até as
-  // 12h25 e conclui, com razão, que "criei e não apareceu".
-  const { data: pendentesSync = [] } = useQuery({
-    queryKey: ["rm_pendentes_sync"],
-    queryFn: () => listarRMsPendentesSync(),
+  // Divergência livro × espelho: existe no ERP e o Hub não enxerga.
+  //
+  // Desde a OP-2.8 a criação grava o espelho no ato, então em regime normal isto
+  // vem VAZIO e o bloco nem renderiza. O que sobra é exceção — sobretudo a RM
+  // `enviado` não confirmada, que existe no ERP em atendimento `Automático` (ou
+  // seja, morta) e exige o passo 2.
+  const { data: enviosIncompletos = [] } = useQuery({
+    queryKey: ["rm_envios_incompletos"],
+    queryFn: () => listarEnviosIncompletos(),
   });
 
   const aoCriar = () => {
     queryClient.invalidateQueries({ queryKey: ["rm_lista"] });
     queryClient.invalidateQueries({ queryKey: ["rm_counts"] });
     queryClient.invalidateQueries({ queryKey: ["rm_requisitantes"] });
-    queryClient.invalidateQueries({ queryKey: ["rm_pendentes_sync"] });
+    queryClient.invalidateQueries({ queryKey: ["rm_envios_incompletos"] });
     queryClient.invalidateQueries({ queryKey: ["rm_pendente_conclusao"] });
     // O consolidado da OP soma as RMs do livro — precisa acompanhar.
     queryClient.invalidateQueries({ queryKey: ["op_consolidado"] });
@@ -276,36 +307,47 @@ export default function ProducaoRM() {
         </div>
       </div>
 
-      {/* Aguardando sincronização — o livro do Hub antes do espelho.
-          O cron do `sync-reqmat` roda 4×/dia (09h25/12h25/15h25/18h25), então
-          uma RM criada agora só aparece na lista abaixo em até ~3h. Estas
-          linhas vêm de `op_requisicoes`, que é dado real gravado por RPC, e
-          somem sozinhas quando o sync alcançar. */}
-      {pendentesSync.length > 0 && (
-        <Card className="border-blue-500/30 bg-blue-500/5">
+      {/* ENVIOS INCOMPLETOS — divergência entre o livro e o espelho.
+          🔴 O eixo deste bloco é "existe no ERP e o Hub não enxerga", NÃO
+             "qual o status do envio" — foi a troca de eixo que fez a primeira
+             RM do caminho feliz (0000002286) sumir das duas vistas. Ver o
+             comentário de `listarEnviosIncompletos`.
+          Desde a OP-2.8 a criação grava o espelho no ato ⇒ em regime normal
+          este bloco fica VAZIO e invisível, e essa é a diferença que importa:
+          o que aparecer aqui é exceção, e pede ação. */}
+      {enviosIncompletos.length > 0 && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
           <CardContent className="space-y-2 p-4">
             <div className="flex items-center gap-2">
-              <CloudUpload className="h-4 w-4 text-blue-600" />
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
               <span className="text-sm font-semibold text-foreground">
-                Aguardando sincronização ({pendentesSync.length})
+                Envios incompletos ({enviosIncompletos.length})
               </span>
               <span className="text-xs text-muted-foreground">
-                criadas no Hub; aparecem na lista após o próximo sync (09h25, 12h25, 15h25 e 18h25)
+                criadas no ERP e ainda ausentes da lista abaixo
               </span>
             </div>
             <div className="space-y-1.5">
-              {pendentesSync.map((p) => {
-                const incompleta = p.status_envio === "enviado" && !!p.erro_mensagem;
+              {enviosIncompletos.map((p) => {
+                // O estado perigoso: a RM EXISTE no ERP e nasceu em atendimento
+                // `Automático` — ou seja, nunca será atendida. É o único caso
+                // deste bloco que exige ação humana, e por isso é o único em
+                // vermelho.
+                const morta = p.status_envio === "enviado" && !!p.numero_reqmat;
                 return (
                   <div
                     key={p.id}
                     className={cn(
                       "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border p-2 text-xs",
-                      incompleta ? "border-destructive/40 bg-destructive/5" : "border-border bg-background",
+                      morta ? "border-destructive/40 bg-destructive/5" : "border-border bg-background",
                     )}
                   >
                     <Badge variant="outline" className="text-[11px]">
-                      {p.status_envio === "pendente" ? "Enviando…" : "Criada no ERP"}
+                      {p.status_envio === "pendente"
+                        ? "Enviando…"
+                        : p.status_envio === "enviado"
+                          ? "Envio interrompido"
+                          : "Aguardando sincronização"}
                     </Badge>
                     <span className="font-mono font-medium">{p.numero_reqmat || "—"}</span>
                     {p.op_numero && <span className="text-muted-foreground">OP {p.op_numero}</span>}
@@ -313,10 +355,17 @@ export default function ProducaoRM() {
                     <span className="ml-auto text-muted-foreground">
                       {format(new Date(p.criado_em), "dd/MM 'às' HH:mm", { locale: ptBR })}
                     </span>
-                    {incompleta && (
+                    {morta && (
                       <p className="w-full text-destructive">
-                        Envio incompleto — a RM está em atendimento Automático e não será atendida. Abra "Nova RM"
-                        nesta OP para concluir o passo 2.
+                        A RM foi criada no ERP mas o envio não terminou: ela está em atendimento Automático e{" "}
+                        <strong>não será atendida</strong>. Abra "Nova RM" nesta OP para concluir o passo 2 — não crie
+                        outra, seria RM duplicada.
+                      </p>
+                    )}
+                    {p.status_envio === "confirmado" && (
+                      <p className="w-full text-muted-foreground">
+                        A RM está correta no ERP; só o registro no Hub não foi gravado. Ela entra na lista na próxima
+                        sincronização (09h25, 12h25, 15h25 e 18h25, dias úteis).
                       </p>
                     )}
                   </div>
@@ -623,7 +672,10 @@ export default function ProducaoRM() {
                         className="cursor-pointer border-b transition-colors last:border-b-0 hover:bg-muted/40"
                         onClick={() => abrir(r.numero)}
                       >
-                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs tabular-nums">{r.numero}</td>
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs tabular-nums">
+                          {r.numero}
+                          {r.criada_agora && <SinalCriadaAgora />}
+                        </td>
                         <td className="whitespace-nowrap px-4 py-3 tabular-nums">{formatData(r.data)}</td>
                         <td className="max-w-[280px] px-4 py-3">
                           <span className="line-clamp-1">{r.descricao || "—"}</span>
@@ -706,7 +758,10 @@ export default function ProducaoRM() {
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
-                    <span className="font-mono text-xs tabular-nums text-muted-foreground">Nº {r.numero}</span>
+                    <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                      Nº {r.numero}
+                      {r.criada_agora && <SinalCriadaAgora />}
+                    </span>
                   </div>
 
                   <div>

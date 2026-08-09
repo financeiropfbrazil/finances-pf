@@ -74,6 +74,14 @@ function limparTermo(termo: string): string {
   return termo.replace(/[,()%]/g, " ").trim();
 }
 
+/** `a` é estritamente anterior a `b`? Falso se qualquer um faltar ou não parsear. */
+function antesDe(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  return Number.isFinite(ta) && Number.isFinite(tb) && ta < tb;
+}
+
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
 export interface FiltrosRM {
@@ -106,6 +114,7 @@ export interface RMListItem {
   codigo_loc_armaz: string | null;
   detalhes_carregados_em: string | null;
   ausente_desde: string | null;
+  sincronizado_em: string | null;
   // Derivados (resolvidos em lote):
   funcionario_nome: string | null;
   centro_nome: string | null;
@@ -117,6 +126,24 @@ export interface RMListItem {
   op_numero: string | null;
   op_id: string | null;
   status_envio: string | null;
+  /**
+   * 🔴 O SINAL "criada agora" (OP-2.8), derivado — sem coluna nova, sem DDL.
+   *
+   * `true` quando a RM foi semeada pela CRIAÇÃO e o sync ainda não passou por
+   * ela: `op_requisicoes.confirmado_em` existe e é POSTERIOR ao
+   * `op_reqmat.sincronizado_em` da linha (que a semeadura carimbou com o
+   * instante da criação).
+   *
+   * Por que ele é necessário: a linha recém-semeada tem
+   * `detalhes_carregados_em` preenchido e atendimento zerado — indistinguível,
+   * a olho, de uma RM do Hub sincronizada há dias. `Origem = Importação` e
+   * `status = Aberta` são verdadeiros nos dois casos.
+   *
+   * E por que ele não vira ruído: o primeiro passo A do sync reescreve
+   * `sincronizado_em`, a desigualdade se inverte e o sinal **se apaga sozinho**.
+   * Nada a limpar, nada a expirar.
+   */
+  criada_agora: boolean;
 }
 
 export interface RMItem {
@@ -270,8 +297,10 @@ function aplicarRestricao(query: any, r: Restricao): any {
 
 // ── Leitura: lista ───────────────────────────────────────────────────────────
 
+// `sincronizado_em` entra por causa do sinal "criada agora" (OP-2.8): é a
+// metade do espelho na comparação com `op_requisicoes.confirmado_em`.
 const CAMPOS_LISTA =
-  "codigo_empresa_filial, numero, data, descricao, status, origem, tipo_atendimento, codigo_usuario, codigo_funcionario, codigo_centro_ctrl, codigo_loc_armaz, detalhes_carregados_em, ausente_desde";
+  "codigo_empresa_filial, numero, data, descricao, status, origem, tipo_atendimento, codigo_usuario, codigo_funcionario, codigo_centro_ctrl, codigo_loc_armaz, detalhes_carregados_em, ausente_desde, sincronizado_em";
 
 /**
  * Lista paginada de RMs de produção + total exato. Os agregados por RM (itens,
@@ -316,7 +345,11 @@ export async function listarRMs(params: ListarRMsParams): Promise<{ rms: RMListI
         .in("numero_reqmat", numeros)
         .range(de, ate),
     ),
-    (supabase as any).from("op_requisicoes").select("numero_reqmat, op_id, status_envio").in("numero_reqmat", numeros),
+    (supabase as any)
+      .from("op_requisicoes")
+      // `confirmado_em` alimenta o sinal "criada agora" — ver `criada_agora`.
+      .select("numero_reqmat, op_id, status_envio, confirmado_em")
+      .in("numero_reqmat", numeros),
     funcionarios.length
       ? (supabase as any).from("funcionarios_alvo_cache").select("codigo, nome").in("codigo", funcionarios)
       : Promise.resolve({ data: [] as any[] }),
@@ -368,6 +401,13 @@ export async function listarRMs(params: ListarRMsParams): Promise<{ rms: RMListI
       op_id: v?.op_id ?? null,
       op_numero: v?.op_id ? opNumeroPorId.get(v.op_id) ?? null : null,
       status_envio: v?.status_envio ?? null,
+      // Semeada pela criação e ainda não alcançada pelo sync.
+      // ⚠ Comparação por `Date.parse`, NÃO lexicográfica: as duas colunas são
+      //   `timestamptz` e voltam em UTC, mas a fração de segundo tem tamanho
+      //   variável (`.15` × `.150994`) e a comparação de string erraria por
+      //   milissegundos — exatamente a ordem de grandeza que separa a semeadura
+      //   do carimbo de confirmação.
+      criada_agora: antesDe(r.sincronizado_em, v?.confirmado_em),
     };
   });
 
@@ -895,7 +935,7 @@ export async function funcionarioDoUsuario(userId: string): Promise<FuncionarioD
   return { codigo, nome: func?.nome || codigo };
 }
 
-// ── Livro: o que ainda não chegou ao espelho ─────────────────────────────────
+// ── Livro × espelho: o que existe no ERP e o Hub ainda não enxerga ───────────
 
 export interface RMNoLivro {
   id: string;
@@ -911,20 +951,49 @@ export interface RMNoLivro {
 }
 
 /**
- * RMs do livro que o espelho AINDA NÃO VIU.
+ * RMs que o LIVRO conhece e o ESPELHO ainda não viu.
  *
- * A fila lê `op_reqmat`, que só anda 4×/dia — então uma RM criada agora fica
- * invisível por até 3h e o operador conclui, com razão, que "criei e não
- * apareceu". Estas linhas são renderizadas no topo com badge próprio e somem
- * sozinhas quando o sync alcançar.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 🔴 A LIÇÃO QUE ESTA FUNÇÃO CARREGA (OP-2.8) — o defeito era de EIXO
  *
- * Não é otimismo de UI: é o livro, que é dado real do Hub, gravado por RPC.
+ * A primeira versão (OP-2.7) filtrava `status_envio IN ('pendente','enviado')`.
+ * Parecia certo e não era: `status_envio` responde **"o ERP aceitou?"**, e a
+ * pergunta desta função é **"o Hub já enxerga?"** — que só `op_reqmat` responde.
+ *
+ * O resultado: a primeira RM que percorreu o caminho feliz inteiro (a
+ * `0000002286`, em 08/08/2026) chegou a `confirmado` e **sumiu das duas vistas**
+ * — não estava no espelho (o sync não a tinha lido) e não estava no bloco
+ * (porque `confirmado` não é `pendente` nem `enviado`). Os testes anteriores
+ * nunca haviam chegado ao estado terminal.
+ *
+ * ⇒ **Um caminho feliz que nunca rodou não é caminho validado.**
+ *
+ * ⇒ E a regra geral: onde há livro e espelho, todo filtro declara qual dos dois
+ *   está perguntando. Mesma família da §10.27(a) (`ausente_desde`: o espelho
+ *   sabia, a tela não perguntava) e da §6.3-N (`item.BaixaEstoque` = regra,
+ *   `cabecalho.BaixouEstoque` = fato).
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Desde a OP-2.8 a criação grava o espelho no ato, então em regime normal esta
+ * lista vem VAZIA e o bloco da tela nem aparece. O que sobra aqui é exceção de
+ * verdade — sobretudo o `enviado` não confirmado, em que a RM existe no ERP,
+ * está em atendimento `Automático` (ou seja, morta) e precisa do passo 2.
+ *
+ * ⚠ `erro` fica DE FORA: ali nada foi criado no ERP, então não há divergência
+ *   livro×espelho para resolver — o operador já foi avisado no ato, no modal.
+ *   Incluí-lo encheria o bloco de lixo permanente, e um aviso que nunca se
+ *   resolve deixa de ser lido.
+ *
+ * ⚠ Varremos os três status vivos e filtramos pelo espelho no cliente: não há
+ *   anti-join no PostgREST. O universo é o do tipo produção (~280 RMs/ano) e
+ *   quase todas saem no filtro do espelho. Se um dia isto pesar, o corte natural
+ *   é por janela de data — nunca por `status_envio`, que é o eixo errado.
  */
-export async function listarRMsPendentesSync(opId?: string): Promise<RMNoLivro[]> {
+export async function listarEnviosIncompletos(opId?: string): Promise<RMNoLivro[]> {
   let q = (supabase as any)
     .from("op_requisicoes")
     .select("id, op_id, numero_reqmat, status_envio, criado_em, erro_mensagem, payload_enviado")
-    .in("status_envio", ["pendente", "enviado"])
+    .in("status_envio", ["pendente", "enviado", "confirmado"])
     .order("criado_em", { ascending: false });
   if (opId) q = q.eq("op_id", opId);
 
@@ -974,6 +1043,6 @@ export async function listarRMsPendentesSync(opId?: string): Promise<RMNoLivro[]
  *    fica indisponível para AQUELA OP e a tela oferece "Concluir envio".
  */
 export async function rmPendenteDeConclusao(opId: string): Promise<RMNoLivro | null> {
-  const pendentes = await listarRMsPendentesSync(opId);
+  const pendentes = await listarEnviosIncompletos(opId);
   return pendentes.find((p) => p.status_envio === "enviado" && !!p.numero_reqmat) ?? null;
 }
