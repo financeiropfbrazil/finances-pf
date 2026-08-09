@@ -215,20 +215,72 @@ padrão do local `001`, **independentemente de quem atende**. Não é editável 
 
 Medição: **110 de 175** produtos requisitados no ano têm lote registrado.
 
+### 2.6 🟢 `RelacionarCtrlLoteLocArmaz` — o alocador FEFO do servidor (AT-2, 09/08)
+
+```
+POST https://pef.it4you.inf.br/api/CtrlLoteLocArmaz/RelacionarCtrlLoteLocArmaz
+```
+
+**Não é conveniência da tela: é o Alvo alocando.**
+
+**Request:** o mesmo envelope do `ListaCtrlLoteLocArmaz` (§2.2), com dois acréscimos —
+`Lista` (o array devolvido pela lista) e o `ClassInstance` com a **quantidade a atender** já
+preenchida.
+
+**Response:** o **item de volta**, com a `CtrlLoteItemReqMatChildList` **já montada**. Espécime
+(RM `0000002277`, item `001.003.00047`, 20 a atender): uma linha, lote `0002467`, quantidade 20 —
+**o de validade mais próxima**. O usuário não alocou nada.
+
+⇒ **O Hub NÃO precisa implementar FEFO.** Chama o `Relacionar` e recebe a alocação pronta.
+E continua podendo montar à mão — a RM `0000002273` (§2.1) foi atendida com rateio manual entre
+dois lotes, **sem** passar por ele.
+
+⇒ Isso muda a AT-4: o passo 3 do ciclo deixa de ser "o usuário aloca" e passa a ser "o Hub
+propõe (via `Relacionar`) e o usuário ajusta".
+
+⇒ E explica o episódio de 05/08 no teste da RM `2272`: a quantidade do modal de lote vinha
+**pré-preenchida**, e foi preciso ajustá-la. Era este endpoint.
+
+#### 🟢 `QuantidadeBruta` — mistério resolvido
+
+A §2.3 registrava o campo como de significado não fechado. **É a quantidade ORIGINAL do lote**,
+não o total do atendimento:
+
+| RM | Lote | Saldo hoje | `QuantidadeBruta` |
+|---|---|---|---|
+| `2275` | `0002696` | 5 | 5 |
+| `2272` | `0002311` / `0002312` | 1 e 4 | 4 e 4 |
+| `2277` | `0002467` | 154 | **350** |
+
+⇒ **A regra prática não muda** — o quanto sai de cada lote é `QuantidadeProdUnidMedPrincipal`.
+Mas o campo ganha uso legítimo: dá para mostrar **"154 de 350"** na tela, informação de estoque
+que o Alvo não exibe.
+
+#### ⚠ Campo novo: classificação contábil no item
+
+O item devolvido pelo `Relacionar` traz `ItemReqMatClasseRecdespChildList` preenchida —
+`{ "CodigoClasseRecDesp": "11.03", "Percentual": 100 }`. **Não aparecia em nenhum `ReqMat/Load`
+anterior.** É rateio por classe de receita/despesa. Ver **BL-30** no `PLANO-OP.md`: se a RM
+criada pelo Hub nascer sem isso, pode ficar sem classificação contábil.
+
 ---
 
 ## 3. Tarefas
 
 | # | Tarefa | Entregável | Estado |
 |---|---|---|---|
-| **AT-1** | Whitelist: `CtrlLoteLocArmaz/ListaCtrlLoteLocArmaz` · `ReqMat/ValidarAtendimento` · `ReqMat/FinalizarAtendimento` | commit no `erp-proxy` | ⬜ |
-| **AT-2** | Capturar `RelacionarCtrlLoteLocArmaz` (§5.1) | registro neste plano | ⬜ |
+| **AT-1** | Whitelist: `CtrlLoteLocArmaz/ListaCtrlLoteLocArmaz` · `ReqMat/ValidarAtendimento` · `ReqMat/FinalizarAtendimento` | commit no `erp-proxy` | ✅ **09/08** |
+| **AT-2** | Capturar `RelacionarCtrlLoteLocArmaz` (§2.6) | registro neste plano | ✅ **09/08** |
 | **AT-3** | RPC de escrita do atendimento + livro | `sql/AT-1.sql` | ⬜ |
 | **AT-4** | Serviço de atendimento (Load → lotes → Validar → Finalizar → semear) | `src/services/` | ⬜ |
 | **AT-5** | Tela / modal de atendimento | `src/pages/` | ⬜ |
 | **AT-6** | Registro no `PLANO-OP.md` | — | ⬜ |
 
-### AT-1 — Whitelist do `erp-proxy`
+### AT-1 — Whitelist do `erp-proxy` ✅ FEITA em 09/08/2026
+
+**Deploy verde no Render e provado no console:** 403 → **417** (`ListaCtrlLoteLocArmaz`), **200** (`ValidarAtendimento`), **200** (`FinalizarAtendimento`).
+
+🔴 **Armadilha descoberta no teste:** `FinalizarAtendimento` com payload vazio responde **200 com um objeto ReqMat em branco** (`Numero: ""`, `Status: "Aberta"`, `BaixouEstoque: "Não"`), **não erro**. ⇒ **O Hub não pode tratar 200 como sucesso.** Exigir a âncora — `ReqMat.Numero` presente, não-nulo e não-vazio — antes de aceitar a resposta (mesma guarda do `analisarRespostaReqMat`).
 
 Repo **separado** (`financeiropfbrazil/erp-proxy`), arquivo `src/routes/alvo.ts`, deploy
 automático no Render ao push.
@@ -269,7 +321,8 @@ filhos **em transação**, de propósito, para fechar a janela em que a RM apare
 ```
 1. Load          ReqMat/Load?numero=X&loadChild=All   ← a verdade de AGORA
 2. Lotes         ListaCtrlLoteLocArmaz, por item com ControlaLote="Sim"
-3. [usuário aloca]
+3. Relacionar     RelacionarCtrlLoteLocArmaz  ← o Alvo ALOCA em FEFO (§2.6)
+   [usuário ajusta, se quiser]
 4. RELEITURA     Load de novo  🔴 se as quantidades mudaram → RECUSA
 5. Validar       ReqMat/ValidarAtendimento
 6. Finalizar     ReqMat/FinalizarAtendimento (o objeto que o Validar devolveu)
@@ -330,7 +383,7 @@ Entrada pela fila (`/producao/rm`) e pelo detalhe, gateada por `producao.rm.aten
 
 ## 5. Incógnitas — medir antes de codificar
 
-### 5.1 `RelacionarCtrlLoteLocArmaz` — não capturado
+### 5.1 ~~`RelacionarCtrlLoteLocArmaz` — não capturado~~ ✅ RESOLVIDO em 09/08 — ver §2.6
 
 Aparece no Network entre a lista de lotes e o `ValidarAtendimento` (5,2 kB). Provavelmente aplica
 a seleção ao item.
@@ -387,6 +440,7 @@ lista de lotes respeita a mesma unidade do item.
 | Data | Item | Registro |
 |---|---|---|
 | 08/08/2026 | BL-21 | **Fechado.** `CtrlLoteLocArmaz/ListaCtrlLoteLocArmaz` capturado com payload e resposta. Lista vem ordenada por validade; traz `DataFabricacao`, que a tela do Alvo não mostra. `QuantidadeReserva/EmpenhoLote` nulos ⇒ saldo é bruto. ⚠ A captura custou o atendimento real da RM `0000002283`: **30 unidades de `001.003.00059` baixaram do estoque** (lote `0002467`, 674 → 644). Verificar com o almoxarifado se o material foi fisicamente entregue. |
+| 09/08/2026 | AT-1 · AT-2 | **A Fase 4 perde a última incógnita.** Whitelist liberada e provada (403 → 417/200/200). 🔴 `FinalizarAtendimento` com payload vazio responde **200 com objeto em branco**, não erro ⇒ exigir âncora. 🟢 O `RelacionarCtrlLoteLocArmaz` é **o alocador FEFO do servidor** — devolve a lista de lotes montada; o Hub não precisa implementar FEFO. 🟢 `QuantidadeBruta` = quantidade **original** do lote (fecha nos três espécimes). ⚠ **BL-30**: `ItemReqMatClasseRecdespChildList` (`11.03`, 100%) aparece no item e não vinha em `Load` nenhum. Captura sem efeito colateral — fechada no X, sem Validar/Finalizar. |
 | 08/08/2026 | Processo | Decisão do Pedro: **o almoxarifado pode atender no Hub ou no Alvo**. ⇒ Releitura antes de finalizar vira requisito, não refinamento. |
 
 ---
