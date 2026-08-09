@@ -899,6 +899,34 @@ Foi exatamente o que aconteceu na **OP-2.7**: o arquivo trazia `revoke ... from 
 preserva o ACL, mas na criação o default privilege entra primeiro. Relacionado ao **BL-27**, que
 esta descoberta explica (ver §8).
 
+**Dimensão do passivo — medida em 08/08/2026, e é maior do que o BL-27 supunha.**
+
+| Métrica | Valor |
+|---|---|
+| Funções em `public` (`prokind='f'`) | **284** |
+| Chamáveis por `anon` | **220** |
+| Chamáveis por `anon`, **excluindo triggers** | **196** |
+
+Entre as 196, com `SECURITY DEFINER`: as **8 `call_sync_*_cron`** (o BL-27), **5 RPCs de escrita
+do módulo OP** (`op_criar_ordem`, `op_atualizar_rascunho`, `op_transicao_status`,
+`op_registrar_aprovacao`, `op_registrar_comunicacao` — apesar de o `sql/OP-1.2.sql` trazer
+`revoke ... from public`, que agora se sabe não bastar), **7 de Despesas** (incluindo
+`desp_fechar_competencia` e `desp_reabrir_competencia`) e ~20 de cron.
+
+⚠ **"Chamável" ≠ "explorável", e a distinção importa para não virar alarme falso.** A exposição
+efetiva depende do **gate interno** de cada função: as RPCs do OP-1.2 gateiam por
+`user_has_permission(auth.uid(), …)` e, com `auth.uid()` null, **recusam** — o `anon` alcança a
+função e leva "não autorizado". O caso concreto é o das **`call_sync_*_cron`, que não têm gate
+nenhum** — e é exatamente por isso que o BL-27 existe. ⇒ O trabalho não é revogar 196 funções às
+cegas: é **auditar quem não tem gate** e, daí em diante, **prevenir na origem**.
+
+**Varredura dos arquivos `sql/` do repo (mesma data):** `OP-2.9`, `OP-2.3`, `PROJ-L2.1/L2.2/L2.3/
+L4.0/L7A` e `SPEC-D016` **revogam de `anon`** (padrão correto); `OP-2.7` revoga só de `public`
+(o defeito, já corrigido à mão); `OP-1.1`, `OP-2.6`, `PROJ-L2.0`, `PROJ-L2.4`, `REC-1.0` e
+`REC-1.1` **não revogam nada** — parte é `create or replace` sobre função existente (que preserva
+o ACL e portanto não reabre) e parte é trigger function (não exposta pelo PostgREST), mas o
+inventário é o ponto de partida da auditoria.
+
 🔴 **A FAMÍLIA DOS DOIS EIXOS — terceira ocorrência, e agora tem nome.**
 
 | Ocorrência | Eixo A | Eixo B | O erro |
@@ -1012,7 +1040,7 @@ anteriores nunca chegaram ao estado terminal.
 
 | ID | Origem | Descrição |
 |---|---|---|
-| BL-27 | OP-2.6 · 06/08/2026 | 🔴 **8 das 9 `call_sync_*_cron` estão abertas a `anon` E `authenticated`** — compras_status, despesas, docfin, intercompany, laudos, lote, nfe, produtos. Só a `call_sync_reqmat_cron` está trancada. Como todas são chamadas por dentro de RPCs `SECURITY DEFINER` com owner `postgres` (`sync_cron_trigger_now` e as dedicadas), **revogar as 8 de anon/authenticated não quebraria nenhuma tela** — a reqmat é a prova viva, e a OP-2.6 confirma o mecanismo. É um bloco de `REVOKE` + teste de fumaça nas 5 telas. **Amplia e substitui o BL-17.** ⚠ São crons de 100+ usuários: merece tarefa própria com verificação. **🔴 CAUSA RAIZ ENCONTRADA em 08/08/2026 (OP-2.8) — ninguém as abriu: elas NASCERAM assim.** `pg_default_acl` mostra um `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role` (padrão do Supabase) ⇒ toda função nova em `public` recebe EXECUTE **nominalmente** para `anon`, e `revoke ... from public` **não alcança grant nominal**. Isso muda a natureza do backlog: **não é higiene de 8 funções antigas, é o comportamento-padrão do projeto** — sem `revoke execute ... from anon` explícito, com assinatura completa, **toda RPC nova nasce aberta a `anon`**. Aconteceu na OP-2.7 (as três `op_rm_*`) e foi corrigido à mão. ⇒ Ao atacar o BL-27, tratar também a prevenção, não só as 8. Detalhe em §6.3-N. |
+| BL-27 | OP-2.6 · 06/08/2026 | 🔴 **8 das 9 `call_sync_*_cron` estão abertas a `anon` E `authenticated`** — compras_status, despesas, docfin, intercompany, laudos, lote, nfe, produtos. Só a `call_sync_reqmat_cron` está trancada. Como todas são chamadas por dentro de RPCs `SECURITY DEFINER` com owner `postgres` (`sync_cron_trigger_now` e as dedicadas), **revogar as 8 de anon/authenticated não quebraria nenhuma tela** — a reqmat é a prova viva, e a OP-2.6 confirma o mecanismo. É um bloco de `REVOKE` + teste de fumaça nas 5 telas. **Amplia e substitui o BL-17.** ⚠ São crons de 100+ usuários: merece tarefa própria com verificação. **🔴 CAUSA RAIZ ENCONTRADA em 08/08/2026 (OP-2.8) — ninguém as abriu: elas NASCERAM assim.** `pg_default_acl` mostra um `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role` (padrão do Supabase) ⇒ toda função nova em `public` recebe EXECUTE **nominalmente** para `anon`, e `revoke ... from public` **não alcança grant nominal**. Isso muda a natureza do backlog: **não é higiene de 8 funções antigas, é o comportamento-padrão do projeto** — sem `revoke execute ... from anon` explícito, com assinatura completa, **toda RPC nova nasce aberta a `anon`**. Aconteceu na OP-2.7 (as três `op_rm_*`) e foi corrigido à mão. ⇒ Ao atacar o BL-27, tratar também a prevenção, não só as 8. **E o passivo é maior do que 8:** medido em 08/08/2026, **196 das 284 funções não-trigger de `public` são chamáveis por `anon`** — incluindo as 5 RPCs de escrita do `sql/OP-1.2.sql` (que trazia `revoke ... from public`) e 7 de Despesas. ⚠ **Chamável ≠ explorável:** onde há gate `user_has_permission(auth.uid(), …)`, o `anon` leva "não autorizado" — as `call_sync_*_cron` são o caso real porque **não têm gate**. ⇒ O trabalho vira **auditar quem não tem gate + prevenir na origem**, não revogar 196 às cegas. Inventário e varredura dos arquivos `sql/` em §6.3-N. |
 | BL-28 | OP-2.6 · 06/08/2026 | 🟡 **~137 KB de duplicação nas telas de cron.** Cinco arquivos de 23–31 KB quase idênticos, sem componente compartilhado, e o `describeSchedule` hardcodado em cinco lugares (nenhum converte a expressão cron de verdade — a de Intercompany nem lê o argumento). A OP-2.6 cria o sexto. Extrair um componente parametrizado por `JOB` é escopo próprio: 4 das 5 telas não são do módulo OP. |
 | BL-24 | OP-2.5 · 06/08/2026 | 🔴 **[MÓDULO SUPRIMENTOS — não é do OP]** `sincronizarStatusRequisicao` marca `status='cancelada'` em QUALQUER 404, **sem cross-check** (`src/services/requisicoesService.ts:1111-1155`). É a mesma classe de erro que, no módulo de Pedidos, **marcou 7 pedidos VIVOS** como excluídos e teve de ser revertida — a regra que ficou lá exige **duas fontes concordando** (404 no Load **e** ausência da lista de descoberta). Aqui não existe cross-check para requisições: o Job 4 varre `/req-comp/list`, mas o conjunto não é exportado como no Job 3→Job 2. Já está registrado no `PLANO-PEDIDOS.md` §7 como dívida ("se aparecer requisição 'cancelada' sem motivo, é este o suspeito") e **continua vivo**. Encontrado ao levantar o molde para o refresh da RM; a tela de RM **não** repete o padrão — ela não marca nada. Correção sugerida: espelhar a fiação do cross-check, ou no mínimo exigir estado não-terminal antes de marcar. |
 | BL-25 | OP-2.5 · 06/08/2026 | 🔴 **[MÓDULO SUPRIMENTOS — não é do OP]** O mesmo `sincronizarStatusRequisicao` **não tem guarda anti-wipe**. Se o gateway devolver **200 com corpo vazio/nulo**, `statusAlvo` vira `""`, o `if/else` cai no ramo final e grava **`status='sincronizada'`** — uma requisição cancelada ou convertida em pedido volta a parecer viva, sem erro nenhum. É o "wipe silencioso" que já custou caro no cron de pedidos, por uma porta que ninguém vigiou: o open-load de pedidos ganhou guarda própria (`alvoPedCompLoadService.ts:333`, payload sem `Numero` ⇒ lança e não grava), o `sync-reqmat` tem a régua estrutural (`analisarRespostaReqMat`), e **este caminho não tem nada**. Correção: exigir âncora (`Numero`/`Status` com valor) antes de qualquer gravação, no molde das outras duas. |
@@ -2093,4 +2121,4 @@ A RM semeada entra na fila do sync **no fim** — a ordem é `codigo_tipo_req_ma
 
 ### 6. Dívida deste ciclo, registrada e não paga
 
-**BL-27** — que a OP-2.8 reclassificou: não é higiene de 8 funções antigas, é o **comportamento-padrão do projeto** (toda RPC nova nasce aberta a `anon`; §6.3-N) — e **BL-28** (~137 KB de duplicação nas telas de cron, agora seis). Nenhuma das duas é do módulo OP; ambas são tarefa própria, com regressão.
+**BL-27** — que a OP-2.8 reclassificou em dois sentidos. **(a)** Não é higiene de 8 funções antigas: é o **comportamento-padrão do projeto** — toda RPC nova nasce aberta a `anon`, porque `revoke ... from public` não alcança o grant nominal do default privilege (§6.3-N). **(b)** O passivo medido é **196 das 284 funções não-trigger de `public`**, não 8. ⚠ Mas *chamável ≠ explorável*: onde existe gate `user_has_permission(auth.uid(), …)`, o `anon` leva "não autorizado" — o risco concreto são as `call_sync_*_cron`, **sem gate nenhum**. ⇒ A tarefa certa é **auditar quem não tem gate e prevenir na origem**, não revogar 196 às cegas. Junto com **BL-28** (~137 KB de duplicação nas telas de cron, agora seis). Nenhuma das duas é do módulo OP; ambas são tarefa própria, com regressão.
