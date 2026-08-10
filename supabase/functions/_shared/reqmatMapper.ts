@@ -198,6 +198,22 @@ export function mapearCabecalho(obj: any): Record<string, any> {
   put(r, "data_entrega", tsOpt(i, "DataEntrega"));
   put(r, "codigo_funcionario_entregou", txtOpt(i, "CodigoFuncionarioEntregou"));
   put(r, "codigo_funcionario_retirou", txtOpt(i, "CodigoFuncionarioRetirou"));
+  // ⚠ FORA de COLUNAS_LISTA, como `codigo_tipo_lanc` e `gera_empenho`: o campo
+  // só existe no `ReqMat/Load`, e incluí-lo no passo A faria a listagem APAGAR
+  // a cada execução o que o passo B acabou de gravar.
+  //
+  // 🔴 A coluna existe desde a AT-3 e a `op_reqmat_aplicar_load` sempre soube
+  // gravá-la — faltava esta linha, então a RPC nunca recebia a chave. Medido em
+  // 09/08/2026, antes do backfill da AT-3.1: 0 preenchidas contra 425 de
+  // `codigo_funcionario_retirou`, com o valor presente em 529/529 `raw`.
+  //
+  // ⇒ E o buraco produziu uma conclusão errada sobre a OPERAÇÃO: o plano
+  // registrava que os campos de Entrega "ficam vazios" porque o espelho não os
+  // tinha. Eles não ficam — `Atendida Total` 315/381 (83%) e `Atendida Parcial`
+  // 112/122 (92%), com `Entregou == Conferiu` (o almoxarife) e `Retirou`
+  // variando (quem foi buscar). É a família dos dois eixos, quarta ocorrência:
+  // "o espelho não tem" lido como "a operação não faz".
+  put(r, "codigo_funcionario_conferiu", txtOpt(i, "CodigoFuncionarioConferiu"));
   put(r, "codigo_usuario", txtOpt(i, "CodigoUsuario"));
   put(r, "operacao", txtOpt(i, "Operacao"));
   // "Automático" é o default de nascimento via API e NUNCA atende
