@@ -731,13 +731,54 @@ function mensagemRecusaSubmissao(retorno: string): string {
 }
 
 /**
- * Submissão da requisição (ação final do wizard). Substitui o envio direto ao Alvo:
- * persiste o rascunho, pede o roteamento à RPC `submeter_requisicao` e segue a rota.
+ * AJUSTE 1.2 — o gate propriamente dito, extraído de `submeterRequisicao` para poder
+ * ser reusado pelo reenvio de requisição em rascunho (era o único caminho de UI que
+ * chegava ao ERP sem passar por aqui).
+ *
+ * Recebe uma requisição JÁ PERSISTIDA em 'rascunho', pede o roteamento à RPC
+ * `submeter_requisicao` e segue a rota:
  *
  *   SEM_GATE       → CC sem líder mapeado: envio ao Alvo com a persistência legada.
- *   AUTO_APROVADA  → criador é líder do CC: envio ao Alvo, desfecho só via RPC R4.
+ *   AUTO_APROVADA  → quem submete é líder do CC: envio ao Alvo, desfecho só via RPC R4.
  *   PENDENTE       → para aqui: a req espera a decisão do líder (não vai ao ERP).
  *   qualquer outro → recusa com mensagem visível. Nunca cai no envio por omissão.
+ */
+export async function rotearSubmissao(
+  requisicaoId: string,
+  envio: { userId: string; userName: string },
+): Promise<SubmissaoResult> {
+  const { data, error } = await (supabase as any).rpc("submeter_requisicao", { p_req_id: requisicaoId });
+
+  if (error) {
+    const msg = `Falha ao submeter a requisição para roteamento: ${error.message}. Nada foi enviado ao ERP.`;
+    await tentarRegistrarErroNoRascunho(requisicaoId, msg);
+    return { sucesso: false, requisicao_id: requisicaoId, rota: null, erro: msg };
+  }
+
+  const retorno = String(data ?? "");
+
+  if (retorno === "SEM_GATE") {
+    const result = await enviarRequisicaoAlvo(requisicaoId, { ...envio, persistencia: "legado" });
+    return { ...result, rota: "SEM_GATE" };
+  }
+
+  if (retorno === "AUTO_APROVADA") {
+    const result = await enviarRequisicaoAlvo(requisicaoId, { ...envio, persistencia: "rpc" });
+    return { ...result, rota: "AUTO_APROVADA" };
+  }
+
+  if (retorno === "PENDENTE") {
+    return { sucesso: true, requisicao_id: requisicaoId, rota: "PENDENTE" };
+  }
+
+  const msg = mensagemRecusaSubmissao(retorno);
+  await tentarRegistrarErroNoRascunho(requisicaoId, msg);
+  return { sucesso: false, requisicao_id: requisicaoId, rota: null, erro: msg };
+}
+
+/**
+ * Submissão da requisição (ação final do wizard). Substitui o envio direto ao Alvo:
+ * persiste o rascunho e entrega o roteamento a `rotearSubmissao`.
  */
 export async function submeterRequisicao(input: NovaRequisicaoInput): Promise<SubmissaoResult> {
   let requisicaoId: string;
@@ -757,34 +798,7 @@ export async function submeterRequisicao(input: NovaRequisicaoInput): Promise<Su
     throw errCriacao;
   }
 
-  const { data, error } = await (supabase as any).rpc("submeter_requisicao", { p_req_id: requisicaoId });
-
-  if (error) {
-    const msg = `Falha ao submeter a requisição para roteamento: ${error.message}. Nada foi enviado ao ERP.`;
-    await tentarRegistrarErroNoRascunho(requisicaoId, msg);
-    return { sucesso: false, requisicao_id: requisicaoId, rota: null, erro: msg };
-  }
-
-  const retorno = String(data ?? "");
-  const envio = { userId: input.user_id, userName: input.requisitante_nome };
-
-  if (retorno === "SEM_GATE") {
-    const result = await enviarRequisicaoAlvo(requisicaoId, { ...envio, persistencia: "legado" });
-    return { ...result, rota: "SEM_GATE" };
-  }
-
-  if (retorno === "AUTO_APROVADA") {
-    const result = await enviarRequisicaoAlvo(requisicaoId, { ...envio, persistencia: "rpc" });
-    return { ...result, rota: "AUTO_APROVADA" };
-  }
-
-  if (retorno === "PENDENTE") {
-    return { sucesso: true, requisicao_id: requisicaoId, rota: "PENDENTE" };
-  }
-
-  const msg = mensagemRecusaSubmissao(retorno);
-  await tentarRegistrarErroNoRascunho(requisicaoId, msg);
-  return { sucesso: false, requisicao_id: requisicaoId, rota: null, erro: msg };
+  return rotearSubmissao(requisicaoId, { userId: input.user_id, userName: input.requisitante_nome });
 }
 
 /**
@@ -818,8 +832,26 @@ export async function reenviarRequisicaoAprovada(
 /**
  * Reenvia requisição. Detecta automaticamente se tem arquivos associados
  * e escolhe a rota correta (JSON puro ou multipart).
+ *
+ * AJUSTE 1.2 — requisição em 'rascunho' volta a passar pelo gate: toda recusa do
+ * roteamento produz um rascunho, e este botão era o único caminho de UI que levava
+ * um rascunho ao ERP sem consultar `submeter_requisicao`. Agora o rascunho é
+ * RE-ROTEADO (o destino pode mudar de propósito: um CC que ganhou líder entre a
+ * criação e o reenvio passa a exigir aprovação).
+ *
+ * 'pendente_envio' NÃO é re-roteado: só a persistência legada grava esse status,
+ * logo a req já foi roteada como SEM_GATE — e a RPC devolveria
+ * `STATUS_INVALIDO:pendente_envio`, já que ela exige rascunho.
+ *
+ * Retorno: `rota` diz por onde o reenvio passou — `null` no caminho legado de
+ * 'pendente_envio' (e nas recusas, junto com `sucesso: false`). `rota: 'PENDENTE'`
+ * é sucesso SEM envio ao ERP: a req foi para a fila do líder.
  */
-export async function reenviarRequisicao(requisicaoId: string, userId: string, userName: string): Promise<EnvioResult> {
+export async function reenviarRequisicao(
+  requisicaoId: string,
+  userId: string,
+  userName: string,
+): Promise<SubmissaoResult> {
   const { data: req, error: errReq } = await (supabase as any)
     .from("compras_requisicoes")
     .select("*")
@@ -837,6 +869,10 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
   }
   if (req.status !== "rascunho" && req.status !== "pendente_envio") {
     throw new Error("Só é possível reenviar requisições com status rascunho ou pendente de envio.");
+  }
+
+  if (req.status === "rascunho") {
+    return rotearSubmissao(requisicaoId, { userId, userName });
   }
 
   const { data: itens } = await (supabase as any)
@@ -969,7 +1005,7 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
       sucesso: true,
     });
 
-    return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
+    return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo, rota: null };
   } catch (err: any) {
     const msgErro = err?.message || String(err);
 
@@ -999,7 +1035,7 @@ export async function reenviarRequisicao(requisicaoId: string, userId: string, u
       mensagem_erro: msgErro,
     });
 
-    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro, rota: null };
   }
 }
 

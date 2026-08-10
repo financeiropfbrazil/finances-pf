@@ -15,6 +15,8 @@ import {
   getUrlAssinadaArquivo,
   removerArquivo,
   type ArquivoRequisicao,
+  type EnvioResult,
+  type RotaSubmissao,
 } from "@/services/requisicoesService";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -76,6 +78,10 @@ export default function SuprimentosRequisicaoDetalhe() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const podeVerTodas = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_VIEW_ALL);
+  // AJUSTE 1.2 — o botão Reenviar não tinha gate de permissão nenhum: quem enxergava
+  // a requisição (inclusive quem tem view_all) enxergava o botão.
+  const podeReenviarOwn = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_REENVIAR_OWN);
+  const isAdmin = profile?.is_admin === true;
   const [isReenviando, setIsReenviando] = useState(false);
   const [isExcluindo, setIsExcluindo] = useState(false);
   const [isSyncingStatus, setIsSyncingStatus] = useState(false);
@@ -153,6 +159,25 @@ export default function SuprimentosRequisicaoDetalhe() {
       return await listarArquivosDaRequisicao(id);
     },
     enabled: !!id && !!req,
+  });
+
+  // AJUSTE 1.2 — o reenvio PÓS-APROVAÇÃO é liberado também ao líder do CC da req
+  // (a RPC R4 `registrar_envio_requisicao` autoriza requisitante, líder do CC e
+  // admin). Sem isto, um líder sem `is_admin` não veria o botão da própria fila.
+  // Só consulta quando o caso existe — nos demais status a resposta é irrelevante.
+  const { data: isLiderDoCC = false } = useQuery({
+    queryKey: ["requisicao_lider_cc", req?.codigo_centro_ctrl, user?.id],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("compras_lideres_cc")
+        .select("id")
+        .eq("codigo_centro_ctrl", req.codigo_centro_ctrl)
+        .eq("lider_user_id", user!.id)
+        .eq("ativo", true)
+        .maybeSingle();
+      return !!data;
+    },
+    enabled: !!user && !!req?.codigo_centro_ctrl && req?.status === "aprovada",
   });
 
   const handleSyncStatus = async (silencioso: boolean = false) => {
@@ -245,7 +270,21 @@ export default function SuprimentosRequisicaoDetalhe() {
   // Requisição aprovada cujo envio ao Alvo falhou também pode ser reenviada — por um
   // caminho próprio (registrar_envio_requisicao), que não rebaixa a req a rascunho.
   const aguardandoReenvioPosAprovacao = req.status === "aprovada" && !!req.erro_ultimo_envio;
-  const podeReenviar = req.status === "rascunho" || req.status === "pendente_envio" || aguardandoReenvioPosAprovacao;
+
+  // Condição de STATUS do bloco Editar / Reenviar / Excluir — a de sempre.
+  // O gate de permissão do AJUSTE 1.2 vale só para o botão Reenviar: Editar e
+  // Excluir seguem como estavam (Excluir tem permissão própria, fora deste escopo).
+  const statusPermiteAcoesDeRascunho =
+    req.status === "rascunho" || req.status === "pendente_envio" || aguardandoReenvioPosAprovacao;
+
+  // AJUSTE 1.2 §4 — quem pode reenviar ESTA requisição (decisão B1: cada um cuida da
+  // própria; sem ramo de exceção para view_all). Botão escondido, nunca desabilitado.
+  const isRequisitante = !!user && req.requisitante_user_id === user.id;
+  const podeReenviar = aguardandoReenvioPosAprovacao
+    ? // Pós-aprovação: mesma autorização que a RPC R4 aplica no servidor.
+      isAdmin || isRequisitante || isLiderDoCC
+    : // Rascunho / pendente de envio: dono da req + permissão de reenvio.
+      statusPermiteAcoesDeRascunho && (isAdmin || (isRequisitante && podeReenviarOwn));
 
   // ── E.9: Gerar Pedido a partir desta requisição ──────────
   // Aparece se: requisição foi enviada com sucesso ao Alvo (sincronizada),
@@ -280,10 +319,21 @@ export default function SuprimentosRequisicaoDetalhe() {
     if (!user) return;
     setIsReenviando(true);
     try {
-      const result = aguardandoReenvioPosAprovacao
+      // Requisição em rascunho volta a passar pelo gate (AJUSTE 1.2): o reenvio pode
+      // agora terminar SEM envio ao ERP — daí as quatro saídas tratadas abaixo.
+      const result: EnvioResult & { rota?: RotaSubmissao | null } = aguardandoReenvioPosAprovacao
         ? await reenviarRequisicaoAprovada(req.id, user.id, profile?.full_name || "Usuário")
         : await reenviarRequisicao(req.id, user.id, profile?.full_name || "Usuário");
-      if (result.sucesso) {
+
+      if (result.rota === "PENDENTE") {
+        // Sucesso, mas nada foi ao ERP. Sem esta mensagem, a req "some" da lista de
+        // rascunhos e parece perdida.
+        toast({
+          title: "Enviada para aprovação do líder",
+          description:
+            "O centro de custo desta requisição exige aprovação. Nada foi enviado ao ERP — a requisição aguarda a decisão do líder.",
+        });
+      } else if (result.sucesso) {
         toast({ title: "Requisição reenviada com sucesso!", description: `Número no ERP: ${result.numero_alvo}` });
       } else {
         toast({ title: "Erro ao reenviar", description: result.erro, variant: "destructive" });
@@ -411,19 +461,21 @@ export default function SuprimentosRequisicaoDetalhe() {
             </Button>
           )}
 
-          {podeReenviar && (
+          {statusPermiteAcoesDeRascunho && (
             <>
               <Button variant="outline" size="sm" disabled>
                 <Pencil className="mr-1 h-3 w-3" /> Editar
               </Button>
-              <Button variant="outline" size="sm" disabled={isReenviando} onClick={handleReenviar}>
-                {isReenviando ? (
-                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-1 h-3 w-3" />
-                )}
-                {isReenviando ? "Reenviando..." : "Reenviar"}
-              </Button>
+              {podeReenviar && (
+                <Button variant="outline" size="sm" disabled={isReenviando} onClick={handleReenviar}>
+                  {isReenviando ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1 h-3 w-3" />
+                  )}
+                  {isReenviando ? "Reenviando..." : "Reenviar"}
+                </Button>
+              )}
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="destructive" size="sm" disabled={isExcluindo}>
