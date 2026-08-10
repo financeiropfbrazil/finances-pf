@@ -447,5 +447,104 @@ lista de lotes respeita a mesma unidade do item.
 
 ## Ajustes (cards)
 
-> Nada aqui ainda. Correções ao plano entram como `Ajuste A1`, `A2`… mantendo o texto original
-> intacto (disciplina da §6.3-N do `PLANO-OP.md`).
+> Correções ao plano entram como `Ajuste A1`, `A2`… mantendo o texto original **intacto**
+> (disciplina da §6.3-N do `PLANO-OP.md`). Nada acima é editado ou apagado.
+
+---
+
+### Ajuste A1 (09/08/2026) — os campos de Entrega **NÃO** ficam vazios na operação
+
+A **§2.4** afirma que `Entregou`/`Retirou`/`Conferiu` "hoje ficam vazios na operação".
+
+**Medido no `raw` do espelho:** `Atendida Total` **315/381 (83%)** e `Atendida Parcial`
+**112/122 (92%)** com `CodigoFuncionarioConferiu` preenchido; nas `Aberta`, **0** — coerente, o
+preenchimento acontece no atendimento. O padrão é estável: **`Entregou == Conferiu`** (o
+almoxarife, `0000136` ou `0000063`) e **`Retirou`** variando (quem foi buscar) — 169 RMs no par
+`0000136`/`0000098`/`0000136`.
+
+🔴 **Origem do erro — família dos dois eixos, quarta ocorrência.** O Hub não **espelhava**
+`Conferiu`: a coluna não existia e o `reqmatMapper.ts` não emitia a chave. Quem leu o espelho
+concluiu que a **operação** não preenchia. *"O espelho não tem"* lido como *"a operação não
+faz"*.
+
+⇒ **Na AT-5:** pré-preencher `Conferiu` com o valor de `Entregou`, editável.
+⇒ **Remover** "preencher os campos de Entrega, que hoje ficam vazios" da lista "onde o Hub pode
+ser melhor que o Alvo" (§3/AT-5) — não é ganho; é paridade.
+
+---
+
+### Ajuste A2 (09/08/2026) — 🔴 `GeraEmpenho` **não** é sempre "Não"
+
+A **§2.2** usa *"como `GeraEmpenho` é sempre `Não` aqui, hoje não morde"* para justificar que o
+saldo **bruto** do lote basta.
+
+**Morde.** Medido: **240 itens em 54 RMs** têm `GeraEmpenho = "Sim"`, sendo **66 em 21 RMs entre
+os 411 itens atendíveis de hoje** — **45 deles com controle de lote**.
+
+Como o Alvo devolve `QuantidadeReservaLote` e `QuantidadeEmpenhoLote` **nulos**, a validação
+"quantidade ≤ saldo do lote" **pode aprovar alocação sobre material empenhado**.
+
+⚠ **E não é risco teórico:** 26 produtos com controle de lote aparecem em itens empenhados,
+somando 1.634 unidades; em **13 deles** o mesmo produto também aparece em item **sem** empenho —
+isto é, atender o item livre consome lote que pode estar empenhado para o outro.
+
+| Produto | Empenhado | Livre | itens |
+|---|---|---|---|
+| `001.007.00012` | 400 | 180 | 2 + 3 |
+| `001.015.019` | 120 | 61 | 4 + 2 |
+| `001.007.00062` | 129 | 6 | 4 + 1 |
+| `001.003.00059` | 25 | 323 | 1 + 12 |
+| `001.003.00087` | 14 | 12 | 1 + 1 |
+
+🔴 **Os nulos ainda não provam nada.** Os dois espécimes que fundaram a conclusão "saldo é bruto"
+(`0000002283`, BL-21, 08/08; `0000002277`, AT-2, 09/08) são itens **`GeraEmpenho = "Não"`**.
+"Vem nulo" pode significar *"não há empenho neste item"*, não *"o Alvo não preenche"*. **Ninguém
+olhou o campo num item COM empenho** — é a mesma família do BL-30. ⇒ Medição pendente
+(espécime B: RM `0000002096`, seq 1, `001.003.00087`, `GeraEmpenho = "Sim"`).
+
+⇒ **Enquanto não fechar, a AT-5 sinaliza em vez de fingir:** badge âmbar no item com
+`gera_empenho` (lido do espelho, custo zero) e no produto que aparece empenhado em outra RM
+aberta; tooltip dizendo que o saldo do lote é bruto e não desconta reserva nem empenho. A
+validação nº 2 continua contra o saldo bruto — ela só não é suficiente, e a tela diz isso.
+
+---
+
+### Ajuste A3 (09/08/2026) — `GeraPendencia` não decide o saldo, e não aparece sozinho
+
+| `GeraPendencia` | `GeraEmpenho` | itens | RMs |
+|---|---|---|---|
+| Não | Não | 2.182 | 499 |
+| Não | Sim | 174 | 33 |
+| **Sim** | **Sim** | **66** | **21** |
+
+Entre 56 itens atendidos parcialmente sem excedente, o saldo foi preservado em **100% nos dois
+valores** (`Sim` 22/22, `Não` 34/34). E **`GeraPendencia = "Sim"` nunca ocorre sem
+`GeraEmpenho = "Sim"`** (66/66) — o "Sim" acompanha a **configuração de empenho do item**, não a
+resposta ao diálogo da tela. Comparação de chaves do `raw` entre os grupos: nenhuma chave
+exclusiva de um lado.
+
+⇒ **A v1 fixa `"Não"`** — padrão medido em massa, e a combinação `pendência Não + empenho Sim` já
+existe 174 vezes.
+⇒ 🔴 **A tela INFORMA o saldo remanescente; não pergunta.** Perguntar algo cuja resposta não muda
+o que a pessoa se importa ensina a clicar sem ler — e o diálogo seguinte, o que importa, leva o
+mesmo clique automático. A §2.4 previa replicar a pergunta do Alvo; substituída por
+`resumoDoSaldoRemanescente`.
+
+⚠ **O que continua não medido:** o que o `"Sim"` faz **além** do saldo. Medir custaria um
+atendimento real.
+
+---
+
+### Ajuste A4 (10/08/2026) — o espécime da AT-2 mistura dois itens
+
+A **§2.6** e a §10.31 do `PLANO-OP.md` registram *"RM `0000002277`, item `001.003.00047`, 20 a
+atender → lote `0002467`"*. No espelho, a seq 4 (`001.003.00047`) tem quantidade **8**; quem tem
+20 é a **seq 1**. E a `QuantidadeBruta` 350 é do `001.003.00059` — a §2.2 registra saldo 184 em
+08/08 e a §10.31 registra 154, e a diferença de **30** é exatamente a baixa do BL-29 no mesmo
+lote.
+
+⇒ **Foram dois itens diferentes:** o `Relacionar` foi medido na **seq 1**; a classificação
+contábil, na **seq 4**. As duas medições continuam **válidas** — a da classificação buscou por
+`CodigoProduto`, não por sequência, e por isso caiu na seq 4 correta. O que se retifica é o
+**registro**, que as apresentou como um espécime só.
+

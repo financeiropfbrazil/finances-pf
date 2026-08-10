@@ -960,6 +960,60 @@ anteriores nunca chegaram ao estado terminal.
 
 ---
 
+#### P) Retificações — 09 e 10/08/2026 (Fase 4, AT-3 a AT-5)
+
+> Disciplina desta seção: **nada acima é apagado ou editado.** A retificação se apende, e o texto
+> original fica como registro do que se acreditava e por quê.
+
+**P.1 🔴 `ItemReqMatClasseRecdespChildList` VEM no `ReqMat/Load`.**
+O **BL-30** e a §2.6 do `PLANO-RM-ATENDIMENTO.md` registram que a lista *"não aparecia em nenhum
+`Load` anterior"* e só vinha pelo `Relacionar`. **Medido no console** (RM `0000002277`, item
+`001.003.00047`, seq 4): a lista vem **no item do próprio `Load`**, com `CodigoClasseRecDesp`
+`11.03` a 100%. O `Relacionar` apenas a **devolve**. **Ninguém tinha olhado o campo no `Load`** —
+ele só chamou atenção quando apareceu na resposta do `Relacionar`.
+⇒ Item **sem** controle de lote **não fica sem classificação**: basta preservar o que veio.
+⇒ **Não chamar o `Relacionar` para item sem lote** — não há lote a alocar e a classificação já
+está em mãos.
+⇒ Ausência continua **normal** (só 36 de 232 produtos têm) e **nunca** pode virar erro de
+validação.
+
+**P.2 Campos "2" têm fator real, e ele é do item.**
+Esta seção diz que os campos "2" são "a quantidade na segunda unidade de medida". Preciso:
+`…ProdUnidMedPrincipal` é na unidade-**base** do produto e o "2" é na unidade **escolhida no
+item** (`CodigoProdUnidMed`/`PosicaoProdUnidMed`). Medido: **53 de 2.422** itens divergem —
+`001.003.00015` e `001.003.00016` em **MILHEI**, posições 2 e 3, fator **0,001** (mil unidades =
+1 milheiro), `Peso = 0` e `PesoFatorDivisor = null` (não é peso). O fator se conserva em
+`QuantidadeAtendida2` (34/35) e `QuantidadeSaldo2` (20/21); a única exceção é **lixo de dado**
+(RM `0000001886` item 5, resíduo de edição), não regra.
+⇒ Quem ajustar quantidade no payload tem de **aplicar o fator do próprio item**, não espelhar
+1:1 cegamente.
+
+**P.3 Os campos de Entrega NÃO ficam vazios na operação.**
+Esta seção repete a afirmação de que `Entregou`/`Retirou`/`Conferiu` ficam vazios. Medido no
+`raw`: `Atendida Total` **315/381 (83%)**, `Atendida Parcial` **112/122 (92%)** com
+`CodigoFuncionarioConferiu` preenchido. Padrão estável: **`Entregou == Conferiu`** (o almoxarife)
+e **`Retirou`** variando.
+🔴 **Família dos dois eixos, quarta ocorrência:** o Hub não **espelhava** `Conferiu` (coluna
+inexistente, mapper sem a chave), e quem leu o espelho concluiu que a **operação** não preenchia.
+⇒ Corrigido na AT-3 (coluna + linha na `aplicar_load`), AT-3.1 (backfill de **427** a partir do
+`raw`) e AT-4 (chave no `reqmatMapper.ts`). Após o redeploy da Edge em 10/08: **449 de 690**.
+⇒ Detalhe completo nos Ajustes A1 e A4 do `PLANO-RM-ATENDIMENTO.md`.
+
+**P.4 `GeraEmpenho` não é sempre "Não" — e o saldo bruto do lote passa a ter consequência.**
+240 itens em 54 RMs têm empenho; **66 entre os 411 atendíveis de hoje, 45 com lote**. Como
+`QuantidadeReservaLote`/`QuantidadeEmpenhoLote` vêm nulos, a validação "quantidade ≤ saldo" pode
+aprovar alocação sobre material empenhado. ⚠ **Os nulos ainda não provam nada:** os dois
+espécimes que fundaram a conclusão eram itens `GeraEmpenho = "Não"` — mesma família do BL-30.
+Medição pendente. Ver Ajuste A2 do plano da fase.
+
+**P.5 O espécime da §10.31 mistura dois itens.**
+O `Relacionar` foi medido na **seq 1** da RM `0000002277`; a classificação contábil, na **seq 4**
+(`001.003.00047`, quantidade 8). As duas medições são válidas; o registro é que as apresentou
+como um espécime só. A `QuantidadeBruta` 350 é do `001.003.00059`, e a diferença 184 → 154 é a
+baixa do BL-29 no mesmo lote. Ver Ajuste A4 do plano da fase.
+
+---
+
 ## 7. Diário de achados e decisões
 
 | Data | Tarefa | Registro |
@@ -1053,6 +1107,9 @@ anteriores nunca chegaram ao estado terminal.
 | BL-25 | OP-2.5 · 06/08/2026 | 🔴 **[MÓDULO SUPRIMENTOS — não é do OP]** O mesmo `sincronizarStatusRequisicao` **não tem guarda anti-wipe**. Se o gateway devolver **200 com corpo vazio/nulo**, `statusAlvo` vira `""`, o `if/else` cai no ramo final e grava **`status='sincronizada'`** — uma requisição cancelada ou convertida em pedido volta a parecer viva, sem erro nenhum. É o "wipe silencioso" que já custou caro no cron de pedidos, por uma porta que ninguém vigiou: o open-load de pedidos ganhou guarda própria (`alvoPedCompLoadService.ts:333`, payload sem `Numero` ⇒ lança e não grava), o `sync-reqmat` tem a régua estrutural (`analisarRespostaReqMat`), e **este caminho não tem nada**. Correção: exigir âncora (`Numero`/`Status` com valor) antes de qualquer gravação, no molde das outras duas. |
 | BL-26 | OP-2.5 · 06/08/2026 | ⚠ **[MÓDULO SUPRIMENTOS — não é do OP]** `authenticateAlvo()` lê `alvo_username`/`alvo_password` do **localStorage do navegador** e o open-load de pedidos fala **direto** com `pef.it4you.inf.br/api` usando esse token (`alvoPedCompLoadService.ts:1-49`). Duas consequências: (a) o open-load **só funciona para quem tem credencial do Alvo configurada no navegador** — na prática, o admin; (b) senha de ERP em texto plano, exposta a XSS e persistida em disco (já registrado no `PLANO-PEDIDOS.md` §7 como achado crítico, com o sync de entidades migrado para o gateway em 19/07 e o `alvoService` seguindo em uso por outras telas). **Efeito no módulo OP:** foi um dos motivos de a conferência sob demanda da RM (OP-2.5) usar o **`/alvo/passthrough` com o JWT do Supabase**, e não este padrão — herdar o `authenticateAlvo` traria a limitação (a) junto, e a tela de RM é para o chão de fábrica, não para o admin. |
 | REC-2.0 | REC-1.5 · 28/07/2026 | **Enriquecer o espelho com o MovEstq de origem: VALOR e FORNECEDOR.** Hoje `rec_laudos` só tem `valor_reprovado` — **não existe** o valor do material parado; e `codigo_entidade` é **null em 751/751**, então a fila não sabe de quem veio o material. Ambos vivem no `MovEstq` apontado por `chave_movestq`. **Dimensionamento medido:** 751 laudos ⇒ **295 chaves distintas** (2,5 laudos por movimento). **Bloqueio:** `MovEstq/Load` fora da whitelist do passthrough — **repo separado** (`financeiropfbrazil/erp-proxy`), deploy no Render, gargalo compartilhado ⇒ inclusão aditiva com rollback confirmado. Esboço completo em **§9.5**. |
+| BL-30 ⇒ **RETIFICADO** | AT-2 · 09/08/2026 → 09/08/2026 | 🟢 **A premissa do BL-30 estava errada — a classificação contábil VEM no `ReqMat/Load`.** Medido no console (RM `0000002277`, item `001.003.00047`, seq 4): `ItemReqMatClasseRecdespChildList` com `CodigoClasseRecDesp: "11.03"`, `Percentual: 100`, **no item do próprio `Load`**, sem passar pelo `Relacionar`. O campo sempre esteve lá; **ninguém tinha olhado o campo no `Load`** — ele só chamou atenção quando apareceu na resposta do `Relacionar`. ⇒ Item **sem** controle de lote **não fica sem classificação**: basta preservar o que veio no Load, e **não chamar o `Relacionar` para item sem lote**. ⇒ Ausência continua normal (36 de 232 produtos) e nunca vira erro de validação. ⚠ **A pergunta (b) do BL-30 original continua aberta:** verificar se as RMs criadas pelo Hub em 08/08 (`2286`, `2287`) nasceram com a classificação — é criação (Fase 2), não atendimento (Fase 4). Retificação completa em **§6.3-N/P.1**. |
+| BL-31 | AT-4 · 09/08/2026 | ⚠ **[MÓDULO ESTOQUE/MovEstq — não é do OP]** `buildMovEstqPayloadService.ts:468` **erra o dia depois das 21h BRT.** O padrão `d.toISOString().split("T")[0] + "T00:00:00-03:00"` (também na l. 696) monta a data a partir do **UTC**: entre 21h e meia-noite de Brasília a data UTC já virou, e o payload sai com o **dia seguinte**. Encontrado ao escrever o helper de data da AT-4; **não corrigido de propósito** (outro módulo, fora do escopo da Fase 4). ⚠ Relevante além do horário noturno: **o Hub é usado no Brasil e na Áustria** (PEF), e lá o deslocamento é maior. A AT-4 usa helper próprio (`agoraNoAlvo`), que desloca o epoch e formata em UTC carimbando `-03:00` à mão — correto em qualquer fuso do navegador. |
+| BL-32 | AT-5 · 10/08/2026 | ⚠ **Saldo por lote é BRUTO e não há fonte comprovada de saldo líquido.** `QuantidadeReservaLote` e `QuantidadeEmpenhoLote` vêm nulos no `ListaCtrlLoteLocArmaz` — mas os dois espécimes que fundaram essa conclusão eram itens `GeraEmpenho = "Não"`, então "vem nulo" pode ser "não há empenho", não "o Alvo não preenche". **Mesma família do BL-30.** Medição desenhada (espécime B: RM `0000002096`, seq 1, `001.003.00087`, `GeraEmpenho = "Sim"`), custo zero: é o mesmo endpoint que a tela já chama. ⚠ Enquanto não fechar: **66 dos 411 itens atendíveis têm empenho, 45 com lote**, e 13 produtos aparecem empenhados **e** livres ao mesmo tempo — atender o item livre consome lote que pode estar reservado para o outro. A AT-5 sinaliza com badge âmbar em vez de fingir precisão. Candidatos ainda não descartados: as colunas `Saldo Calc` × `Saldo` da §10.20 (nunca mapeadas a campos) e uma chave desconhecida no `Object.keys()` da linha de lote. |
 | ~~REC-1.4~~ *(corrigida — código entregue, aguarda deploy; ver §2)* | Pedro · 28/07/2026 | **`Laudo/Load` não aceita `codigoEmpresaFilial` — e o sync ainda envia.** Provado por stack trace do `LaudoController`. Ocorrência em `supabase/functions/sync-laudos/index.ts`, **linha 494** (`Laudo/Load?codigoEmpresaFilial=…&numero=…`). Falha **intermitente**. **Não urge:** backfill completo — 9 execuções do job, **751/751 enriquecidos e `total_erros` = 0** em todas (medido em 28/07/2026); com 0 pendentes, o passo de enriquecimento sequer chama o endpoint hoje. Volta a importar quando entrarem laudos novos. Correção = tirar o parâmetro da URL + `supabase functions deploy sync-laudos --no-verify-jwt --project-ref hbtggrbauguukewiknew`. ⚠ Ao mexer, reler §6.3-A: `"No action was found on the controller"` significa **parâmetro que não casa**, não action inexistente. |
 | BL-4 | REC-1.7 · 28/07/2026 | **`min-w-0` no `AppLayout`.** O `div.flex.flex-1.flex-col` é flex item com `min-width:auto`: qualquer descendente largo (tabela, `<pre>`, imagem sem `max-w-full`) infla a coluna além da viewport e a rolagem vira **da página**, arrastando cabeçalho e filtros para fora da tela. Medido na REC-1.7: coluna a **1556** com viewport de 1530. **Uma classe** conserta o Hub inteiro. Não aplicado porque é layout compartilhado: telas que hoje "funcionam" por acidente passariam a rolar dentro de um container. Exige regressão nas telas de tabela larga (`ContasPagar`, `ComprasPedidosCompra`, `IntercompanyMaster`, `SuprimentosPedidos`) antes e depois. Análise em **§9.6**. Enquanto não for feito, o padrão a copiar em tela nova com tabela larga é o da Fila de Inspeção: raiz `grid grid-cols-1` + scroller `w-0 min-w-full overflow-x-auto`. |
 | BL-3 | REC-1.8 · 28/07/2026 | **Grupos colapsáveis da sidebar não traduzem.** Usam `label` fixo em português (ex.: `{ label: "Pedidos de Compra" }`) em vez de `titleKey` + `t()`, então **ficam em pt quando o idioma é EN**. Atinge **Compras, Suprimentos, Recebimento, Estoques, Produção, Contas a Pagar, Despesas e Intercompany** (rótulo do grupo e/ou dos sub-itens). **Dívida preexistente — não é regressão da REC-1.8**, que só mudou a ordem. Correção = mover os rótulos para o dicionário i18n e trocar `label` por `titleKey` nos `*SubItems` e nos `render*Group`. Cuidado: o teste `src/test/sidebar-ordem.test.tsx` compara rótulos e vai precisar de atualização junto. |
