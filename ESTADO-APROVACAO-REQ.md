@@ -3,7 +3,7 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **10/08/2026** (PROMPT 1.3 — motivos estruturados de rejeição).
+> Última atualização: **10/08/2026** (PROMPT 1.3-EXEC — SQL do Ajuste 1.3 executado no banco).
 
 ## 1. Onde estamos
 
@@ -20,10 +20,14 @@
 | **PROMPT 3** | Fase 3 — UI (fila do líder, badges, clonar, correções C5) | ✅ concluído em 10/08/2026 · commit `cc58e9c` · **pushado e publicado** — conclusões no §10 |
 | **FASE 5 — validação** | Piloto fim-a-fim com o Hugo Maffei | ✅ **executada em 10/08/2026** — gate funcionando em produção; 3 achados viraram o Ajuste 1.3 |
 | **AJUSTE 1.3** | Motivos estruturados de rejeição + limpeza de `erro_ultimo_envio` | ✅ recebido (autoria do Pedro), incorporado |
-| **PROMPT 1.3** | Execução do Ajuste 1.3 — SQL + frontend | ✅ concluído em 10/08/2026 · commit local · **SEM push** · **SQL PENDENTE de execução** — conclusões no §11 |
+| **PROMPT 1.3** | Execução do Ajuste 1.3 — SQL + frontend | ✅ concluído em 10/08/2026 · commit `ee28acc` · **pushado, NÃO publicado** — conclusões no §11 |
+| **PROMPT 1.3-EXEC** | Execução dos 12 blocos do `SQL-AJUSTE13.md` no banco | ✅ **executado em 10/08/2026** — 12/12 blocos verificados; 1 divergência no gate (`anon`, §11.7) — conclusões no §11.7 |
 | PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado |
 
-**Publicação:** Fases 2 e 1.2 estão publicadas. A Fase 3 está só no repo local (nem push): publicar é decisão do Pedro **depois** de revisar o diff e rodar o SQL do §10.2.
+**Publicação (medido no git em 10/08/2026):** Fases 2, 1.2 e 3 estão publicadas. O **Ajuste 1.3
+(`ee28acc`) está em `origin/main` mas NÃO publicado** — e o SQL dele **já rodou** (§11.7). 🔴 Enquanto
+não publicar, a tela no ar chama `rejeitar_requisicao(uuid, text)`, que foi dropada: **rejeitar falha
+para o usuário**. Aprovar, criar, submeter e reenviar não são afetados. Publicar é decisão do Pedro.
 
 ⚠️ **Pré-condição da Fase 3 no banco (ainda NÃO executada):** o papel `lider_departamento` precisa de `compras.requisicoes.create` e `compras.requisicoes.reenviar_own` (SQL medido e reproduzido no §10.2). Sem isso, um líder **sem `is_admin`** não consegue criar nem reenviar requisição própria.
 
@@ -99,9 +103,9 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
 
 ## 6. Próximo passo
 
-1. **Executar o `SQL-AJUSTE13.md`** no SQL Editor (12 blocos + 5 conferências). ⚠️ **O frontend do Ajuste 1.3 já chama a assinatura nova de `rejeitar_requisicao` (3 parâmetros)** — enquanto o SQL não rodar, rejeitar pela tela falha. Ordem correta: SQL primeiro, push/Publicar depois.
-2. **Pedro revisa o diff do Ajuste 1.3** (§11) e dá o push.
-3. **Publicar no Lovable.**
+1. ~~**Executar o `SQL-AJUSTE13.md`**~~ ✅ **executado em 10/08/2026** (PROMPT 1.3-EXEC, §11.7). 🔴 **A tela PUBLICADA hoje ainda chama a assinatura ANTIGA `(uuid, text)`, que foi dropada — rejeitar pela tela publicada falha até o Publicar.** A janela é conhecida e foi decisão explícita (SQL primeiro, publicar depois); fechar rápido. Aprovar, criar, submeter e reenviar seguem normais — só a rejeição está nessa janela.
+2. ~~**Pedro revisa o diff do Ajuste 1.3** (§11) e dá o push.~~ ✅ push feito (`ee28acc` em `origin/main`).
+3. **Publicar no Lovable** — 🔴 **é o passo que fecha a janela de rejeição quebrada** descrita acima.
 4. **Validação §8 do Ajuste 1.3** (6 passos: motivo sem observação, "Outros" sem/com observação, rejeição antiga do Hugo legível, sem erro residual, agregação por motivo).
 5. **Conferir o SQL do §10.2** (`lider_departamento` + `create`/`reenviar_own`) — se ainda não foi rodado, continua pendente.
 6. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
@@ -115,6 +119,7 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
 5. ~~**Hook fora de ordem, pré-existente**~~ ✅ **fechado na Fase 3** (C5.1): os 3 `useHasPermission` do detalhe estão no topo do componente.
 6. **`src/lib/statusConfig.ts` órfão** — arquivo inteiro sem nenhum import, com um `getStatusRequisicao` concorrente ao de `statusRequisicao.ts`. Não tocado (§10.6-5). Prioridade: baixa, mas é armadilha para quem for mexer em status.
 7. **`suprimentos_requisicoes_para` não filtra status** (§10.4): a RPC de relatório passará a contar `pendente_aprovacao`/`rejeitada` nos KPIs. Correção é DDL — decisão do Pedro.
+8. 🔴 **`rejeitar_requisicao` continua executável por `anon`** — mesmo com o `revoke … from anon` do Bloco 10 tendo funcionado. Falta um `revoke … from public` (SQL **fora** dos 12 blocos; não executado). Detalhe e medição no §11.7-B. Sem risco de efeito (o gate `auth.uid() is null → SEM_PERMISSAO` é a 1ª linha da função) e **sem regressão** — a função nova está mais fechada que as 4 irmãs em produção. Decisão do Pedro.
 
 ## 8. O que a Fase 3 vai encontrar
 
@@ -393,3 +398,92 @@ sempre com tag nomeada):
    exibir em `pendente_aprovacao`"; implementei enumerando onde **deve** aparecer (`rascunho`,
    `pendente_envio`, `aprovada`), o que também cobre `rejeitada`, `cancelada` e `convertida_pedido` —
    e segue a regra de listas positivas adotada na Fase 3.
+
+### 11.7 EXECUÇÃO do `SQL-AJUSTE13.md` no banco (10/08/2026, PROMPT 1.3-EXEC)
+
+Executado pelo agente via **MCP do Supabase com escrita temporária**, autorizada pelo Pedro para esta
+sessão (o padrão é `read_only=true`). Os 12 blocos rodaram **verbatim, um por chamada, na ordem**, cada
+um seguido de consulta de verificação — o modo de falha conhecido deste ambiente é "sucesso na tela,
+efeito ausente ou corpo corrompido", que só se detecta lendo o objeto depois.
+
+**Pré-voo:** `db=postgres`, `compras_pedidos = 1820` (fingerprint do projeto `hbtggrbauguukewiknew`),
+`compras_requisicoes = 308`, `rejeitadas = 1`, `compras_motivos_rejeicao = null`. **Zero** transações
+com `xact_start` > 2 min. Antes do Bloco 7, o `pg_get_functiondef` literal das 3 funções foi capturado
+para rollback — **conferiu exatamente com o §11.5**, que estava correto.
+
+#### A. Blocos — o que executou × o que a verificação confirmou
+
+| # | Bloco | Verificação independente |
+|---|---|---|
+| 1 | `create table compras_motivos_rejeicao` | `to_regclass` não-nulo; **7 colunas** com os tipos exatos |
+| 2 | `enable row level security` | `pg_class.relrowsecurity = true` |
+| 3 | `create policy motivos_rejeicao_select` | `pg_policy`: cmd `r` (SELECT), role `authenticated`, `using = true` |
+| 4 | seed dos 10 motivos | 10 linhas, ordem 10…100, `outros` com `exige_observacao=true`, **acentuação íntegra** |
+| 5 | `add column motivo_rejeicao_codigo` | `information_schema`: as 2 colunas `text`, nuláveis |
+| 6 | `notify pgrst` | sem objeto a consultar (sinal assíncrono); efeito real provado no Bloco 12 + C1/C3 |
+| 7 | `fn_req_protege_aprovacao()` | **as 2 linhas novas presentes** (ramo INSERT e ramo UPDATE); `prosecdef=false` (INVOKER preservado), `proconfig=null` (sem `search_path`); `trg_req_protege_aprovacao@compras_requisicoes` continua apontando para a função |
+| 8 | `drop function rejeitar_requisicao(uuid,text)` | **zero** assinaturas de `rejeitar_requisicao` no catálogo |
+| 9 | `create rejeitar_requisicao(uuid,text,text)` | assinatura exata; `SECURITY DEFINER`; `search_path=public`; todos os gates presentes no corpo (`user_has_permission`, `for update`, `FORA_DO_SEU_CC`, `MOTIVO_INVALIDO`, `OBSERVACAO_OBRIGATORIA`) e o `motivo_rejeicao_codigo=v_motivo.codigo` no UPDATE |
+| 10 | `grant … to authenticated` + `revoke … from anon` | `authenticated` ✅; **`anon` removido do ACL nominal**, mas ainda executa por PUBLIC — ver **B** |
+| 11 | `submeter_requisicao(uuid)` | **3 ocorrências** de `erro_ultimo_envio` (os três desfechos) + o `UPDATE` **novo** do ramo `SEM_GATE`; `SECURITY DEFINER` e `search_path` redeclarados; ACL preservado |
+| 12 | `notify pgrst` | idem Bloco 6 |
+
+**Nenhum bloco deu erro. Nenhum SQL fora dos 12 blocos foi executado** (o rollback do arquivo não foi
+tocado). O único DDL destrutivo foi o `drop function` do Bloco 8, previsto no arquivo.
+
+#### B. 🔴 ACHADO — o gate C1 saiu VERMELHO em `anon_pode`, e a regra do CLAUDE.md está incompleta
+
+`has_function_privilege('anon', …) = true` na função nova, apesar de o revoke do Bloco 10 ter
+funcionado. A causa foi medida, comparando o ACL da nova com o das 4 irmãs do módulo:
+
+| Função | `proacl` | `anon` executa? |
+|---|---|---|
+| `rejeitar_requisicao(uuid,text,text)` **nova** | `{=X/postgres, postgres=X, authenticated=X, service_role=X}` | true |
+| `aprovar_requisicao`, `submeter_requisicao`, `registrar_envio_requisicao`, `_req_evento` | `{=X/postgres, postgres=X, **anon=X**, authenticated=X, service_role=X}` | true |
+
+O `anon=X/postgres` **sumiu** da função nova (o revoke pegou; as irmãs ainda o têm). O que sobrou é a
+entrada **`=X/postgres`** — grantee vazio = **PUBLIC**, o default **nativo do PostgreSQL**: todo
+`CREATE FUNCTION` concede EXECUTE a PUBLIC, independentemente do Supabase. Como `anon` é membro de
+PUBLIC, herda o EXECUTE.
+
+> **Correção da regra do `CLAUDE.md`:** o arquivo afirma que `revoke … from public` "NÃO tranca RPC
+> nova — use `revoke … from anon`". A medição de hoje mostra que **são precisos os DOIS**: `from anon`
+> tira o grant nominal do default privilege do Supabase, `from public` tira o default nativo do
+> Postgres. **Nenhum dos dois sozinho tranca.** O `SQL-AJUSTE13.md` tem só o primeiro — por isso o
+> gate C1 não fecha como escrito.
+
+**Não corrigido de propósito:** o `revoke execute on function public.rejeitar_requisicao(uuid,text,text)
+from public;` é SQL **fora** dos 12 blocos, e a regra da sessão proíbe inventar SQL. Fica como
+pendência §7.8 para decisão do Pedro. **Não há risco de efeito** (a 1ª linha da função é
+`if auth.uid() is null then return 'SEM_PERMISSAO'`) e **não há regressão** — a função nova está um
+passo mais fechada que as irmãs que já estavam em produção. É o passivo de 196/284 funções já
+registrado no CLAUDE.md, não algo criado aqui.
+
+#### C. Conferências do gate de saída (§7 do arquivo)
+
+| # | Esperado | Obtido | Veredito |
+|---|---|---|---|
+| **C1** | 1 linha · `(p_req_id uuid, p_motivo_codigo text, p_observacao text)` · definer `true` · authenticated `true` · **anon `false`** | 1 linha · assinatura exata · `true` · `true` · **anon `true`** | ⚠️ **4 de 5** — a crítica "a assinatura antiga não existe mais" passou (1 linha só); `anon` diverge pela causa do **B** |
+| **C2** | `protege_coluna_nova = true` (e tag = 0) | `true` · `0` | ✅ **crítica passou** |
+| **C3** | 10 motivos, `outros` exige observação, ordem 10…100 · 2 colunas `text` | idêntico | ✅ |
+| **C4** | 1 linha, `motivo_rejeicao` preenchido, `motivo_rejeicao_codigo = null` | `6e2d2fe3…` · "Não está com Classe correta" · `null` · `2026-08-10 18:49:43+00` | ✅ retrocompatibilidade (G4) intacta |
+| **C5** | `SEM_PERMISSAO` | `SEM_PERMISSAO` | ✅ função viva, gate de auth funcionando |
+
+**As duas conferências críticas do prompt passaram:** `rejeitar_requisicao(uuid, text)` não existe mais
+(C1, 1 linha só) e `motivo_rejeicao_codigo` aparece no `pg_get_functiondef` de
+`fn_req_protege_aprovacao` (C2).
+
+#### D. Checagem extra — contrato frontend × banco
+
+Fora do arquivo, para evitar o "function not found in schema cache" clássico: os nomes dos parâmetros
+que o service envia (`requisicoesService.ts:1256-1259` → `p_req_id`, `p_motivo_codigo`, `p_observacao`)
+batem **exatamente** com a assinatura criada no Bloco 9, e `listarMotivosRejeicao` (`:1225-1230`) lê
+`compras_motivos_rejeicao` pelas colunas `codigo, rotulo, exige_observacao, ordem` com `ativo=true` —
+todas existentes, com a policy de SELECT para `authenticated` no lugar (Bloco 3).
+
+#### E. Rollback disponível
+
+O `pg_get_functiondef` literal das 3 funções **antes** do Ajuste ficou salvo no scratchpad da sessão
+(`rollback-funcoes-pre-ajuste13.sql`, já com tags nomeadas `$trg$`/`$r3$`/`$r1$`) e confere com o
+§11.5. Reverter `rejeitar_requisicao` para `(uuid, text)` exige reverter também o commit `ee28acc`
+(frontend chama com 3 parâmetros).
