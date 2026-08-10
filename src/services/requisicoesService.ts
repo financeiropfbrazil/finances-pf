@@ -1190,10 +1190,47 @@ function traduzirDecisao(retorno: string, acao: "aprovar" | "rejeitar"): Decisao
     case "NAO_ENCONTRADA":
       return { ok: false, jaDecidida: true, mensagem: "Requisição não encontrada — ela pode ter sido excluída." };
     case "MOTIVO_OBRIGATORIO":
+      // Assinatura antiga da RPC (texto livre). Mantido para não sumir em silêncio
+      // caso o SQL do AJUSTE 1.3 ainda não tenha sido executado no banco.
       return { ok: false, mensagem: "Informe o motivo da rejeição (mínimo de 5 caracteres)." };
+    case "MOTIVO_INVALIDO":
+      return {
+        ok: false,
+        mensagem: "Motivo de rejeição inválido ou desativado. Recarregue a página e escolha um motivo da lista.",
+      };
+    case "OBSERVACAO_OBRIGATORIA":
+      return {
+        ok: false,
+        mensagem: 'O motivo escolhido exige observação (mínimo de 5 caracteres). Descreva o que precisa mudar.',
+      };
     default:
       return { ok: false, mensagem: `Retorno inesperado ao ${acao} a requisição: "${retorno}".` };
   }
+}
+
+// ─── AJUSTE 1.3 — catálogo de motivos de rejeição ───
+
+export interface MotivoRejeicao {
+  codigo: string;
+  rotulo: string;
+  exige_observacao: boolean;
+  ordem: number;
+}
+
+/**
+ * Catálogo de motivos (tabela `compras_motivos_rejeicao`, só os ativos, na ordem
+ * definida no banco). Fica FORA do frontend de propósito (decisão G3): mudar a
+ * lista é um insert/update no SQL Editor, não um deploy.
+ */
+export async function listarMotivosRejeicao(): Promise<MotivoRejeicao[]> {
+  const { data, error } = await (supabase as any)
+    .from("compras_motivos_rejeicao")
+    .select("codigo, rotulo, exige_observacao, ordem")
+    .eq("ativo", true)
+    .order("ordem", { ascending: true });
+
+  if (error) throw new Error(`Erro ao carregar os motivos de rejeição: ${error.message}`);
+  return (data || []) as MotivoRejeicao[];
 }
 
 /** Aprova a requisição (RPC R2). NÃO envia ao ERP — o envio é o 2º tempo, na tela. */
@@ -1203,11 +1240,23 @@ export async function aprovarRequisicao(requisicaoId: string): Promise<DecisaoRe
   return traduzirDecisao(String(data ?? ""), "aprovar");
 }
 
-/** Rejeita a requisição (RPC R3). Estado TERMINAL: nunca vai ao ERP. */
-export async function rejeitarRequisicao(requisicaoId: string, motivo: string): Promise<DecisaoResult> {
+/**
+ * Rejeita a requisição (RPC R3). Estado TERMINAL: nunca vai ao ERP.
+ *
+ * AJUSTE 1.3 — assinatura nova: o motivo passa a ser um CÓDIGO do catálogo
+ * (`compras_motivos_rejeicao`), para virar indicador agregável; o texto livre
+ * sobra como observação, obrigatória apenas quando o motivo exige (G1/G2).
+ * A assinatura antiga `(uuid, text)` é dropada no banco — não há caminho velho.
+ */
+export async function rejeitarRequisicao(
+  requisicaoId: string,
+  motivoCodigo: string,
+  observacao: string | null,
+): Promise<DecisaoResult> {
   const { data, error } = await (supabase as any).rpc("rejeitar_requisicao", {
     p_req_id: requisicaoId,
-    p_motivo: motivo,
+    p_motivo_codigo: motivoCodigo,
+    p_observacao: observacao,
   });
   if (error) return { ok: false, mensagem: `Falha ao rejeitar: ${error.message}` };
   return traduzirDecisao(String(data ?? ""), "rejeitar");

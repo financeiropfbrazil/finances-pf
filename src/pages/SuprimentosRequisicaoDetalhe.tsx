@@ -16,6 +16,7 @@ import {
   removerArquivo,
   aprovarRequisicao,
   rejeitarRequisicao,
+  listarMotivosRejeicao,
   type ArquivoRequisicao,
   type EnvioResult,
   type RotaSubmissao,
@@ -56,20 +57,10 @@ import {
   Copy,
   Check,
 } from "lucide-react";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ModalRejeicaoRequisicao } from "@/components/compras/ModalRejeicaoRequisicao";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-
-const MOTIVO_MINIMO = 5;
 
 /**
  * Status em que a requisição REALMENTE existe no ERP — logo, os únicos em que faz
@@ -77,6 +68,15 @@ const MOTIVO_MINIMO = 5;
  * os estados do gate de aprovação nunca chegaram lá.
  */
 const STATUS_QUE_EXISTEM_NO_ERP = ["sincronizada", "cancelada", "convertida_pedido"];
+
+/**
+ * Status em que `erro_ultimo_envio` descreve a situação ATUAL da requisição — os
+ * únicos em que o card de erro deve aparecer (AJUSTE 1.3 §5.4). Nos demais o erro
+ * é resíduo de uma tentativa anterior: em `pendente_aprovacao` ele produzia a tela
+ * contraditória "Pendente aprovação + Erro no último envio"; em `rejeitada` a
+ * requisição nunca chegou ao ERP.
+ */
+const STATUS_QUE_MOSTRAM_ERRO_DE_ENVIO = ["rascunho", "pendente_envio", "aprovada"];
 
 const STATUS_MAP: Record<string, { label: string; className: string }> = {
   rascunho: { label: "Rascunho (erro)", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
@@ -135,7 +135,6 @@ export default function SuprimentosRequisicaoDetalhe() {
   const [arquivoRemovendoId, setArquivoRemovendoId] = useState<string | null>(null);
   const [decisaoEmCurso, setDecisaoEmCurso] = useState<"aprovando" | "enviando" | "rejeitando" | null>(null);
   const [modalRejeicaoAberto, setModalRejeicaoAberto] = useState(false);
-  const [motivoRejeicao, setMotivoRejeicao] = useState("");
 
   const {
     data: req,
@@ -209,6 +208,15 @@ export default function SuprimentosRequisicaoDetalhe() {
       return await listarArquivosDaRequisicao(id);
     },
     enabled: !!id && !!req,
+  });
+
+  // AJUSTE 1.3 — rótulo do motivo estruturado. Rejeições anteriores ao catálogo
+  // têm `motivo_rejeicao_codigo` nulo e continuam exibindo só o texto livre (G4).
+  const { data: motivosRejeicao = [] } = useQuery({
+    queryKey: ["motivos_rejeicao"],
+    queryFn: listarMotivosRejeicao,
+    enabled: !!req?.motivo_rejeicao_codigo,
+    staleTime: 5 * 60_000,
   });
 
   // FASE 3 — nome de quem decidiu (a requisição guarda só o user_id).
@@ -482,10 +490,10 @@ export default function SuprimentosRequisicaoDetalhe() {
     }
   };
 
-  const handleRejeitar = async () => {
+  const handleRejeitar = async (motivoCodigo: string, observacao: string | null) => {
     setDecisaoEmCurso("rejeitando");
     try {
-      const decisao = await rejeitarRequisicao(req.id, motivoRejeicao.trim());
+      const decisao = await rejeitarRequisicao(req.id, motivoCodigo, observacao);
       if (!decisao.ok) {
         toast({ title: "Não foi possível rejeitar", description: decisao.mensagem, variant: "destructive" });
         if (decisao.jaDecidida) {
@@ -499,7 +507,6 @@ export default function SuprimentosRequisicaoDetalhe() {
         description: "O requisitante verá o motivo. Ela não vai ao ERP.",
       });
       setModalRejeicaoAberto(false);
-      setMotivoRejeicao("");
       refetch();
       invalidarFilaDeAprovacoes();
     } catch (err: any) {
@@ -615,10 +622,7 @@ export default function SuprimentosRequisicaoDetalhe() {
                 variant="outline"
                 size="sm"
                 className="text-destructive hover:text-destructive shrink-0"
-                onClick={() => {
-                  setMotivoRejeicao("");
-                  setModalRejeicaoAberto(true);
-                }}
+                onClick={() => setModalRejeicaoAberto(true)}
                 disabled={!!decisaoEmCurso}
               >
                 <Ban className="mr-1 h-3 w-3" /> Rejeitar
@@ -752,9 +756,24 @@ export default function SuprimentosRequisicaoDetalhe() {
             <Ban className={`mt-0.5 h-5 w-5 ${isRequisitante ? "text-destructive" : "text-muted-foreground"}`} />
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">Requisição rejeitada pelo líder</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
-                {req.motivo_rejeicao || "(sem motivo registrado)"}
-              </p>
+
+              {/* Motivo estruturado (AJUSTE 1.3) em destaque; a observação vem abaixo.
+                  Rejeição anterior ao catálogo não tem código: cai no texto livre. */}
+              {req.motivo_rejeicao_codigo ? (
+                <>
+                  <p className="mt-1 text-sm font-semibold text-foreground">
+                    {motivosRejeicao.find((m) => m.codigo === req.motivo_rejeicao_codigo)?.rotulo ||
+                      req.motivo_rejeicao_codigo}
+                  </p>
+                  {req.motivo_rejeicao && (
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{req.motivo_rejeicao}</p>
+                  )}
+                </>
+              ) : (
+                <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                  {req.motivo_rejeicao || "(sem motivo registrado)"}
+                </p>
+              )}
               <p className="mt-2 text-xs text-muted-foreground">
                 {(req.rejeitada_por_user_id && nomeDecisor[req.rejeitada_por_user_id]) || "Líder do centro de custo"}
                 {req.rejeitada_em ? ` · ${formatDate(req.rejeitada_em)}` : ""}
@@ -811,8 +830,13 @@ export default function SuprimentosRequisicaoDetalhe() {
         </Card>
       )}
 
-      {/* Erro do último envio */}
-      {req.erro_ultimo_envio && (
+      {/* Erro do último envio — só nos status em que ele descreve a situação ATUAL.
+          Em `pendente_aprovacao` o erro é histórico (herdado de uma tentativa
+          anterior) e a tela ficava dizendo "Pendente aprovação" e "Erro no último
+          envio" ao mesmo tempo — foi o que apareceu na validação com o Hugo. O
+          AJUSTE 1.3 §4.2 limpa a coluna ao rotear, mas a UI não depende disso:
+          lista positiva aqui resolve inclusive as linhas antigas. */}
+      {req.erro_ultimo_envio && STATUS_QUE_MOSTRAM_ERRO_DE_ENVIO.includes(req.status) && (
         <Card className="border-destructive/50 bg-destructive/5">
           <CardContent className="flex items-start gap-3 p-4">
             <AlertTriangle className="mt-0.5 h-5 w-5 text-destructive" />
@@ -1007,55 +1031,13 @@ export default function SuprimentosRequisicaoDetalhe() {
         </CardContent>
       </Card>
 
-      {/* FASE 3 — rejeição: motivo obrigatório, decisão terminal */}
-      <Dialog
-        open={modalRejeicaoAberto}
-        onOpenChange={(aberto) => {
-          setModalRejeicaoAberto(aberto);
-          if (!aberto) setMotivoRejeicao("");
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rejeitar requisição?</DialogTitle>
-            <DialogDescription>
-              A rejeição é definitiva: a requisição não vai ao ERP e não volta para pendente. O requisitante verá o
-              motivo e poderá usar "Clonar" para criar uma nova.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Motivo da rejeição</label>
-            <Textarea
-              value={motivoRejeicao}
-              onChange={(e) => setMotivoRejeicao(e.target.value)}
-              placeholder="Explique o que precisa mudar para uma próxima requisição ser aprovada."
-              rows={4}
-            />
-            <p
-              className={`text-xs ${
-                motivoRejeicao.trim().length >= MOTIVO_MINIMO ? "text-muted-foreground" : "text-destructive"
-              }`}
-            >
-              {motivoRejeicao.trim().length}/{MOTIVO_MINIMO} caracteres mínimos
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalRejeicaoAberto(false)}>
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleRejeitar}
-              disabled={motivoRejeicao.trim().length < MOTIVO_MINIMO || decisaoEmCurso === "rejeitando"}
-            >
-              {decisaoEmCurso === "rejeitando" ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-              Rejeitar requisição
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Rejeição: motivo do catálogo (AJUSTE 1.3), decisão terminal */}
+      <ModalRejeicaoRequisicao
+        aberto={modalRejeicaoAberto}
+        onOpenChange={setModalRejeicaoAberto}
+        onConfirmar={handleRejeitar}
+        rejeitando={decisaoEmCurso === "rejeitando"}
+      />
     </div>
   );
 }

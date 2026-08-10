@@ -14,21 +14,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ModalRejeicaoRequisicao } from "@/components/compras/ModalRejeicaoRequisicao";
 import { Loader2, ClipboardCheck, Check, X, Package, Calendar, Building2, User as UserIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format, differenceInCalendarDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
-
-const MOTIVO_MINIMO = 5;
 
 function formatData(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -70,7 +60,6 @@ export default function SuprimentosAprovacoes() {
   const [etapa, setEtapa] = useState<"aprovando" | "enviando" | "rejeitando" | null>(null);
 
   const [rejeitando, setRejeitando] = useState<RequisicaoPendente | null>(null);
-  const [motivo, setMotivo] = useState("");
 
   const { data: centrosDoLider = [] } = useQuery({
     queryKey: ["lider_centros_custo", user?.id],
@@ -156,13 +145,13 @@ export default function SuprimentosAprovacoes() {
     }
   };
 
-  const handleConfirmarRejeicao = async () => {
+  const handleConfirmarRejeicao = async (motivoCodigo: string, observacao: string | null) => {
     if (!rejeitando) return;
     const req = rejeitando;
     setDecidindoId(req.id);
     setEtapa("rejeitando");
     try {
-      const decisao = await rejeitarRequisicao(req.id, motivo.trim());
+      const decisao = await rejeitarRequisicao(req.id, motivoCodigo, observacao);
       if (!decisao.ok) {
         toast({ title: "Não foi possível rejeitar", description: decisao.mensagem, variant: "destructive" });
         if (decisao.jaDecidida) recarregarTudo();
@@ -173,7 +162,6 @@ export default function SuprimentosAprovacoes() {
         description: "O requisitante verá o motivo no detalhe. Ela não vai ao ERP.",
       });
       setRejeitando(null);
-      setMotivo("");
       recarregarTudo();
     } catch (err: any) {
       toast({ title: "Erro inesperado", description: err?.message || String(err), variant: "destructive" });
@@ -183,7 +171,6 @@ export default function SuprimentosAprovacoes() {
     }
   };
 
-  const motivoValido = motivo.trim().length >= MOTIVO_MINIMO;
   const semEscopo = !isAdmin && centrosDoLider.length === 0;
 
   return (
@@ -305,10 +292,7 @@ export default function SuprimentosAprovacoes() {
                         variant="outline"
                         size="sm"
                         className="text-destructive hover:text-destructive"
-                        onClick={() => {
-                          setRejeitando(req);
-                          setMotivo("");
-                        }}
+                        onClick={() => setRejeitando(req)}
                         disabled={ocupado}
                       >
                         <X className="mr-1 h-3 w-3" /> Rejeitar
@@ -334,59 +318,15 @@ export default function SuprimentosAprovacoes() {
         </>
       )}
 
-      {/* Rejeição — motivo obrigatório, estado TERMINAL */}
-      <Dialog
-        open={!!rejeitando}
+      {/* Rejeição — motivo do catálogo (AJUSTE 1.3), estado TERMINAL */}
+      <ModalRejeicaoRequisicao
+        aberto={!!rejeitando}
         onOpenChange={(aberto) => {
-          if (!aberto) {
-            setRejeitando(null);
-            setMotivo("");
-          }
+          if (!aberto) setRejeitando(null);
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rejeitar requisição?</DialogTitle>
-            <DialogDescription>
-              A rejeição é definitiva: a requisição não vai ao ERP e não volta para pendente. O requisitante verá o
-              motivo e poderá usar "Clonar" para criar uma nova.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Motivo da rejeição</label>
-            <Textarea
-              value={motivo}
-              onChange={(e) => setMotivo(e.target.value)}
-              placeholder="Explique o que precisa mudar para uma próxima requisição ser aprovada."
-              rows={4}
-            />
-            <p className={`text-xs ${motivoValido ? "text-muted-foreground" : "text-destructive"}`}>
-              {motivo.trim().length}/{MOTIVO_MINIMO} caracteres mínimos
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setRejeitando(null);
-                setMotivo("");
-              }}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleConfirmarRejeicao}
-              disabled={!motivoValido || etapa === "rejeitando"}
-            >
-              {etapa === "rejeitando" ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-              Rejeitar requisição
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onConfirmar={handleConfirmarRejeicao}
+        rejeitando={etapa === "rejeitando"}
+      />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **10/08/2026** (PROMPT 3 — Fase 3 / UI executada).
+> Última atualização: **10/08/2026** (PROMPT 1.3 — motivos estruturados de rejeição).
 
 ## 1. Onde estamos
 
@@ -17,8 +17,11 @@
 | **PROMPT 2.1** | Investigação: `pendente_envio` + brecha do reenvio de rascunho | ✅ concluída (read-only) — conclusões no §4 |
 | **AJUSTE 1.2** | Reenvio de rascunho roteado + gate de permissão no botão + dívidas | ✅ recebido (autoria do Pedro), incorporado |
 | **PROMPT 1.2** | Execução do Ajuste 1.2 (§3 e §4) — código + medição da permissão | ✅ concluído em 10/08/2026 · commit `3f88fbd` · **pushado e publicado** — conclusões no §9 |
-| **PROMPT 3** | Fase 3 — UI (fila do líder, badges, clonar, correções C5) | ✅ concluído em 10/08/2026 · commit local · **SEM push** — conclusões no §10 |
-| PROMPT 4 / 5 | Validação 255 chars · piloto fim-a-fim | ⏸️ não iniciados — a Fase 5 é o roteiro do `PROMPT-3-FASE3.md` §7 (cobaia: Hugo Maffei) |
+| **PROMPT 3** | Fase 3 — UI (fila do líder, badges, clonar, correções C5) | ✅ concluído em 10/08/2026 · commit `cc58e9c` · **pushado e publicado** — conclusões no §10 |
+| **FASE 5 — validação** | Piloto fim-a-fim com o Hugo Maffei | ✅ **executada em 10/08/2026** — gate funcionando em produção; 3 achados viraram o Ajuste 1.3 |
+| **AJUSTE 1.3** | Motivos estruturados de rejeição + limpeza de `erro_ultimo_envio` | ✅ recebido (autoria do Pedro), incorporado |
+| **PROMPT 1.3** | Execução do Ajuste 1.3 — SQL + frontend | ✅ concluído em 10/08/2026 · commit local · **SEM push** · **SQL PENDENTE de execução** — conclusões no §11 |
+| PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado |
 
 **Publicação:** Fases 2 e 1.2 estão publicadas. A Fase 3 está só no repo local (nem push): publicar é decisão do Pedro **depois** de revisar o diff e rodar o SQL do §10.2.
 
@@ -96,11 +99,12 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
 
 ## 6. Próximo passo
 
-1. **Pedro revisa o diff da Fase 3** (§10) e dá o push.
-2. **Rodar o SQL do §10.2** no SQL Editor (`lider_departamento` + `create`/`reenviar_own`) — é pré-condição para qualquer líder sem `is_admin`.
-3. **Publicar no Lovable** (Fases 2 + 1.2 + 3).
-4. **Fase 5 — validação fim-a-fim** com o Hugo Maffei, roteiro do `PROMPT-3-FASE3.md` §7 (11 passos). Avisar que é teste, principalmente na rejeição.
-5. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
+1. **Executar o `SQL-AJUSTE13.md`** no SQL Editor (12 blocos + 5 conferências). ⚠️ **O frontend do Ajuste 1.3 já chama a assinatura nova de `rejeitar_requisicao` (3 parâmetros)** — enquanto o SQL não rodar, rejeitar pela tela falha. Ordem correta: SQL primeiro, push/Publicar depois.
+2. **Pedro revisa o diff do Ajuste 1.3** (§11) e dá o push.
+3. **Publicar no Lovable.**
+4. **Validação §8 do Ajuste 1.3** (6 passos: motivo sem observação, "Outros" sem/com observação, rejeição antiga do Hugo legível, sem erro residual, agregação por motivo).
+5. **Conferir o SQL do §10.2** (`lider_departamento` + `create`/`reenviar_own`) — se ainda não foi rodado, continua pendente.
+6. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
 
 ## 7. Pendências abertas
 
@@ -293,3 +297,99 @@ Grep: `req-comp/insert` · `req-comp/update` · `req-comp/list` · `/req-comp/${
 5. **`src/lib/statusConfig.ts` continua órfão** (arquivo inteiro sem nenhum import, com um `getStatusRequisicao` concorrente). **Não foi tocado** — remover arquivo inteiro passa do escopo. Fica registrado como candidato a limpeza.
 6. **Clonar não grava rascunho no banco**: abre o wizard pré-preenchido (`?clonarDe=`) e o rascunho nasce na submissão, já como requisição do usuário atual. Gravar antes exigiria o wizard saber **editar** requisição existente — funcionalidade que não está nesta fase (o botão "Editar" segue `disabled`). O efeito visível ao usuário é o mesmo e nada de lixo é criado se ele desistir.
 7. **Reenvio pós-aprovação no detalhe usa `reenviarRequisicaoAprovada` também para o PRIMEIRO envio** (logo após aprovar). O nome diz "reenviar", mas é o mesmo caminho correto (valida `aprovada` + desfecho só pela R4); duplicar a função só pelo nome seria pior.
+
+---
+
+## 11. AJUSTE 1.3 — motivos estruturados de rejeição (10/08/2026, PROMPT 1.3)
+
+### 11.0 🔴 LIÇÃO DA VALIDAÇÃO — `status text` **com CHECK** se comporta como enum
+
+A Fase 5 (Hugo, 10/08) quebrou ao gravar `pendente_aprovacao`: a coluna `compras_requisicoes.status`
+é `text`, mas tem uma **CHECK constraint** que o Discovery **não mediu** — ele mediu o *tipo*
+(`information_schema.columns` → `text` ✅) e concluiu "sem `ALTER TYPE`, sem enum". A constraint
+listava só os 6 status antigos, então os 3 estados novos eram recusados **pelo banco**, não pelo tipo.
+
+> **Regra para toda missão futura:** ao introduzir valor novo em coluna de status, perguntar
+> **"existe CHECK nessa coluna?"** — `select pg_get_constraintdef(oid) from pg_constraint where
+> conrelid='<tabela>'::regclass and contype='c';`. Tipo `text` **não** significa domínio livre.
+
+Corrigida pelo Pedro em produção. Estado atual, medido em 10/08 — **9 valores**:
+`rascunho`, `pendente_envio`, `erro_envio`, `sincronizada`, `cancelada`, `convertida_pedido`,
+`pendente_aprovacao`, `aprovada`, `rejeitada`.
+ℹ️ `erro_envio` está na constraint mas **nenhum código o grava** — é valor órfão, não usado pelo módulo.
+
+### 11.1 Arquivos alterados (3 modificados + 2 novos)
+
+| Arquivo | Mudança |
+|---|---|
+| **`SQL-AJUSTE13.md`** 🆕 | 12 blocos na ordem de execução (um statement por bloco) + 5 conferências + rollback. **PENDENTE — o Pedro executa.** Todo `CREATE FUNCTION` com tag nomeada (`$trg$`, `$r3$`, `$r1$`) |
+| **`src/components/compras/ModalRejeicaoRequisicao.tsx`** 🆕 | Modal único de rejeição: dropdown do catálogo (ordenado, só ativos), observação opcional/obrigatória conforme `exige_observacao`, contador visível, botão travado enquanto a seleção for inválida. **Antes eram duas cópias** do mesmo diálogo (fila e detalhe) — divergiriam na primeira mudança de regra |
+| `src/services/requisicoesService.ts` | `listarMotivosRejeicao()`; `rejeitarRequisicao(id, motivoCodigo, observacao)` com a assinatura nova; `traduzirDecisao` passa a cobrir `MOTIVO_INVALIDO` e `OBSERVACAO_OBRIGATORIA` |
+| `src/pages/SuprimentosRequisicaoDetalhe.tsx` | Usa o modal compartilhado; card de rejeição mostra **rótulo do motivo** em destaque + observação; card de erro de envio agora só aparece nos status em que o erro é atual (`STATUS_QUE_MOSTRAM_ERRO_DE_ENVIO`) |
+| `src/pages/SuprimentosAprovacoes.tsx` | Usa o modal compartilhado (removidos `Dialog`/`Textarea` locais e o estado `motivo`) |
+
+**Gate de saída:** `bun run build` ✅ · `tsc --noEmit -p tsconfig.app.json` exit 0 ✅ · ESLint: service **+1**
+(o `(supabase as any)` da leitura do catálogo — `types.ts` não pode ser tocado), detalhe e fila **0**,
+componente novo **limpo (0)**. Nenhuma rota nova ao ERP (§11.4).
+
+### 11.2 O que muda nas 3 funções do banco
+
+| Função | Mudança | Preservado |
+|---|---|---|
+| `fn_req_protege_aprovacao()` (trigger) | +2 linhas: `motivo_rejeicao_codigo is not null` (INSERT) e `is distinct from` (UPDATE). Sem isso a coluna nova ficaria gravável por API direta | Todo o resto: `SECURITY INVOKER` de propósito, **sem** `set search_path` (a função não referencia tabela), mesmas exceções, mesmos ramos |
+| `rejeitar_requisicao` | Assinatura **`(uuid, text, text)`** — a antiga `(uuid, text)` é **dropada** (não deixar caminho que pule o catálogo). Valida o código contra `compras_motivos_rejeicao` (`MOTIVO_INVALIDO`) e a observação quando `exige_observacao` (`OBSERVACAO_OBRIGATORIA`). Grava `motivo_rejeicao_codigo` + observação em `motivo_rejeicao`. Evento `rejeitada_lider` leva `motivo_codigo`, `motivo_rotulo` e `observacao` | Todos os gates: `auth.uid() is null`, `user_has_permission`, `FOR UPDATE`, `status='pendente_aprovacao'`, `is_admin`/escopo por CC. `SECURITY DEFINER` + `search_path` redeclarados |
+| `submeter_requisicao` | `erro_ultimo_envio = null` nos três desfechos de sucesso | Toda a lógica de roteamento, gates e eventos |
+
+⚠️ **Ordem dos gates alterada de propósito em `rejeitar_requisicao`:** a checagem de permissão passou
+para **antes** da validação do motivo. Na versão antiga, `MOTIVO_OBRIGATORIO` vinha antes de
+`user_has_permission` — quem não pode aprovar descobriria o formato do catálogo pelos erros.
+
+### 11.3 Retornos novos → mensagem na tela
+
+| Retorno | Mensagem |
+|---|---|
+| `MOTIVO_INVALIDO` | "Motivo de rejeição inválido ou desativado. Recarregue a página e escolha um motivo da lista." |
+| `OBSERVACAO_OBRIGATORIA` | "O motivo escolhido exige observação (mínimo de 5 caracteres). Descreva o que precisa mudar." |
+| `MOTIVO_OBRIGATORIO` | **mantido** no tradutor: é o retorno da assinatura ANTIGA. Se o SQL ainda não tiver sido executado, o erro aparece explicado em vez de virar "retorno inesperado" |
+
+### 11.4 Mapa de rotas ao ERP
+
+**Inalterado.** O Ajuste 1.3 não toca em nenhum caminho de envio: rejeição nunca fala com o ERP, e a
+limpeza de `erro_ultimo_envio` acontece dentro da RPC de roteamento. O mapa do §10.5 segue válido.
+
+### 11.5 Definições ANTES do Ajuste (rollback — medidas em 10/08/2026)
+
+Estado exato em produção antes dos blocos do `SQL-AJUSTE13.md`, para restaurar se preciso (recolar
+sempre com tag nomeada):
+
+- **`fn_req_protege_aprovacao()`**: idêntica à do Bloco 7, **sem** as duas linhas marcadas `-- AJUSTE 1.3`.
+- **`rejeitar_requisicao(p_req_id uuid, p_motivo text)`**: `security definer`, `search_path=public`;
+  ordem `auth.uid() null` → `p_motivo` nulo ou `< 5` → `MOTIVO_OBRIGATORIO` → `user_has_permission` →
+  `select … for update` → `status <> 'pendente_aprovacao'` → `is_admin`/CC → `update` gravando
+  `motivo_rejeicao=trim(p_motivo)` → evento `rejeitada_lider` com `jsonb_build_object('motivo', …, 'cc', …)`.
+- **`submeter_requisicao(p_req_id uuid)`**: idêntica à do Bloco 11, **sem** os três `erro_ultimo_envio=null`
+  e **sem** o `update` no ramo `SEM_GATE` (esse ramo só gravava auditoria e retornava).
+
+### 11.6 O que contradisse a espec
+
+1. **O ramo `SEM_GATE` de `submeter_requisicao` não tinha `UPDATE` nenhum.** O §4.2 diz "nos três
+   desfechos o UPDATE passa a incluir `erro_ultimo_envio = null`", supondo que os três já gravavam.
+   Foi preciso **criar** um UPDATE nesse ramo. É seguro (a req está em `rascunho`, fora dos estados
+   protegidos), mas é statement novo, não um campo a mais num existente.
+2. **As funções em produção divergiam do AJUSTE-1.1 documentado.** Ambas ganharam um
+   `if auth.uid() is null then return 'SEM_PERMISSAO'` no topo (e `rejeitar_requisicao` mudou a forma
+   de ler `is_admin`) em algum momento entre a Fase 1 e hoje. Recriei a partir do
+   **`pg_get_functiondef` real**, não do texto do Ajuste 1.1 — que teria revertido essas melhorias em
+   silêncio.
+3. **Modal extraído para componente compartilhado.** O §5.1 fala em "modal de rejeição" no singular,
+   mas existiam **duas** cópias (fila do líder e detalhe). Aplicar a mudança em duas cópias
+   perpetuaria a divergência; o escopo do prompt permite mexer na fila "além do modal" — foi
+   exatamente o modal.
+4. **Tooltip do badge `rejeitada` não mostra o rótulo do motivo.** `getStatusRequisicao` recebe só a
+   linha da requisição, sem o catálogo; carregar o catálogo dentro de uma função de formatação pura
+   seria pior. Com motivo estruturado e sem observação, o tooltip cai no texto genérico
+   ("Rejeitada pelo líder…"). O rótulo aparece no card do detalhe, que é onde o §5.3 pede.
+5. **Card de erro: lista positiva em vez de excluir só `pendente_aprovacao`.** O §5.4 pede "não
+   exibir em `pendente_aprovacao`"; implementei enumerando onde **deve** aparecer (`rascunho`,
+   `pendente_envio`, `aprovada`), o que também cobre `rejeitada`, `cancelada` e `convertida_pedido` —
+   e segue a regra de listas positivas adotada na Fase 3.
