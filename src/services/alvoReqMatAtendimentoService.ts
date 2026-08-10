@@ -68,6 +68,36 @@ import {
  * Deixar de chamá-la é que seria o defeito: o expurgo de 15 min da
  * `op_rm_atender_iniciar` marcaria `abandonado` um atendimento que baixou
  * material. Daí a cascata de três degraus em `semear()`.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * AT-4.1 (10/08/2026) — O QUE A CAPTURA DO NETWORK DERRUBOU
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Captura da tela de Atendimento do Alvo (RM `0000002278`, seq 1, fechada no X
+ * sem finalizar). Ela não respondeu a pergunta da AT-4 — **derrubou a pergunta**:
+ *
+ *   1. 🔴 A QUANTIDADE A ATENDER NÃO VAI NO `ClassInstance`. É campo de TOPO do
+ *      envelope (`Quantidade`), irmão de `Origem`. O `ClassInstance` vai com as
+ *      quantidades **intactas, como vieram do Load**. As três hipóteses que a
+ *      AT-4 registrou (acumulado / diferença / saldo) procuravam no lugar errado
+ *      — nenhuma medição no console as teria distinguido.
+ *   2. 🔴 A RESPOSTA VEM EMBRULHADA EM `Item`, não na raiz. Defeito INDEPENDENTE
+ *      do primeiro: mesmo que a chamada tivesse passado, a alocação sairia
+ *      **vazia e em silêncio**.
+ *   3. 🔴 A CHAVE DO ARRAY DE LOTES É `ListaCtrlLoteLocArmaz`, não `Lista`, e
+ *      cada linha vai com `selected: true`.
+ *   4. 🔴 O ITEM PRECISA DE CAMPOS DE CADASTRO DO PRODUTO que o `ReqMat/Load`
+ *      NÃO traz — é a causa provável do `NullReferenceException` (§4.3 do guia).
+ *      Ver `enriquecerItemDeCadastro`: mandamos os 7 que o Hub tem e **não
+ *      inventamos** os 5 que faltam.
+ *   5. `DataAtendimento` vai como DATA ZERADA E SEM FUSO (`2026-08-10T00:00:00`).
+ *      A resposta volta com `-03:00`; replicamos o que a TELA envia.
+ *
+ * 🔴 E o `RelacionarCtrlLoteLocArmaz` NÃO É UM ALOCADOR FEFO. A §2.6 do plano da
+ *    fase e a §10.31 do PLANO-OP assim o chamam; a captura mostra que a tela
+ *    manda **todos** os lotes com `selected: true` e ele consome **na ordem da
+ *    lista**. O FEFO está na ORDENAÇÃO da lista (que o Alvo já entrega por
+ *    validade), não neste endpoint. Card de retificação na AT-4.1.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -203,6 +233,13 @@ export interface ItemAtendimento {
   alocacaoSugerida: AlocacaoLote[];
   /** O item cru da leitura. Base do objeto enviado. */
   itemLoad: unknown;
+  /**
+   * O item **enriquecido com o cadastro** (`enriquecerItemDeCadastro`), que é o
+   * que vai no `ClassInstance` das duas chamadas de lote. Separado do `itemLoad`
+   * de propósito: o objeto que volta ao Alvo no Validar é montado da RELEITURA,
+   * e não pode carregar campo que o Hub acrescentou.
+   */
+  itemParaLote: unknown;
   /** Falha isolada de lote — não derruba a abertura da RM inteira. */
   avisoLotes?: string;
 }
@@ -381,6 +418,24 @@ function agoraNoAlvo(): string {
 }
 
 /**
+ * O DIA de hoje em Brasília, zerado e **sem sufixo de fuso** — `2026-08-10T00:00:00`.
+ *
+ * 🔴 É o formato que a TELA do Alvo envia em `DataAtendimento` (captura da
+ *    AT-4.1). A resposta volta com `-03:00`, mas o que se manda é isto. Replicar
+ *    o payload da tela é a regra; "corrigir" o formato é como se perdem
+ *    tentativas no `NullReferenceException`.
+ *
+ * ⚠ NÃO vale para o cabeçalho: `DataEntrega` / `DataConferencia` /
+ *   `DataRecebimento` vêm pré-preenchidas com o INSTANTE, com milissegundos e
+ *   com fuso — essas continuam em `agoraNoAlvo()`.
+ */
+function hojeNoAlvoSemFuso(): string {
+  const d = new Date(Date.now() - 180 * 60_000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T00:00:00`;
+}
+
+/**
  * Executa `fn` sobre `itens` com no máximo `limite` em voo.
  *
  * Motivo medido: uma RM pode ter **até 14 itens com controle de lote** (média
@@ -494,13 +549,41 @@ function normalizarData(v: unknown): string | null {
   return s;
 }
 
-/** Lê `controla_lote`, nome e unidade do catálogo do Hub, em lote (nunca N+1). */
+interface InfoProduto {
+  nome: string | null;
+  unidade: string | null;
+  controlaLote: boolean;
+  /** `ProdutoCodigoAlternativo` do payload — bate com a captura (`809983`). */
+  codigoAlternativo: string | null;
+  // ── Cache de cadastro (AT-4.2) ────────────────────────────────────────────
+  codigoTipoProduto: string | null;
+  controlaEstoque: string | null;
+  possuiNumSerie: string | null;
+  /**
+   * 🔴 NULL = produto sem cache de cadastro ⇒ o item COM LOTE é bloqueado com
+   * mensagem. Nunca se assume valor (decisão 5 do `RETOMADA-AT-4.md`).
+   */
+  cadastroAlvoEm: string | null;
+}
+
+/** Uma linha da escala de conversão do produto (`stock_produto_unidades`). */
+interface UnidadeDoProduto {
+  posicao: number;
+  codigoUnidMed: string | null;
+  peso: number | null;
+  pesoFatorDivisor: string | null;
+}
+
+/** Lê o catálogo + o cache de cadastro da AT-4.2, em lote (nunca N+1). */
 async function catalogoDeProdutos(codigos: string[]) {
-  const mapa = new Map<string, { nome: string | null; unidade: string | null; controlaLote: boolean }>();
+  const mapa = new Map<string, InfoProduto>();
   if (codigos.length === 0) return mapa;
   const { data, error } = await (supabase as any)
     .from("stock_products")
-    .select("codigo_produto, nome_produto, unidade_medida, controla_lote")
+    .select(
+      "codigo_produto, nome_produto, unidade_medida, controla_lote, codigo_alternativo, " +
+        "codigo_tipo_produto, controla_estoque, possui_num_serie, cadastro_alvo_em",
+    )
     .in("codigo_produto", codigos);
   if (error) throw new ReqMatAtendimentoError(`Falha ao ler o catálogo de produtos: ${error.message}`, 500);
   (data || []).forEach((p: any) =>
@@ -508,9 +591,158 @@ async function catalogoDeProdutos(codigos: string[]) {
       nome: p.nome_produto ?? null,
       unidade: p.unidade_medida ?? null,
       controlaLote: p.controla_lote === true,
+      codigoAlternativo: p.codigo_alternativo ?? null,
+      codigoTipoProduto: p.codigo_tipo_produto ?? null,
+      controlaEstoque: p.controla_estoque ?? null,
+      possuiNumSerie: p.possui_num_serie ?? null,
+      cadastroAlvoEm: p.cadastro_alvo_em ?? null,
     }),
   );
   return mapa;
+}
+
+/**
+ * A escala de unidades dos produtos da RM (`stock_produto_unidades`, AT-4.2).
+ *
+ * Uma consulta por RM, não por item. O `Peso`/`PesoFatorDivisor` que vai ao
+ * `ClassInstance` sai daqui, escolhido pela `PosicaoProdUnidMed` DO ITEM.
+ */
+async function catalogoDeUnidades(codigos: string[]) {
+  const mapa = new Map<string, UnidadeDoProduto[]>();
+  if (codigos.length === 0) return mapa;
+  const { data, error } = await (supabase as any)
+    .from("stock_produto_unidades")
+    .select("codigo_produto, posicao, codigo_unid_med, peso, peso_fator_divisor")
+    .in("codigo_produto", codigos);
+  if (error) {
+    throw new ReqMatAtendimentoError(`Falha ao ler a escala de unidades dos produtos: ${error.message}`, 500);
+  }
+  type LinhaEscala = {
+    codigo_produto: string;
+    posicao: number | string;
+    codigo_unid_med: string | null;
+    peso: number | string | null;
+    peso_fator_divisor: string | null;
+  };
+  (data || []).forEach((u: LinhaEscala) => {
+    const linhas = mapa.get(u.codigo_produto) || [];
+    linhas.push({
+      posicao: Number(u.posicao),
+      codigoUnidMed: u.codigo_unid_med ?? null,
+      // `numeric` do Postgres chega como string pelo PostgREST — Number() aqui é
+      // conversão, não coerção defensiva (o valor já foi validado na carga).
+      peso: u.peso === null || u.peso === undefined ? null : Number(u.peso),
+      pesoFatorDivisor: u.peso_fator_divisor ?? null,
+    });
+    mapa.set(u.codigo_produto, linhas);
+  });
+  return mapa;
+}
+
+/**
+ * Nome do local de armazenagem (`LocArmazNome` do payload).
+ *
+ * `stock_locais_armaz` tem os 10+ locais sincronizados do Alvo; `001` = `ESTOQUE`,
+ * exatamente o que a captura mostra. Uma consulta por RM, não por item.
+ */
+async function catalogoDeLocais(codigos: string[]) {
+  const mapa = new Map<string, string>();
+  if (codigos.length === 0) return mapa;
+  const { data, error } = await (supabase as any)
+    .from("stock_locais_armaz")
+    .select("codigo_loc_armaz, nome")
+    .in("codigo_loc_armaz", codigos);
+  // Local sem nome NÃO é fatal: o campo é de exibição no payload, e derrubar a
+  // abertura inteira por causa dele seria pior que mandá-lo vazio.
+  if (error) {
+    console.warn("[alvoReqMatAtendimentoService] falha ao ler locais de armazenagem:", error.message);
+    return mapa;
+  }
+  (data || []).forEach((l: { codigo_loc_armaz?: string; nome?: string | null }) => {
+    if (l?.codigo_loc_armaz) mapa.set(l.codigo_loc_armaz, l.nome ?? "");
+  });
+  return mapa;
+}
+
+/**
+ * 🔴 O ITEM DO `ReqMat/Load` NÃO BASTA PARA AS CHAMADAS DE LOTE.
+ *
+ * A captura da AT-4.1 mostra a tela do Alvo mandando, no `ClassInstance`, campos
+ * de **cadastro do produto** que o `ReqMat/Load` devolve como chave presente e
+ * **valor nulo** — medido em 2.563 de 2.563 `raw` do espelho: as 14 chaves
+ * existem, e `ControlaLote`, `ControlaEstoque`, `CodigoTipoProduto`,
+ * `ProdutoNome`, `ProdutoCodigoAlternativo`, `LocArmazNome`, `PesoFatorDivisor`,
+ * `PossuiNumSerie`, `Localizacao` e `LocalizacaoProduto` vêm **nulas em 100%**.
+ *
+ * ⇒ Preenchemos os que o Hub TEM, do próprio catálogo:
+ *
+ *   · `ControlaLote`              ← `stock_products.controla_lote`
+ *   · `ProdutoNome`               ← `stock_products.nome_produto`
+ *   · `ProdutoCodigoAlternativo`  ← `stock_products.codigo_alternativo`
+ *   · `LocArmazNome`              ← `stock_locais_armaz.nome`
+ *   · `Localizacao`               ← `""`, literal da captura, só quando vem nulo
+ *
+ * 🔴 OS CINCO QUE FALTAVAM VÊM DO CACHE DA AT-4.2, NÃO DE DEDUÇÃO.
+ *    `CodigoTipoProduto`, `ControlaEstoque` e `PossuiNumSerie` saem de
+ *    `stock_products`; `Peso` e `PesoFatorDivisor`, de
+ *    `stock_produto_unidades` — **escolhidos pela `PosicaoProdUnidMed` DO ITEM**,
+ *    porque são POR UNIDADE, não do produto. Medido: 6 produtos com lote e 79
+ *    itens de RM usam posição ≠ 1 (MILHEI, LITRO, BOBINA), 5 deles atendíveis
+ *    hoje. Ler sempre a base erraria exatamente onde a conversão importa.
+ *
+ * ⚠ E o peso do cadastro NÃO é usado para calcular quantidade. `Quantidade2`,
+ *   `QuantidadeAtendida2` e `QuantidadeSaldo2` do payload seguem o fator do
+ *   PRÓPRIO ITEM (`fatorSegundaUnidade`), que é o que o ERP tem gravado — a
+ *   separação é regra (decisão do Pedro, 10/08/2026). Aqui é cadastro; lá é
+ *   movimento. O `001.003.00047` mostra por quê: fator observado 1,000 num par
+ *   GALAO→LITRO, isto é, conversão FALTANDO no cadastro. Se o Hub recalculasse
+ *   pelo peso, mudaria 19 itens sem que ninguém tivesse pedido.
+ */
+function enriquecerItemDeCadastro(
+  itemLoad: unknown,
+  info: InfoProduto | undefined,
+  nomeDoLocal: string | undefined,
+  unidades: UnidadeDoProduto[] | undefined,
+): unknown {
+  if (!itemLoad || typeof itemLoad !== "object") return itemLoad;
+  const i = indexar(itemLoad);
+  const enriquecido: Record<string, unknown> = { ...(itemLoad as Record<string, unknown>) };
+
+  if (info) {
+    enriquecido.ControlaLote = info.controlaLote ? "Sim" : "Não";
+    if (info.nome) enriquecido.ProdutoNome = info.nome;
+    if (info.codigoAlternativo) enriquecido.ProdutoCodigoAlternativo = info.codigoAlternativo;
+    if (info.codigoTipoProduto) enriquecido.CodigoTipoProduto = info.codigoTipoProduto;
+    if (info.controlaEstoque) enriquecido.ControlaEstoque = info.controlaEstoque;
+    if (info.possuiNumSerie) enriquecido.PossuiNumSerie = info.possuiNumSerie;
+  }
+  if (nomeDoLocal) enriquecido.LocArmazNome = nomeDoLocal;
+
+  // ── Peso e fator: da POSIÇÃO do item, com queda para a base ───────────────
+  // ⚠ A queda para a posição 1 é deliberada e limitada: só quando a posição do
+  //   item não existe na escala (cadastro incompleto — o §9.8 conta 33 produtos
+  //   sem unidade-base). Não é o caminho normal, e por isso avisa no console em
+  //   vez de acontecer em silêncio.
+  if (unidades && unidades.length > 0) {
+    const posicaoDoItem = num(pick(i, "PosicaoProdUnidMed"));
+    const exata = unidades.find((u) => u.posicao === posicaoDoItem);
+    const escolhida = exata ?? unidades.find((u) => u.posicao === 1);
+    if (!exata && escolhida) {
+      console.warn(
+        `[alvoReqMatAtendimentoService] ${txt(pick(i, "CodigoProduto")) || "?"}: posição ${posicaoDoItem} não existe na escala de unidades; usando a base (posição 1).`,
+      );
+    }
+    if (escolhida) {
+      if (escolhida.peso !== null) enriquecido.Peso = escolhida.peso;
+      if (escolhida.pesoFatorDivisor) enriquecido.PesoFatorDivisor = escolhida.pesoFatorDivisor;
+    }
+  }
+
+  // Literal da captura (`""`), aplicado só quando o Load não trouxe nada — não é
+  // dedução, é o valor que a tela manda.
+  if (pick(i, "Localizacao") == null) enriquecido.Localizacao = "";
+
+  return enriquecido;
 }
 
 /**
@@ -542,7 +774,16 @@ export async function abrirAtendimento(numero: string): Promise<AtendimentoAbert
   const codigos = Array.from(
     new Set(itensBrutos.map((it: any) => txt(pick(indexar(it), "CodigoProduto"))).filter(Boolean) as string[]),
   );
-  const catalogo = await catalogoDeProdutos(codigos);
+  const locais = Array.from(
+    new Set(itensBrutos.map((it: any) => txt(pick(indexar(it), "CodigoLocArmaz"))).filter(Boolean) as string[]),
+  );
+  // Três consultas por RM, nunca por item — o enriquecimento do payload de lote
+  // (AT-4.1 + AT-4.2) sai daqui.
+  const [catalogo, nomesDeLocal, escalas] = await Promise.all([
+    catalogoDeProdutos(codigos),
+    catalogoDeLocais(locais),
+    catalogoDeUnidades(codigos),
+  ]);
 
   const itens = await mapearComLimite(itensBrutos, CONCORRENCIA_LOTES, async (bruto: any) => {
     const i = indexar(bruto);
@@ -564,6 +805,15 @@ export async function abrirAtendimento(numero: string): Promise<AtendimentoAbert
       lotesDisponiveis: [],
       alocacaoSugerida: [],
       itemLoad: bruto,
+      // 🔴 AT-4.1: as DUAS chamadas de lote levam o item enriquecido, não o cru.
+      //    A tela do Alvo manda o mesmo objeto nas duas, e o item do `ReqMat/Load`
+      //    vem com os campos de cadastro nulos (ver `enriquecerItemDeCadastro`).
+      itemParaLote: enriquecerItemDeCadastro(
+        bruto,
+        info,
+        nomesDeLocal.get(txt(pick(i, "CodigoLocArmaz")) || ""),
+        escalas.get(codigoProduto),
+      ),
     };
 
     // 🔴 Produto fora do catálogo do Hub NÃO vira "não controla lote".
@@ -578,8 +828,29 @@ export async function abrirAtendimento(numero: string): Promise<AtendimentoAbert
 
     if (!item.controlaLote || saldo <= 0) return item;
 
+    // 🔴 AT-4.2 — SEM CACHE DE CADASTRO, O ITEM COM LOTE NÃO SEGUE.
+    //    A alternativa seria mandar o `ClassInstance` sem `CodigoTipoProduto`,
+    //    `ControlaEstoque`, `PossuiNumSerie`, `Peso` e `PesoFatorDivisor` e
+    //    torcer: o Alvo responderia `NullReferenceException` **sem dizer qual
+    //    campo falta** (§4.3 do guia — quatro tentativas perdidas assim em
+    //    05/08). Bloquear com mensagem é a única falha honesta aqui, e é a
+    //    decisão 5 do RETOMADA-AT-4.md aplicada ao cadastro.
+    //    ⚠ Item SEM controle de lote não passa por aqui de propósito: ele não
+    //      chama a lista nem o `Relacionar`, então não precisa do cadastro.
+    if (!info.cadastroAlvoEm) {
+      item.avisoLotes =
+        `O cadastro de lote do produto ${codigoProduto} ainda não foi carregado do ERP. ` +
+        `Peça a um administrador para rodar "Carregar cadastro de lote" em Configurações › Produtos ` +
+        `e abra esta requisição de novo.`;
+      return item;
+    }
+
     try {
-      const lista = await chamarAlvo("CtrlLoteLocArmaz/ListaCtrlLoteLocArmaz", "POST", envelopeLote(numero, bruto));
+      const lista = await chamarAlvo(
+        "CtrlLoteLocArmaz/ListaCtrlLoteLocArmaz",
+        "POST",
+        envelopeLote(numero, item.itemParaLote),
+      );
       const brutos = pick(indexar(lista), "ListaCtrlLoteLocArmaz");
       item.lotesDisponiveis = (Array.isArray(brutos) ? brutos : [])
         .map(mapearLoteDisponivel)
@@ -595,7 +866,7 @@ export async function abrirAtendimento(numero: string): Promise<AtendimentoAbert
 
       // Abre propondo atender TUDO o que resta (§F5). Se o usuário mudar a
       // quantidade, a tela chama `realocarLotesDoItem`.
-      item.alocacaoSugerida = await alocarNoServidor(numero, bruto, item.lotesDisponiveis, saldo);
+      item.alocacaoSugerida = await alocarNoServidor(numero, item.itemParaLote, item.lotesDisponiveis, saldo);
     } catch (e: any) {
       // Falha de lote é POR ITEM: a RM inteira não cai por causa de um produto.
       item.avisoLotes = `Não foi possível carregar os lotes de ${codigoProduto}: ${e?.message || String(e)}`;
@@ -620,45 +891,57 @@ export async function abrirAtendimento(numero: string): Promise<AtendimentoAbert
 }
 
 /**
- * Pede ao Alvo a alocação FEFO de `quantidade` sobre os lotes de um item.
+ * Pede ao Alvo a distribuição de `quantidadeAtenderAgora` sobre os lotes do item.
  *
- * 🟢 `RelacionarCtrlLoteLocArmaz` **não é conveniência de tela: é o Alvo
- *    alocando** (AT-2). Devolve o item com a `CtrlLoteItemReqMatChildList` já
- *    montada, escolhendo o de validade mais próxima.
+ * 🔴 REESCRITA NA AT-4.1, com a captura do Network em mãos. O que mudou, e por quê:
  *
- * ⚠ Qual campo do `ClassInstance` carrega "a quantidade a atender" NÃO foi
- *   capturado do Network — o espécime da AT-2 tinha zero atendido, então
- *   acumulado e diferença coincidiam. Preenchemos
- *   `QuantidadeAtendidaProdUnidMedPrincipal` com o ACUMULADO (já atendido + a
- *   atender), que é o valor que o item terá no Validar. O risco é contido: a
- *   proposta é sugestão, e a validação nº 1 (soma dos lotes = quantidade
- *   atendida agora) roda localmente antes de qualquer POST — uma proposta
- *   errada é barrada no Hub, não no ERP.
+ *   · **`Quantidade` é campo de TOPO do envelope**, irmão de `Origem`. A AT-4
+ *     supunha que a quantidade ia no `ClassInstance` e discutia QUAL campo dele
+ *     a carregava — a pergunta inteira estava errada.
+ *   · **O `ClassInstance` vai com as quantidades INTACTAS do Load.** Nada de
+ *     acumulado, nada de saldo ajustado: o objeto é o item como o ERP o
+ *     entregou, só acrescido do cadastro (`enriquecerItemDeCadastro`).
+ *   · **A chave do array é `ListaCtrlLoteLocArmaz`**, não `Lista` (a §2.6 do
+ *     plano da fase registrava `Lista`), e cada linha vai com `selected: true`.
+ *   · **A resposta vem embrulhada em `Item`.** Ler da raiz devolvia `undefined`
+ *     e produzia alocação vazia **em silêncio** — defeito independente dos
+ *     outros, que teria sobrevivido à correção deles.
+ *
+ * ⚠ E ele NÃO é um alocador FEFO: a tela manda todos os lotes marcados e ele
+ *   consome NA ORDEM DA LISTA. O FEFO está na ordenação que o Alvo já entrega.
+ *   Na captura, 4 lotes marcados e `Quantidade: 12` → distribuiu **6 + 6**.
  */
 async function alocarNoServidor(
   numero: string,
-  itemLoad: any,
+  itemParaLote: unknown,
   lotes: LoteDisponivel[],
   quantidadeAtenderAgora: number,
 ): Promise<AlocacaoLote[]> {
-  const i = indexar(itemLoad);
-  const jaAtendida = n0(pick(i, "QuantidadeAtendidaProdUnidMedPrincipal"));
-  const fator = fatorSegundaUnidade(itemLoad);
-  const acumulado = jaAtendida + quantidadeAtenderAgora;
-
-  const classInstance = {
-    ...itemLoad,
-    QuantidadeAtendidaProdUnidMedPrincipal: acumulado,
-    QuantidadeAtendida2: emSegundaUnidade(acumulado, fator),
-  };
-
   const resposta = await chamarAlvo(
     "CtrlLoteLocArmaz/RelacionarCtrlLoteLocArmaz",
     "POST",
-    envelopeLote(numero, classInstance, { Lista: lotes.map((l) => l.raw) }),
+    envelopeLote(numero, itemParaLote, {
+      // A lista volta como veio, com a marcação que a tela aplica em cada linha.
+      ListaCtrlLoteLocArmaz: lotes.map((l) => ({ ...(l.raw as Record<string, unknown>), selected: true })),
+      Quantidade: quantidadeAtenderAgora,
+    }),
   );
 
-  const linhas = pick(indexar(resposta), "CtrlLoteItemReqMatChildList");
+  const ri = indexar(resposta);
+  const itemDaResposta = pick(ri, "Item");
+  // O envelope `Item` é o que a captura mostra. O fallback para a raiz cobre a
+  // forma que a AT-4 assumiu — e AVISA, porque se ele disparar é sinal de que a
+  // resposta mudou de forma e alguém precisa olhar.
+  let linhas = itemDaResposta ? pick(indexar(itemDaResposta), "CtrlLoteItemReqMatChildList") : null;
+  if (!Array.isArray(linhas)) {
+    const naRaiz = pick(ri, "CtrlLoteItemReqMatChildList");
+    if (Array.isArray(naRaiz)) {
+      console.warn(
+        "[alvoReqMatAtendimentoService] Relacionar devolveu CtrlLoteItemReqMatChildList na RAIZ, não em `Item` — a captura da AT-4.1 mostra o contrário. Confira o contrato.",
+      );
+      linhas = naRaiz;
+    }
+  }
   if (!Array.isArray(linhas)) return [];
 
   return linhas
@@ -694,7 +977,9 @@ export async function realocarLotesDoItem(
   if (!item.controlaLote) return [];
   if (!(quantidade > 0)) return [];
   if (item.lotesDisponiveis.length === 0) return [];
-  return alocarNoServidor(aberto.numero, item.itemLoad, item.lotesDisponiveis, quantidade);
+  // 🔴 AT-4.1: `itemParaLote` (enriquecido), e a quantidade vai no TOPO do
+  //    envelope — não no `ClassInstance`, que segue intacto do Load.
+  return alocarNoServidor(aberto.numero, item.itemParaLote, item.lotesDisponiveis, quantidade);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1069,7 +1354,9 @@ function montarObjetoDeAtendimento(
       QuantidadeAtendida2: emSegundaUnidade(atendida, fator),
       QuantidadeSaldoProdUnidMedPrincipal: saldo,
       QuantidadeSaldo2: emSegundaUnidade(saldo, fator),
-      DataAtendimento: agora,
+      // 🔴 AT-4.1: DATA ZERADA E SEM FUSO (`2026-08-10T00:00:00`) — é o que a
+      //    TELA envia. O cabeçalho, logo abaixo, continua com o INSTANTE.
+      DataAtendimento: hojeNoAlvoSemFuso(),
       GeraPendencia: GERA_PENDENCIA,
       CtrlLoteItemReqMatChildList: item.controlaLote
         ? (linha?.lotes || []).map((l) => montarLinhaDeLote(item, itemAgora, aberto.numero, aberto.filial, l))

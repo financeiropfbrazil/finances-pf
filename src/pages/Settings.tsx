@@ -13,6 +13,7 @@ import { syncCondicoesPagamento } from "@/services/alvoCondPagService";
 import { syncEntidades } from "@/services/alvoEntidadeService";
 import { syncProdutos } from "@/services/alvoProdutoService";
 import { syncFuncionarios } from "@/services/alvoFuncionarioService";
+import { carregarCadastroDeLote, resumirCarga } from "@/services/produtoCadastroLoteService";
 import { supabase } from "@/integrations/supabase/client";
 import ApiTester from "@/components/ApiTester";
 
@@ -36,6 +37,10 @@ export default function Settings() {
   const [syncProdProgress, setSyncProdProgress] = useState("");
   const [syncFuncLoading, setSyncFuncLoading] = useState(false);
   const [syncFuncProgress, setSyncFuncProgress] = useState("");
+  // AT-4.2 — carga do cadastro de produto para o atendimento de RM
+  const [cargaLoteLoading, setCargaLoteLoading] = useState(false);
+  const [cargaLoteProgress, setCargaLoteProgress] = useState("");
+  const [cargaLoteResumo, setCargaLoteResumo] = useState("");
   // Sync metadata
   const [syncMeta, setSyncMeta] = useState<Record<string, string>>({});
   // ERP credentials state
@@ -301,6 +306,69 @@ export default function Settings() {
               <p className="text-xs text-muted-foreground">
                 {formatSyncInfo(syncMeta.sync_produtos_ts || null, syncMeta.sync_produtos_count || null, "produtos")}
               </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* AT-4.2 — cadastro de produto para o atendimento de RM.
+            Card SEPARADO do sync de catálogo acima de propósito: são coisas
+            diferentes. Aquele traz a LISTA de produtos; este traz o CADASTRO
+            (tipo, controle de estoque, número de série e a escala de unidades)
+            de quem tem controle de lote — os campos que o `ReqMat/Load` devolve
+            nulos e sem os quais o Alvo recusa o atendimento sem dizer por quê. */}
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle className="text-base">Cadastro de lote e unidades (atendimento de RM)</CardTitle>
+            <CardDescription className="mt-1">
+              Carrega do ERP o cadastro dos <strong>258 produtos com controle de lote</strong>: tipo de produto,
+              controle de estoque, número de série, dias de validade do lote e a escala de conversão de unidades.
+              É leitura — <strong>nada é escrito no ERP</strong>. Leva cerca de 3,5 minutos e só precisa rodar de novo
+              quando o cadastro mudar.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Button
+              onClick={async () => {
+                setCargaLoteLoading(true);
+                setCargaLoteProgress("");
+                setCargaLoteResumo("");
+                try {
+                  const r = await carregarCadastroDeLote(setCargaLoteProgress);
+                  const resumo = resumirCarga(r);
+                  setCargaLoteResumo(resumo);
+                  // Achado não vira toast verde: divergência de ControlaLote e
+                  // regra "Divisor" são assunto de cadastro, e precisam ser
+                  // vistas. O detalhe completo fica no console.
+                  const temAchado =
+                    r.divergenciaControlaLote.length > 0 ||
+                    r.unidadesComDivisor.length > 0 ||
+                    r.posicoesDuplicadas.length > 0;
+                  toast({
+                    title: r.falha > 0 || temAchado ? `⚠ ${resumo}` : `✅ ${resumo}`,
+                    description:
+                      r.falha > 0 || temAchado ? "Detalhe completo no console (F12)." : undefined,
+                    variant: r.falha > 0 ? "destructive" : undefined,
+                  });
+                } catch (err: unknown) {
+                  toast({
+                    title: "Erro",
+                    description: err instanceof Error ? err.message : String(err),
+                    variant: "destructive",
+                  });
+                } finally {
+                  setCargaLoteLoading(false);
+                  setCargaLoteProgress("");
+                }
+              }}
+              disabled={cargaLoteLoading}
+              className="gap-2"
+            >
+              {cargaLoteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {cargaLoteLoading ? "Carregando..." : "Carregar cadastro de lote"}
+            </Button>
+            {cargaLoteProgress && <p className="text-sm text-muted-foreground">{cargaLoteProgress}</p>}
+            {!cargaLoteLoading && cargaLoteResumo && (
+              <p className="text-xs text-muted-foreground">{cargaLoteResumo}</p>
             )}
           </CardContent>
         </Card>
