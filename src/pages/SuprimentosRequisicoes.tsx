@@ -32,13 +32,10 @@ import { ptBR } from "date-fns/locale";
 import { getStatusRequisicao } from "@/lib/statusRequisicao";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  rascunho: { label: "Rascunho", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
-  pendente_envio: { label: "Pendente de envio", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
-  sincronizada: { label: "Aguardando Pedido", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
-  cancelada: { label: "Cancelada", className: "bg-red-500/15 text-red-600 border-red-500/30" },
-  convertida_pedido: { label: "Convertida em Pedido", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
-};
+// FASE 3 — o `STATUS_CONFIG` que vivia aqui foi REMOVIDO: era um segundo mapa de
+// labels, sem nenhum uso no arquivo (a tela lê `getStatusRequisicao`). Mantê-lo
+// significaria um vocabulário de status paralelo, já desatualizado em relação aos
+// estados do gate de aprovação. Fonte única: `src/lib/statusRequisicao.ts`.
 
 // ════════════════════════════════════════════════════════════
 // FORMATADORES
@@ -360,6 +357,10 @@ export default function SuprimentosRequisicoes() {
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
                 <SelectItem value="rascunho">Rascunho (erro)</SelectItem>
+                {/* Gate de aprovação do líder — decisão A4: mostrar, não esconder. */}
+                <SelectItem value="pendente_aprovacao">Pendente aprovação</SelectItem>
+                <SelectItem value="aprovada">Aprovada</SelectItem>
+                <SelectItem value="rejeitada">Rejeitada</SelectItem>
                 <SelectItem value="pendente_envio">Pendente de envio</SelectItem>
                 <SelectItem value="sincronizada">Aguardando Pedido</SelectItem>
                 <SelectItem value="cancelada">Cancelada</SelectItem>

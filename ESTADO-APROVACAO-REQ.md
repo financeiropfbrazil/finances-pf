@@ -3,7 +3,7 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **10/08/2026** (PROMPT 1.2 — Ajuste 1.2 executado).
+> Última atualização: **10/08/2026** (PROMPT 3 — Fase 3 / UI executada).
 
 ## 1. Onde estamos
 
@@ -16,11 +16,13 @@
 | **PROMPT 2** | Fase 2 — código: split do service, roteamento, envio pós-aprovação | ✅ concluído · commit `c32c69b` · **pushado** (`2ffcdb1..c32c69b`) |
 | **PROMPT 2.1** | Investigação: `pendente_envio` + brecha do reenvio de rascunho | ✅ concluída (read-only) — conclusões no §4 |
 | **AJUSTE 1.2** | Reenvio de rascunho roteado + gate de permissão no botão + dívidas | ✅ recebido (autoria do Pedro), incorporado |
-| **PROMPT 1.2** | Execução do Ajuste 1.2 (§3 e §4) — código + medição da permissão | ✅ concluído em 10/08/2026 · commit local · **SEM push** — conclusões no §9 |
-| **PROMPT 3** | Fase 3 — UI (fila do líder, badges, rascunho, clonar, filtros) | ⏸️ **próximo** |
-| PROMPT 4 / 5 | Validação 255 chars · piloto fim-a-fim | ⏸️ não iniciados |
+| **PROMPT 1.2** | Execução do Ajuste 1.2 (§3 e §4) — código + medição da permissão | ✅ concluído em 10/08/2026 · commit `3f88fbd` · **pushado e publicado** — conclusões no §9 |
+| **PROMPT 3** | Fase 3 — UI (fila do líder, badges, clonar, correções C5) | ✅ concluído em 10/08/2026 · commit local · **SEM push** — conclusões no §10 |
+| PROMPT 4 / 5 | Validação 255 chars · piloto fim-a-fim | ⏸️ não iniciados — a Fase 5 é o roteiro do `PROMPT-3-FASE3.md` §7 (cobaia: Hugo Maffei) |
 
-**Publicação:** a Fase 2 está no `main` (preview do Lovable), mas **NÃO foi publicada**. Decisão do Pedro: **Publicar só quando a Fase 3 estiver junta** — o usuário não deve ver o gate pela metade (sem fila do líder e sem badges dos estados novos).
+**Publicação:** Fases 2 e 1.2 estão publicadas. A Fase 3 está só no repo local (nem push): publicar é decisão do Pedro **depois** de revisar o diff e rodar o SQL do §10.2.
+
+⚠️ **Pré-condição da Fase 3 no banco (ainda NÃO executada):** o papel `lider_departamento` precisa de `compras.requisicoes.create` e `compras.requisicoes.reenviar_own` (SQL medido e reproduzido no §10.2). Sem isso, um líder **sem `is_admin`** não consegue criar nem reenviar requisição própria.
 
 ## 2. FASE 1 — o que está no ar (07/08/2026, gate verde)
 
@@ -94,19 +96,21 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
 
 ## 6. Próximo passo
 
-1. **Pedro revisa o diff do Ajuste 1.2** (§9) e dá o push. **Nenhuma correção de banco é necessária** — a medição do §9.3 mostrou o mapeamento da permissão correto.
-2. **PROMPT 3** (Fase 3 — UI): fila do líder, badges dos estados novos, "Salvar rascunho", clonar, filtros.
-3. **Publicar no Lovable** só com a Fase 3 junta.
-
-O arquivo do PROMPT 3 será fornecido pelo Pedro na próxima sessão.
+1. **Pedro revisa o diff da Fase 3** (§10) e dá o push.
+2. **Rodar o SQL do §10.2** no SQL Editor (`lider_departamento` + `create`/`reenviar_own`) — é pré-condição para qualquer líder sem `is_admin`.
+3. **Publicar no Lovable** (Fases 2 + 1.2 + 3).
+4. **Fase 5 — validação fim-a-fim** com o Hugo Maffei, roteiro do `PROMPT-3-FASE3.md` §7 (11 passos). Avisar que é teste, principalmente na rejeição.
+5. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
 
 ## 7. Pendências abertas
 
 1. **DÍVIDA-RLS-COMPRAS-REQ** (Ajuste §6): RLS `ALL using(true)` continua aberta; o trigger protege só a superfície da aprovação. Missão própria, prioridade alta pós-piloto.
 2. **DÍVIDA-REQ-PENDENTE-ENVIO-ORFA** (§4.1) e **DÍVIDA-REQ-UPSERT-SILENCIOSO** (§4.2) — formalizadas no Ajuste 1.2 §5, decisões B2/B3: **não entram em correção** nesta missão.
 3. **Outro escritor ativo no repo (módulo OP).** Resolvido em 10/08: o `origin/main` já está em `919153f` (OP-2.7 e a Fase 4 do OP pushados). O commit do Ajuste 1.2 empilha em cima de `919153f` e leva **só** os arquivos desta missão.
-4. **Cosmético (Fase 3):** `STATUS_MAP`/`statusRequisicao.ts` sem entrada para `pendente_aprovacao`/`aprovada`/`rejeitada`; eventos novos de auditoria sem ícone em `EVENTO_ICON`.
-5. **Hook fora de ordem, pré-existente** (§9.4): `useHasPermission(COMPRAS_PEDIDOS_CREATE)` em `SuprimentosRequisicaoDetalhe.tsx:292` está **depois** de dois `return` condicionais. Não foi tocado (fora do escopo do Ajuste 1.2). Candidato à Fase 3, que já vai mexer nesse arquivo.
+4. ~~**Cosmético (Fase 3):** `STATUS_MAP`/`statusRequisicao.ts` sem os estados novos; eventos sem ícone.~~ ✅ **fechado na Fase 3** (§10.1).
+5. ~~**Hook fora de ordem, pré-existente**~~ ✅ **fechado na Fase 3** (C5.1): os 3 `useHasPermission` do detalhe estão no topo do componente.
+6. **`src/lib/statusConfig.ts` órfão** — arquivo inteiro sem nenhum import, com um `getStatusRequisicao` concorrente ao de `statusRequisicao.ts`. Não tocado (§10.6-5). Prioridade: baixa, mas é armadilha para quem for mexer em status.
+7. **`suprimentos_requisicoes_para` não filtra status** (§10.4): a RPC de relatório passará a contar `pendente_aprovacao`/`rejeitada` nos KPIs. Correção é DDL — decisão do Pedro.
 
 ## 8. O que a Fase 3 vai encontrar
 
@@ -181,3 +185,111 @@ Grep de referência: `req-comp|ped-comp|erp-proxy.onrender|ERP_PROXY_URL` em `*.
 **Conclusão:** os **únicos** pontos que criam uma requisição no ERP são `/req-comp/insert` e `/req-comp/insert-multipart`, e ambos só são alcançados por `enviarRequisicaoAlvo` (linhas 1, 2 e 4) ou pelo corpo legado de `reenviarRequisicao` (linha 3). Após o Ajuste, **nenhum caminho leva uma req em `rascunho` ao ERP sem passar por `rotearSubmissao`/`submeter_requisicao`**.
 
 **Não regrediram:** `pendente_envio` continua indo direto ao envio legado (linha 3 — código **não editado**, só o desvio anterior a ele); `reenviarRequisicaoAprovada` continua sendo o único caminho para req `aprovada` (a guarda de `reenviarRequisicao` que recusa `aprovada` segue intacta e vem **antes** do desvio novo).
+
+---
+
+## 10. FASE 3 — o que foi entregue (10/08/2026, PROMPT 3)
+
+### 10.1 Arquivos alterados (8 modificados + 2 novos + este)
+
+| Arquivo | Mudança |
+|---|---|
+| **`src/pages/SuprimentosAprovacoes.tsx`** 🆕 | Fila do líder: lista `pendente_aprovacao` dos CCs do usuário (admin vê todas), **mais antiga primeiro**, com dias de espera, requisitante, CC, itens e data de necessidade. Ações Aprovar/Rejeitar na linha; **aprovar é em 2 tempos** (`Aprovada ✓` → `Enviando ao ERP…` → `Sincronizada (nº X)` \| erro com instrução de Reenviar). Modal de rejeição com motivo obrigatório e contador. Estado vazio distingue "sem pendências" de "você não lidera nenhum CC" |
+| **`src/hooks/useAprovacoesPendentes.ts`** 🆕 | Contagem para o badge do menu. `count` server-side (`head: true`, zero linhas trafegadas), só consulta quem tem `compras.requisicoes.aprovar`, revalida ao focar a aba |
+| `src/services/requisicoesService.ts` | `listarCentrosDeCustoDoLider`, `contarRequisicoesPendentes`, `listarRequisicoesPendentes` (`.range()`, teto 1000), `aprovarRequisicao`, `rejeitarRequisicao` (com `traduzirDecisao` — nenhum retorno de RPC cai no vazio), `carregarRequisicaoParaClonar`. **C5.2:** validação de "sem itens" em `rotearSubmissao`. Negação `!== rascunho && !== pendente_envio` → lista positiva `STATUS_REENVIAVEIS_LEGADO` |
+| `src/pages/SuprimentosRequisicaoDetalhe.tsx` | Cards de estado do gate (rejeitada com motivo/quem/quando; aprovada com autoria e rótulo de **aprovação automática**; pendente explicando que depende do líder do CC e que **não há aviso por e-mail**). Ações Aprovar/Rejeitar para o líder do CC. Botão **Clonar**. `STATUS_MAP` e `EVENTO_ICON` com os estados/eventos novos. **C5.1:** 3 hooks movidos para o topo. Open-load com lista positiva |
+| `src/pages/SuprimentosRequisicaoNova.tsx` | **Clonar**: `?clonarDe=<id>` pré-preenche cabeçalho, itens e rateios; loader durante a cópia; aviso de anexos não copiados e de data vencida. Guarda para o auto-preenchimento do perfil não competir com a clonagem |
+| `src/pages/SuprimentosRequisicoes.tsx` | Dropdown de status com `pendente_aprovacao`, `aprovada`, `rejeitada`. **Removido** o `STATUS_CONFIG` morto (2º vocabulário de status, sem uso e já desatualizado) |
+| `src/lib/statusRequisicao.ts` | 4 estados novos com rótulo/ícone/tooltip; cor forte **só** para `aprovada + erro_ultimo_envio`. Negação `status !== 'cancelada'` → lista positiva `STATUS_QUE_ACEITAM_PEDIDO` |
+| `src/components/AppSidebar.tsx` | Item **"Aprovações"** em Suprimentos, gateado por `compras.requisicoes.aprovar`, com **badge de contagem** (suporte a badge por URL no grupo) |
+| `src/App.tsx` | Rota `/suprimentos/aprovacoes` com `<PermissionRoute permKey="compras.requisicoes.aprovar">` |
+| `src/constants/permissions.ts` | `COMPRAS_REQUISICOES_APROVAR` e `ROLES.LIDER_DEPARTAMENTO` |
+
+**Não tocados:** banco (MCP read-only, provado), RPCs, trigger, crons/Edge Functions, `types.ts`, RLS, `pedidosService.ts`, arquivos do módulo OP.
+
+**Gate de saída:** `bun run build` ✅ · `tsc --noEmit -p tsconfig.app.json` exit 0 ✅ · ESLint **+24** ocorrências, todas `no-explicit-any` do mesmo padrão já dominante (`(supabase as any)` obrigatório porque `types.ts` não pode ser tocado, `(row: any)` em mapeamentos, `err: any` em catch). Zero regra nova violada; um `eslint-disable` inútil que eu havia introduzido foi removido.
+
+### 10.2 SQL desta fase — **PENDENTE, o Pedro executa** (medido em 10/08, read-only)
+
+Hoje `lider_departamento` tem **apenas** `compras.requisicoes.access` e `compras.requisicoes.aprovar`. Falta o previsto na decisão C2:
+
+```sql
+insert into hub_role_permissions (role_id, permission_id)
+select r.id, p.id from hub_roles r, hub_permissions p
+where r.codigo='lider_departamento'
+  and p.codigo in ('compras.requisicoes.create','compras.requisicoes.reenviar_own')
+  and not exists (select 1 from hub_role_permissions x where x.role_id=r.id and x.permission_id=p.id);
+```
+```sql
+notify pgrst, 'reload schema';
+```
+Conferência (esperado: 4 linhas — `access`, `aprovar`, `create`, `reenviar_own`):
+```sql
+select p.codigo from hub_role_permissions rp
+join hub_roles r on r.id=rp.role_id
+join hub_permissions p on p.id=rp.permission_id
+where r.codigo='lider_departamento' order by p.codigo;
+```
+
+**Consequência de não rodar:** hoje o único líder é o Pedro, que é `is_admin` e tem bypass — o defeito fica **invisível** até existir um líder sem a flag. É exatamente a armadilha registrada no CLAUDE.md.
+
+### 10.3 Retorno de RPC → mensagem na tela (gate §6.3)
+
+`aprovar_requisicao` / `rejeitar_requisicao` (via `traduzirDecisao`):
+
+| Retorno | Mensagem | Efeito na tela |
+|---|---|---|
+| `OK` | (aprovar) "Aprovada ✓" → "Enviando ao ERP…" · (rejeitar) "Requisição rejeitada — o requisitante verá o motivo. Ela não vai ao ERP." | segue para o envio / fecha o modal |
+| `STATUS_INVALIDO:<x>` | "Esta requisição já foi decidida por outra pessoa (status atual: `<x>`). A fila foi recarregada." | **recarrega** fila + badge; não trava |
+| `SEM_PERMISSAO` | "Você não tem permissão para aprovar ou rejeitar requisições." | toast destrutivo |
+| `FORA_DO_SEU_CC` | "Esta requisição pertence a um centro de custo que você não lidera." | toast destrutivo |
+| `NAO_ENCONTRADA` | "Requisição não encontrada — ela pode ter sido excluída." | recarrega fila + badge |
+| `MOTIVO_OBRIGATORIO` | "Informe o motivo da rejeição (mínimo de 5 caracteres)." | toast destrutivo (a UI já barra antes) |
+| qualquer outro | "Retorno inesperado ao aprovar/rejeitar a requisição: `"<x>"`." | toast destrutivo — **nunca silencioso** |
+| erro de transporte | "Falha ao aprovar/rejeitar: `<mensagem>`" | toast destrutivo |
+
+Envio pós-aprovação (2º tempo, via `reenviarRequisicaoAprovada` → R4): sucesso → "Sincronizada (nº X)"; falha → "Aprovada, mas o envio ao ERP falhou … a aprovação foi preservada. Use *Reenviar*". Os retornos de `submeter_requisicao` continuam traduzidos por `mensagemRecusaSubmissao` (Fase 2).
+
+### 10.4 Filtros de status por NEGAÇÃO — varredura e correção
+
+Grep: `.neq(` · `.not(` · `NOT IN` · `!== '<status>'` em `src/` e `supabase/functions/`.
+
+| Arquivo:linha (HEAD) | Expressão | Veredito |
+|---|---|---|
+| `src/lib/statusRequisicao.ts:21` | `numero_pedido_compra_alvo && status !== "cancelada"` | ✅ **corrigido** → `STATUS_QUE_ACEITAM_PEDIDO` (`sincronizada`, `convertida_pedido`) |
+| `src/pages/SuprimentosRequisicaoDetalhe.tsx:219` | open-load: `status !== "rascunho" && status !== "pendente_envio"` | ✅ **corrigido** → `STATUS_QUE_EXISTEM_NO_ERP` (`sincronizada`, `cancelada`, `convertida_pedido`) |
+| `src/services/requisicoesService.ts:870` | `status !== "rascunho" && status !== "pendente_envio"` (guarda do reenvio) | ✅ **corrigido** → `STATUS_REENVIAVEIS_LEGADO`. Já era seguro (recusa por omissão), virou lista positiva explícita |
+| `src/services/requisicoesService.ts:823` | `status !== "aprovada"` (guarda de `reenviarRequisicaoAprovada`) | ➖ **é positiva** — exige um único status; negá-la seria o inseguro |
+| `src/services/pedidosService.ts:1975` | `req.status !== "sincronizada"` (`clonarDeRequisicao` → pedido) | ➖ **é positiva** — trava dura, pendente/rejeitada nunca vira pedido |
+| `src/pages/SuprimentosRequisicoes.tsx:176` | `.not("numero_pedido_compra_alvo","is",null)` | ➖ não é status (filtro "já virou pedido") |
+| `sync-compras-status-cron:716` | `.not("numero_alvo","is",null)` | ➖ não é status; é a guarda que mantém os estados novos fora do Job 1 |
+| `sync-compras-status-cron:1334` | `.not("status","in",…)` | ➖ **status de PEDIDO no Alvo**, outro vocabulário — fora desta missão |
+| demais `.neq/.not` (RM, laudos, e-mail NF-e, cartão, entidades…) | — | ➖ outros módulos |
+
+**Remanescente conhecido, fora do alcance do código:** a RPC de relatório `suprimentos_requisicoes_para` (gate `view_all`) **não filtra status** — passará a contar `pendente_aprovacao`/`rejeitada` nos KPIs. Está no banco, não no repo: correção exige DDL (decisão do Pedro, não entrou nesta fase).
+
+### 10.5 Mapa de rotas ao ERP — refeito (gate §6.5)
+
+Grep: `req-comp/insert` · `req-comp/update` · `req-comp/list` · `/req-comp/${` · `callGatewayReqComp(`.
+
+| # | Caminho | Onde | Rota | Gate |
+|---|---|---|---|---|
+| 1 | Wizard "Enviar" (inclusive vindo de **Clonar**) | `Nova.tsx` → `submeterRequisicao` → `rotearSubmissao` | `POST /req-comp/insert(-multipart)` (`:594/:596`) | ✅ |
+| 2 | Reenviar em req `rascunho` | `reenviarRequisicao` → `rotearSubmissao` | idem | ✅ |
+| 3 | Reenviar em `pendente_envio` | corpo legado (`:986/:988`) | idem | ➖ já roteada como `SEM_GATE` |
+| 4 | **APROVAR na fila / no detalhe** e Reenviar pós-aprovação | `reenviarRequisicaoAprovada` → `enviarRequisicaoAlvo('rpc')` | idem (`:594/:596`) | ➖ **passou pelo gate**: só chega aqui req `aprovada`, e a RPC R2 validou permissão + CC |
+| 5 | Sincronizar status | `requisicoesService:1498` | `GET /req-comp/{filial}/{nº}` | ➖ leitura |
+| 6 | Cron e "Rodar Agora" | `sync-compras-status-cron:448,:739` | `GET /req-comp/list`, `/{…}` | ➖ leitura |
+| 7 | Baixa ao virar pedido | `pedidosService:374/:403` | `POST /req-comp/update` | ➖ req já existe no ERP |
+
+**A Fase 3 não criou nenhuma rota nova ao ERP.** A fila decide por RPC (`aprovar_requisicao`/`rejeitar_requisicao`, que nunca falam com o ERP) e o envio reusa o caminho #4, já existente. **Clonar não envia nada**: só pré-preenche o wizard, que continua entrando pelo #1. O mapa do Ajuste 1.2 §6 segue válido.
+
+### 10.6 O que contradisse a espec
+
+1. **A validação "sem itens" já existia no wizard** (`Nova.tsx:344`, "Adicione ao menos um item") — a espec do §5.2 mandava criá-la lá. O buraco real era outro: o **reenvio de rascunho** (aberto pelo Ajuste 1.2) chama `rotearSubmissao` sem passar pelo wizard. A validação foi para `rotearSubmissao`, que cobre os dois caminhos; a do wizard fica como feedback antecipado.
+2. **Rota `/suprimentos/aprovacoes`, não `/suprimentos/requisicoes/aprovacoes`** (o guia §7.2 sugeria a segunda, como exemplo). Como irmã de `/suprimentos/requisicoes/:id`, ela dependeria do ranking do React Router para não ser lida como um `id` — dependência desnecessária.
+3. **"Valor se disponível" na fila não foi implementado**: requisição de compra **não tem valor** no Hub nem no ERP (preço só existe no pedido). A coluna seria sempre vazia.
+4. **`STATUS_CONFIG` morto removido** de `SuprimentosRequisicoes.tsx`. A espec mandava atualizar o vocabulário "onde mais existir"; esse mapa não tinha nenhum uso — atualizá-lo perpetuaria um segundo vocabulário fadado a divergir.
+5. **`src/lib/statusConfig.ts` continua órfão** (arquivo inteiro sem nenhum import, com um `getStatusRequisicao` concorrente). **Não foi tocado** — remover arquivo inteiro passa do escopo. Fica registrado como candidato a limpeza.
+6. **Clonar não grava rascunho no banco**: abre o wizard pré-preenchido (`?clonarDe=`) e o rascunho nasce na submissão, já como requisição do usuário atual. Gravar antes exigiria o wizard saber **editar** requisição existente — funcionalidade que não está nesta fase (o botão "Editar" segue `disabled`). O efeito visível ao usuário é o mesmo e nada de lixo é criado se ele desistir.
+7. **Reenvio pós-aprovação no detalhe usa `reenviarRequisicaoAprovada` também para o PRIMEIRO envio** (logo após aprovar). O nome diz "reenviar", mas é o mesmo caminho correto (valida `aprovada` + desfecho só pela R4); duplicar a função só pelo nome seria pior.

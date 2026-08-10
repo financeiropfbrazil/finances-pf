@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { submeterRequisicao, type ArquivoInput } from "@/services/requisicoesService";
+import { submeterRequisicao, carregarRequisicaoParaClonar, type ArquivoInput } from "@/services/requisicoesService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -100,10 +100,13 @@ const FINALIDADES_COMPRA = [
 
 export default function SuprimentosRequisicaoNova() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const clonarDeId = searchParams.get("clonarDe");
   const { profile, user } = useAuth();
   const isAdmin = profile?.is_admin === true;
   const [currentStep, setCurrentStep] = useState(1);
   const [itens, setItens] = useState<ItemWizard[]>([]);
+  const [clonando, setClonando] = useState(!!clonarDeId);
 
   // Modal de adicionar/editar item
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
@@ -281,6 +284,9 @@ export default function SuprimentosRequisicaoNova() {
   useEffect(() => {
     const carregarFuncionarioPadrao = async () => {
       if (!profile?.id) return;
+      // Clonagem traz funcionário e CC da requisição de origem: não sobrescrever
+      // com o padrão do perfil (as duas cargas são assíncronas e correriam entre si).
+      if (clonarDeId) return;
       // Buscar funcionario_alvo_codigo do profile
       const { data: profileData } = await (supabase as any)
         .from("profiles")
@@ -302,7 +308,93 @@ export default function SuprimentosRequisicaoNova() {
       }
     };
     carregarFuncionarioPadrao();
-  }, [profile?.id]);
+  }, [profile?.id, clonarDeId]);
+
+  /**
+   * FASE 3 — "Clonar para Nova Requisição" (?clonarDe=<id>).
+   *
+   * O wizard é preenchido com a requisição de origem, mas NADA foi gravado: o
+   * rascunho novo só nasce quando este wizard for submetido, já como requisição
+   * do usuário atual. É o caminho de reaproveitamento de uma `rejeitada`, que é
+   * estado terminal.
+   *
+   * Anexos ficam de fora no v1 (decisão do §3.4) — o usuário é avisado quando a
+   * origem tinha algum.
+   */
+  useEffect(() => {
+    if (!clonarDeId) return;
+    let cancelado = false;
+
+    (async () => {
+      try {
+        const origem = await carregarRequisicaoParaClonar(clonarDeId);
+        if (cancelado) return;
+
+        setCodigoFuncionario(origem.codigo_funcionario || "");
+        setFuncionarioNome(origem.funcionario_nome || "");
+        setCodigoCentroCtrl(origem.codigo_centro_ctrl || "");
+        setCcPreenchidoAutomatico(!!origem.codigo_centro_ctrl);
+        setCodigoFinalidadeCompra(origem.codigo_finalidade_compra || "");
+        setDescricao(origem.descricao || "");
+        setCnpjSugestao(origem.cnpj_sugestao_requisicao ? applyCnpjMask(origem.cnpj_sugestao_requisicao) : "");
+        // Data de necessidade só volta se ainda for futura (ver service).
+        setDataNecessidade(
+          origem.data_necessidade ? new Date(`${origem.data_necessidade}T12:00:00`) : undefined,
+        );
+
+        setItens(
+          origem.itens.map((item) => ({
+            tempId: crypto.randomUUID(),
+            item_servico: item.item_servico,
+            codigo_produto: item.codigo_produto,
+            codigo_alternativo_produto: item.codigo_alternativo_produto,
+            codigo_prod_unid_med: item.codigo_prod_unid_med,
+            produto_nome: item.produto_nome || item.codigo_produto,
+            produto_unidade: item.produto_unidade || "",
+            quantidade: item.quantidade,
+            observacao: item.observacao || "",
+            rateio: item.rateio.map((r) => ({
+              tempRateioId: crypto.randomUUID(),
+              codigo_classe_rec_desp: r.codigo_classe_rec_desp,
+              classe_rec_desp_label: r.classe_rec_desp_label || r.codigo_classe_rec_desp,
+              percentual: r.percentual,
+            })),
+          })),
+        );
+
+        const avisos: string[] = [];
+        if (origem.qtd_anexos_nao_copiados > 0) {
+          avisos.push(
+            `${origem.qtd_anexos_nao_copiados} anexo(s) da requisição original NÃO foram copiados — anexe novamente se precisar.`,
+          );
+        }
+        if (!origem.data_necessidade) {
+          avisos.push("A data de necessidade não foi copiada (já venceu): informe uma nova.");
+        }
+
+        toast({
+          title: "Requisição copiada para uma nova",
+          description:
+            avisos.length > 0
+              ? `Revise os dados antes de enviar. ${avisos.join(" ")}`
+              : "Revise os dados e envie quando estiver pronta. Nada foi enviado ainda.",
+        });
+      } catch (err: any) {
+        if (cancelado) return;
+        toast({
+          title: "Não foi possível clonar a requisição",
+          description: err?.message || "Requisição de origem indisponível.",
+          variant: "destructive",
+        });
+      } finally {
+        if (!cancelado) setClonando(false);
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [clonarDeId]);
 
   const handleSelectFuncionario = (f: FuncionarioAlvo) => {
     setCodigoFuncionario(f.codigo);
@@ -592,6 +684,17 @@ export default function SuprimentosRequisicaoNova() {
     return true;
   })();
 
+  // Enquanto a origem do clone carrega, o wizard estaria vazio e o usuário
+  // começaria a digitar por cima do que está prestes a chegar.
+  if (clonando) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 p-6">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Copiando a requisição…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -601,7 +704,11 @@ export default function SuprimentosRequisicaoNova() {
         </Button>
         <div>
           <h1 className="text-2xl font-bold text-foreground">Nova Requisição de Compra</h1>
-          <p className="text-sm text-muted-foreground">Siga as etapas para criar sua requisição.</p>
+          <p className="text-sm text-muted-foreground">
+            {clonarDeId
+              ? "Cópia de uma requisição existente — revise tudo antes de enviar. Nada foi enviado ainda."
+              : "Siga as etapas para criar sua requisição."}
+          </p>
         </div>
       </div>
 

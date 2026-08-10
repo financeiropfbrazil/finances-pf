@@ -14,6 +14,8 @@ import {
   listarArquivosDaRequisicao,
   getUrlAssinadaArquivo,
   removerArquivo,
+  aprovarRequisicao,
+  rejeitarRequisicao,
   type ArquivoRequisicao,
   type EnvioResult,
   type RotaSubmissao,
@@ -49,13 +51,43 @@ import {
   Download,
   X,
   ShoppingCart,
+  UserCheck,
+  Ban,
+  Copy,
+  Check,
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
+const MOTIVO_MINIMO = 5;
+
+/**
+ * Status em que a requisição REALMENTE existe no ERP — logo, os únicos em que faz
+ * sentido consultar o Alvo. Lista positiva (Fase 3): rascunho, pendente de envio e
+ * os estados do gate de aprovação nunca chegaram lá.
+ */
+const STATUS_QUE_EXISTEM_NO_ERP = ["sincronizada", "cancelada", "convertida_pedido"];
+
 const STATUS_MAP: Record<string, { label: string; className: string }> = {
   rascunho: { label: "Rascunho (erro)", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
+  // Gate de aprovação do líder (Fases 1–3). "Aprovada — erro no envio" é a única
+  // exceção que ganha cor forte; o resto é neutro de propósito.
+  pendente_aprovacao: {
+    label: "Pendente aprovação",
+    className: "bg-amber-500/15 text-amber-600 border-amber-500/30",
+  },
+  aprovada: { label: "Aprovada — enviando", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
+  rejeitada: { label: "Rejeitada", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
   pendente_envio: { label: "Pendente de envio", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
   sincronizada: { label: "Enviada ao ERP", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
   cancelada: { label: "Cancelada", className: "bg-red-500/15 text-red-600 border-red-500/30" },
@@ -69,6 +101,15 @@ const EVENTO_ICON: Record<string, typeof Clock> = {
   envio_falha: XCircle,
   cancelada_alvo: AlertTriangle,
   convertida_pedido: CheckCircle2,
+  // Eventos do gate (gravados pelas RPCs R1–R4 via `_req_evento`).
+  submetida_sem_gate: Send,
+  enviada_aprovacao: UserCheck,
+  aprovada_lider: UserCheck,
+  rejeitada_lider: Ban,
+  envio_pos_aprovacao_ok: CheckCircle2,
+  envio_pos_aprovacao_erro: XCircle,
+  vinculado_pedido: ShoppingCart,
+  desvinculado_pedido: AlertTriangle,
 };
 
 export default function SuprimentosRequisicaoDetalhe() {
@@ -81,11 +122,20 @@ export default function SuprimentosRequisicaoDetalhe() {
   // AJUSTE 1.2 — o botão Reenviar não tinha gate de permissão nenhum: quem enxergava
   // a requisição (inclusive quem tem view_all) enxergava o botão.
   const podeReenviarOwn = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_REENVIAR_OWN);
+  // FASE 3 (C5.1) — estes três hooks vinham DEPOIS dos `return` condicionais de
+  // loading/not-found (herdado de a973f1c). Chamada condicional de hook viola as
+  // Rules of Hooks: a contagem muda entre renders. Lugar certo é aqui, no topo.
+  const podeCriarPedido = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_CREATE);
+  const podeCriarRequisicao = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_CREATE);
+  const podeAprovar = useHasPermission(PERMISSIONS.COMPRAS_REQUISICOES_APROVAR);
   const isAdmin = profile?.is_admin === true;
   const [isReenviando, setIsReenviando] = useState(false);
   const [isExcluindo, setIsExcluindo] = useState(false);
   const [isSyncingStatus, setIsSyncingStatus] = useState(false);
   const [arquivoRemovendoId, setArquivoRemovendoId] = useState<string | null>(null);
+  const [decisaoEmCurso, setDecisaoEmCurso] = useState<"aprovando" | "enviando" | "rejeitando" | null>(null);
+  const [modalRejeicaoAberto, setModalRejeicaoAberto] = useState(false);
+  const [motivoRejeicao, setMotivoRejeicao] = useState("");
 
   const {
     data: req,
@@ -161,10 +211,26 @@ export default function SuprimentosRequisicaoDetalhe() {
     enabled: !!id && !!req,
   });
 
+  // FASE 3 — nome de quem decidiu (a requisição guarda só o user_id).
+  const { data: nomeDecisor = {} } = useQuery({
+    queryKey: ["requisicao_decisores", req?.aprovada_por_user_id, req?.rejeitada_por_user_id],
+    queryFn: async (): Promise<Record<string, string>> => {
+      const ids = [req?.aprovada_por_user_id, req?.rejeitada_por_user_id].filter(Boolean) as string[];
+      if (ids.length === 0) return {};
+      const { data } = await (supabase as any).from("profiles").select("user_id, full_name").in("user_id", ids);
+      const mapa: Record<string, string> = {};
+      for (const p of data || []) mapa[p.user_id] = p.full_name;
+      return mapa;
+    },
+    enabled: !!(req?.aprovada_por_user_id || req?.rejeitada_por_user_id),
+  });
+
   // AJUSTE 1.2 — o reenvio PÓS-APROVAÇÃO é liberado também ao líder do CC da req
   // (a RPC R4 `registrar_envio_requisicao` autoriza requisitante, líder do CC e
   // admin). Sem isto, um líder sem `is_admin` não veria o botão da própria fila.
-  // Só consulta quando o caso existe — nos demais status a resposta é irrelevante.
+  // FASE 3 — a mesma resposta decide se as ações APROVAR/REJEITAR aparecem aqui,
+  // então a consulta passa a valer também em 'pendente_aprovacao'. Lista positiva:
+  // fora desses dois estados a resposta é irrelevante e o banco não é consultado.
   const { data: isLiderDoCC = false } = useQuery({
     queryKey: ["requisicao_lider_cc", req?.codigo_centro_ctrl, user?.id],
     queryFn: async () => {
@@ -177,7 +243,8 @@ export default function SuprimentosRequisicaoDetalhe() {
         .maybeSingle();
       return !!data;
     },
-    enabled: !!user && !!req?.codigo_centro_ctrl && req?.status === "aprovada",
+    enabled:
+      !!user && !!req?.codigo_centro_ctrl && ["aprovada", "pendente_aprovacao"].includes(req?.status as string),
   });
 
   const handleSyncStatus = async (silencioso: boolean = false) => {
@@ -214,9 +281,15 @@ export default function SuprimentosRequisicaoDetalhe() {
   // Sincroniza ao ABRIR o card, para qualquer requisição que exista no ERP —
   // não só as 'sincronizada' (antes era essa a única condição, então requisição
   // JÁ CONVERTIDA em pedido nunca era carregada, e é justamente onde faltavam
-  // itens). Rascunho e pendente de envio não existem no Alvo: pulados.
+  // itens).
+  //
+  // FASE 3 — a condição era uma NEGAÇÃO (`!== 'rascunho' && !== 'pendente_envio'`),
+  // que admitia por omissão todo status novo. Os estados do gate
+  // (pendente_aprovacao/aprovada/rejeitada) não existem no Alvo e não podem ser
+  // consultados lá; só não quebravam por acidente, porque não têm `numero_alvo`.
+  // Agora a lista é positiva: consulta o ERP apenas quem realmente vive lá.
   useEffect(() => {
-    if (req?.numero_alvo && req.status !== "rascunho" && req.status !== "pendente_envio") {
+    if (req?.numero_alvo && STATUS_QUE_EXISTEM_NO_ERP.includes(req.status)) {
       handleSyncStatus(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -289,8 +362,14 @@ export default function SuprimentosRequisicaoDetalhe() {
   // ── E.9: Gerar Pedido a partir desta requisição ──────────
   // Aparece se: requisição foi enviada com sucesso ao Alvo (sincronizada),
   // e ainda NÃO tem pedido vinculado (numero_pedido_compra_alvo é null).
-  const podeCriarPedido = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_CREATE);
+  // (o hook `podeCriarPedido` vive no topo do componente — ver C5.1)
   const podeGerarPedido = podeCriarPedido && req.status === "sincronizada" && !req.numero_pedido_compra_alvo;
+
+  // ── FASE 3: decisão do líder ──────────────────────────────
+  // Mesma autorização da fila: a RPC valida de novo no servidor (permissão +
+  // escopo do CC), então isto é gate de UI, não a trava.
+  const aguardandoDecisao = req.status === "pendente_aprovacao";
+  const podeDecidir = aguardandoDecisao && podeAprovar && (isAdmin || isLiderDoCC);
 
   const handleGerarPedido = () => {
     navigate(`/suprimentos/pedidos/novo?reqId=${req.id}`);
@@ -344,6 +423,99 @@ export default function SuprimentosRequisicaoDetalhe() {
     } finally {
       setIsReenviando(false);
     }
+  };
+
+  const invalidarFilaDeAprovacoes = () => {
+    queryClient.invalidateQueries({ queryKey: ["aprovacoes_pendentes_count"] });
+    queryClient.invalidateQueries({ queryKey: ["requisicoes_pendentes_aprovacao"] });
+  };
+
+  /**
+   * APROVAR em 2 tempos: a decisão é gravada pela RPC e, só então, o envio ao ERP
+   * acontece nesta sessão (a do líder). Se o envio falhar, a aprovação permanece —
+   * o conserto é o botão Reenviar, sem nova decisão.
+   */
+  const handleAprovar = async () => {
+    if (!user) return;
+    setDecisaoEmCurso("aprovando");
+    try {
+      const decisao = await aprovarRequisicao(req.id);
+      if (!decisao.ok) {
+        toast({ title: "Não foi possível aprovar", description: decisao.mensagem, variant: "destructive" });
+        if (decisao.jaDecidida) {
+          refetch();
+          invalidarFilaDeAprovacoes();
+        }
+        return;
+      }
+
+      toast({ title: "Aprovada ✓", description: "Enviando ao ERP…" });
+      setDecisaoEmCurso("enviando");
+
+      try {
+        const envio = await reenviarRequisicaoAprovada(req.id, user.id, profile?.full_name || "Usuário");
+        if (envio.sucesso) {
+          toast({
+            title: `Sincronizada (nº ${envio.numero_alvo})`,
+            description: "A requisição foi aprovada e criada no ERP.",
+          });
+        } else {
+          toast({
+            title: "Aprovada, mas o envio ao ERP falhou",
+            description: `${envio.erro} — a aprovação foi preservada. Use "Reenviar" abaixo.`,
+            variant: "destructive",
+          });
+        }
+      } catch (errEnvio: any) {
+        toast({
+          title: "Aprovada, mas o envio ao ERP falhou",
+          description: `${errEnvio?.message || errEnvio} — a aprovação foi preservada. Use "Reenviar" abaixo.`,
+          variant: "destructive",
+        });
+      }
+      refetch();
+      invalidarFilaDeAprovacoes();
+    } catch (err: any) {
+      toast({ title: "Erro inesperado", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setDecisaoEmCurso(null);
+    }
+  };
+
+  const handleRejeitar = async () => {
+    setDecisaoEmCurso("rejeitando");
+    try {
+      const decisao = await rejeitarRequisicao(req.id, motivoRejeicao.trim());
+      if (!decisao.ok) {
+        toast({ title: "Não foi possível rejeitar", description: decisao.mensagem, variant: "destructive" });
+        if (decisao.jaDecidida) {
+          refetch();
+          invalidarFilaDeAprovacoes();
+        }
+        return;
+      }
+      toast({
+        title: "Requisição rejeitada",
+        description: "O requisitante verá o motivo. Ela não vai ao ERP.",
+      });
+      setModalRejeicaoAberto(false);
+      setMotivoRejeicao("");
+      refetch();
+      invalidarFilaDeAprovacoes();
+    } catch (err: any) {
+      toast({ title: "Erro inesperado", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setDecisaoEmCurso(null);
+    }
+  };
+
+  /**
+   * Clonar: abre o wizard PRÉ-PREENCHIDO com esta requisição. Nada é gravado aqui —
+   * o rascunho novo nasce quando o usuário submeter, já como requisição dele.
+   * É o caminho de reaproveitamento de uma rejeitada (estado terminal).
+   */
+  const handleClonar = () => {
+    navigate(`/suprimentos/requisicoes/nova?clonarDe=${req.id}`);
   };
 
   const handleExcluir = async () => {
@@ -436,6 +608,43 @@ export default function SuprimentosRequisicaoDetalhe() {
         </div>
 
         <div className="flex gap-2 flex-wrap justify-end">
+          {/* FASE 3: decisão do líder — ações primárias enquanto pendente */}
+          {podeDecidir && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive shrink-0"
+                onClick={() => {
+                  setMotivoRejeicao("");
+                  setModalRejeicaoAberto(true);
+                }}
+                disabled={!!decisaoEmCurso}
+              >
+                <Ban className="mr-1 h-3 w-3" /> Rejeitar
+              </Button>
+              <Button size="sm" className="shrink-0" onClick={handleAprovar} disabled={!!decisaoEmCurso}>
+                {decisaoEmCurso === "aprovando" || decisaoEmCurso === "enviando" ? (
+                  <>
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    {decisaoEmCurso === "enviando" ? "Enviando ao ERP…" : "Aprovando…"}
+                  </>
+                ) : (
+                  <>
+                    <Check className="mr-1 h-3 w-3" /> Aprovar
+                  </>
+                )}
+              </Button>
+            </>
+          )}
+
+          {/* FASE 3: Clonar — qualquer status, inclusive rejeitada (terminal) */}
+          {podeCriarRequisicao && (
+            <Button variant="outline" size="sm" onClick={handleClonar} className="shrink-0">
+              <Copy className="mr-1 h-3 w-3" /> Clonar
+            </Button>
+          )}
+
           {/* E.9: Botão Gerar Pedido (destaque) */}
           {podeGerarPedido && (
             <Button size="sm" onClick={handleGerarPedido} className="bg-blue-600 hover:bg-blue-700 text-white shrink-0">
@@ -533,6 +742,74 @@ export default function SuprimentosRequisicaoDetalhe() {
           )}
         </div>
       </div>
+
+      {/* ── FASE 3: estado do gate de aprovação ────────────────────────────── */}
+
+      {/* Rejeitada — motivo em destaque, para todos que enxergam a req */}
+      {req.status === "rejeitada" && (
+        <Card className={isRequisitante ? "border-destructive/50 bg-destructive/5" : "border-border"}>
+          <CardContent className="flex items-start gap-3 p-4">
+            <Ban className={`mt-0.5 h-5 w-5 ${isRequisitante ? "text-destructive" : "text-muted-foreground"}`} />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">Requisição rejeitada pelo líder</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                {req.motivo_rejeicao || "(sem motivo registrado)"}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {(req.rejeitada_por_user_id && nomeDecisor[req.rejeitada_por_user_id]) || "Líder do centro de custo"}
+                {req.rejeitada_em ? ` · ${formatDate(req.rejeitada_em)}` : ""}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                A rejeição é definitiva e esta requisição nunca foi enviada ao ERP. Para reaproveitar os itens, use
+                <strong> Clonar</strong> — nasce uma requisição nova, sua.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Aprovada — quem decidiu e quando; automática é rotulada como tal */}
+      {req.status === "aprovada" && (
+        <Card className="border-border">
+          <CardContent className="flex items-start gap-3 p-4">
+            <UserCheck className="mt-0.5 h-5 w-5 text-muted-foreground" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                {req.aprovacao_automatica ? "Aprovação automática (líder do centro de custo)" : "Aprovada pelo líder"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {(req.aprovada_por_user_id && nomeDecisor[req.aprovada_por_user_id]) || "Líder do centro de custo"}
+                {req.aprovada_em ? ` · ${formatDate(req.aprovada_em)}` : ""}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {req.aprovacao_automatica
+                  ? "Quem criou a requisição lidera este centro de custo, então ela foi aprovada na própria submissão — o registro fica para auditoria."
+                  : "A decisão está registrada e não se repete: se o envio ao ERP falhar, o reenvio não pede nova aprovação."}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Pendente — sem prometer notificação (não há e-mail nesta missão) */}
+      {req.status === "pendente_aprovacao" && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="flex items-start gap-3 p-4">
+            <Clock className="mt-0.5 h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">Aguardando aprovação do líder</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Esta requisição <strong>ainda não foi enviada ao ERP</strong>. Ela depende da decisão do líder do centro
+                de custo <strong>{req.centro_ctrl_nome || req.codigo_centro_ctrl || "—"}</strong> — quem responde pela
+                aprovação é o centro de custo onerado, não a área de quem digitou.
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                O sistema não envia aviso por e-mail: o líder vê a pendência na fila de Aprovações dele.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Erro do último envio */}
       {req.erro_ultimo_envio && (
@@ -729,6 +1006,56 @@ export default function SuprimentosRequisicaoDetalhe() {
           </div>
         </CardContent>
       </Card>
+
+      {/* FASE 3 — rejeição: motivo obrigatório, decisão terminal */}
+      <Dialog
+        open={modalRejeicaoAberto}
+        onOpenChange={(aberto) => {
+          setModalRejeicaoAberto(aberto);
+          if (!aberto) setMotivoRejeicao("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rejeitar requisição?</DialogTitle>
+            <DialogDescription>
+              A rejeição é definitiva: a requisição não vai ao ERP e não volta para pendente. O requisitante verá o
+              motivo e poderá usar "Clonar" para criar uma nova.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Motivo da rejeição</label>
+            <Textarea
+              value={motivoRejeicao}
+              onChange={(e) => setMotivoRejeicao(e.target.value)}
+              placeholder="Explique o que precisa mudar para uma próxima requisição ser aprovada."
+              rows={4}
+            />
+            <p
+              className={`text-xs ${
+                motivoRejeicao.trim().length >= MOTIVO_MINIMO ? "text-muted-foreground" : "text-destructive"
+              }`}
+            >
+              {motivoRejeicao.trim().length}/{MOTIVO_MINIMO} caracteres mínimos
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalRejeicaoAberto(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRejeitar}
+              disabled={motivoRejeicao.trim().length < MOTIVO_MINIMO || decisaoEmCurso === "rejeitando"}
+            >
+              {decisaoEmCurso === "rejeitando" ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+              Rejeitar requisição
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

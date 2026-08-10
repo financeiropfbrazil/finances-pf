@@ -48,6 +48,7 @@ import EmailNfe from "./pages/EmailNfe";
 import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
 import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
+import SuprimentosAprovacoes from "./pages/SuprimentosAprovacoes";
 import SuprimentosPedidos from "./pages/SuprimentosPedidos";
 import SuprimentosPedidoNovo from "./pages/SuprimentosPedidoNovo";
 import SuprimentosPedidoDetalhe from "./pages/SuprimentosPedidoDetalhe";
@@ -266,6 +267,18 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="suprimentos_requisicoes">
               <SuprimentosRequisicaoDetalhe />
+            </PermissionRoute>
+          }
+        />
+        {/* Fila do líder (FASE 3). Rota FORA de /suprimentos/requisicoes/* de
+            propósito: como irmã de ":id" ela dependeria do ranking do router para
+            não ser lida como um id. O gate é o código RBAC direto — `hasAccess`
+            reconhece a chave com ponto e consulta o RBAC (sem MENU_TO_PERMISSION). */}
+        <Route
+          path="/suprimentos/aprovacoes"
+          element={
+            <PermissionRoute permKey="compras.requisicoes.aprovar">
+              <SuprimentosAprovacoes />
             </PermissionRoute>
           }
         />

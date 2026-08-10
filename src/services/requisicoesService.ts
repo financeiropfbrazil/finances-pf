@@ -700,6 +700,9 @@ export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvo
 /** Rotas devolvidas pela RPC `submeter_requisicao` que seguem o fluxo adiante. */
 export type RotaSubmissao = "SEM_GATE" | "AUTO_APROVADA" | "PENDENTE";
 
+/** Status que o reenvio legado aceita (lista positiva — ver `reenviarRequisicao`). */
+const STATUS_REENVIAVEIS_LEGADO = ["rascunho", "pendente_envio"];
+
 export interface SubmissaoResult {
   sucesso: boolean;
   requisicao_id: string;
@@ -747,6 +750,25 @@ export async function rotearSubmissao(
   requisicaoId: string,
   envio: { userId: string; userName: string },
 ): Promise<SubmissaoResult> {
+  // FASE 3 (C5.2) — requisição sem itens não entra no gate. Quem validava isso era
+  // `enviarRequisicaoAlvo`, que a rota PENDENTE nunca chama: uma req vazia chegava
+  // à fila do líder para ser aprovada e só então falhar. O wizard também valida
+  // (feedback antecipado), mas o reenvio de rascunho não passava por lá.
+  const { count, error: errItens } = await (supabase as any)
+    .from("compras_requisicoes_itens")
+    .select("id", { count: "exact", head: true })
+    .eq("requisicao_id", requisicaoId);
+
+  if (errItens) {
+    const msg = `Não foi possível conferir os itens da requisição: ${errItens.message}. Nada foi enviado ao ERP.`;
+    return { sucesso: false, requisicao_id: requisicaoId, rota: null, erro: msg };
+  }
+  if ((count ?? 0) === 0) {
+    const msg = "Requisição sem itens — adicione ao menos um item antes de submeter. Nada foi enviado ao ERP.";
+    await tentarRegistrarErroNoRascunho(requisicaoId, msg);
+    return { sucesso: false, requisicao_id: requisicaoId, rota: null, erro: msg };
+  }
+
   const { data, error } = await (supabase as any).rpc("submeter_requisicao", { p_req_id: requisicaoId });
 
   if (error) {
@@ -867,7 +889,10 @@ export async function reenviarRequisicao(
       "Requisição aprovada: use o reenvio pós-aprovação (reenviarRequisicaoAprovada), que preserva a decisão do líder.",
     );
   }
-  if (req.status !== "rascunho" && req.status !== "pendente_envio") {
+  // Lista POSITIVA (Fase 3): quem pode ser reenviado por este caminho é enumerado,
+  // nunca deduzido por exclusão — status novo que apareça no futuro é recusado por
+  // omissão, e não admitido por acidente.
+  if (!STATUS_REENVIAVEIS_LEGADO.includes(req.status)) {
     throw new Error("Só é possível reenviar requisições com status rascunho ou pendente de envio.");
   }
 
@@ -1037,6 +1062,256 @@ export async function reenviarRequisicao(
 
     return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro, rota: null };
   }
+}
+
+// ─── FASE 3 — fila do líder (aprovar / rejeitar) ───
+
+export interface RequisicaoPendente {
+  id: string;
+  numero_alvo: string | null;
+  descricao: string | null;
+  codigo_centro_ctrl: string | null;
+  centro_ctrl_nome: string | null;
+  funcionario_nome: string | null;
+  codigo_funcionario: string | null;
+  requisitante_user_id: string | null;
+  data_necessidade: string | null;
+  total_itens: number | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+/** Resultado padronizado das RPCs de decisão. `ok=false` sempre traz mensagem. */
+export interface DecisaoResult {
+  ok: boolean;
+  /** true quando a requisição saiu de `pendente_aprovacao` por decisão de outra pessoa. */
+  jaDecidida?: boolean;
+  mensagem?: string;
+}
+
+/**
+ * Centros de custo que o usuário lidera (`compras_lideres_cc`, linhas ativas).
+ * É o escopo da fila: quem não lidera nenhum CC não tem fila, mesmo tendo a
+ * permissão `compras.requisicoes.aprovar`.
+ */
+export async function listarCentrosDeCustoDoLider(userId: string): Promise<string[]> {
+  const { data, error } = await (supabase as any)
+    .from("compras_lideres_cc")
+    .select("codigo_centro_ctrl")
+    .eq("lider_user_id", userId)
+    .eq("ativo", true);
+
+  if (error) throw new Error(`Erro ao carregar seus centros de custo: ${error.message}`);
+  return (data || []).map((l: any) => l.codigo_centro_ctrl as string);
+}
+
+/**
+ * Conta as requisições aguardando decisão. Usada pelo badge do menu — `head: true`
+ * conta no servidor, sem trazer linha nenhuma.
+ *
+ * `admin` conta todas (é o bypass do Hub, consistente com as RPCs R2/R3).
+ */
+export async function contarRequisicoesPendentes(userId: string, isAdmin: boolean): Promise<number> {
+  let query = (supabase as any)
+    .from("compras_requisicoes")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "pendente_aprovacao");
+
+  if (!isAdmin) {
+    const ccs = await listarCentrosDeCustoDoLider(userId);
+    if (ccs.length === 0) return 0;
+    query = query.in("codigo_centro_ctrl", ccs);
+  }
+
+  const { count, error } = await query;
+  if (error) throw new Error(`Erro ao contar aprovações pendentes: ${error.message}`);
+  return count ?? 0;
+}
+
+/**
+ * Fila de decisão: `pendente_aprovacao` nos CCs do líder (admin vê todas).
+ * Ordem: **mais antiga primeiro** — é fila, não feed.
+ */
+export async function listarRequisicoesPendentes(
+  userId: string,
+  isAdmin: boolean,
+  opts?: { offset?: number; limit?: number },
+): Promise<RequisicaoPendente[]> {
+  const offset = opts?.offset ?? 0;
+  // PostgREST do Supabase hospedado tem max-rows=1000.
+  const limit = Math.min(opts?.limit ?? 200, 1000);
+
+  let query = (supabase as any)
+    .from("compras_requisicoes")
+    .select(
+      "id, numero_alvo, descricao, codigo_centro_ctrl, centro_ctrl_nome, funcionario_nome, codigo_funcionario, requisitante_user_id, data_necessidade, total_itens, created_at, updated_at",
+    )
+    .eq("status", "pendente_aprovacao")
+    .order("created_at", { ascending: true })
+    .range(offset, offset + limit - 1);
+
+  if (!isAdmin) {
+    const ccs = await listarCentrosDeCustoDoLider(userId);
+    if (ccs.length === 0) return [];
+    query = query.in("codigo_centro_ctrl", ccs);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Erro ao carregar a fila de aprovações: ${error.message}`);
+  return (data || []) as RequisicaoPendente[];
+}
+
+/**
+ * Traduz os retornos das RPCs de decisão (R2/R3) para mensagem de tela.
+ * Nenhum retorno cai no vazio — desconhecido vira mensagem explícita.
+ */
+function traduzirDecisao(retorno: string, acao: "aprovar" | "rejeitar"): DecisaoResult {
+  if (retorno === "OK") return { ok: true };
+
+  if (retorno.startsWith("STATUS_INVALIDO:")) {
+    const statusAtual = retorno.slice("STATUS_INVALIDO:".length) || "?";
+    return {
+      ok: false,
+      jaDecidida: true,
+      mensagem:
+        `Esta requisição já foi decidida por outra pessoa (status atual: ${statusAtual}). ` +
+        `A fila foi recarregada.`,
+    };
+  }
+
+  switch (retorno) {
+    case "SEM_PERMISSAO":
+      return { ok: false, mensagem: "Você não tem permissão para aprovar ou rejeitar requisições." };
+    case "FORA_DO_SEU_CC":
+      return {
+        ok: false,
+        mensagem: "Esta requisição pertence a um centro de custo que você não lidera.",
+      };
+    case "NAO_ENCONTRADA":
+      return { ok: false, jaDecidida: true, mensagem: "Requisição não encontrada — ela pode ter sido excluída." };
+    case "MOTIVO_OBRIGATORIO":
+      return { ok: false, mensagem: "Informe o motivo da rejeição (mínimo de 5 caracteres)." };
+    default:
+      return { ok: false, mensagem: `Retorno inesperado ao ${acao} a requisição: "${retorno}".` };
+  }
+}
+
+/** Aprova a requisição (RPC R2). NÃO envia ao ERP — o envio é o 2º tempo, na tela. */
+export async function aprovarRequisicao(requisicaoId: string): Promise<DecisaoResult> {
+  const { data, error } = await (supabase as any).rpc("aprovar_requisicao", { p_req_id: requisicaoId });
+  if (error) return { ok: false, mensagem: `Falha ao aprovar: ${error.message}` };
+  return traduzirDecisao(String(data ?? ""), "aprovar");
+}
+
+/** Rejeita a requisição (RPC R3). Estado TERMINAL: nunca vai ao ERP. */
+export async function rejeitarRequisicao(requisicaoId: string, motivo: string): Promise<DecisaoResult> {
+  const { data, error } = await (supabase as any).rpc("rejeitar_requisicao", {
+    p_req_id: requisicaoId,
+    p_motivo: motivo,
+  });
+  if (error) return { ok: false, mensagem: `Falha ao rejeitar: ${error.message}` };
+  return traduzirDecisao(String(data ?? ""), "rejeitar");
+}
+
+// ─── FASE 3 — clonar para nova requisição ───
+
+export interface RequisicaoClonada {
+  codigo_funcionario: string;
+  funcionario_nome: string | null;
+  codigo_centro_ctrl: string;
+  codigo_finalidade_compra: string;
+  finalidade_compra_label: string | null;
+  descricao: string | null;
+  cnpj_sugestao_requisicao: string | null;
+  data_necessidade: string | null;
+  itens: Array<{
+    item_servico: boolean;
+    codigo_produto: string;
+    codigo_alternativo_produto: string | null;
+    codigo_prod_unid_med: string;
+    produto_nome: string | null;
+    produto_unidade: string | null;
+    quantidade: number;
+    observacao: string | null;
+    rateio: Array<{ codigo_classe_rec_desp: string; classe_rec_desp_label: string | null; percentual: number }>;
+  }>;
+  /** Quantidade de anexos da origem — v1 NÃO copia anexos; a tela avisa o usuário. */
+  qtd_anexos_nao_copiados: number;
+}
+
+/**
+ * Lê uma requisição (qualquer status) para pré-preencher o wizard.
+ *
+ * NÃO grava nada: o rascunho novo só nasce quando o usuário submeter o wizard,
+ * já como requisição DELE. É o caminho de reaproveitamento de uma `rejeitada`,
+ * que é estado terminal.
+ *
+ * `data_necessidade` volta apenas se ainda for futura — data vencida faria o
+ * wizard nascer inválido.
+ */
+export async function carregarRequisicaoParaClonar(requisicaoId: string): Promise<RequisicaoClonada> {
+  const { data: req, error: errReq } = await (supabase as any)
+    .from("compras_requisicoes")
+    .select("*")
+    .eq("id", requisicaoId)
+    .maybeSingle();
+
+  if (errReq) throw new Error(`Erro ao carregar a requisição de origem: ${errReq.message}`);
+  if (!req) throw new Error("Requisição de origem não encontrada.");
+
+  const { data: itens, error: errItens } = await (supabase as any)
+    .from("compras_requisicoes_itens")
+    .select("*")
+    .eq("requisicao_id", requisicaoId)
+    .order("sequencia", { ascending: true });
+
+  if (errItens) throw new Error(`Erro ao carregar os itens da requisição: ${errItens.message}`);
+  if (!itens || itens.length === 0) throw new Error("A requisição de origem não tem itens para copiar.");
+
+  const itensIds = itens.map((i: any) => i.id);
+  const { data: rateios } = await (supabase as any)
+    .from("compras_requisicoes_itens_classe_rec_desp")
+    .select("*")
+    .in("item_id", itensIds);
+
+  const { count: qtdAnexos } = await (supabase as any)
+    .from("compras_requisicoes_arquivos")
+    .select("id", { count: "exact", head: true })
+    .eq("requisicao_id", requisicaoId);
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const dataNecessidade = req.data_necessidade ? new Date(`${String(req.data_necessidade).substring(0, 10)}T12:00:00`) : null;
+  const dataAindaValida = dataNecessidade && !isNaN(dataNecessidade.getTime()) && dataNecessidade >= hoje;
+
+  return {
+    codigo_funcionario: req.codigo_funcionario,
+    funcionario_nome: req.funcionario_nome,
+    codigo_centro_ctrl: req.codigo_centro_ctrl,
+    codigo_finalidade_compra: req.codigo_finalidade_compra,
+    finalidade_compra_label: req.finalidade_compra_label,
+    descricao: req.descricao,
+    cnpj_sugestao_requisicao: req.cnpj_sugestao_requisicao,
+    data_necessidade: dataAindaValida ? String(req.data_necessidade).substring(0, 10) : null,
+    itens: itens.map((item: any) => ({
+      item_servico: !!item.item_servico,
+      codigo_produto: item.codigo_produto,
+      codigo_alternativo_produto: item.codigo_alternativo_produto,
+      codigo_prod_unid_med: item.codigo_prod_unid_med,
+      produto_nome: item.produto_nome,
+      produto_unidade: item.produto_unidade,
+      quantidade: Number(item.quantidade) || 0,
+      observacao: item.observacao,
+      rateio: (rateios || [])
+        .filter((r: any) => r.item_id === item.id)
+        .map((r: any) => ({
+          codigo_classe_rec_desp: r.codigo_classe_rec_desp,
+          classe_rec_desp_label: r.classe_rec_desp_label,
+          percentual: Number(r.percentual) || 0,
+        })),
+    })),
+    qtd_anexos_nao_copiados: qtdAnexos ?? 0,
+  };
 }
 
 // ─── Funções de arquivos ───

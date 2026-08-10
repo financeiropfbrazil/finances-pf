@@ -14,6 +14,8 @@ export const PERMISSIONS = {
   COMPRAS_REQUISICOES_CREATE: "compras.requisicoes.create",
   COMPRAS_REQUISICOES_DELETE_OWN: "compras.requisicoes.delete_own",
   COMPRAS_REQUISICOES_REENVIAR_OWN: "compras.requisicoes.reenviar_own",
+  // Gate de aprovação por líder de departamento (Fase 1 no banco desde 07/08/2026).
+  COMPRAS_REQUISICOES_APROVAR: "compras.requisicoes.aprovar",
   // ─── Módulo Compras / Pedidos ───────────────────────────────────
   COMPRAS_PEDIDOS_ACCESS: "compras.pedidos.access",
   COMPRAS_PEDIDOS_VIEW_ALL: "compras.pedidos.view_all",
@@ -86,6 +88,7 @@ export const ROLES = {
   ADMIN: "admin",
   ANALISTA_COMPRAS: "analista_compras",
   REQUISITANTE: "requisitante",
+  LIDER_DEPARTAMENTO: "lider_departamento",
   RESPONSAVEL_PROJETO: "responsavel_projeto",
   APROVADOR_PROJETOS: "aprovador_projetos",
   CONTROLLER_INTERCOMPANY: "controller_intercompany",

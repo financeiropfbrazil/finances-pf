@@ -38,6 +38,7 @@ import { NavLink } from "@/components/NavLink";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useAprovacoesPendentes } from "@/hooks/useAprovacoesPendentes";
 import { useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -113,6 +114,9 @@ const comprasSubItems = [
 const suprimentosSubItems: { label: string; url: string; icon: any; perm?: string }[] = [
   { label: "Dashboard", url: "/suprimentos/dashboard", icon: BarChart3 },
   { label: "Requisições de Compra", url: "/suprimentos/requisicoes", icon: ClipboardList },
+  // FASE 3 — fila do líder. Sem e-mail de aviso (decisão gerencial), este item
+  // com o badge de contagem é o único sinal de que alguém está esperando decisão.
+  { label: "Aprovações", url: "/suprimentos/aprovacoes", icon: ClipboardCheck, perm: "compras.requisicoes.aprovar" },
   { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
   { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
   { label: "Atualizar Cadastros", url: "/suprimentos/cadastros", icon: RefreshCw, perm: "compras.cadastros.sync" },
@@ -182,6 +186,7 @@ export function AppSidebar() {
   const { t } = useLanguage();
   const { profile } = useAuth();
   const { hasAccess, isAdmin } = usePermissions();
+  const { total: aprovacoesPendentes } = useAprovacoesPendentes();
   const location = useLocation();
   const isFixedAssetsActive = location.pathname.startsWith("/fixed-assets");
   const isInventoryActive = location.pathname.startsWith("/inventory");
@@ -270,7 +275,7 @@ export function AppSidebar() {
   // 2) cadeia física: comprar → receber → estocar → produzir
   add("compras", hasAccess("compras"), () => renderComprasGroup(t, isComprasActive));
   add("suprimentos", hasAccess("suprimentos_requisicoes"), () =>
-    renderSuprimentosGroup(t, isSuprimentosActive, hasAccess),
+    renderSuprimentosGroup(t, isSuprimentosActive, hasAccess, { "/suprimentos/aprovacoes": aprovacoesPendentes }),
   );
   add("nf-entrada", true, () => itemSolto("/nf-entrada"));
   add("email-nfe", true, () => itemEmailNfe());
@@ -561,7 +566,13 @@ function renderContasPagarGroup(t: any, isActive: boolean) {
   );
 }
 
-function renderSuprimentosGroup(t: any, isActive: boolean, hasAccess: (perm: string) => boolean) {
+/** `badges`: contagem por URL de sub-item (0 ou ausente = sem badge). */
+function renderSuprimentosGroup(
+  t: any,
+  isActive: boolean,
+  hasAccess: (perm: string) => boolean,
+  badges: Record<string, number> = {},
+) {
   return (
     <Collapsible defaultOpen={isActive} className="group/collapsible-suprimentos">
       <SidebarMenuItem>
@@ -580,20 +591,31 @@ function renderSuprimentosGroup(t: any, isActive: boolean, hasAccess: (perm: str
           <SidebarMenuSub>
             {suprimentosSubItems
               .filter((sub) => !sub.perm || hasAccess(sub.perm))
-              .map((sub) => (
-                <SidebarMenuSubItem key={sub.url}>
-                  <SidebarMenuSubButton asChild>
-                    <NavLink
-                      to={sub.url}
-                      className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                    >
-                      <sub.icon className="h-3.5 w-3.5 shrink-0" />
-                      <span>{sub.label}</span>
-                    </NavLink>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-              ))}
+              .map((sub) => {
+                const badge = badges[sub.url] ?? 0;
+                return (
+                  <SidebarMenuSubItem key={sub.url}>
+                    <SidebarMenuSubButton asChild>
+                      <NavLink
+                        to={sub.url}
+                        className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                      >
+                        <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="flex-1">{sub.label}</span>
+                        {badge > 0 && (
+                          <span
+                            className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                            title={`${badge} requisição(ões) aguardando sua decisão`}
+                          >
+                            {badge > 99 ? "99+" : badge}
+                          </span>
+                        )}
+                      </NavLink>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                );
+              })}
           </SidebarMenuSub>
         </CollapsibleContent>
       </SidebarMenuItem>
