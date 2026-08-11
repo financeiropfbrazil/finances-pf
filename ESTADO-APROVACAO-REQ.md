@@ -3,7 +3,26 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **11/08/2026** (PROMPT 6.2 — atribuição em massa no Mapa de Líderes por CC; só frontend, nenhum SQL).
+> Última atualização: **11/08/2026** (encerramento — missão concluída e validada em produção).
+
+## 0. 🏁 MISSÃO CONCLUÍDA (11/08/2026)
+
+**Não há fase de construção pendente.** O gate de aprovação está no ar, a ferramenta de administração
+do mapa de líderes está publicada e validada com uso real, e tudo o que sobra é **operação**
+(mapear os demais departamentos) ou **dívida de outra missão** (§7).
+
+| Fase | O que entrega | Estado |
+|---|---|---|
+| 1 | RPCs do gate, trigger de proteção, `compras_lideres_cc`, RBAC | ✅ em produção desde 07/08 |
+| 2 | Roteamento da submissão, envio pós-aprovação | ✅ publicada |
+| 3 | Fila do líder, badges, clonar | ✅ publicada |
+| 5 | Piloto fim-a-fim (Hugo Maffei) | ✅ validada 10/08 |
+| Ajuste 1.3 | Motivos estruturados de rejeição | ✅ SQL + tela publicados |
+| 6.1 | Mapa de Líderes por CC (3 RPCs + tela) | ✅ SQL executado (G1–G5 verde) + tela publicada |
+| 6.2 | Atribuição em massa | ✅ publicada e **validada com 12 CCs reais** |
+
+Detalhe do encerramento no **§14**. Fase 4 (255 chars na digitação) segue **não iniciada** — é
+melhoria de usabilidade, não pré-requisito de nada.
 
 ## 1. Onde estamos
 
@@ -27,15 +46,23 @@
 | **PROMPT 6.1** | Fase 6.1 — SQL (`SQL-FASE61.md`) + tela do mapa | ✅ concluído em 10/08/2026 · commit `57d387a` — conclusões no §12 |
 | **PROMPT 6.1-EXEC** | Execução dos 15 blocos do `SQL-FASE61.md` no banco | ✅ **executado em 10/08/2026** — 15/15 blocos verificados, **G1–G5 todos verdes** — conclusões no §12.7 |
 | **AJUSTE 6.2** | Atribuição em massa (decisões H1–H4) | ✅ recebido (autoria do Pedro), incorporado |
-| **PROMPT 6.2** | Seleção múltipla + atribuição em massa na tela do mapa | ✅ concluído em 11/08/2026 · **só frontend, zero SQL** — conclusões no §13 |
-| PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado |
+| **PROMPT 6.2** | Seleção múltipla + atribuição em massa na tela do mapa | ✅ concluído em 11/08/2026 · commit `0eaf2a6` · **pushado e publicado**, validado com 12 CCs reais — conclusões no §13 |
+| **ENCERRAMENTO** | Estado final da missão | ✅ 11/08/2026 — §14 |
+| PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado (melhoria de usabilidade, não bloqueia nada) |
 
-**Publicação (medido no git em 10/08/2026):** Fases 2, 1.2 e 3 estão publicadas. O **Ajuste 1.3
-(`ee28acc`) está em `origin/main` mas NÃO publicado** — e o SQL dele **já rodou** (§11.7). 🔴 Enquanto
-não publicar, a tela no ar chama `rejeitar_requisicao(uuid, text)`, que foi dropada: **rejeitar falha
-para o usuário**. Aprovar, criar, submeter e reenviar não são afetados. Publicar é decisão do Pedro.
+**Publicação (medido no git em 11/08/2026):** `main` e `origin/main` estão no mesmo commit —
+**zero commits locais não pushados**. Como o Publicar do Lovable leva o snapshot inteiro do `main`,
+publicar a massa (`0eaf2a6`) carregou junto **tudo o que veio antes**: o Ajuste 1.3 (`ee28acc`) e a
+tela da Fase 6.1 (`57d387a`). ✅ **A janela da "rejeição quebrada"** — tela publicada chamando a
+assinatura antiga `rejeitar_requisicao(uuid, text)`, que o Bloco 8 dropou — **está fechada**.
+(Derivado da ordem dos commits, não de uma conferência da tela publicada.)
 
-⚠️ **Pré-condição da Fase 3 no banco (ainda NÃO executada):** o papel `lider_departamento` precisa de `compras.requisicoes.create` e `compras.requisicoes.reenviar_own` (SQL medido e reproduzido no §10.2). Sem isso, um líder **sem `is_admin`** não consegue criar nem reenviar requisição própria.
+⚠️ **Pré-condição da Fase 3 no banco (§10.2) — nunca executada, e agora com relevância real:** o papel
+`lider_departamento` não tem `compras.requisicoes.create` nem `compras.requisicoes.reenviar_own`.
+Até 10/08 isso era inócuo (o único líder era o Pedro, `is_admin`, com bypass). Desde 11/08 existe uma
+líder **sem a flag** (Ana Sanches, 13 CCs). Se ela também tiver o papel `requisitante` — que **tem** as
+duas permissões (§9.3) — nada quebra; é o caso provável. **Não foi medido nesta sessão.** Sintoma se
+faltar: ela aprova normalmente, mas não consegue criar nem reenviar requisição própria.
 
 ## 2. FASE 1 — o que está no ar (07/08/2026, gate verde)
 
@@ -107,25 +134,27 @@ O botão só olha `podeReenviar` (`SuprimentosRequisicaoDetalhe.tsx:414`); quem 
 
 Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **sem líder** (`00010.00003.00001` ×3, bianca.goncalves; `00008.00001.00003` ×1, larissa.maraus), ambas com `compras.requisicoes.create` e sem `is_admin` — com o roteamento do Ajuste 1.2 elas seguem rota `SEM_GATE`, ou seja **comportamento idêntico ao de hoje**, e continuam reenviando as próprias reqs. (Essas 4 falham por validação do próprio Alvo — 255/100 chars, validade do CC — e vão continuar falhando até o dado ser corrigido: assunto da Fase 4.)
 
-## 6. Próximo passo
+## 6. Próximo passo — **operação, não construção**
 
-1. ~~**Executar o `SQL-AJUSTE13.md`**~~ ✅ **executado em 10/08/2026** (PROMPT 1.3-EXEC, §11.7). 🔴 **A tela PUBLICADA hoje ainda chama a assinatura ANTIGA `(uuid, text)`, que foi dropada — rejeitar pela tela publicada falha até o Publicar.** A janela é conhecida e foi decisão explícita (SQL primeiro, publicar depois); fechar rápido. Aprovar, criar, submeter e reenviar seguem normais — só a rejeição está nessa janela.
-2. ~~**Pedro revisa o diff do Ajuste 1.3** (§11) e dá o push.~~ ✅ push feito (`ee28acc` em `origin/main`).
-3. **Publicar no Lovable** — 🔴 **é o passo que fecha a janela de rejeição quebrada** descrita acima.
-4. **Validação §8 do Ajuste 1.3** (6 passos: motivo sem observação, "Outros" sem/com observação, rejeição antiga do Hugo legível, sem erro residual, agregação por motivo).
-5. **Conferir o SQL do §10.2** (`lider_departamento` + `create`/`reenviar_own`) — se ainda não foi rodado, continua pendente.
-6. ~~**Executar o `SQL-FASE61.md`**~~ ✅ **executado em 10/08/2026** (PROMPT 6.1-EXEC, §12.7) — as 3
-   RPCs existem, com `anon` fechado. 🔴 **A tela `/settings/lideres-cc` está no repo mas NÃO
-   publicada** (commit `57d387a` sequer foi pushado): o banco está pronto e a tela ainda não está no
-   ar. Ordem inversa da janela do Ajuste 1.3 — e sem risco, porque nenhuma tela publicada chama
-   essas 3 RPCs. **A primeira chamada real de `listar_mapa_lideres` ainda não aconteceu** (§12.7-C).
-7. 🔴 **Revisar, pushar e publicar o AJUSTE 6.2** (§13) — a atribuição em massa está no repo,
-   **sem push**. Nada no banco mudou, então a tela publicada hoje segue funcionando: a massa
-   simplesmente ainda não existe para o usuário.
-8. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
+Todos os passos de construção foram concluídos e publicados (histórico preservado no §14.5). O que
+resta não é código:
+
+1. **Mapear os demais departamentos.** Levantamento é do Pedro (quem lidera o quê); a ferramenta
+   está pronta e provada — 12 CCs de uma vez levaram um clique. Hoje: **13 de 80**.
+2. **Acompanhar a primeira aprovação real da Ana** — é o primeiro líder da história do módulo **sem
+   `is_admin`**, ou seja, o primeiro caminho de permissão que o bypass do Pedro nunca exercitou
+   (armadilha registrada no CLAUDE.md). Ver o ⚠️ do §1 sobre `create`/`reenviar_own`.
+3. **Fase 4** (255 chars na digitação) quando fizer sentido — prompt próprio, não bloqueia nada.
+4. As dívidas do §7, cada uma como missão própria.
 
 ## 7. Pendências abertas
 
+> **Nenhuma é urgente e nenhuma bloqueia a operação.** As de prioridade alta (1, 8) são risco de
+> integridade que existe desde antes desta missão, não algo que ela criou.
+
+0. **Corrigir a regra de `revoke` no `CLAUDE.md`** — a seção Supabase manda revogar só de `anon`, e a
+   medição do §14.3 prova que **isso não fecha nada sozinho**. É edição de **doc-mãe**: decisão do
+   Pedro. Enquanto não for feita, toda RPC nova nascerá com o buraco por seguir a regra escrita.
 1. **DÍVIDA-RLS-COMPRAS-REQ** (Ajuste §6): RLS `ALL using(true)` continua aberta; o trigger protege só a superfície da aprovação. Missão própria, prioridade alta pós-piloto.
 2. **DÍVIDA-REQ-PENDENTE-ENVIO-ORFA** (§4.1) e **DÍVIDA-REQ-UPSERT-SILENCIOSO** (§4.2) — formalizadas no Ajuste 1.2 §5, decisões B2/B3: **não entram em correção** nesta missão.
 3. **Outro escritor ativo no repo (módulo OP).** Resolvido em 10/08: o `origin/main` já está em `919153f` (OP-2.7 e a Fase 4 do OP pushados). O commit do Ajuste 1.2 empilha em cima de `919153f` e leva **só** os arquivos desta missão.
@@ -135,8 +164,16 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
 7. **`suprimentos_requisicoes_para` não filtra status** (§10.4): a RPC de relatório passará a contar `pendente_aprovacao`/`rejeitada` nos KPIs. Correção é DDL — decisão do Pedro.
 8. **DÍVIDA-RLS-COST-CENTERS** (Ajuste 6.1 §6): `cost_centers` tem policy `ALL using(true)` para `authenticated` — qualquer logado pode INSERT/UPDATE/**DELETE**, e `settings/CostCenters.tsx:305` expõe `.delete()` físico. Sem FK para `compras_lideres_cc`, apagar um CC deixa o mapeamento órfão. **Mitigado só na visualização** (linha `orfao` do mapa). Prioridade alta, junto com a DÍVIDA-RLS-COMPRAS-REQ.
 9. **DÍVIDA-SYNC-CC-FORA-DO-GATEWAY** (Ajuste 6.1 §6): o sync de CCs chama o Alvo **direto do navegador** (`CostCenters.tsx:72,148`), contra a regra do CLAUDE.md, e rodou **uma única vez** (30/07/2026 — os 182 registros têm `updated_at` idêntico ao milissegundo), o que sugere botão quebrado. Missão própria: levar ao gateway + cron. A tela do mapa **mostra a data do espelho** para o risco ficar visível.
-10. 🔴 **`rejeitar_requisicao` continua executável por `anon`** — mesmo com o `revoke … from anon` do Bloco 10 tendo funcionado. Falta um `revoke … from public` (SQL **fora** dos 12 blocos; não executado). Detalhe e medição no §11.7-B. Sem risco de efeito (o gate `auth.uid() is null → SEM_PERMISSAO` é a 1ª linha da função) e **sem regressão** — a função nova está mais fechada que as 4 irmãs em produção. Decisão do Pedro.
-    ✅ **Hipótese do §11.7-B confirmada por experimento na Fase 6.1** (§12.7-B): com os **dois** revokes (`from anon` + `from public`), `has_function_privilege('anon', …)` vai a **`false`**. As 3 RPCs desta fase são as primeiras do projeto de fato fechadas para `anon`. O passivo (`rejeitar_requisicao` + as 4 irmãs + as ~196 funções do CLAUDE.md) **continua aberto** — a receita agora está provada, falta decidir aplicá-la.
+10. **DÍVIDA-REVOKE-PUBLIC nas 5 RPCs desta missão** — `rejeitar_requisicao`, `aprovar_requisicao`,
+    `submeter_requisicao`, `registrar_envio_requisicao` e `_req_evento` continuam executáveis por
+    `anon`. As **3 RPCs da Fase 6 já nasceram fechadas** (os dois revokes, §14.3). Sem risco de
+    efeito — o gate `auth.uid() is null → SEM_PERMISSAO` é a 1ª linha de cada uma — e sem regressão:
+    é o passivo de ~196 funções já registrado no CLAUDE.md, não algo criado aqui. A receita está
+    provada; falta decidir aplicá-la (junto com o item 0). Prioridade: baixa.
+11. **Módulo Projetos fora do gate** (conferência de 11/08, §14.4): `projeto_requisicoes` é outro
+    fluxo, com outra tabela e outra rota no ERP — o gate de aprovação **não o alcança**, por
+    construção. Levar o controle para lá é missão própria e começa por descobrir onde vive o centro
+    de custo naquele fluxo. Prioridade: a definir pelo Pedro.
 
 ## 8. O que a Fase 3 vai encontrar
 
@@ -757,7 +794,90 @@ num recarregamento não é contado nem enviado.
 
 ### 13.4 O que só é provável rodando
 
-A massa **não foi exercida** contra o banco — esta sessão não teve escrita. Falta, na validação §6
-do Ajuste: atribuir a 3+ CCs e conferir `compras_lideres_cc`; confirmar que `hub_user_roles` ganhou
-**uma** linha por líder e não uma por CC; e o caso de dois líderes no mesmo CC decidindo a mesma
-requisição (o segundo deve receber `STATUS_INVALIDO` + recarga, comportamento já existente).
+~~A massa **não foi exercida** contra o banco~~ ✅ **exercida em 11/08/2026, com 12 CCs reais** — o
+resultado está no §14.2. Restou sem exercício apenas o caso de **dois líderes no mesmo CC decidindo a
+mesma requisição** (o segundo deve receber `STATUS_INVALIDO` + recarga — comportamento que já existia
+antes desta missão, não introduzido por ela).
+
+---
+
+## 14. ENCERRAMENTO DA MISSÃO (11/08/2026)
+
+### 14.1 Fase 6 completa e validada em produção
+
+| Entrega | Commit | Estado |
+|---|---|---|
+| SQL da Fase 6.1 — 15 blocos, gate G1–G5 **todo verde** | `ab41aa0` (registro) | ✅ executado no banco (§12.7) |
+| Tela `/settings/lideres-cc` — cobertura, data do espelho, órfãos, filtros, histórico, atribuir/remover | `57d387a` | ✅ publicada |
+| Atribuição em massa (Ajuste 6.2) | `0eaf2a6` | ✅ publicada |
+
+### 14.2 ✅ VALIDAÇÃO REAL — a massa rodou em produção
+
+**12 centros de custo atribuídos de uma vez** a `ana.sanches@pfbrazil.com`. Conferido no banco:
+
+- `hub_user_roles` ganhou **UMA linha por líder — não uma por CC**. É a propriedade que fazia a massa
+  ser segura sem RPC nova: `atribuir_lider_cc` só insere o papel quando não existe vínculo ativo, então
+  12 chamadas concedem `lider_departamento` **uma vez**. Previsto no §13; agora **medido**.
+- O papel apareceu sozinho em `settings/users` — sem segundo passo manual, que era o ponto do F2.
+
+Isso fecha os itens 1, 2 e 4 da validação §6 do Ajuste 6.2. O item 3 (dois líderes decidindo a mesma
+requisição) segue sem exercício — comportamento pré-existente, não introduzido aqui.
+
+### 14.3 🔴 ACHADO TÉCNICO — a regra de `revoke` do CLAUDE.md está incompleta
+
+Confirmado **empiricamente**, medindo o ACL bloco a bloco durante a execução da Fase 6.1 (§12.7-B):
+
+| Depois de | `proacl` | `anon` executa? |
+|---|---|---|
+| `create function` + `grant` | `{=X/postgres, postgres=X, **anon=X**, authenticated=X, service_role=X}` | `true` |
+| `revoke execute … from anon` | `{**=X/postgres**, postgres=X, authenticated=X, service_role=X}` | **`true`** ⚠️ |
+| `revoke execute … from public` | `{postgres=X, authenticated=X, service_role=X}` | **`false`** ✅ |
+
+**`revoke … from anon` NÃO fecha.** Ele tira o grant nominal que vem do `ALTER DEFAULT PRIVILEGES` do
+Supabase, mas sobra `=X/postgres` — grantee vazio = **PUBLIC**, o default nativo do PostgreSQL — e
+`anon` herda por ser membro de PUBLIC. **São necessários OS DOIS revokes.**
+
+> **Regra para toda missão futura:** após criar RPC nova em `public`, rodar **ambos**, com a
+> assinatura completa:
+> ```sql
+> revoke execute on function public.<nome>(<assinatura>) from anon;
+> revoke execute on function public.<nome>(<assinatura>) from public;
+> ```
+> E **conferir** com `has_function_privilege('anon', p.oid, 'EXECUTE')` — o ACL "parecer certo" não
+> basta, foi exatamente assim que o buraco passou despercebido no Ajuste 1.3.
+
+As 3 RPCs da Fase 6.1 (`atribuir_lider_cc`, `revogar_lider_cc`, `listar_mapa_lideres`) são as
+**primeiras do projeto de fato fechadas para `anon`**. Corrigir o texto do CLAUDE.md é decisão do
+Pedro (§7.0) — é doc-mãe.
+
+### 14.4 Conferência pontual — o módulo Projetos está fora do gate, por construção
+
+| Evidência | Consequência |
+|---|---|
+| `projeto_requisicoes` (26 registros) **não tem `codigo_centro_ctrl`** | o gate não teria por onde decidir quem aprova — ele roteia **pelo CC** |
+| Grava por `/ped-comp`, não `/req-comp` | outra entidade no Alvo (PedComp), já mapeada como fora de escopo no §9.5 item 8 |
+| Tabela própria, fluxo próprio | **isolamento total**: nada do que esta missão fez alcança ou afeta esse caminho |
+
+Estender o controle para lá é **missão própria**, e o primeiro passo é um Discovery: descobrir **onde
+vive o centro de custo** naquele fluxo (ou se vive). Sem isso não há como rotear aprovação.
+
+### 14.5 Estado de produção no encerramento
+
+- **13 CCs mapeados** de um universo de **80** ativos-folha:
+  - Pedro × `00010.00002.00003` (seed do piloto, Fase 1);
+  - Ana Sanches × `00007.00001.00002` + **12 do bloco `00007.00004.*`** (a rodada em massa).
+- 🔴 **Efeito imediato e sem aviso:** requisições nesses 13 CCs **passam a exigir aprovação a partir
+  do instante do mapeamento**. Não há e-mail nem notificação — **o líder descobre pela fila**
+  (`/suprimentos/aprovacoes`, com badge de contagem no menu). Quem mapeia um CC precisa avisar a
+  pessoa por fora. Notificação é fora de escopo desta missão (§7 do Ajuste 6.1).
+- Os outros 67 CCs seguem em rota `SEM_GATE`: requisição vai direto ao ERP, exatamente como antes da
+  missão. **Mapear é o que liga o gate** — nada muda para quem não foi mapeado.
+
+### 14.6 Onde está o quê (mapa dos documentos da missão)
+
+| Arquivo | Papel |
+|---|---|
+| `CLAUDE_APROVACAO_REQ.md` · `AJUSTE-1.1/1.2/1.3` · `AJUSTE-6.1` · `AJUSTE-6.2` | documentos-mãe, **imutáveis** — decisões do Pedro |
+| `DISCOVERY-APROVACAO-REQ.md` · `DISCOVERY-FASE6.md` · `ADENDO-ERP-PROXY-REQCOMP.md` | medições de campo |
+| `SQL-FASE1-APROVACAO.md` · `SQL-AJUSTE13.md` · `SQL-FASE61.md` | SQL executado, **com rollback em cada um** |
+| **este arquivo** | único mutável: estado, achados e diário |
