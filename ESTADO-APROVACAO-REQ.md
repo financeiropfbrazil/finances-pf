@@ -3,7 +3,7 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **10/08/2026** (PROMPT 6.1-EXEC — os 15 blocos do `SQL-FASE61.md` executados no banco, gate G1–G5 verde).
+> Última atualização: **11/08/2026** (PROMPT 6.2 — atribuição em massa no Mapa de Líderes por CC; só frontend, nenhum SQL).
 
 ## 1. Onde estamos
 
@@ -26,6 +26,8 @@
 | **AJUSTE 6.1** | Decisões P1–P5 + SQL e espec de tela da Fase 6 | ✅ recebido (autoria do Pedro), incorporado |
 | **PROMPT 6.1** | Fase 6.1 — SQL (`SQL-FASE61.md`) + tela do mapa | ✅ concluído em 10/08/2026 · commit `57d387a` — conclusões no §12 |
 | **PROMPT 6.1-EXEC** | Execução dos 15 blocos do `SQL-FASE61.md` no banco | ✅ **executado em 10/08/2026** — 15/15 blocos verificados, **G1–G5 todos verdes** — conclusões no §12.7 |
+| **AJUSTE 6.2** | Atribuição em massa (decisões H1–H4) | ✅ recebido (autoria do Pedro), incorporado |
+| **PROMPT 6.2** | Seleção múltipla + atribuição em massa na tela do mapa | ✅ concluído em 11/08/2026 · **só frontend, zero SQL** — conclusões no §13 |
 | PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado |
 
 **Publicação (medido no git em 10/08/2026):** Fases 2, 1.2 e 3 estão publicadas. O **Ajuste 1.3
@@ -117,7 +119,10 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
    publicada** (commit `57d387a` sequer foi pushado): o banco está pronto e a tela ainda não está no
    ar. Ordem inversa da janela do Ajuste 1.3 — e sem risco, porque nenhuma tela publicada chama
    essas 3 RPCs. **A primeira chamada real de `listar_mapa_lideres` ainda não aconteceu** (§12.7-C).
-7. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
+7. 🔴 **Revisar, pushar e publicar o AJUSTE 6.2** (§13) — a atribuição em massa está no repo,
+   **sem push**. Nada no banco mudou, então a tela publicada hoje segue funcionando: a massa
+   simplesmente ainda não existe para o usuário.
+8. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
 
 ## 7. Pendências abertas
 
@@ -683,3 +688,76 @@ O §3 do `SQL-FASE61.md` (3 `drop function` + `notify`, e opcionalmente o `drop 
 executado.** Derrubar as RPCs sem reverter o commit `57d387a` deixaria `/settings/lideres-cc` com
 `not found in schema cache` — visível e não destrutivo, e hoje nem isso, já que a tela não está
 publicada. Nenhuma outra tela usa essas 3 funções.
+
+---
+
+## 13. AJUSTE 6.2 — atribuição em massa (11/08/2026, PROMPT 6.2)
+
+Atribuir 78 CCs um a um era o gargalo. **Só frontend: nenhum SQL, nenhuma RPC nova, nenhuma
+migration.** `atribuir_lider_cc` já é idempotente (upsert por `(lider_user_id, codigo_centro_ctrl)`)
+e concede `lider_departamento` só se ainda não houver linha ativa — então N chamadas em laço deixam
+**uma** linha de papel, não N. Foi o suficiente.
+
+### 13.1 Arquivos alterados (2)
+
+| Arquivo | Mudança |
+|---|---|
+| `src/services/lideresCcService.ts` | **`atribuirLideresEmMassa(userId, ccs, motivo, onProgresso)`** + tipos `ItemMassa`/`RelatorioMassa`. Laço **sequencial** (`for` + `await`), progresso por callback, `try/catch` por item — **uma falha nunca aborta o restante**; cada retorno entra no relatório com o código cru da RPC já traduzido |
+| `src/pages/settings/LideresCC.tsx` | Coluna de checkbox + "todos os visíveis" tri-state · barra de ação sticky · diálogo de massa em 3 telas (formulário → progresso → relatório) · aviso de H1 também no diálogo **individual** · nota de H2 no cabeçalho da coluna Líder(es) e na linha com 2+ líderes |
+
+**Não tocados:** banco (nenhuma escrita nesta sessão), as 3 RPCs, `types.ts`, RLS, crons,
+`requisicoesService.ts`, a fila de aprovações, arquivos do módulo OP.
+
+**Gate de saída:** `bun run build` ✅ · `tsc --noEmit -p tsconfig.app.json` **exit 0** ✅ · ESLint nos
+2 arquivos **12 → 13** (o `+1` é o `catch (err: any)` do laço, padrão dominante do projeto; medido
+com `git stash`). **Zero SQL executado** — conferido: nenhuma chamada de escrita ao MCP nesta sessão.
+
+### 13.2 Filtro × seleção — a regra que resolve a ambiguidade
+
+O conflito real: a seleção é **acumulada** (§3.1 manda preservar ao trocar de filtro), mas o
+cabeçalho é **"todos os visíveis"**. Se os dois lessem o mesmo conjunto, ou o filtro apagaria
+seleção, ou o cabeçalho marcaria a base inteira.
+
+| Elemento | Lê qual conjunto |
+|---|---|
+| `selecionados` (estado) | acumulado, **sobrevive** a qualquer troca de filtro |
+| Checkbox do cabeçalho (estado e ação) | **só `visiveisSelecionaveis`** = filtradas − órfãs. Marcar/desmarcar mexe só nesses; o que está fora do filtro não é tocado |
+| Barra de ação e diálogo | o acumulado (`linhasSelecionadas`), que é o que de fato será atribuído |
+
+Consequência que exigiu texto na tela: dá para ter 20 selecionados com 3 visíveis. A barra diz
+**"N selecionados · M fora do filtro atual"** — sem isso, o usuário confirmaria 20 achando que são 3.
+E o estado `indeterminate` mede **só o visível**: senão o cabeçalho ficaria eternamente parcial por
+causa de linhas que ninguém está vendo.
+
+`linhasSelecionadas` deriva de `linhas` (não de `selecionados` direto), então um CC que suma do mapa
+num recarregamento não é contado nem enviado.
+
+### 13.3 O que contradisse a espec
+
+1. **"Já é líder — será ignorado" foi implementado como ignorar de verdade** (não entra no laço). O
+   §3.3 diz "a RPC reativa sem efeito prático" — mas **tem** efeito: o `on conflict do update`
+   sobrescreve `atribuido_por`, `atribuido_em` e `motivo` do vínculo existente. Chamar para quem já
+   é líder **apagaria a trilha original** (inclusive trocando o motivo antigo por `null` quando o
+   campo da massa vem vazio). Ignorar preserva a auditoria e é o que a própria UI promete.
+2. **O mesmo caso foi fechado na atribuição individual**, que a espec não menciona: escolher alguém
+   que já lidera aquele CC agora mostra "já lidera este centro de custo" e **desabilita** o botão.
+   Antes, o clique sobrescrevia a trilha em silêncio — mesmo defeito do item 1, no caminho de um a um.
+3. **Contador "ignorados" congelado no disparo.** Depois do laço a tela recarrega e todos os alvos
+   passam a ter o líder — recalcular os grupos faria o relatório dizer que quase tudo foi ignorado.
+   O número é fotografado antes de começar.
+4. **Estilo do checkbox parcial ajustado no uso, não no componente.** O `ui/checkbox.tsx` desenha o
+   mesmo ✓ para `checked` e `indeterminate` — "alguns" ficaria idêntico a "todos". Corrigido com
+   `data-[state=indeterminate]` na instância; mexer no componente compartilhado afetaria outras telas
+   (ele é usado em Reembolso NF, entre outras).
+5. **H2 não gerou código, como o Ajuste previa** — mas gerou **duas** superfícies de texto, não uma:
+   tooltip no cabeçalho da coluna e a linha "Qualquer um deles aprova sozinho" sob CCs com 2+
+   líderes. A leitura errada ("aprovação conjunta") só aparece quando há mais de um nome à vista.
+6. **Revogação em massa continua fora** (H4), inclusive na barra de seleção: selecionar não oferece
+   nenhuma ação destrutiva.
+
+### 13.4 O que só é provável rodando
+
+A massa **não foi exercida** contra o banco — esta sessão não teve escrita. Falta, na validação §6
+do Ajuste: atribuir a 3+ CCs e conferir `compras_lideres_cc`; confirmar que `hub_user_roles` ganhou
+**uma** linha por líder e não uma por CC; e o caso de dois líderes no mesmo CC decidindo a mesma
+requisição (o segundo deve receber `STATUS_INVALIDO` + recarga, comportamento já existente).

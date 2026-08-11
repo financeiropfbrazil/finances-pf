@@ -227,3 +227,66 @@ export async function revogarLiderCc(userId: string, cc: string): Promise<Result
   }
   return traduzirRetorno(String(data ?? ""), "revogar");
 }
+
+// ---------------------------------------------------------------------------
+// Atribuição em massa (AJUSTE 6.2 §3.4)
+// ---------------------------------------------------------------------------
+
+/** Um centro de custo processado pelo laço, com o retorno que a RPC deu para ele. */
+export interface ItemMassa {
+  erp_code: string;
+  nome: string;
+  resultado: ResultadoLiderCc;
+}
+
+export interface RelatorioMassa {
+  /** Quantos CCs entraram no laço (não é o total de selecionados — os ignorados ficam de fora). */
+  total: number;
+  sucessos: ItemMassa[];
+  falhas: ItemMassa[];
+}
+
+/**
+ * Chama `atribuir_lider_cc` uma vez por centro de custo, SEQUENCIALMENTE.
+ *
+ * Não paraleliza de propósito (§3.4): evita rajada de requisições e mantém a ordem do relatório
+ * igual à ordem da tela. **Uma falha nunca aborta o restante** — cada retorno é acumulado e
+ * devolvido no relatório final, com o código cru da RPC (`CC_INVALIDO`, `USUARIO_INVALIDO`,
+ * `PAPEL_INEXISTENTE`, `SEM_PERMISSAO`) traduzido por `traduzirRetorno`.
+ *
+ * Não há RPC de massa no banco: `atribuir_lider_cc` é idempotente (upsert por
+ * `(lider_user_id, codigo_centro_ctrl)`) e concede o papel `lider_departamento` só se ainda não
+ * houver linha ativa — então N chamadas deixam **uma** linha de papel, não N.
+ */
+export async function atribuirLideresEmMassa(
+  userId: string,
+  ccs: Array<{ erp_code: string; nome: string }>,
+  motivo?: string | null,
+  onProgresso?: (feitos: number, total: number) => void,
+): Promise<RelatorioMassa> {
+  const sucessos: ItemMassa[] = [];
+  const falhas: ItemMassa[] = [];
+
+  for (let i = 0; i < ccs.length; i++) {
+    const cc = ccs[i];
+    onProgresso?.(i, ccs.length);
+
+    let resultado: ResultadoLiderCc;
+    try {
+      resultado = await atribuirLiderCc(userId, cc.erp_code, motivo);
+    } catch (err: any) {
+      // `atribuirLiderCc` já captura o erro que o supabase-js devolve; este catch cobre o
+      // inesperado (queda de rede lançando antes da resposta). O laço segue mesmo assim.
+      resultado = {
+        ok: false,
+        codigo: "ERRO_INESPERADO",
+        mensagem: `Falha inesperada: ${err?.message || String(err)}`,
+      };
+    }
+
+    (resultado.ok ? sucessos : falhas).push({ ...cc, resultado });
+  }
+
+  onProgresso?.(ccs.length, ccs.length);
+  return { total: ccs.length, sucessos, falhas };
+}
