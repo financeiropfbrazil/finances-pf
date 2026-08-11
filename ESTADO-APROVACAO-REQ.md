@@ -3,7 +3,7 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **10/08/2026** (PROMPT 6.1 — SQL e tela do Mapa de Líderes por CC; SQL pendente de execução).
+> Última atualização: **10/08/2026** (PROMPT 6.1-EXEC — os 15 blocos do `SQL-FASE61.md` executados no banco, gate G1–G5 verde).
 
 ## 1. Onde estamos
 
@@ -24,7 +24,8 @@
 | **PROMPT 1.3-EXEC** | Execução dos 12 blocos do `SQL-AJUSTE13.md` no banco | ✅ **executado em 10/08/2026** — 12/12 blocos verificados; 1 divergência no gate (`anon`, §11.7) — conclusões no §11.7 |
 | **PROMPT 6.0** | Fase 6.0 — Discovery do Mapa de Líderes por CC (read-only) | ✅ concluído em 10/08/2026 → `DISCOVERY-FASE6.md` · commit `8134797` |
 | **AJUSTE 6.1** | Decisões P1–P5 + SQL e espec de tela da Fase 6 | ✅ recebido (autoria do Pedro), incorporado |
-| **PROMPT 6.1** | Fase 6.1 — SQL (`SQL-FASE61.md`) + tela do mapa | ✅ concluído em 10/08/2026 · **SQL PENDENTE de execução** — conclusões no §12 |
+| **PROMPT 6.1** | Fase 6.1 — SQL (`SQL-FASE61.md`) + tela do mapa | ✅ concluído em 10/08/2026 · commit `57d387a` — conclusões no §12 |
+| **PROMPT 6.1-EXEC** | Execução dos 15 blocos do `SQL-FASE61.md` no banco | ✅ **executado em 10/08/2026** — 15/15 blocos verificados, **G1–G5 todos verdes** — conclusões no §12.7 |
 | PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado |
 
 **Publicação (medido no git em 10/08/2026):** Fases 2, 1.2 e 3 estão publicadas. O **Ajuste 1.3
@@ -111,9 +112,11 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
 3. **Publicar no Lovable** — 🔴 **é o passo que fecha a janela de rejeição quebrada** descrita acima.
 4. **Validação §8 do Ajuste 1.3** (6 passos: motivo sem observação, "Outros" sem/com observação, rejeição antiga do Hugo legível, sem erro residual, agregação por motivo).
 5. **Conferir o SQL do §10.2** (`lider_departamento` + `create`/`reenviar_own`) — se ainda não foi rodado, continua pendente.
-6. 🔴 **Executar o `SQL-FASE61.md`** (15 blocos + 5 conferências) — a tela `/settings/lideres-cc` já
-   está no repo e chama as 3 RPCs; **enquanto o SQL não rodar, ela abre e falha** com
-   `function … not found in schema cache`. Só é alcançável por `is_admin` (hoje, só o Pedro).
+6. ~~**Executar o `SQL-FASE61.md`**~~ ✅ **executado em 10/08/2026** (PROMPT 6.1-EXEC, §12.7) — as 3
+   RPCs existem, com `anon` fechado. 🔴 **A tela `/settings/lideres-cc` está no repo mas NÃO
+   publicada** (commit `57d387a` sequer foi pushado): o banco está pronto e a tela ainda não está no
+   ar. Ordem inversa da janela do Ajuste 1.3 — e sem risco, porque nenhuma tela publicada chama
+   essas 3 RPCs. **A primeira chamada real de `listar_mapa_lideres` ainda não aconteceu** (§12.7-C).
 7. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
 
 ## 7. Pendências abertas
@@ -128,6 +131,7 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
 8. **DÍVIDA-RLS-COST-CENTERS** (Ajuste 6.1 §6): `cost_centers` tem policy `ALL using(true)` para `authenticated` — qualquer logado pode INSERT/UPDATE/**DELETE**, e `settings/CostCenters.tsx:305` expõe `.delete()` físico. Sem FK para `compras_lideres_cc`, apagar um CC deixa o mapeamento órfão. **Mitigado só na visualização** (linha `orfao` do mapa). Prioridade alta, junto com a DÍVIDA-RLS-COMPRAS-REQ.
 9. **DÍVIDA-SYNC-CC-FORA-DO-GATEWAY** (Ajuste 6.1 §6): o sync de CCs chama o Alvo **direto do navegador** (`CostCenters.tsx:72,148`), contra a regra do CLAUDE.md, e rodou **uma única vez** (30/07/2026 — os 182 registros têm `updated_at` idêntico ao milissegundo), o que sugere botão quebrado. Missão própria: levar ao gateway + cron. A tela do mapa **mostra a data do espelho** para o risco ficar visível.
 10. 🔴 **`rejeitar_requisicao` continua executável por `anon`** — mesmo com o `revoke … from anon` do Bloco 10 tendo funcionado. Falta um `revoke … from public` (SQL **fora** dos 12 blocos; não executado). Detalhe e medição no §11.7-B. Sem risco de efeito (o gate `auth.uid() is null → SEM_PERMISSAO` é a 1ª linha da função) e **sem regressão** — a função nova está mais fechada que as 4 irmãs em produção. Decisão do Pedro.
+    ✅ **Hipótese do §11.7-B confirmada por experimento na Fase 6.1** (§12.7-B): com os **dois** revokes (`from anon` + `from public`), `has_function_privilege('anon', …)` vai a **`false`**. As 3 RPCs desta fase são as primeiras do projeto de fato fechadas para `anon`. O passivo (`rejeitar_requisicao` + as 4 irmãs + as ~196 funções do CLAUDE.md) **continua aberto** — a receita agora está provada, falta decidir aplicá-la.
 
 ## 8. O que a Fase 3 vai encontrar
 
@@ -592,3 +596,90 @@ A tela **não foi exercida contra o banco** — as 3 RPCs ainda não existem. Bu
 porque o acesso é via `(supabase as any).rpc(...)`, que não é tipado (`types.ts` intocado). O gate
 §5.2 do Ajuste (**testar com o Hugo, sem `is_admin`**) continua sendo o único jeito de provar que a
 tela some para não-admin — o Pedro tem bypass e nunca veria o erro.
+
+### 12.7 EXECUÇÃO do `SQL-FASE61.md` no banco (10/08/2026, PROMPT 6.1-EXEC)
+
+Executado pelo agente via **MCP do Supabase com escrita temporária**, autorizada pelo Pedro para esta
+sessão. Os 15 blocos rodaram **verbatim, um por chamada, na ordem** — incluindo os blocos 6, 10 e 14
+(`revoke … from public`), que o arquivo marcava como puláveis. Cada bloco que cria ou altera objeto
+foi seguido de **consulta de verificação independente**: o modo de falha deste ambiente é "sucesso na
+tela, efeito ausente ou corpo corrompido", que só se detecta lendo o catálogo depois.
+
+Ferramenta usada: `execute_sql`, **não** `apply_migration` — o CLAUDE.md registra que o histórico de
+migrations diverge do banco, e `apply_migration` gravaria linha em `supabase_migrations`.
+
+**Pré-voo:** zero transações com `xact_start` > 2 min · `db=postgres` · `compras_pedidos = 1820`
+(fingerprint do projeto `hbtggrbauguukewiknew`) · `compras_requisicoes = 309` · `lideres_cc = 1` ·
+`universo_cc = 81` · `pendentes = 0` — **idêntico ao esperado no arquivo**.
+
+#### A. Blocos — o que executou × o que a verificação confirmou
+
+| # | Bloco | Verificação independente |
+|---|---|---|
+| 1 | 5 colunas de auditoria em `compras_lideres_cc` | `information_schema`: **10 colunas**; as 5 novas com os tipos exatos (`uuid`/`timestamptz`/`text`) e **todas nuláveis** |
+| 2 | Backfill da linha do piloto | **exatamente 1 linha** — `2ead8f87-…` · `00010.00002.00003` · `2026-08-07 19:49:19.440688+00` · `Seed piloto — Fase 1`, **acentuação íntegra** |
+| 3 | `atribuir_lider_cc` (tag `$a1$`) | assinatura `p_user_id uuid, p_cc text, p_motivo text`; `prosecdef=true`; `proconfig={search_path=public}`; corpo real contém gate, `PAPEL_INEXISTENTE`, `on conflict (lider_user_id, codigo_centro_ctrl)`, escrita em `hub_user_roles` e validação de CC por **existência** (`group_type='F'`) |
+| 4 | `grant … to authenticated` | `authenticated=X` no `proacl` |
+| 5 | `revoke … from anon` | **`anon=X` sumiu** do ACL nominal — mas `anon_pode` ainda `true` (herança de PUBLIC) |
+| 6 | `revoke … from public` | `=X/postgres` sumiu · **`anon_pode = false`** · `authenticated` e `service_role` preservados |
+| 7 | `revogar_lider_cc` (tag `$r1$`) | assinatura `p_user_id uuid, p_cc text`; definer + `search_path`; corpo com gate, `NAO_ENCONTRADA`, retorno `OK:n`, revogação do papel e **nenhum `delete` físico** (soft-delete, F4) |
+| 8 / 9 / 10 | grant · revoke `anon` · revoke `public` | mesma progressão do 4/5/6 — ACL final `{postgres, authenticated, service_role}`, **`anon_pode = false`** |
+| 11 | `listar_mapa_lideres` (tag `$l1$`) | `pg_get_function_result`: `TABLE(erp_code text, nome text, department_type text, lideres jsonb, qtd_lideres integer, pendentes integer, total_reqs integer, orfao boolean)` — **8 colunas na ordem exata**; definer + `search_path`; gate e linha de órfãos presentes |
+| 12 / 13 / 14 | grant · revoke `anon` · revoke `public` | idem — **`anon_pode = false`** |
+| 15 | `notify pgrst, 'reload schema'` | sinal assíncrono, sem objeto a consultar; efeito real só se prova na 1ª chamada do frontend |
+
+**Nenhum bloco deu erro. Nenhum SQL fora dos 15 blocos + consultas de verificação foi executado** — o
+rollback do arquivo não foi tocado. **Zero DDL destrutivo nesta fase** (não há `drop`/`delete`).
+
+#### B. ✅ A receita dos DOIS revokes está PROVADA
+
+O experimento saiu limpo porque cada revoke foi medido isoladamente. ACL de `atribuir_lider_cc` ao
+longo dos blocos 4 → 5 → 6:
+
+| Depois do bloco | `proacl` | `anon` executa? |
+|---|---|---|
+| 4 (grant) | `{=X/postgres, postgres=X, **anon=X**, authenticated=X, service_role=X}` | `true` |
+| 5 (`revoke from anon`) | `{**=X/postgres**, postgres=X, authenticated=X, service_role=X}` | `true` ⚠️ |
+| 6 (`revoke from public`) | `{postgres=X, authenticated=X, service_role=X}` | **`false`** ✅ |
+
+Confirma ponto a ponto a medição do §11.7-B: `from anon` tira o grant nominal do default privilege do
+Supabase, `from public` tira o default nativo do Postgres, e **nenhum dos dois sozinho fecha**. As 3
+RPCs desta fase são as **primeiras do projeto de fato fechadas para `anon`**.
+
+> **A regra do `CLAUDE.md` (§Supabase) continua incompleta** — ela manda só `revoke … from anon`.
+> Toda RPC nova precisa dos **dois**. Correção do arquivo: decisão do Pedro (é edição de doc-mãe).
+
+#### C. 🔴 O que a G3 **não** prova — o corpo da consulta nunca rodou
+
+`G3` devolve 0 linhas **porque o gate barrou na 1ª linha** — o `return query` com os CTEs de
+`listar_mapa_lideres` **nunca chegou a executar**. É exatamente a armadilha do CLAUDE.md ("um caminho
+feliz que nunca rodou não é caminho validado"): o erro `column reference is ambiguous` que o §12.5-3
+antecipou é de **tempo de execução** e passaria por tudo o que foi medido aqui. **A primeira chamada
+real é a do Pedro abrindo `/settings/lideres-cc` depois do Publicar.**
+
+Mitigação parcial (leitura pura, fora da função, sem escrita): a mesma consulta rodada como SELECT
+devolve **81 linhas · 0 órfãos · 1 CC com líder · 80 sem líder** — dados e forma conferem, e a
+cobertura da tela deve abrir em **1 de 81**. Isso valida os dados, **não** a resolução de nomes do
+plpgsql.
+
+`max(cost_centers.updated_at) = 2026-07-30 19:54:09.977+00` → o espelho de CCs está com **11 dias**,
+então a tela deve mostrar o destaque de "> 7 dias" já na primeira abertura (P3 funcionando).
+
+#### D. Conferências do gate de saída (G1–G5)
+
+| # | Esperado | Obtido | Veredito |
+|---|---|---|---|
+| **G1** | `5` · `0` · `1` | `5` · `0` · `1` | ✅ |
+| **G2** | 3 linhas · definer `true` · `search_path=public` · authenticated `true` · **anon `false`** | idêntico nas 3, com as assinaturas exatas | ✅ **inclusive `anon = false`** — o que a C1 do Ajuste 1.3 não conseguiu |
+| **G3** | `0` linhas | `0` | ✅ gate provado (mas ver **C**) |
+| **G4** | `SEM_PERMISSAO` · `SEM_PERMISSAO` | idêntico | ✅ nada escrito (gate é a 1ª linha das duas) |
+| **G5** | `309` · `0` · `1` · `81` | `309` · `0` · `1` · `81` | ✅ **idêntico ao pré-voo** — fluxo de aprovação intacto (P5) |
+
+**5 de 5 verdes.** Diferença relevante em relação ao Ajuste 1.3, cujo gate saiu 4/5.
+
+#### E. Rollback disponível
+
+O §3 do `SQL-FASE61.md` (3 `drop function` + `notify`, e opcionalmente o `drop column`). **Não
+executado.** Derrubar as RPCs sem reverter o commit `57d387a` deixaria `/settings/lideres-cc` com
+`not found in schema cache` — visível e não destrutivo, e hoje nem isso, já que a tela não está
+publicada. Nenhuma outra tela usa essas 3 funções.
