@@ -180,6 +180,7 @@ const settingsItems = [
   { titleKey: "settings.classes_rec_desp", url: "/settings/classes-rec-desp", icon: BookOpen },
   { titleKey: "settings.sync_jobs", url: "/configuracoes/sincronizacoes", icon: RefreshCw, adminOnly: true },
   { titleKey: "settings.users", url: "/settings/users", icon: UsersIcon, adminOnly: true },
+  { titleKey: "settings.lideres_cc", url: "/settings/lideres-cc", icon: ShieldCheck, adminOnly: true },
 ] as const;
 
 export function AppSidebar() {

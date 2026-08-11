@@ -35,6 +35,7 @@ import Settings from "./pages/Settings";
 import CostCenters from "./pages/settings/CostCenters";
 import ClassesRecDesp from "./pages/settings/ClassesRecDesp";
 import UsersSettings from "./pages/settings/Users";
+import LideresCC from "./pages/settings/LideresCC";
 import Sales from "./pages/Sales";
 import CreditCards from "./pages/CreditCards";
 import CreditCardDetail from "./pages/CreditCardDetail";
@@ -555,6 +556,8 @@ function AppRoutes() {
           }
         />
         <Route path="/settings/users" element={<UsersSettings />} />
+        {/* Gate é interno (is_admin), como em /settings/users — ver LideresCC.tsx */}
+        <Route path="/settings/lideres-cc" element={<LideresCC />} />
         <Route path="/configuracoes/sincronizacoes" element={<ConfigSyncJobs />} />
         <Route
           path="/ferramentas/bulk-edit/produtos-campos"

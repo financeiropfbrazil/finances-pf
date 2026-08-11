@@ -26,6 +26,7 @@ const translations = {
   "settings.cost_centers": { pt: "Centros de Custo", en: "Cost Centers" },
   "settings.classes_rec_desp": { pt: "Classes Rec/Desp", en: "Revenue/Expense Classes" },
   "settings.users": { pt: "Usuários", en: "Users" },
+  "settings.lideres_cc": { pt: "Líderes por CC", en: "Cost Center Leaders" },
   "settings.api_connection_desc": {
     pt: "Teste a conexão com o ERP Alvo para validar credenciais e acesso.",
     en: "Test connection with ERP Alvo to validate credentials and access.",

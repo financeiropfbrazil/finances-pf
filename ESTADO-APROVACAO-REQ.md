@@ -3,7 +3,7 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **10/08/2026** (PROMPT 1.3-EXEC — SQL do Ajuste 1.3 executado no banco).
+> Última atualização: **10/08/2026** (PROMPT 6.1 — SQL e tela do Mapa de Líderes por CC; SQL pendente de execução).
 
 ## 1. Onde estamos
 
@@ -22,6 +22,9 @@
 | **AJUSTE 1.3** | Motivos estruturados de rejeição + limpeza de `erro_ultimo_envio` | ✅ recebido (autoria do Pedro), incorporado |
 | **PROMPT 1.3** | Execução do Ajuste 1.3 — SQL + frontend | ✅ concluído em 10/08/2026 · commit `ee28acc` · **pushado, NÃO publicado** — conclusões no §11 |
 | **PROMPT 1.3-EXEC** | Execução dos 12 blocos do `SQL-AJUSTE13.md` no banco | ✅ **executado em 10/08/2026** — 12/12 blocos verificados; 1 divergência no gate (`anon`, §11.7) — conclusões no §11.7 |
+| **PROMPT 6.0** | Fase 6.0 — Discovery do Mapa de Líderes por CC (read-only) | ✅ concluído em 10/08/2026 → `DISCOVERY-FASE6.md` · commit `8134797` |
+| **AJUSTE 6.1** | Decisões P1–P5 + SQL e espec de tela da Fase 6 | ✅ recebido (autoria do Pedro), incorporado |
+| **PROMPT 6.1** | Fase 6.1 — SQL (`SQL-FASE61.md`) + tela do mapa | ✅ concluído em 10/08/2026 · **SQL PENDENTE de execução** — conclusões no §12 |
 | PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado |
 
 **Publicação (medido no git em 10/08/2026):** Fases 2, 1.2 e 3 estão publicadas. O **Ajuste 1.3
@@ -108,7 +111,10 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
 3. **Publicar no Lovable** — 🔴 **é o passo que fecha a janela de rejeição quebrada** descrita acima.
 4. **Validação §8 do Ajuste 1.3** (6 passos: motivo sem observação, "Outros" sem/com observação, rejeição antiga do Hugo legível, sem erro residual, agregação por motivo).
 5. **Conferir o SQL do §10.2** (`lider_departamento` + `create`/`reenviar_own`) — se ainda não foi rodado, continua pendente.
-6. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
+6. 🔴 **Executar o `SQL-FASE61.md`** (15 blocos + 5 conferências) — a tela `/settings/lideres-cc` já
+   está no repo e chama as 3 RPCs; **enquanto o SQL não rodar, ela abre e falha** com
+   `function … not found in schema cache`. Só é alcançável por `is_admin` (hoje, só o Pedro).
+7. **Fase 4** — validação de 255 chars por item na digitação (prompt próprio).
 
 ## 7. Pendências abertas
 
@@ -119,7 +125,9 @@ Consequência já medida da decisão 1: os 4 rascunhos legados estão em CCs **s
 5. ~~**Hook fora de ordem, pré-existente**~~ ✅ **fechado na Fase 3** (C5.1): os 3 `useHasPermission` do detalhe estão no topo do componente.
 6. **`src/lib/statusConfig.ts` órfão** — arquivo inteiro sem nenhum import, com um `getStatusRequisicao` concorrente ao de `statusRequisicao.ts`. Não tocado (§10.6-5). Prioridade: baixa, mas é armadilha para quem for mexer em status.
 7. **`suprimentos_requisicoes_para` não filtra status** (§10.4): a RPC de relatório passará a contar `pendente_aprovacao`/`rejeitada` nos KPIs. Correção é DDL — decisão do Pedro.
-8. 🔴 **`rejeitar_requisicao` continua executável por `anon`** — mesmo com o `revoke … from anon` do Bloco 10 tendo funcionado. Falta um `revoke … from public` (SQL **fora** dos 12 blocos; não executado). Detalhe e medição no §11.7-B. Sem risco de efeito (o gate `auth.uid() is null → SEM_PERMISSAO` é a 1ª linha da função) e **sem regressão** — a função nova está mais fechada que as 4 irmãs em produção. Decisão do Pedro.
+8. **DÍVIDA-RLS-COST-CENTERS** (Ajuste 6.1 §6): `cost_centers` tem policy `ALL using(true)` para `authenticated` — qualquer logado pode INSERT/UPDATE/**DELETE**, e `settings/CostCenters.tsx:305` expõe `.delete()` físico. Sem FK para `compras_lideres_cc`, apagar um CC deixa o mapeamento órfão. **Mitigado só na visualização** (linha `orfao` do mapa). Prioridade alta, junto com a DÍVIDA-RLS-COMPRAS-REQ.
+9. **DÍVIDA-SYNC-CC-FORA-DO-GATEWAY** (Ajuste 6.1 §6): o sync de CCs chama o Alvo **direto do navegador** (`CostCenters.tsx:72,148`), contra a regra do CLAUDE.md, e rodou **uma única vez** (30/07/2026 — os 182 registros têm `updated_at` idêntico ao milissegundo), o que sugere botão quebrado. Missão própria: levar ao gateway + cron. A tela do mapa **mostra a data do espelho** para o risco ficar visível.
+10. 🔴 **`rejeitar_requisicao` continua executável por `anon`** — mesmo com o `revoke … from anon` do Bloco 10 tendo funcionado. Falta um `revoke … from public` (SQL **fora** dos 12 blocos; não executado). Detalhe e medição no §11.7-B. Sem risco de efeito (o gate `auth.uid() is null → SEM_PERMISSAO` é a 1ª linha da função) e **sem regressão** — a função nova está mais fechada que as 4 irmãs em produção. Decisão do Pedro.
 
 ## 8. O que a Fase 3 vai encontrar
 
@@ -487,3 +495,100 @@ O `pg_get_functiondef` literal das 3 funções **antes** do Ajuste ficou salvo n
 (`rollback-funcoes-pre-ajuste13.sql`, já com tags nomeadas `$trg$`/`$r3$`/`$r1$`) e confere com o
 §11.5. Reverter `rejeitar_requisicao` para `(uuid, text)` exige reverter também o commit `ee28acc`
 (frontend chama com 3 parâmetros).
+
+---
+
+## 12. FASE 6 — Mapa de Líderes por CC (10/08/2026, PROMPTs 6.0 e 6.1)
+
+### 12.1 Discovery (PROMPT 6.0, commit `8134797`) — o que mudou de entendimento
+
+Detalhe completo em `DISCOVERY-FASE6.md`. Os três achados que mandaram na fase:
+
+1. **A tabela espelho de CCs é `public.cost_centers`** (182 linhas, chave `erp_code`), e a query do
+   F-D1 da espec **era cega para ela** (nome em inglês): apontava `rh_centros_custo`, que é do módulo
+   de RH, tem outra chave e cobre só 36 dos 43 CCs em uso. Caso do padrão LIVRO × ESPELHO.
+2. **Renumeração do plano de CCs no Alvo em 17/05/2026:** o bloco `00001.*` inteiro (82 CCs) foi
+   encerrado e substituído por `00007–00010`. 14 CCs com histórico de requisições são desses códigos
+   mortos — se entrassem no mapa, apareceriam como "sem líder" para sempre.
+3. **O formato do código não é fixo:** há CC ativo com 4 níveis (`00010.00002.00007.00001`) e com 6
+   dígitos no último nível (`00008.00002.000012`). **Validar por existência, nunca por regex.**
+
+### 12.2 Arquivos entregues (PROMPT 6.1)
+
+| Arquivo | Mudança |
+|---|---|
+| **`SQL-FASE61.md`** 🆕 | 15 blocos (um statement cada) + pré-voo + 5 conferências (G1–G5) + rollback. Todo `CREATE FUNCTION` com **tag nomeada** (`$a1$`, `$r1$`, `$l1$`). **PENDENTE — o Pedro executa** |
+| **`src/services/lideresCcService.ts`** 🆕 | `listarMapaLideres`, `listarUsuariosParaSelecao`, `obterDataEspelhoCcs`, `listarMapeamentosInativos`, `atribuirLiderCc`, `revogarLiderCc` + `traduzirRetorno` (nenhum retorno de RPC cai no vazio, incl. `OK:n`) |
+| **`src/pages/settings/LideresCC.tsx`** 🆕 | Tela do mapa: cobertura X/81, data do espelho com destaque > 7 dias, tabela por CC com órfãos no topo, filtro "somente sem líder", histórico de revogados, dialog de atribuição com seletor de usuário, confirmação de remoção informando pendentes |
+| `src/App.tsx` | Rota `/settings/lideres-cc` — **sem `PermissionRoute`**, gate interno `is_admin` (idêntico a `/settings/users`) |
+| `src/components/AppSidebar.tsx` | Item "Líderes por CC" em Configurações, `adminOnly: true` |
+| `src/contexts/LanguageContext.tsx` | Chave `settings.lideres_cc` (pt/en) |
+
+**Não tocados:** banco (MCP read-only, provado), `cost_centers` e sua tela, crons/Edge Functions,
+`types.ts`, RLS, as RPCs do fluxo de aprovação, `requisicoesService.ts`, arquivos do módulo OP.
+
+**Gate de saída:** `bun run build` ✅ · `tsc --noEmit -p tsconfig.app.json` **exit 0** ✅ · ESLint:
+os 3 arquivos editados **20 problemas antes e 20 depois** (zero regressão, medido com `git stash`);
+service **+11** e página **+1**, todos `no-explicit-any` do padrão dominante (`(supabase as any)`
+obrigatório porque `types.ts` não pode ser tocado, `err: any` em catch).
+
+### 12.3 As 3 RPCs (contrato — o SQL está no `SQL-FASE61.md`)
+
+| RPC | Assinatura | Retornos |
+|---|---|---|
+| `atribuir_lider_cc` | `(p_user_id uuid, p_cc text, p_motivo text default null) → text` | `OK` · `SEM_PERMISSAO` · `USUARIO_INVALIDO` · `CC_INVALIDO` · `PAPEL_INEXISTENTE` |
+| `revogar_lider_cc` | `(p_user_id uuid, p_cc text) → text` | `OK:<n>` (n = pendentes no CC, informativo) · `SEM_PERMISSAO` · `NAO_ENCONTRADA` |
+| `listar_mapa_lideres` | `() → TABLE(erp_code, nome, department_type, lideres jsonb, qtd_lideres, pendentes, total_reqs, orfao)` | 0 linhas sem permissão |
+
+Gate das três: **`hub_caller_is_admin()`** (decisão P2), o mesmo helper das RPCs `hub_*`.
+
+### 12.4 Contrato real das RPCs `hub_*` — lido do `pg_get_functiondef`, não da espec
+
+| RPC | O que a leitura mostrou |
+|---|---|
+| `hub_caller_is_admin()` | `select coalesce(is_admin,false) from profiles where user_id=auth.uid()`. **Só a flag** — não olha papel nem permissão |
+| `hub_list_users_with_roles()` | `RAISE EXCEPTION … 42501` se não for admin. Devolve `user_id, full_name, email, is_admin, is_active, must_change_password, funcionario_alvo_codigo, roles jsonb, created_at`; `roles` é `jsonb_agg` de `{codigo, nome, modulo, atribuido_em}` só dos **não revogados** |
+| `hub_assign_role(uuid, text, text default null)` | Gate `hub_caller_is_admin()`. Valida o alvo em **`auth.users`** (não em `profiles`). **Atribuição composta:** `analista_compras` ⇒ também `requisitante`. Insere `(user_id, role_id, atribuido_por, motivo)` — **não passa `atribuido_em`** (default `now()`, NOT NULL). Motivo default `'Atribuído via UI de Gestão de Usuários'`. Se o papel é `admin`, sincroniza `profiles.is_admin=true`. Retorna **jsonb** |
+| `hub_revoke_role(uuid, text, text default null)` | Gate idem. **Bloqueia auto-revogação de admin** e **bloqueia ficar sem nenhum admin ativo**. Revogação composta espelhando a atribuição. `update … set revogado_em=now(), revogado_por=caller, motivo=coalesce(p_motivo, motivo) where revogado_em is null`. Retorna **jsonb** |
+
+**Consequências aplicadas ao SQL desta fase:**
+- As RPCs novas **não chamam** `hub_assign_role`/`hub_revoke_role` — escrevem direto em
+  `hub_user_roles` preenchendo **os mesmos campos**. Motivo: aquelas são compostas e sincronizam
+  `profiles.is_admin`; `lider_departamento` não é composto nem é admin, e herdar esse comportamento
+  seria efeito colateral silencioso.
+- As RPCs `hub_*` sinalizam erro por **exceção**; as desta missão devolvem **código de retorno em
+  texto**. Mantive o padrão da missão (§3.2 do Ajuste), traduzido em `lideresCcService`.
+
+### 12.5 O que contradisse a espec
+
+1. **`PAPEL_INEXISTENTE` é retorno novo, fora da lista do Ajuste §3.2.** Sem ele, se o papel
+   `lider_departamento` sumisse do banco, `atribuir_lider_cc` gravaria o mapeamento e sairia `OK`
+   **sem conceder o papel** — quebrando o F2 em silêncio. Nunca deve ocorrer (o papel existe:
+   `4c647f92-…`, módulo `compras`).
+2. **Ordem das validações invertida em relação ao texto do Ajuste:** o papel é resolvido **antes**
+   do upsert do mapeamento. O §3.2 lista o papel no passo 5, depois do upsert (passo 4) — mas um
+   `return` em plpgsql **não desfaz** um INSERT já executado, então validar depois de escrever
+   deixaria a tabela inconsistente. Nenhuma escrita acontece antes de todas as validações.
+3. **Os CTEs de `listar_mapa_lideres` usam aliases próprios** (`cc`, `cc_nome`, `cc_orfao`) em vez
+   dos nomes de saída. Em `RETURNS TABLE` os nomes de saída viram variáveis plpgsql: reusar
+   `erp_code`/`nome`/`orfao` daria `column reference is ambiguous` **em tempo de execução** — erro
+   que passaria pelo `create` e só apareceria na primeira chamada real da tela.
+4. **`revoke … from public` incluído** (blocos 6, 10, 14), além do `from anon` que o CLAUDE.md manda.
+   O Ajuste §6 diz que as RPCs desta fase "nascem com o mesmo padrão" das irmãs — escrevi os dois
+   revokes para não criar passivo novo sabendo, e marquei os 3 blocos como puláveis se o Pedro
+   preferir uniformidade com as irmãs. Base: a medição do §11.7-B (nenhum dos dois revokes fecha
+   sozinho).
+5. **A rota nasceu sem `PermissionRoute`**, ao contrário de `/settings/cost-centers`. É o molde de
+   `/settings/users`, que o Ajuste §4 manda seguir: gate no componente + `adminOnly` no menu. Não
+   foi preciso mexer no `AppSidebar.tsx:350` porque `hasAccess` já tem bypass total para `is_admin`.
+6. **Service novo (`lideresCcService.ts`) em vez de estender `requisicoesService.ts`.** O Ajuste não
+   diz onde o acesso a dados deve morar e o molde (`Users.tsx`) chama `supabase.rpc` direto na
+   página; o CLAUDE.md manda passar por `src/services/`. Segui o CLAUDE.md, em arquivo próprio para
+   não inchar o service da missão de requisições com um assunto administrativo.
+
+### 12.6 O que só é provável depois do SQL rodar
+
+A tela **não foi exercida contra o banco** — as 3 RPCs ainda não existem. Build e tipos passam
+porque o acesso é via `(supabase as any).rpc(...)`, que não é tipado (`types.ts` intocado). O gate
+§5.2 do Ajuste (**testar com o Hugo, sem `is_admin`**) continua sendo o único jeito de provar que a
+tela some para não-admin — o Pedro tem bypass e nunca veria o erro.
