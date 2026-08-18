@@ -2,8 +2,7 @@ import { authenticateAlvo, clearAlvoToken } from "./alvoService";
 import { supabase } from "@/integrations/supabase/client";
 
 const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
-const MAX_RETRIES = 3;
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 
 /**
  * Erro do Load com o status HTTP preservado — a página precisa distinguir
@@ -32,36 +31,74 @@ export function isPedidoInexistenteNoAlvo(err: unknown): boolean {
   return err instanceof PedCompLoadError && (err.status === 404 || err.status === 412);
 }
 
-async function fetchLoadWithRetry(numero: string): Promise<any> {
-  let token = (await authenticateAlvo()).token;
-  if (!token) throw new PedCompLoadError("Falha na autenticação ERP", 0);
+async function fetchLoadWithRetry(codigoEmpresaFilial: string, numero: string): Promise<any> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new PedCompLoadError("Sessão expirada. Faça login novamente.", 401);
+  }
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    // loadParent/loadChild/loadOneToOne = All (mesmo contrato do erp-proxy):
-    // sem loadOneToOne o PedCompUserFieldsObject (UserProximoAprovador,
-    // UserEnviouAprovacao) pode não vir — e são campos que o badge usa.
-    const url =
-      `${ERP_BASE_URL}/PedComp/Load?codigoEmpresaFilial=1.01&numero=${encodeURIComponent(numero)}` +
-      `&loadParent=All&loadChild=All&loadOneToOne=All`;
-    const resp = await fetch(url, {
+  const url =
+    `${ERP_PROXY_URL}/ped-comp/${encodeURIComponent(codigoEmpresaFilial)}/` + encodeURIComponent(numero);
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
       method: "GET",
-      headers: { "riosoft-token": token },
+      headers: { Authorization: `Bearer ${session.access_token}` },
     });
+  } catch (err: any) {
+    throw new PedCompLoadError(`Falha de rede ao falar com o gateway: ${err?.message || String(err)}`, 0);
+  }
 
-    if (resp.status === 409) {
-      console.warn(`[PedCompLoad] 409 tentativa ${attempt}/${MAX_RETRIES}`);
-      if (attempt === MAX_RETRIES) throw new PedCompLoadError("Conflito de sessão persistente (409)", 409);
-      clearAlvoToken();
-      await delay(1000 * attempt);
-      const reAuth = await authenticateAlvo();
-      if (!reAuth.token) throw new PedCompLoadError("Re-autenticação falhou", 0);
-      token = reAuth.token;
-      continue;
+  let data: any = null;
+  try {
+    data = await resp.json();
+  } catch {
+    // A guarda anti-wipe abaixo rejeita respostas 200 sem payload JSON válido.
+  }
+
+  if (!resp.ok) {
+    if (resp.status === 401) {
+      throw new PedCompLoadError("Sessão expirada. Faça login novamente.", 401);
+    }
+    if (resp.status === 404) {
+      throw new PedCompLoadError("Pedido não encontrado no ERP", 404);
     }
 
-    if (!resp.ok) throw new PedCompLoadError(`HTTP ${resp.status}`, resp.status);
-    return await resp.json();
+    const detalhe = data?.error || data?.details;
+    const mensagem =
+      resp.status === 502
+        ? `Gateway não conseguiu obter um pedido válido do ERP${detalhe ? `: ${detalhe}` : ""}`
+        : `Gateway ERP respondeu ${resp.status}${detalhe ? `: ${detalhe}` : ""}`;
+    throw new PedCompLoadError(mensagem, resp.status);
   }
+
+  return data;
+}
+
+async function resolverCodigoEmpresaFilial(numero: string, codigoInformado?: string): Promise<string> {
+  const informado = codigoInformado?.trim();
+  if (informado) return informado;
+
+  const { data, error } = await supabase
+    .from("compras_pedidos")
+    .select("codigo_empresa_filial")
+    .eq("numero", numero)
+    .limit(2);
+
+  if (error) {
+    throw new PedCompLoadError(`Não foi possível identificar a empresa/filial do pedido: ${error.message}`, 0);
+  }
+
+  const filiais = Array.from(
+    new Set((data || []).map((pedido: any) => pedido?.codigo_empresa_filial?.trim()).filter(Boolean)),
+  );
+  if (filiais.length !== 1) {
+    throw new PedCompLoadError("Empresa/filial do pedido ausente ou ambígua — nada foi alterado", 0);
+  }
+  return filiais[0] as string;
 }
 
 function extrairItens(data: any): any[] {
@@ -319,13 +356,16 @@ export interface ResultadoLoadPedido {
  *    (404 + ausência da lista de descoberta), e essa lista o cron tem, a
  *    página não. Aqui o 404 vira aviso; a marcação fica com o cron.
  *
- * ⚠️ Esta função fala com o Alvo DIRETO (não pelo erp-proxy), então a guarda
- * 502 do proxy (L3.1) não a protege — por isso a guarda anti-wipe abaixo é
- * obrigatória: sem ela, um Load 200 com corpo vazio zeraria itens e valores
- * (o mesmo wipe corrigido no cron em L1.1).
+ * A chamada passa pelo erp-proxy com o JWT da sessão Supabase. O gateway já
+ * rejeita com 502 um Load sem Numero, mas a guarda anti-wipe abaixo permanece
+ * como redundância intencional no cliente.
  */
-export async function carregarDetalhesPedido(numero: string): Promise<ResultadoLoadPedido> {
-  const data = await fetchLoadWithRetry(numero);
+export async function carregarDetalhesPedido(
+  numero: string,
+  codigoEmpresaFilial?: string,
+): Promise<ResultadoLoadPedido> {
+  const filial = await resolverCodigoEmpresaFilial(numero, codigoEmpresaFilial);
+  const data = await fetchLoadWithRetry(filial, numero);
 
   // ── GUARDA ANTI-WIPE ────────────────────────────────────────────────────
   // Load 200 com payload vazio/não-objeto/sem Numero: NÃO gravar. Sem isso o
@@ -338,7 +378,7 @@ export async function carregarDetalhesPedido(numero: string): Promise<ResultadoL
   const { data: antes } = await supabase
     .from("compras_pedidos")
     .select("status, aprovado, status_aprovacao, comprado, proximo_aprovador")
-    .eq("codigo_empresa_filial", "1.01")
+    .eq("codigo_empresa_filial", filial)
     .eq("numero", numero)
     .maybeSingle();
 
@@ -398,7 +438,7 @@ export async function carregarDetalhesPedido(numero: string): Promise<ResultadoL
     ...(vinculo.numero_req_comp
       ? {
           numero_req_comp: vinculo.numero_req_comp,
-          codigo_empresa_filial_req_comp: vinculo.codigo_empresa_filial_req_comp ?? "1.01",
+          codigo_empresa_filial_req_comp: vinculo.codigo_empresa_filial_req_comp ?? filial,
         }
       : {}),
   };
@@ -414,7 +454,10 @@ export async function carregarDetalhesPedido(numero: string): Promise<ResultadoL
 
   const { error } = await supabase
     .from("compras_pedidos")
-    .upsert({ ...update, numero, codigo_empresa_filial: "1.01" }, { onConflict: "codigo_empresa_filial,numero" });
+    .upsert(
+      { ...update, numero, codigo_empresa_filial: filial },
+      { onConflict: "codigo_empresa_filial,numero" },
+    );
 
   if (error) throw new Error(`Erro ao salvar detalhes: ${error.message}`);
 

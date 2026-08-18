@@ -233,7 +233,7 @@ export default function SuprimentosPedidoDetalhe() {
       // existe no ERP (rascunho/enviando/erro de envio) é pulado.
       const { data: pedRaw } = await (supabase as any)
         .from("compras_pedidos")
-        .select("numero, status_local")
+        .select("numero, codigo_empresa_filial, status_local")
         .eq("id", id)
         .single();
 
@@ -242,7 +242,7 @@ export default function SuprimentosPedidoDetalhe() {
 
       if (existeNoAlvo) {
         try {
-          const r = await carregarDetalhesPedido(pedRaw.numero);
+          const r = await carregarDetalhesPedido(pedRaw.numero, pedRaw.codigo_empresa_filial);
           result = await carregarPedidoParaDetalhe(id);
           if (r.mudancas.length > 0) {
             toast({
@@ -265,7 +265,7 @@ export default function SuprimentosPedidoDetalhe() {
           } else {
             toast({
               title: "Não foi possível atualizar do ERP",
-              description: "Exibindo o último estado sincronizado. Tente recarregar em instantes.",
+              description: `${err?.message || "Falha inesperada ao consultar o ERP"} Exibindo o último estado sincronizado.`,
               variant: "destructive",
             });
           }
