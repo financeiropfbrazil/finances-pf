@@ -156,7 +156,40 @@ export default function SuprimentosRequisicaoDetalhe() {
         const isFuncionario =
           (profile as any)?.funcionario_alvo_codigo &&
           data.codigo_funcionario === (profile as any).funcionario_alvo_codigo;
-        if (!isOwner && !isFuncionario) return null;
+
+        // CARD B1 (decisão D4) — o líder do CC precisa LER o que aprova. Até aqui o
+        // escopo só conhecia dono e funcionário vinculado: quem decidia pela fila
+        // (/suprimentos/aprovacoes) abria o detalhe e via "Requisição não encontrada".
+        //
+        // A consulta mora DENTRO desta queryFn, e não num useQuery próprio, por dois
+        // motivos:
+        //   1. `isLiderDoCC` (mais abaixo) só liga quando `req` já existe — e `req`
+        //      seria `null` justamente para o líder. A checagem tem de acontecer com
+        //      `data.codigo_centro_ctrl` em mãos e ANTES do `return null`;
+        //   2. resolvendo na mesma query, o `isLoading` já cobre a espera — o líder
+        //      legítimo nunca vê o flash de "Requisição não encontrada".
+        //
+        // CC EXATO da requisição + vínculo ATIVO: líder de outro CC ou revogado não vê
+        // nada. Rascunho alheio segue invisível (D4) — é trabalho ainda não submetido
+        // do requisitante; dono e funcionário continuam vendo como antes.
+        let isLiderDoCcDaReq = false;
+        if (!isOwner && !isFuncionario && user?.id && data.codigo_centro_ctrl && data.status !== "rascunho") {
+          const { data: vinculo, error: errLider } = await (supabase as any)
+            .from("compras_lideres_cc")
+            .select("id")
+            .eq("codigo_centro_ctrl", data.codigo_centro_ctrl)
+            .eq("lider_user_id", user.id)
+            .eq("ativo", true)
+            .maybeSingle();
+          // Falha (rede/RLS) NUNCA libera: sem resposta, não é líder. Fica no console
+          // para o caso ser diagnosticável em vez de virar "sumiu do nada".
+          if (errLider) {
+            console.error("[requisicao_detalhe] falha ao verificar liderança do CC:", errLider);
+          }
+          isLiderDoCcDaReq = !!vinculo;
+        }
+
+        if (!isOwner && !isFuncionario && !isLiderDoCcDaReq) return null;
       }
 
       return data;
