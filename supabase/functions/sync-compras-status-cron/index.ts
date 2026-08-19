@@ -489,7 +489,11 @@ async function syncDescobrirRequisicoes(
     }
   }
 
-  const STATUS_TERMINAIS = ["convertida_pedido", "cancelada"];
+  // CARD B2 — `rejeitada` é terminal do Hub tanto quanto as outras duas. Hoje ela
+  // nunca casa com o list (estado exclusivo do Hub, sem `numero_alvo`), então isto
+  // é defesa em profundidade: se uma rejeitada ganhar número, o list não pode
+  // rebaixá-la para `sincronizada` e devolvê-la ao fluxo de compra.
+  const STATUS_TERMINAIS = ["convertida_pedido", "cancelada", "rejeitada"];
 
   // ── 5. Processa cada req da janela ──────────────────────────────────
   let maiorNumeroVisto = lastKnownNumero;
@@ -1317,10 +1321,13 @@ async function syncPedidos(
     .from("compras_pedidos")
     .select("id", { count: "exact", head: true })
     // Terminais normalmente não mudam mais e ficam fora do rodízio. EXCEÇÃO:
-    // se ainda não têm itens carregados (detalhes_carregados=false), precisam
-    // de UMA visita para baixar o detalhe — depois a flag vira true e eles
-    // saem da fila de novo.
-    .or('and(status.not.in.("Encerrado","Cancelado","Cancelado Parcial")),and(detalhes_carregados.is.false)')
+    // se ainda não têm o detalhe carregado, precisam de UMA visita para baixá-lo
+    // — depois a flag vira true e eles saem da fila de novo.
+    // CARD C2 — `not.is.true` em vez de `is.false`: a coluna é nullable e no
+    // PostgREST `is.false` NÃO casa com NULL, então um pedido com a flag nula
+    // ficaria invisível aqui e no SELECT. `not.is.true` cobre false E null, e é
+    // exatamente o mesmo teste que o processamento faz (`!== true`, abaixo).
+    .or('and(status.not.in.("Encerrado","Cancelado","Cancelado Parcial")),and(detalhes_carregados.not.is.true)')
     .or("status_local.is.null,status_local.neq.excluido_alvo")
     .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.("Em Andamento","Reavaliar")`);
   result.elegiveis_sem_limit = elegiveisSemLimit ?? 0;
@@ -1331,7 +1338,12 @@ async function syncPedidos(
     .select(
       "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, data_pedido, numero_req_comp, vinculo_requisicao, detalhes_carregados",
     )
-    .not("status", "in", '("Encerrado","Cancelado","Cancelado Parcial")')
+    // CARD C2 — este SELECT excluía TODOS os terminais, enquanto a contagem de
+    // elegíveis acima já abria a exceção do detalhe faltante (d8edf1c, 21/07,
+    // mudou só a contagem). A métrica prometia uma visita que nunca acontecia:
+    // terminal sem detalhe entrava no número e jamais era processado. Agora as
+    // duas expressões são a MESMA — se divergirem de novo, a métrica volta a mentir.
+    .or('and(status.not.in.("Encerrado","Cancelado","Cancelado Parcial")),and(detalhes_carregados.not.is.true)')
     .or("status_local.is.null,status_local.neq.excluido_alvo")
     .or(`data_pedido.gte.${cutoffDate.toISOString().slice(0, 10)},status_aprovacao.in.("Em Andamento","Reavaliar")`)
     .order("synced_at", { ascending: true, nullsFirst: true })
