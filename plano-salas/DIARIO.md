@@ -270,3 +270,64 @@
     `salas.cadastros.manage` gere equipe de **qualquer** sala, não só das suas. É coerente com o
     §0.6 ("papel dá o verbo, vínculo dá o lugar" vale para o operador, não para o gestor de
     cadastros), mas registro para o Pedro confirmar quando houver mais de uma sala.
+
+---
+### [SESSÃO S1 · 2026-08-20 11:32 BRT] FS1-9 — Semeadura piloto — **FALHOU**
+- **Status final:** **falhou** → execução da fase PARADA aqui, conforme §1.1 e §1.3.
+- **O que foi executado:** apenas o **1º** statement da FS1-9, literal, via `execute_sql`:
+  ```sql
+  insert into public.prod_salas (codigo, nome, descricao, tipo_producao)
+  values ('PONTEIRAS', 'Sala de Produção de Ponteiras',
+          'Piloto do módulo de Movimentação de Salas — linha Cateter (aórtica)', 'CATETER');
+  ```
+  Os statements 2 (6 produtos) e 3 (vínculos) **não foram executados** — a regra do §1.1 é parar
+  no primeiro statement que falha, e além disso o 3º depende do 1º.
+- **Erro literal:**
+  ```
+  ERROR:  23502: null value in column "criado_por" of relation "prod_salas" violates not-null constraint
+  DETAIL:  Failing row contains (06d4e561-41df-4700-a2be-0b1e6009695b, PONTEIRAS, Sala de Produção
+  de Ponteiras, Piloto do módulo de Movimentação de Salas — linha Cateter (..., CATETER, t, null,
+  2026-08-20 14:32:04.453885+00).
+  ```
+- **Causa (já antecipada na entrada "ACHADO PRÉVIO" desta mesma sessão):** `prod_salas.criado_por`
+  é `uuid **not null** default auth.uid()` (FS1-1) e o INSERT da FS1-9 não informa a coluna.
+  Executado pelo MCP — que é o meio que o próprio §1.1 manda usar — a sessão é **não autenticada**
+  (`current_user = postgres`, `auth.uid()` = **NULL**), o default resolve para NULL e a constraint
+  `not null` recusa. **Não é erro de digitação nem de ambiente: é uma incompatibilidade entre a
+  DDL da FS1-1 e a semeadura da FS1-9 do próprio plano.**
+- **Verificações pós-falha:** `prod_salas` **0** · `prod_produtos` **0** · `prod_sala_produtos` **0**
+  · `prod_sala_usuarios` **0** · `prod_entradas` **0**. O INSERT falhou atomicamente, **nada ficou
+  escrito pela metade**. Estrutura das 5 tabelas e das 3 funções permanece íntegra.
+- **Conduta:** **nenhuma correção improvisada** (§1.1). Não alterei a coluna, não removi o
+  `not null`, não inventei um uuid para `criado_por`. A decisão é do Pedro e, pela regra de
+  imutabilidade do plano, entra como **seção nova** (Ajuste/Correção), não como edição da FS1-1/FS1-9.
+- **Migração/Commit:** sem migração. Commit: `salas: FS1-9 — FALHOU (criado_por not null vs auth.uid() null)`.
+- **Pendências/Sugestões:** opções para o Pedro decidir (nenhuma aplicada):
+  1. **Semear com `criado_por` explícito** — informar no INSERT o uuid do Pedro
+     (`profiles.user_id`). Menor mudança; mantém o `not null` que protege o dado em runtime.
+  2. **Tornar `criado_por` nullable** (`alter table ... alter column criado_por drop not null`) —
+     mas isso enfraquece a auditoria que o §0 exige ("operador via `auth.uid()`").
+  3. **Semear autenticado** — rodar a semeadura pela UI/RPC com sessão real, em vez de pelo MCP.
+  Observação: a opção 1 preserva o desenho e resolve só o caso da semeadura, que é um INSERT
+  administrativo único. O mesmo padrão vai reaparecer em **qualquer** semeadura futura feita por
+  MCP em tabela com `default auth.uid()` + `not null`.
+
+---
+### [SESSÃO S1 · 2026-08-20 11:33 BRT] FS1-10 — não executada (bloqueada pela FS1-9)
+- **Status final:** bloqueada
+- **O que foi executado:** apenas `NOTIFY pgrst, 'reload schema';` — **não** como conclusão da
+  FS1-10, e sim como obrigação independente do §1.1 ("pós-DDL obrigatório") e do §2.9 ("fim de
+  sessão: NOTIFY se houve DDL"). Houve DDL (5 tabelas, 2 índices extras, 3 funções), então deixar
+  o PostgREST sem reload deixaria os objetos novos invisíveis à API — estado inconsistente.
+- **Verificações (rodadas em modo leitura, só para documentar o estado real):**
+  | verificação da FS1-10 | esperado | real | bate? |
+  |---|---|---|---|
+  | permissões do módulo `salas` | 7 | **7** | ✅ |
+  | `gestor/operador/qualidade/visualizador` | 7/4/3/2 | **7/4/3/2** | ✅ |
+  | `admin` × permissões de `salas` | 7 | **7** | ✅ |
+  | sala `PONTEIRAS` com 5 insumos + 1 produto | PONTEIRAS·5·1 | **0 linhas** | ❌ (FS1-9 falhou) |
+  | `proacl` das 3 funções sem `anon` | sem `anon` | **sem `anon`** | ✅ |
+  4 de 5 já batem; a única que falha é consequência direta da FS1-9.
+- **Migração/Commit:** commit junto da entrada da FS1-9.
+- **Pendências/Sugestões:** a FS1-10 só pode ser dada por concluída depois que a FS1-9 rodar.
+  **Critério de aceite da FS1 (§4) NÃO atingido** — a fase continua aberta.

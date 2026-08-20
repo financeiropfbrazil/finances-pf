@@ -123,8 +123,8 @@ Decisões fechadas com o Pedro (Controller, dono do projeto):
 | FS1 | FS1-6 | Catálogo RBAC (7 perms, 4 papéis, admin) | concluída | S1 · 20/08/2026 |
 | FS1 | FS1-7 | `user_has_sala_permission` + revokes | concluída | S1 · 20/08/2026 |
 | FS1 | FS1-8 | RPCs vínculo equipe + revokes | concluída | S1 · 20/08/2026 |
-| FS1 | FS1-9 | Semeadura piloto (sala + 6 produtos + vínculos) | pendente | — |
-| FS1 | FS1-10 | NOTIFY pgrst + verificação final | pendente | — |
+| FS1 | FS1-9 | Semeadura piloto (sala + 6 produtos + vínculos) | falhou (ver DIARIO) | S1 · 20/08/2026 |
+| FS1 | FS1-10 | NOTIFY pgrst + verificação final | bloqueada | S1 · 20/08/2026 |
 | FS2 | — | RPCs de movimento (aguardando GO do Pedro) | bloqueada | — |
 | FS3 | — | Telas (aguardando GO do Pedro) | bloqueada | — |
 
