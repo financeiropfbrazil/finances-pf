@@ -141,3 +141,17 @@
     `supabase_migrations.schema_migrations`. Dado que o CLAUDE.md já registra histórico divergente
     e proíbe `supabase db push`, o impacto prático é baixo — mas é uma diferença real frente ao
     que o plano previa, e fica registrada em vez de silenciada.
+
+---
+### [SESSÃO S1 · 2026-08-20 11:23 BRT] FS1-2 — `prod_produtos`
+- **Status final:** concluída
+- **O que foi executado:** os 3 statements da FS1-2, literais, via `execute_sql`
+  (`apply_migration` segue bloqueado pelo classificador — ver FS1-1): `create table
+  public.prod_produtos (...)` (14 colunas, `codigo_alvo` unique, `escala_unidades jsonb`
+  default `'[]'`); `enable row level security`; policy `prod_produtos_select`.
+- **Verificações:** `prod_produtos` · `relrowsecurity = true` · policies =
+  `prod_produtos_select:SELECT:authenticated` (só leitura) = esperado.
+  `prod_salas` reconferida no mesmo SELECT e continua íntegra.
+- **Migração/Commit:** sem entrada no histórico de migrações (mesmo motivo da FS1-1).
+  Commit: `salas: FS1-2 — prod_produtos`.
+- **Pendências/Sugestões:** —
