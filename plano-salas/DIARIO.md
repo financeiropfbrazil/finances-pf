@@ -376,3 +376,32 @@
     por evidência bem mais específica (as 5 tabelas e 3 funções que **esta** frente criou na S1).
     Vale atualizar o número no CLAUDE.md numa próxima passada, ou trocá-lo por um fingerprint que
     não envelhece.
+
+---
+### [SESSÃO S2 · 2026-08-20 11:57 BRT] FS1-10 — NOTIFY pgrst + verificação final — **concluída**
+- **Status final:** concluída → **FS1 FECHADA**
+- **O que foi executado:** o bloco completo da FS1-10 do `sql/FS1-fundacao.sql`, na ordem:
+  `NOTIFY pgrst, 'reload schema';` seguido das **5 consultas de verificação final**.
+- **Verificações (todas as 5 do §4, valores reais):**
+  | # | verificação | esperado | real | bate? |
+  |---|---|---|---|---|
+  | 1 | permissões do módulo `salas` | 7 | **7** (`access`, `cadastros.manage`, `dashboard.view`, `estornar`, `registrar.entrada`, `registrar.refugo`, `registrar.saida`) | ✅ |
+  | 2 | perms por papel | gestor 7 · operador 4 · qualidade 3 · visualizador 2 | **7 · 4 · 3 · 2** | ✅ |
+  | 3 | `admin` × permissões de `salas` | 7 | **7** | ✅ |
+  | 4 | sala com insumos/produtos | PONTEIRAS · 5 · 1 | **PONTEIRAS · 5 · 1** | ✅ |
+  | 5 | `proacl` das 3 funções | sem `anon` | **`{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`** nas 3 | ✅ |
+- **Verificação extra (integridade, não pedida pelo plano):** as 5 tabelas continuam com
+  `relrowsecurity = true` e **exatamente 1 policy cada, todas de `SELECT`** — nenhuma policy de
+  escrita apareceu entre as sessões. A escrita segue existindo só pelas RPCs (e as de movimento
+  são a FS2, ainda bloqueada).
+- **CRITÉRIO DE ACEITE DA FS1 (§4): ATINGIDO.** Todas as verificações da FS1-10 batendo,
+  DIARIO completo, commits por tarefa, push feito.
+- **Migração/Commit:** commit `salas: FS1-10 — verificação final OK, FS1 fechada`.
+- **Pendências/Sugestões:**
+  - **A FS1 estar fechada não significa validada.** O que foi provado aqui é estrutura e
+    catálogo; o comportamento de permissão **não** foi exercido por nenhum usuário real. Vale
+    para esta fase a regra da casa: *um caminho feliz que nunca rodou não é caminho validado*.
+    As validações do §7 (em especial o teste com usuário **sem `is_admin`**) continuam abertas e
+    são pré-requisito honesto para o GO da FS2.
+  - `NOTIFY pgrst` foi emitido, mas o efeito no PostgREST **não é verificável por SQL** — se a
+    API não enxergar as tabelas novas, o caminho é o reload pelo painel do Supabase.
