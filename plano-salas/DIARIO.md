@@ -508,3 +508,25 @@
   não existam duas bateladas com o mesmo número).
 - **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-3..FS2-6`.
 - **Pendências/Sugestões:** —
+
+---
+### [SESSÃO S3 · 2026-08-20 17:07 BRT] FS2-7 — Permissão `salas.batelada.manage` + mapeamentos
+- **Status final:** concluída
+- **O que foi executado:** os 2 statements de escrita da FS2-7, literais:
+  INSERT da permissão `salas.batelada.manage` ('Gerir bateladas') no módulo `salas`;
+  INSERT dos mapeamentos para `operador_salas`, `gestor_salas` e **`admin`** (com guarda
+  `not exists`, idempotente) — o `admin` no mesmo script, de novo pela lição do 42/55.
+- **Verificações:**
+  | papel | esperado | real |
+  |---|---|---|
+  | `admin` (só perms de `salas`) | 8 | **8** ✅ |
+  | `gestor_salas` | 8 | **8** ✅ |
+  | `operador_salas` | 5 | **5** ✅ |
+  | `qualidade_salas` | 3 | **3** ✅ |
+  | `visualizador_salas` | 2 | **2** ✅ |
+  | permissões do módulo `salas` | 8 | **8** ✅ |
+  Os deltas conferem com a intenção: `operador` foi de 4→5 e `gestor`/`admin` de 7→8 (ganharam
+  a permissão nova); `qualidade` e `visualizador` **não** mudaram (3 e 2) — corretos, porque
+  quem faz refugo ou só olha dashboard não abre batelada.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-7`.
+- **Pendências/Sugestões:** —
