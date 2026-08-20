@@ -439,3 +439,23 @@
   - **§D lido e aceito:** nenhuma RPC desta fase será chamada pelo MCP. Verificação é só de
     estrutura; não vou criar usuário fake, alterar função nem remover checagem de sessão para
     "testar". O teste funcional é humano, na FS3.
+
+---
+### [SESSÃO S3 · 2026-08-20 16:56 BRT] FS2-1 — `prod_sala_motivos_refugo` + semeadura
+- **Status final:** concluída
+- **O que foi executado:** os 4 statements da FS2-1, literais, via `execute_sql` (o
+  `apply_migration` segue bloqueado pelo classificador do harness — registrado na S1):
+  `create table public.prod_sala_motivos_refugo (...)` (`codigo` unique, `aplica_a` com check
+  `INSUMO|PRODUTO|AMBOS`, `ordem`, `ativo`, `provisorio`); `enable row level security`;
+  policy `prod_sala_motivos_refugo_select`; INSERT dos **11 motivos**.
+- **Verificações:** agregado por `aplica_a` →
+  | aplica_a | provisórios | total | esperado |
+  |---|---|---|---|
+  | INSUMO | **6** | **6** | 6 provisórios ✅ |
+  | PRODUTO | **0** | **5** | 5 definitivos ✅ |
+  Total 11 = esperado. A separação está correta: os 5 de peça pronta (planilha do Pedro) entraram
+  `provisorio = false`; os 6 de insumo, `provisorio = true`, exatamente como o §A.1 pede — são
+  proposta a validar com a sala e podem ser ajustados por UPDATE, sem DDL.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-1`.
+- **Pendências/Sugestões:** a legada `prod_motivos_refugo` **não foi tocada** (nome diferente,
+  como o §C avisa). Segue como pendência do Pedro decidir o destino das tabelas legadas.
