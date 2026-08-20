@@ -26,7 +26,10 @@
 | **C3** | Cron passa a gravar rateio por item + parcelas + completar cabeçalho; RPC transacional `sync_replace_filhos_pedido` | Ver §5 |
 | **C3.2** | Percentual de classe única ausente + gate de reprocesso (`105e1fb`) | Ver §5 |
 
-**Próximo: Bloco E (backfill).** Ver §6 — é a maior parte do passivo.
+**Frente de sync ENCERRADA em 20/08/2026** com os cards **A1, B1, B3, B4, C1, C2, C3 e
+C3.2**. Nenhum card em aberto. O Bloco E (backfill histórico) foi **dispensado por decisão
+do Pedro** — ver §6. O que restou do plano v1.1 e nunca foi executado está catalogado na
+**§9**, para quem eventualmente retomar.
 
 ---
 
@@ -155,12 +158,17 @@ Não toca status nem valores, então a âncora segue protegida.
 
 ---
 
-## 6. Bloco E — o passivo (próximo trabalho)
+## 6. Bloco E — DECISÃO REGISTRADA: backfill histórico dispensado
 
-*(toda esta seção: **medido 20/08 13:20 UTC**)*
+> **Decisão do Pedro, 20/08/2026.** O backfill histórico está **DISPENSADO**. O foco é
+> para frente. O C3 garante que **pedido novo entra completo**; o passivo abaixo
+> **permanece sem rateio no relacional, e isso é aceito** — não é pendência, não é dívida
+> a cobrar, não é trabalho pendurado. Nenhum card do Bloco E (E1/E2/E3) será executado.
 
-**492 pedidos** com filhos ausentes. Destes, o cron alcança **28**; **464 estão fora da
-fila**, decompostos assim:
+*(toda a medição desta seção: **medido 20/08 13:20 UTC**)*
+
+**O que fica como está.** **492 pedidos** com filhos ausentes; destes o cron ainda alcança
+**28** pela drenagem normal, e **464 estão fora da fila**, decompostos assim:
 
 | Causa de bloqueio | Pedidos |
 |---|---:|
@@ -173,19 +181,37 @@ fila**, decompostos assim:
 > para fechar a soma. Não era medição. A decomposição acima foi medida; a terceira causa
 > não constava. Ver §2 item 8.
 
-**Observação — o C3 está estancando o fluxo.** Na medição do dia anterior o universo era
-de **717** pedidos com filhos ausentes, dos quais **253** alcançáveis pelo cron. Em poucas
-horas isso caiu para **492 / 28**: o C3 drenou **~225 pedidos vivos** sozinho, sem
-intervenção. É a confirmação prática de que o sangramento parou — pedido novo entra
-completo. O que sobra (**464**) não é dívida nova: é o passivo histórico, quase todo
-terminal com a flag já ligada, e **só sai pelo Bloco E**.
+Somam-se a eles os **1.164 pedidos** com `classe_rateio` jsonb cheio e relacional vazio —
+a geração antiga, invisível ao cron. **Também ficam como estão.**
 
-Duas trilhas (`AJUSTE-RS-C3.1-C`):
-- **Trilha 1 — jsonb → relacional.** Os **1.164** pedidos da geração antiga têm
-  `classe_rateio` e `itens` cheios no jsonb, no formato de dois níveis que a tabela
-  precisa. **Zero chamadas ao Alvo**, migração SQL pura. É a maior parte do passivo e a
-  mais barata.
-- **Trilha 2 — Load → tudo.** Só a geração nova com jsonb vazio. Lotes de ~25 com pausa.
+**Por que a decisão é defensável — o C3 estancou o fluxo.** Na medição do dia anterior o
+universo era de **717** pedidos com filhos ausentes, dos quais **253** alcançáveis pelo
+cron. Em poucas horas caiu para **492 / 28**: o C3 drenou **~225 pedidos vivos** sozinho,
+sem intervenção. Ou seja, o que entra novo entra completo, e o que sobra é exclusivamente
+passivo histórico — quase todo terminal com a flag já ligada, documento que não muda mais.
+
+### 🔴 Consequência prática — leia antes de usar qualquer relatório por CC
+
+**Relatórios de gasto por centro de custo só são confiáveis a partir de 20/08/2026.**
+O **primeiro semestre de 2026 aparecerá vazio ou incompleto** em qualquer visão que leia
+`compras_pedidos_itens_rateio`, porque para aqueles pedidos a tabela nunca foi populada e
+não será. Quem montar relatório, dashboard ou fechamento a partir dessa base precisa
+declarar o corte — um total histórico "baixo" ali **não é queda de gasto, é ausência de
+dado**. Vale também o alerta do `AJUSTE-RS-C3` (C3-E): `compras_pedidos.centro_custo`
+**não** substitui o rateio, é a primeira fatia do primeiro rateio.
+
+### Se um dia a comparação histórica for necessária
+
+A porta continua aberta e é barata — por isso a descrição fica registrada:
+
+- **Trilha 1 — jsonb → relacional (a que interessa).** Os **1.164** pedidos da geração
+  antiga têm `classe_rateio` e `itens` cheios no jsonb, já no formato de dois níveis que a
+  tabela relacional precisa. **Zero chamadas ao Alvo**, migração SQL pura, roda em minutos,
+  sem risco de rate limit. Cobre a maior parte do passivo.
+- **Trilha 2 — Load → tudo.** Só a geração nova com jsonb vazio; exige chamada ao gateway,
+  em lotes de ~25 com pausa. É a cara, e é a menor.
+
+Referência do desenho: `AJUSTE-RS-C3.1-C`. **Nada disso está agendado.**
 
 ---
 
@@ -197,9 +223,11 @@ Duas trilhas (`AJUSTE-RS-C3.1-C`):
 2. **Pedido cronicamente inválido reentra todo ciclo** (agora com `detalhes_carregados =
    false` na falha). Visível pelo mesmo número repetindo em `detalhes`. Remédio: contador
    de tentativas. Mesma família do item 3.
-3. **`0004370`** (02/07, R$ 100, Encerrado): único terminal sem detalhe dentro dos 180
-   dias; padrão de Load 404 permanente, reentra para sempre.
-4. **57 terminais fora do corte de 180 dias** — ficam para o Bloco E.
+3. ~~**`0004370`**~~ (02/07, R$ 100, Encerrado): único terminal sem detalhe dentro dos 180
+   dias; padrão de Load 404 permanente, reentra para sempre. **NÃO SERÁ TRATADA — ver §6.**
+   Fica o registro do padrão, útil se ele aparecer em volume.
+4. ~~**57 terminais sem detalhe**~~ (56 fora do corte de 180 dias + o `0004370`).
+   **NÃO SERÁ TRATADA — ver §6.** Dependia do Bloco E, que foi dispensado.
 5. **8 pedidos com `status` NULL** — entram na fila desde o C2; origem desconhecida.
 6. **Nome do CC na tela** — detalhe da requisição mostra só o código. Cosmético, Bloco F;
    depende do espelho `cost_centers` atualizado (F3).
@@ -233,6 +261,44 @@ Duas trilhas (`AJUSTE-RS-C3.1-C`):
 - **A Seção de rollback de qualquer SQL não deve ser executada** — é só para guardar.
 - **Número sem data não vale.** Ver §2 item 8: as contagens deste módulo mudam a cada
   ciclo do cron; citar sem remedir induz a decisão errada de dimensionamento.
+
+---
+
+## 9. Se esta frente for retomada — o que sobrou do plano v1.1
+
+Catálogo do que **nunca foi executado**, para não obrigar ninguém a reler o plano inteiro.
+Nada aqui está agendado; a frente está encerrada (§1).
+
+**Bloco D — endurecimento da criação** (o envio Hub → Alvo, que o C3 não tocou):
+- **D1** — invariantes no `enviarPedido` e erros que gritam em vez de falhar em silêncio.
+- **D2** — anexos na retomada (pedido reenviado perde os arquivos já anexados).
+- **D3** — idempotência do envio: uuid do Hub em campo livre de `PedCompUserFieldsObject` +
+  reconciliação antes de qualquer retry. **Depende da pendência §7.9** — falta provar que o
+  Alvo preserva o campo livre.
+- **D4** — normalização de parcelas e rateio no payload de envio (residual também no rateio
+  interno do item; só se manifesta com múltiplos itens).
+- **D5** — limite de 255 caracteres na digitação.
+
+**Bloco F — dívidas** (F0 já foi feito, ver §1):
+- **F1** — escrita direta em Notas de Serviço (`MovEstq/SaveMultiPart` a partir do
+  navegador) → migrar para rota no proxy. Era o **P0 da migração**.
+- **F2** — ApiTester admin-only via passthrough.
+- **F3** — `cost_centers`: fase 1 passthrough (`CentroCusto/GetRegistros` já está na
+  whitelist), fase 2 Edge + cron + `sync_runs` + alerta de idade. É pré-requisito do
+  item §7.6 (nome do CC na tela).
+- **F4** — migração por etapas dos demais consumidores diretos do Alvo: NF Entrada →
+  Contas a Pagar → Sales.
+- **F5** — descomissionar credenciais do `localStorage`: remover campos de senha e
+  `alvoService.ts`, limpar chaves locais e **rotacionar a senha do ERP**. Só depois que o
+  inventário zerar — inclui download de anexos, que ainda não tem rota.
+- **F6** — higiene: aposentar as 5 Edges fósseis, remover `SYNC_TEST.md`, KPIs no bloco
+  "No gate" (recriando a RPC a partir do `pg_get_functiondef`, nunca da especificação).
+
+**Bloco E** — dispensado por decisão, ver §6. Não retomar sem reler aquela seção.
+
+**A2** (validação com a operação) não tem card próprio em aberto: a validação prevista
+— operadora sem credenciais locais abrindo pedidos — foi cumprida e está registrada na
+linha do **A1**, §1.
 
 ---
 
