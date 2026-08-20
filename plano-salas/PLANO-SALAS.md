@@ -127,7 +127,7 @@ Decisões fechadas com o Pedro (Controller, dono do projeto):
 | FS1 | FS1-10 | NOTIFY pgrst + verificação final | concluída | S2 · 20/08/2026 |
 | FS2 | FS2-0 | Pré-voo da fase (leituras) | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-1 | `prod_sala_motivos_refugo` + semeadura (5 peça + 6 insumo) | concluída | S3 · 20/08/2026 |
-| FS2 | FS2-2 | `prod_salas`: ADD COLUMN `prefixo_lote` + set `PT` | pendente | — |
+| FS2 | FS2-2 | `prod_salas`: ADD COLUMN `prefixo_lote` + set `PT` | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-3 | `prod_bateladas` | pendente | — |
 | FS2 | FS2-4 | `prod_batelada_consumos` | pendente | — |
 | FS2 | FS2-5 | `prod_saidas` | pendente | — |

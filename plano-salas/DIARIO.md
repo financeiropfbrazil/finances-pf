@@ -459,3 +459,20 @@
 - **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-1`.
 - **Pendências/Sugestões:** a legada `prod_motivos_refugo` **não foi tocada** (nome diferente,
   como o §C avisa). Segue como pendência do Pedro decidir o destino das tabelas legadas.
+
+---
+### [SESSÃO S3 · 2026-08-20 16:57 BRT] FS2-2 — `prod_salas.prefixo_lote`
+- **Status final:** concluída
+- **O que foi executado:** os 3 statements da FS2-2, literais:
+  `alter table public.prod_salas add column prefixo_lote text;` — **ALTER aditivo**, autorizado
+  explicitamente pelo §C desta fase (o §1.1 do plano proíbe ALTER **destrutivo**; ADD COLUMN
+  nullable não remove nem altera nada existente);
+  `update public.prod_salas set prefixo_lote = 'PT' where codigo = 'PONTEIRAS';` — WHERE
+  revisado antes de rodar, alcance de 1 linha (só existe essa sala);
+  seguido da consulta de verificação.
+- **Verificações:** `select codigo, prefixo_lote from prod_salas` → **1 linha**:
+  `PONTEIRAS · PT` = esperado. Nenhuma outra sala existe, então não há linha com prefixo nulo.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-2`.
+- **Pendências/Sugestões:** a coluna é nullable de propósito, e a RPC `prod_abrir_batelada`
+  recusa sala sem prefixo (`'Sala sem prefixo de lote configurado'`). Ou seja: sala nova criada
+  no futuro sem prefixo **não** gera batelada silenciosamente errada — falha com mensagem clara.
