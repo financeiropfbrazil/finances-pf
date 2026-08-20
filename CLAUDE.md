@@ -35,8 +35,17 @@ Responda sempre em português brasileiro.
 
 ## Supabase (banco)
 
-- MCP do Supabase fica em **`read_only=true` por padrão**. Writes só com SQL revisado e aprovado pelo Pedro, precedido de **dry-run** (SELECT mostrando exatamente o que será afetado).
-- **Migration antes de qualquer query de teste** (causa nº 1 de falso erro "function/column does not exist").
+## MCP Supabase — modo de acesso (atualizado 20/08/2026, provado por canário)
+O MCP do Supabase opera em MODO ESCRITA (URL sem read_only), apontado ao projeto
+hbtggrbauguukewiknew (Financial Hub), features=database (execute_sql, apply_migration,
+list_tables, list_migrations, list_extensions).
+Regras de conduta obrigatórias:
+1. Escrita SOMENTE sob plano explícito com guardrails próprios (ex.: plano-salas/PLANO-SALAS.md §1).
+   Fora de plano, comporte-se como se fosse read-only: nenhum DDL/DML sem ordem expressa do Pedro.
+2. Antes de qualquer escrita, pré-voo de conteúdo do plano vigente (fingerprint por objetos
+   conhecidos do projeto) — current_database() NÃO identifica o projeto.
+3. Proibições permanentes: DROP/DELETE/TRUNCATE fora de plano; objetos fora do escopo do plano
+   vigente; qualquer GRANT a anon; policy de INSERT/UPDATE para authenticated fora de plano.- **Migration antes de qualquer query de teste** (causa nº 1 de falso erro "function/column does not exist").
 - O editor SQL do Supabase roda **sem autenticação**: RPCs com gate `auth.uid()` lançam "Não autenticado" ali. Conferências leem as tabelas direto.
 - **Nunca** `DELETE FROM storage.objects` (bloqueado) — usar Storage API ou o painel.
 - RPCs novas com escrita nascem `SECURITY DEFINER` com gate explícito de permissão (`user_has_permission`), nunca abertas.
