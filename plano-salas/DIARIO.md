@@ -530,3 +530,23 @@
   quem faz refugo ou só olha dashboard não abre batelada.
 - **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-7`.
 - **Pendências/Sugestões:** —
+
+---
+### [SESSÃO S3 · 2026-08-20 17:08 BRT] FS2-8 — RPC `prod_registrar_entrada`
+- **Status final:** concluída
+- **O que foi executado:** os 4 statements da FS2-8, literais: `create or replace function
+  public.prod_registrar_entrada(uuid, uuid, numeric, text, text, date, text, text, text,
+  timestamptz) returns uuid` (plpgsql, `security definer`, `set search_path = public`),
+  seguido de `revoke ... from public`, `revoke ... from anon` e `grant ... to authenticated`,
+  os três com a **assinatura completa de 10 parâmetros**.
+- **Verificações:** conferidas no bloco consolidado da FS2-13 (`proacl` das 6 funções).
+  Cadeia de validação da função, lida no fonte aplicado: sessão autenticada → permissão
+  **por sala** (`user_has_sala_permission`, não a global) → quantidade > 0 → produto ativo →
+  produto é `INSUMO` **desta** sala → unidade existe na `escala_unidades` → se `controla_lote`:
+  lote e validade obrigatórios e **validade vencida bloqueia** (`p_validade <
+  p_data_movimento::date`). `quantidade_base = p_quantidade * v_peso`, com `fator_usado = v_peso`
+  gravado junto — regra do §0.5 da FS1 ("peso multiplica na escrita").
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-8`.
+- **Pendências/Sugestões:** **não testei a RPC** — §D é explícito: toda RPC desta fase morre em
+  `'Sessão não autenticada'` pelo MCP, e isso é o comportamento correto. Nenhuma tentativa de
+  contorno foi feita.
