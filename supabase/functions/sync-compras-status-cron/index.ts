@@ -119,6 +119,18 @@ interface PedidoHub {
   numero_req_comp: string | null;
   vinculo_requisicao: string | null;
   detalhes_carregados: boolean | null;
+  // CARD C3 — campos lidos para decidir o que está AUSENTE. Precisam vir do
+  // SELECT: sem eles o bloco de completar não tem como saber o que falta.
+  codigo_entidade: string | null;
+  nome_entidade: string | null;
+  cnpj_entidade: string | null;
+  nome_cond_pag: string | null;
+  centro_custo: string | null;
+  classe_rec_desp: string | null;
+  primeiro_vencimento: string | null;
+  itens: unknown;
+  parcelas: unknown;
+  classe_rateio: unknown;
 }
 
 interface DetalheMudanca {
@@ -1154,6 +1166,184 @@ async function syncDescobrirPedidos(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// CARD C3 — extração de rateio, parcelas e cabeçalho do Load
+// ─────────────────────────────────────────────────────────────────────
+// Fonte canônica do rateio é o ITEM (AJUSTE-RS-C3, decisão C3-A):
+//   ItemPedCompChildList[].ItemPedCompClasseRecdespChildList[].RateioItemPedCompChildList[]
+// ⚠️ A caixa difere entre os dois níveis do Alvo: "Recdesp" no item,
+// "RecDesp" no cabeçalho. Errar a caixa devolve undefined em silêncio.
+// O rateio de CABEÇALHO é ignorado para a tabela relacional; sobrevive apenas
+// dentro do jsonb de transição, para não criar um terceiro formato diferente
+// do que o open-load já grava (ver montarClasseRateioJsonb).
+
+/** "Ausente" inclui ARRAY VAZIO (AJUSTE-RS-C3.1, regra A): os jsonb da geração
+ *  nova estão como `[]`, não como NULL. Testar só `is null` faz o C3 rodar,
+ *  não acusar erro e não corrigir nada. */
+function jsonbAusente(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  if (Array.isArray(v)) return v.length === 0;
+  return false;
+}
+
+function escalarAusente(v: unknown): boolean {
+  return v === null || v === undefined || v === "";
+}
+
+function round2(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+interface CatalogosLabels {
+  classes: Map<string, string | null>;
+  centros: Map<string, string | null>;
+}
+
+/** Catálogos locais para enriquecer os labels — uma leitura por CICLO, não por
+ *  pedido. O Alvo não devolve nome de classe nem de centro de custo. */
+async function carregarCatalogosLabels(supabase: SupabaseClient): Promise<CatalogosLabels> {
+  const classes = new Map<string, string | null>();
+  const centros = new Map<string, string | null>();
+  try {
+    const { data: cls } = await supabase.from("classes_rec_desp").select("codigo, nome");
+    for (const c of cls || []) if (c?.codigo) classes.set(String(c.codigo), c.nome ?? null);
+  } catch (e) {
+    console.warn("[sync-ped][C3] catálogo de classes indisponível:", e);
+  }
+  try {
+    const { data: ccs } = await supabase.from("cost_centers").select("erp_code, name");
+    for (const c of ccs || []) if (c?.erp_code) centros.set(String(c.erp_code), c.name ?? null);
+  } catch (e) {
+    console.warn("[sync-ped][C3] catálogo de centros de custo indisponível:", e);
+  }
+  return { classes, centros };
+}
+
+/** Uma linha por (item, classe, CC) com o percentual DO PRÓPRIO NÍVEL (C3-C):
+ *  o do CC dentro da classe, nunca o produto dos dois — o produto arredondado
+ *  é a origem do 100,02% medido no 0003625.
+ *  `total_item` inclui impostos (C3-D): medido no 0004640, o rateio do item
+ *  vale ValorTotal + ValorIPI. */
+function extrairRateiosDoItem(alvo: any, cat: CatalogosLabels): any[] {
+  const itens = (alvo?.ItemPedCompChildList || []) as any[];
+  const out: any[] = [];
+  for (const it of itens) {
+    if (it?.Cancelado === "Total") continue;
+    const sequencia = Number(it?.Sequencia);
+    if (!Number.isFinite(sequencia)) continue;
+    const totalItem = round2((Number(it?.ValorTotal) || 0) + (Number(it?.ValorIPI) || 0));
+    for (const cls of (it?.ItemPedCompClasseRecdespChildList || []) as any[]) {
+      const codClasse = cls?.CodigoClasseRecDesp;
+      if (!codClasse) continue;
+      for (const cc of (cls?.RateioItemPedCompChildList || []) as any[]) {
+        const codCc = cc?.CodigoCentroCtrl;
+        if (!codCc) continue;
+        out.push({
+          sequencia,
+          classe: String(codClasse),
+          classe_label: cat.classes.get(String(codClasse)) ?? null,
+          percentual_classe: Number(cls?.Percentual) || 0,
+          cc: String(codCc),
+          cc_label: cat.centros.get(String(codCc)) ?? null,
+          percentual: Number(cc?.Percentual) || 0,
+          valor: cc?.Valor === null || cc?.Valor === undefined ? null : Number(cc.Valor),
+          total_item: totalItem,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Nomes conferidos contra o parser autoritativo do open-load
+ *  (`alvoPedCompLoadService.extrairParcelas`). `data_vencimento` é NOT NULL na
+ *  tabela: parcela sem vencimento é descartada pela RPC, com aviso. */
+function extrairParcelasAlvo(alvo: any): any[] {
+  const list = (alvo?.ParcPagPedCompChildList || []) as any[];
+  return list.map((p: any) => ({
+    sequencia: Number(p?.Sequencia) || 0,
+    numero_duplicata: p?.NumeroDuplicata ?? null,
+    dias_entre_parcelas: Number(p?.DiasEntreParcelas) || 0,
+    percentual_fracao: Number(p?.PercentualFracao) || 0,
+    valor_parcela: Number(p?.ValorParcela) || 0,
+    data_vencimento: typeof p?.DataVencimento === "string" ? p.DataVencimento.split("T")[0] : null,
+  }));
+}
+
+/** jsonb `itens` — MESMO formato do open-load, de propósito. Dois escritores
+ *  produzindo formatos diferentes para a mesma coluna seria pior do que a
+ *  duplicação que a transição já aceita. */
+function montarItensJsonb(alvo: any): any[] {
+  const list = (alvo?.ItemPedCompChildList || []) as any[];
+  return list.map((item: any) => ({
+    sequencia: item?.Sequencia,
+    codigoProduto: item?.CodigoProduto,
+    nomeProduto: item?.NomeProduto || item?.DescricaoAlternativaProduto,
+    unidade: item?.CodigoProdUnidMed,
+    quantidade: item?.QuantidadeProdUnidMedPrincipal,
+    valorUnitario: item?.ValorUnitario,
+    valorTotal: item?.ValorTotal,
+    itemServico: item?.ItemServico,
+    cancelado: item?.Cancelado,
+    classe: item?.ItemPedCompClasseRecdespChildList?.[0]?.CodigoClasseRecDesp ?? null,
+    centroCusto:
+      item?.ItemPedCompClasseRecdespChildList?.[0]?.RateioItemPedCompChildList?.[0]?.CodigoCentroCtrl ?? null,
+    classeRateio: ((item?.ItemPedCompClasseRecdespChildList || []) as any[]).map((c: any) => ({
+      classe: c?.CodigoClasseRecDesp,
+      valor: c?.Valor,
+      percentual: c?.Percentual,
+      centrosCusto: ((c?.RateioItemPedCompChildList || []) as any[]).map((r: any) => ({
+        codigo: r?.CodigoCentroCtrl,
+        valor: r?.Valor,
+        percentual: r?.Percentual,
+      })),
+    })),
+  }));
+}
+
+function montarParcelasJsonb(alvo: any): any[] {
+  const list = (alvo?.ParcPagPedCompChildList || []) as any[];
+  return list.map((p: any) => ({
+    sequencia: p?.Sequencia,
+    duplicata: p?.NumeroDuplicata,
+    diasEntreParcelas: p?.DiasEntreParcelas,
+    percentual: p?.PercentualFracao,
+    valor: p?.ValorParcela,
+    vencimento: typeof p?.DataVencimento === "string" ? p.DataVencimento.split("T")[0] : null,
+  }));
+}
+
+/** Cabeçalho primeiro, item como fallback — idêntico ao open-load. É jsonb de
+ *  COMPATIBILIDADE (duas telas o leem), não fonte de verdade; a fonte é a
+ *  tabela relacional, que vem só do item (C3-A). */
+function montarClasseRateioJsonb(alvo: any): any[] {
+  let list = (alvo?.PedCompClasseRecDespChildList || []) as any[];
+  if (list.length === 0) {
+    list = [];
+    for (const item of (alvo?.ItemPedCompChildList || []) as any[]) {
+      list.push(...((item?.ItemPedCompClasseRecdespChildList || []) as any[]));
+    }
+  }
+  return list.map((c: any) => ({
+    classe: c?.CodigoClasseRecDesp,
+    valor: c?.Valor,
+    percentual: c?.Percentual,
+    centrosCusto: ((c?.RateioPedCompChildList || c?.RateioItemPedCompChildList || []) as any[]).map((r: any) => ({
+      codigo: r?.CodigoCentroCtrl,
+      valor: r?.Valor,
+      percentual: r?.Percentual,
+    })),
+  }));
+}
+
+function primeiroVencimentoDe(parcelas: any[]): string | null {
+  const vencs = (parcelas || [])
+    .map((p) => p?.data_vencimento)
+    .filter((v: unknown): v is string => typeof v === "string" && v.length > 0);
+  if (vencs.length === 0) return null;
+  return vencs.reduce((menor, atual) => (atual < menor ? atual : menor));
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Persistência de itens (correção L1.4)
 // ─────────────────────────────────────────────────────────────────────
 // Grava ItemPedCompChildList do detalhe completo em compras_pedidos_itens
@@ -1163,7 +1353,12 @@ async function syncDescobrirPedidos(
 // integral = item-fantasma), grava 'Não' (ativo) e 'Parcial' (remanescente
 // vivo). NÃO reconcilia valor_total do cabeçalho (a soma dos itens pode
 // divergir por cancelamento parcial; o cabeçalho é a fonte da verdade).
-async function persistirItensPedido(supabase: SupabaseClient, pedidoId: string, alvo: any): Promise<number> {
+async function persistirItensPedido(
+  supabase: SupabaseClient,
+  pedidoId: string,
+  alvo: any,
+  cat: CatalogosLabels,
+): Promise<{ itens: number; rateios: number; parcelas: number; avisos: string[] }> {
   const itensAlvo = (alvo?.ItemPedCompChildList || []) as any[];
   const rows = itensAlvo
     .filter((it) => it?.Cancelado !== "Total")
@@ -1190,13 +1385,130 @@ async function persistirItensPedido(supabase: SupabaseClient, pedidoId: string, 
     if (errItens) throw new Error(`upsert itens: ${errItens.message}`);
   }
 
-  const { error: errFlag } = await supabase
-    .from("compras_pedidos")
-    .update({ detalhes_carregados: true, detalhes_carregados_em: new Date().toISOString() })
-    .eq("id", pedidoId);
-  if (errFlag) throw new Error(`update detalhes_carregados: ${errFlag.message}`);
+  // CARD C3 — rateio e parcelas numa transação só, pela RPC restrita a
+  // service_role. Sem UNIQUE e sem upsert: repetição de (item, classe, CC) é
+  // legítima (decisão D2), então o padrão é apagar os filhos e reinserir,
+  // como o `limparFilhosDoPedido` do wizard já faz.
+  const rateios = extrairRateiosDoItem(alvo, cat);
+  const parcelas = extrairParcelasAlvo(alvo);
+  const avisos: string[] = [];
+  let nRateios = 0;
+  let nParcelas = 0;
 
-  return rows.length;
+  if (rateios.length > 0 || parcelas.length > 0) {
+    const { data: res, error: errRpc } = await supabase.rpc("sync_replace_filhos_pedido", {
+      p_pedido_id: pedidoId,
+      p_rateios: rateios,
+      p_parcelas: parcelas,
+    });
+    if (errRpc) throw new Error(`sync_replace_filhos_pedido: ${errRpc.message}`);
+    nRateios = Number((res as any)?.rateios_inseridos) || 0;
+    nParcelas = Number((res as any)?.parcelas_inseridas) || 0;
+    for (const a of ((res as any)?.avisos || []) as string[]) avisos.push(String(a));
+  }
+
+  // Dual-write dos jsonb da transição (duas telas ainda os leem). Cada um só é
+  // gravado quando o Load trouxe conteúdo: sobrescrever um jsonb populado com
+  // `[]` seria perder o dado da geração antiga, que é a única cópia que existe.
+  const patch: Record<string, unknown> = {
+    detalhes_carregados: true,
+    detalhes_carregados_em: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  const itensJsonb = montarItensJsonb(alvo);
+  const parcelasJsonb = montarParcelasJsonb(alvo);
+  const classeRateioJsonb = montarClasseRateioJsonb(alvo);
+  if (itensJsonb.length > 0) patch.itens = itensJsonb;
+  if (parcelasJsonb.length > 0) patch.parcelas = parcelasJsonb;
+  if (classeRateioJsonb.length > 0) patch.classe_rateio = classeRateioJsonb;
+  const pv = primeiroVencimentoDe(parcelas);
+  if (pv) patch.primeiro_vencimento = pv;
+
+  // `detalhes_carregados` entra NESTE update, o último: se a RPC falhou acima,
+  // o throw já saiu e a flag continua false — o pedido volta no próximo ciclo.
+  const { error: errFlag } = await supabase.from("compras_pedidos").update(patch).eq("id", pedidoId);
+  if (errFlag) throw new Error(`update detalhe/flag: ${errFlag.message}`);
+
+  return { itens: rows.length, rateios: nRateios, parcelas: nParcelas, avisos };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CARD C3 — completar campos ausentes do cabeçalho
+// ─────────────────────────────────────────────────────────────────────
+// Preenche SÓ o que está vazio; jamais sobrescreve. "Vazio" inclui `[]`
+// (AJUSTE-RS-C3.1-A) — com `is null` puro este bloco rodaria, não acusaria
+// erro e não corrigiria nenhum pedido da geração nova, que é exatamente a que
+// motivou a missão. NÃO toca status, workflow nem os 7 campos de valor.
+async function completarCamposAusentes(
+  supabase: SupabaseClient,
+  ped: PedidoHub,
+  alvo: any,
+  cat: CatalogosLabels,
+): Promise<string[]> {
+  const patch: Record<string, unknown> = {};
+
+  const itensJsonb = montarItensJsonb(alvo);
+  const parcelasPayload = extrairParcelasAlvo(alvo);
+  const parcelasJsonb = montarParcelasJsonb(alvo);
+  const classeRateioJsonb = montarClasseRateioJsonb(alvo);
+  const rateios = extrairRateiosDoItem(alvo, cat);
+
+  if (jsonbAusente(ped.itens) && itensJsonb.length > 0) patch.itens = itensJsonb;
+  if (jsonbAusente(ped.parcelas) && parcelasJsonb.length > 0) patch.parcelas = parcelasJsonb;
+  if (jsonbAusente(ped.classe_rateio) && classeRateioJsonb.length > 0) patch.classe_rateio = classeRateioJsonb;
+
+  if (escalarAusente(ped.primeiro_vencimento)) {
+    const pv = primeiroVencimentoDe(parcelasPayload);
+    if (pv) patch.primeiro_vencimento = pv;
+  }
+  if (escalarAusente(ped.classe_rec_desp) && rateios[0]?.classe) {
+    patch.classe_rec_desp = rateios[0].classe;
+  }
+  // C3-E: pode preencher quando nula, por compatibilidade de tela — mas esta
+  // coluna guarda a PRIMEIRA fatia do rateio, nunca o CC do pedido. Nenhuma
+  // visão de gasto por centro de custo pode ler daqui.
+  if (escalarAusente(ped.centro_custo) && rateios[0]?.cc) {
+    patch.centro_custo = rateios[0].cc;
+  }
+
+  const nomeCondPag = alvo?.CondPagPedCompObject?.Nome ?? null;
+  if (escalarAusente(ped.nome_cond_pag) && nomeCondPag) patch.nome_cond_pag = nomeCondPag;
+
+  // Entidade: Load primeiro, cache local como fallback — é o caso 0004664
+  // (R$ 110 mil sem fornecedor), em que o list veio sem `NomeEntidade` e o
+  // Job 1 nunca revisita. O cache é leitura local, não chama o Alvo.
+  const precisaNome = escalarAusente(ped.nome_entidade);
+  const precisaCnpj = escalarAusente(ped.cnpj_entidade);
+  if (precisaNome || precisaCnpj) {
+    let nome: string | null = alvo?.NomeEntidade ?? null;
+    let cnpj: string | null = alvo?.CPFCNPJ ?? null;
+    if (((precisaNome && !nome) || (precisaCnpj && !cnpj)) && ped.codigo_entidade) {
+      try {
+        const { data: ent } = await supabase
+          .from("compras_entidades_cache")
+          .select("nome, cnpj")
+          .eq("codigo_entidade", ped.codigo_entidade)
+          .maybeSingle();
+        nome = nome || (ent as any)?.nome || null;
+        cnpj = cnpj || (ent as any)?.cnpj || null;
+      } catch (e) {
+        console.warn(`[sync-ped][C3] cache de entidade indisponível para ${ped.numero}:`, e);
+      }
+    }
+    if (precisaNome && nome) patch.nome_entidade = nome;
+    if (precisaCnpj && cnpj) patch.cnpj_entidade = cnpj;
+  }
+
+  const campos = Object.keys(patch);
+  if (campos.length === 0) return [];
+
+  patch.updated_at = new Date().toISOString();
+  const { error } = await supabase.from("compras_pedidos").update(patch).eq("id", ped.id);
+  if (error) {
+    console.error(`[sync-ped][C3] completar ausentes falhou em ${ped.numero}:`, error.message);
+    return [];
+  }
+  return campos;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1336,7 +1648,7 @@ async function syncPedidos(
   const { data: candidatos, error: errSelect } = await supabase
     .from("compras_pedidos")
     .select(
-      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, data_pedido, numero_req_comp, vinculo_requisicao, detalhes_carregados",
+      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, data_pedido, numero_req_comp, vinculo_requisicao, detalhes_carregados, codigo_entidade, nome_entidade, cnpj_entidade, nome_cond_pag, centro_custo, classe_rec_desp, primeiro_vencimento, itens, parcelas, classe_rateio",
     )
     // CARD C2 — este SELECT excluía TODOS os terminais, enquanto a contagem de
     // elegíveis acima já abria a exceção do detalhe faltante (d8edf1c, 21/07,
@@ -1364,6 +1676,10 @@ async function syncPedidos(
   }
 
   console.log(`[sync-ped] ${peds.length} candidatos`);
+
+  // CARD C3 — catálogos de label lidos UMA vez por ciclo (o Alvo não devolve
+  // nome de classe nem de centro de custo). Duas leituras, não duas por pedido.
+  const catalogos = await carregarCatalogosLabels(supabase);
 
   await processInChunks(peds, CHUNK_SIZE, SLEEP_BETWEEN_CHUNKS_MS, async (ped) => {
     try {
@@ -1417,13 +1733,51 @@ async function syncPedidos(
       // detalhes_carregados=false mesmo em pedido sem mudança de status.
       // Falha em itens NÃO aborta o sync de status (itens são secundários):
       // loga, flag fica false, retenta no próximo ciclo.
-      if (ped.detalhes_carregados !== true) {
+      // ── CARD C3 — carga dos filhos + completar cabeçalho ───────────
+      // A carga deixa de depender só da flag. O 0004640 tem
+      // `detalhes_carregados = true` e MESMO ASSIM está sem rateio, sem
+      // parcelas e com os três jsonb em `[]`: a flag sempre significou
+      // "itens persistidos", nunca "detalhe completo". Reprocessa quando a
+      // flag é falsa OU quando falta qualquer um dos jsonb da transição.
+      // Falha aqui NÃO aborta o sync de status: loga, a flag fica como está
+      // e o pedido volta no próximo ciclo.
+      const filhosAusentes =
+        jsonbAusente(ped.classe_rateio) || jsonbAusente(ped.parcelas) || jsonbAusente(ped.itens);
+      if (ped.detalhes_carregados !== true || filhosAusentes) {
         try {
-          const n = await persistirItensPedido(supabase, ped.id, alvo);
-          console.log(`[sync-ped] ${ped.numero}: ${n} itens persistidos (detalhes_carregados=true)`);
+          const r = await persistirItensPedido(supabase, ped.id, alvo, catalogos);
+          console.log(
+            `[sync-ped] ${ped.numero}: ${r.itens} itens, ${r.rateios} rateios, ${r.parcelas} parcelas persistidos`,
+          );
+          for (const aviso of r.avisos) {
+            console.warn(`[sync-ped][C3] ${ped.numero}: ${aviso}`);
+            result.detalhes.push({
+              tipo: "ped",
+              id: ped.id,
+              numero_alvo: ped.numero,
+              erro: `aviso_c3: ${aviso}`,
+            });
+          }
         } catch (itErr: any) {
-          console.error(`[sync-ped] ${ped.numero}: persistir itens falhou:`, itErr?.message || itErr);
+          console.error(`[sync-ped] ${ped.numero}: persistir filhos falhou:`, itErr?.message || itErr);
+          result.detalhes.push({
+            tipo: "ped",
+            id: ped.id,
+            numero_alvo: ped.numero,
+            erro: `c3_filhos: ${itErr?.message || itErr}`,
+          });
         }
+      }
+
+      // Completar ausentes roda SEMPRE e ANTES do `if (!mudou)` — pedido sem
+      // mudança de status é exatamente o que nunca era revisitado.
+      try {
+        const preenchidos = await completarCamposAusentes(supabase, ped, alvo, catalogos);
+        if (preenchidos.length > 0) {
+          console.log(`[sync-ped][C3] ${ped.numero}: completados ${preenchidos.join(", ")}`);
+        }
+      } catch (cErr: any) {
+        console.error(`[sync-ped][C3] ${ped.numero}: completar ausentes falhou:`, cErr?.message || cErr);
       }
 
       const tsToMs = (v: string | null | undefined): number | null => {
