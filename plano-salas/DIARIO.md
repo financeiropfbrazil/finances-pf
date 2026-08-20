@@ -581,3 +581,25 @@
   - **`lote_producao` da saída = `numero` da batelada**, fechando a genealogia do §A.3.
 - **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-9`.
 - **Pendências/Sugestões:** nenhuma RPC foi chamada (§D).
+
+---
+### [SESSÃO S3 · 2026-08-20 17:12 BRT] FS2-10 — RPC `prod_registrar_refugo`
+- **Status final:** concluída
+- **O que foi executado:** os 4 statements da FS2-10, literais: `create or replace function
+  public.prod_registrar_refugo(uuid, uuid, text, uuid, numeric, text, text, uuid, text,
+  timestamptz) returns uuid` (plpgsql, `security definer`, `set search_path = public`) + os 3
+  revoke/grant com a assinatura completa de 10 parâmetros.
+- **Verificações:** `proacl` no bloco consolidado da FS2-13. Cadeia de validação, lida no fonte
+  aplicado — o ponto forte desta RPC é a **checagem cruzada motivo × tipo × papel**:
+  - motivo precisa existir e estar **ativo**; e `aplica_a` tem de bater com `p_tipo_item`
+    (ou ser `AMBOS`) — impede registrar "Rebarbas na ponteira" (motivo de PRODUTO) como refugo
+    de silicone;
+  - o produto precisa pertencer à sala, e **o papel dele na sala tem de ser igual ao
+    `tipo_item` informado** (`'Produto é % nesta sala, não %'`) — impede refugar insumo como se
+    fosse peça pronta e vice-versa;
+  - se vier `p_batelada_id`, a batelada tem de ser **daquela sala** e estar **ABERTA**;
+  - lote obrigatório só para refugo de **INSUMO** com `controla_lote` (peça pronta não exige,
+    porque o lote dela é o número da batelada).
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-10`.
+- **Pendências/Sugestões:** os 6 motivos de INSUMO estão `provisorio = true` (§F.1) — a RPC já
+  funciona com eles, e trocá-los depois é UPDATE, sem DDL e sem mexer nesta função.

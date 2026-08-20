@@ -135,7 +135,7 @@ Decisões fechadas com o Pedro (Controller, dono do projeto):
 | FS2 | FS2-7 | Permissão `salas.batelada.manage` + mapeamentos (inclui `admin`) | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-8 | RPC `prod_registrar_entrada` | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-9 | RPCs de batelada (abrir · declarar consumo · fechar) | concluída | S3 · 20/08/2026 |
-| FS2 | FS2-10 | RPC `prod_registrar_refugo` | pendente | — |
+| FS2 | FS2-10 | RPC `prod_registrar_refugo` | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-11 | RPC `prod_estornar_movimento` | pendente | — |
 | FS2 | FS2-12 | View `prod_vw_saldo_insumos` | pendente | — |
 | FS2 | FS2-13 | `NOTIFY pgrst` + verificação final | pendente | — |
