@@ -405,3 +405,37 @@
     são pré-requisito honesto para o GO da FS2.
   - `NOTIFY pgrst` foi emitido, mas o efeito no PostgREST **não é verificável por SQL** — se a
     API não enxergar as tabelas novas, o caminho é o reload pelo painel do Supabase.
+
+---
+### [SESSÃO S3 · 2026-08-20 17:00 BRT] FS2-0 — Pré-voo da fase + abertura da FS2
+- **Status final:** concluída
+- **O que foi executado:** ritual §2 (1–4). `git remote -v` = `financeiropfbrazil/finances-pf` ✔ ·
+  branch `main` ✔ · `git pull --rebase` = *Already up to date* (nada do Lovable) · árvore sem
+  modificações rastreadas. Li `README.md`, `PLANO-SALAS.md`, `FS1-9-AJUSTE-A.md`,
+  `FS2-MOVIMENTO.md` (804 linhas, íntegro) e o `DIARIO.md`. Em seguida acrescentei ao Quadro de
+  Status (§3) as **14 linhas FS2-0..FS2-13** do §B da FS2, substituindo a linha-placeholder
+  `| FS2 | — | RPCs de movimento (aguardando GO do Pedro) | bloqueada |`. As 4 consultas de
+  pré-voo do §C rodaram só em leitura.
+- **Verificações:**
+  - (a) `pg_tables` `prod\_%` → **10 linhas**: as 5 legadas (`prod_apontamento_motivos`,
+    `prod_apontamentos`, `prod_atividades`, `prod_itens`, `prod_motivos_refugo`) + as 5 da FS1
+    (`prod_entradas`, `prod_produtos`, `prod_sala_produtos`, `prod_sala_usuarios`, `prod_salas`).
+    **Nenhuma** das 5 tabelas novas desta fase existe ainda = esperado.
+  - (b) sala → **1 linha**: `PONTEIRAS` · `ativa = true` · id `17a37928-9302-4608-b24c-1774fa01bbc2`
+    = esperado.
+  - (c) produtos da sala → **6 linhas**: 5 `INSUMO` (Bário, Holder, Tensionador, Tubo de
+    Passagem, Silicone) + 1 `PRODUTO` (Sub Assembly A) = esperado.
+  - (d) permissões do módulo → **7**, e **sem** `salas.batelada.manage` = esperado.
+  - Confirmado o aviso do §C: a legada **`prod_motivos_refugo` existe e não será tocada**; a
+    tabela desta fase é `prod_sala_motivos_refugo`, nome deliberadamente diferente.
+- **Migração/Commit:** sem escrita no banco (fase de leitura).
+  Commit: `salas: FS2-0 — pré-voo OK + FS2-0..FS2-13 no quadro de status`.
+- **Pendências/Sugestões:**
+  - Registro de contexto: o cabeçalho da `FS2-MOVIMENTO.md` declara que a validação humana do §7
+    foi feita (usuário **sem `is_admin`** → `pode_entrada = true`, `pode_estornar = false`), o que
+    fecha a pendência que a S2 deixou aberta como pré-requisito do GO da FS2. Essa validação
+    **não** tem entrada própria no DIARIO (foi feita fora da sessão do agente); fica anotada aqui
+    para o rastro não se perder.
+  - **§D lido e aceito:** nenhuma RPC desta fase será chamada pelo MCP. Verificação é só de
+    estrutura; não vou criar usuário fake, alterar função nem remover checagem de sessão para
+    "testar". O teste funcional é humano, na FS3.
