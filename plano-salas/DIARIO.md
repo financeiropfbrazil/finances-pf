@@ -631,3 +631,28 @@
     **banco**. Como o `registrado_em` é `default now()` do próprio banco, não há risco de relógio
     de cliente influenciar — bom, mas vale saber ao montar o teste "depois da janela": não dá
     para forçar com relógio local, é preciso um registro realmente antigo (ou o gestor).
+
+---
+### [SESSÃO S3 · 2026-08-20 17:17 BRT] FS2-12 — View `prod_vw_saldo_insumos`
+- **Status final:** concluída
+- **O que foi executado:** o statement único da FS2-12, literal: `create view
+  public.prod_vw_saldo_insumos with (security_invoker = true) as ...` — CTE `mov` com três
+  braços em `union all`: entradas (**+**), consumos de batelada (**−**) e refugos de INSUMO
+  (**−**), agregados por sala/produto/lote com `having sum(qtd) <> 0`.
+- **Verificações:** `pg_class` → `relkind = 'v'` ✔ · `security_invoker = true` ✔ ·
+  `select count(*)` → **0 linhas** = esperado (nenhum movimento registrado ainda).
+- **Pontos do desenho que valem registro:**
+  - **`security_invoker = true` é o detalhe que importa.** Sem isso a view rodaria com os
+    direitos do dono e **furaria a RLS** das tabelas de baixo — qualquer `authenticated` leria
+    saldo de qualquer sala. Com invoker, a policy `salas.access` de cada tabela continua valendo
+    para quem consulta.
+  - **Consumo de batelada `CANCELADA` não abate** (`b.status <> 'CANCELADA'`): cancelar a
+    batelada devolve o insumo ao saldo, sem precisar estornar consumo linha a linha.
+  - **`prod_saidas` não entra na view** — e isso é proposital, não esquecimento: pelo §A.2 a peça
+    pronta não fica estocada na sala, então o saldo da sala é de **insumo**. Se um dia a sala
+    passar a guardar peça pronta, isso é frente nova (§F.3), não remendo aqui.
+  - **Refugo de PRODUTO também não abate insumo** (`r.tipo_item = 'INSUMO'` no filtro) —
+    coerente: refugar peça pronta não devolve nem consome silicone.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-12`.
+- **Pendências/Sugestões:** a view devolve `saldo_base` na **unidade base** do produto (gramas
+  para silicone e bário). A conversão para exibição em KG/UNID é decisão de UI na FS3.
