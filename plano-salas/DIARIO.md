@@ -476,3 +476,35 @@
 - **Pendências/Sugestões:** a coluna é nullable de propósito, e a RPC `prod_abrir_batelada`
   recusa sala sem prefixo (`'Sala sem prefixo de lote configurado'`). Ou seja: sala nova criada
   no futuro sem prefixo **não** gera batelada silenciosamente errada — falha com mensagem clara.
+
+---
+### [SESSÃO S3 · 2026-08-20 17:05 BRT] FS2-3 a FS2-6 — tabelas de movimento
+- **Status final:** concluídas (as 4)
+- **Janela de DDL:** o lote começou às **17:05:01** — esperei o minuto `:05` (seguro pelo §1.1)
+  em vez de emendar em `:58`, porque o `:00` cairia no meio do lote.
+- **O que foi executado (16 statements, literais, na ordem do §C):**
+  - **FS2-3 `prod_bateladas`** — tabela (com `numero` **unique**, `status` com check
+    `ABERTA|FECHADA|CANCELADA`, campos de fechamento e de cancelamento), índice
+    `prod_bateladas_abertas_ix (sala_id, status)`, RLS, policy de SELECT.
+  - **FS2-4 `prod_batelada_consumos`** — tabela (com `momento` check `ABERTURA|FECHAMENTO`,
+    conforme §A.1 — o banco aceita os dois, a escolha é de UI), índice parcial
+    `prod_batelada_consumos_bat_ix (batelada_id) where estornada_em is null`, RLS, policy.
+  - **FS2-5 `prod_saidas`** — tabela (com `lote_producao` **not null** — é o número da batelada,
+    §A.3), índice parcial `prod_saidas_sala_ix`, RLS, policy.
+  - **FS2-6 `prod_refugos`** — tabela (com `tipo_item` check `INSUMO|PRODUTO`, FK para
+    `prod_sala_motivos_refugo`, `batelada_id` **nullable** — refugo pode não estar ligado a
+    batelada), índice parcial `prod_refugos_saldo_ix`, RLS, policy.
+- **Verificações (consolidada das 5 tabelas novas da fase):**
+  | tabela | RLS | policies | índices |
+  |---|---|---|---|
+  | `prod_sala_motivos_refugo` | true | `..._select:SELECT` | `..._codigo_key`, `..._pkey` |
+  | `prod_bateladas` | true | `..._select:SELECT` | `..._abertas_ix`, `..._numero_key`, `..._pkey` |
+  | `prod_batelada_consumos` | true | `..._select:SELECT` | `..._bat_ix`, `..._pkey` |
+  | `prod_saidas` | true | `..._select:SELECT` | `..._pkey`, `..._sala_ix` |
+  | `prod_refugos` | true | `..._select:SELECT` | `..._pkey`, `..._saldo_ix` |
+  Todas com RLS ligada, **exatamente 1 policy cada e todas de SELECT** — nenhuma policy de
+  escrita, como o §1.1 exige. Todos os índices previstos presentes, mais os implícitos de PK e
+  de UNIQUE (`prod_bateladas_numero_key` vem do `unique` em `numero`, que é o que garante que
+  não existam duas bateladas com o mesmo número).
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-3..FS2-6`.
+- **Pendências/Sugestões:** —

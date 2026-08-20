@@ -128,10 +128,10 @@ Decisões fechadas com o Pedro (Controller, dono do projeto):
 | FS2 | FS2-0 | Pré-voo da fase (leituras) | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-1 | `prod_sala_motivos_refugo` + semeadura (5 peça + 6 insumo) | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-2 | `prod_salas`: ADD COLUMN `prefixo_lote` + set `PT` | concluída | S3 · 20/08/2026 |
-| FS2 | FS2-3 | `prod_bateladas` | pendente | — |
-| FS2 | FS2-4 | `prod_batelada_consumos` | pendente | — |
-| FS2 | FS2-5 | `prod_saidas` | pendente | — |
-| FS2 | FS2-6 | `prod_refugos` | pendente | — |
+| FS2 | FS2-3 | `prod_bateladas` | concluída | S3 · 20/08/2026 |
+| FS2 | FS2-4 | `prod_batelada_consumos` | concluída | S3 · 20/08/2026 |
+| FS2 | FS2-5 | `prod_saidas` | concluída | S3 · 20/08/2026 |
+| FS2 | FS2-6 | `prod_refugos` | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-7 | Permissão `salas.batelada.manage` + mapeamentos (inclui `admin`) | pendente | — |
 | FS2 | FS2-8 | RPC `prod_registrar_entrada` | pendente | — |
 | FS2 | FS2-9 | RPCs de batelada (abrir · declarar consumo · fechar) | pendente | — |
