@@ -155,3 +155,14 @@
 - **Migração/Commit:** sem entrada no histórico de migrações (mesmo motivo da FS1-1).
   Commit: `salas: FS1-2 — prod_produtos`.
 - **Pendências/Sugestões:** —
+
+---
+### [SESSÃO S1 · 2026-08-20 11:24 BRT] FS1-3 — `prod_sala_produtos`
+- **Status final:** concluída
+- **O que foi executado:** os 3 statements da FS1-3, literais, via `execute_sql`:
+  `create table public.prod_sala_produtos (...)` com FK para `prod_salas(id)` e
+  `prod_produtos(id)`, `check (papel in ('INSUMO','PRODUTO'))` e `unique (sala_id, produto_id)`;
+  `enable row level security`; policy `prod_sala_produtos_select`.
+- **Verificações:** consolidadas no SELECT de conferência ao fim das tabelas (FS1-5).
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS1-3`.
+- **Pendências/Sugestões:** —
