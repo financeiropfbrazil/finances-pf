@@ -219,3 +219,27 @@
 - **Migração/Commit:** sem entrada no histórico de migrações (DML via `execute_sql`, como manda
   o §1.1). Commit: `salas: FS1-6 — catálogo RBAC do módulo`.
 - **Pendências/Sugestões:** —
+
+---
+### [SESSÃO S1 · 2026-08-20 11:28 BRT] FS1-7 — `user_has_sala_permission` + revokes
+- **Status final:** concluída
+- **O que foi executado:** os 4 statements da FS1-7, literais, via `execute_sql`:
+  `create or replace function public.user_has_sala_permission(p_user_id uuid, p_sala_id uuid,
+  p_permission_code text) returns boolean language sql stable security definer set search_path
+  = public`; depois `revoke ... from public`, `revoke ... from anon` e `grant ... to
+  authenticated`, todos **com a assinatura completa `(uuid, uuid, text)`** (§1.1 / regra OP-2.7).
+- **Verificações:** `pg_proc` →
+  - `args` = `p_user_id uuid, p_sala_id uuid, p_permission_code text` = esperado;
+  - `prosecdef` = **true** (SECURITY DEFINER) = esperado;
+  - `proconfig` = `{search_path=public}` = esperado;
+  - `proacl` = `postgres=X/postgres | authenticated=X/postgres | service_role=X/postgres`
+    → **`anon` ausente** = esperado. A armadilha do default grant nominal a `anon`
+    (`pg_default_acl` do Supabase) foi fechada corretamente nesta função.
+  - Lógica confirmada no fonte: bypass por `profiles.is_admin` via **`profiles.user_id`**
+    (chave canônica, conforme §4) **ou** (`user_has_permission` **E** vínculo ativo em
+    `prod_sala_usuarios` com `revogado_em is null`).
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS1-7`.
+- **Pendências/Sugestões:**
+  - Lembrete para o §7.2 (validação humana): esta função **não pode ser validada pelo Pedro
+    sozinho** — ele é `is_admin` e cai no bypass da primeira linha, que devolve `true` sempre.
+    O teste que vale exige um usuário **sem** `is_admin`.
