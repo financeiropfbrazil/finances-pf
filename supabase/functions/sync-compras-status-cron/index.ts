@@ -1223,25 +1223,59 @@ async function carregarCatalogosLabels(supabase: SupabaseClient): Promise<Catalo
  *  é a origem do 100,02% medido no 0003625.
  *  `total_item` inclui impostos (C3-D): medido no 0004640, o rateio do item
  *  vale ValorTotal + ValorIPI. */
-function extrairRateiosDoItem(alvo: any, cat: CatalogosLabels): any[] {
+function extrairRateiosDoItem(
+  alvo: any,
+  cat: CatalogosLabels,
+): { linhas: any[]; avisos: string[] } {
   const itens = (alvo?.ItemPedCompChildList || []) as any[];
   const out: any[] = [];
+  const avisos: string[] = [];
   for (const it of itens) {
     if (it?.Cancelado === "Total") continue;
     const sequencia = Number(it?.Sequencia);
     if (!Number.isFinite(sequencia)) continue;
     const totalItem = round2((Number(it?.ValorTotal) || 0) + (Number(it?.ValorIPI) || 0));
-    for (const cls of (it?.ItemPedCompClasseRecdespChildList || []) as any[]) {
-      const codClasse = cls?.CodigoClasseRecDesp;
-      if (!codClasse) continue;
+    const classes = ((it?.ItemPedCompClasseRecdespChildList || []) as any[]).filter(
+      (c) => !!c?.CodigoClasseRecDesp,
+    );
+    for (const cls of classes) {
+      const codClasse = String(cls.CodigoClasseRecDesp);
+
+      // CARD C3.2 — o Alvo às vezes OMITE `Percentual` e `Valor` no nível da
+      // CLASSE do item, mandando os CCs abaixo completos (medido no 0004602:
+      // classe 16.17 com Percentual null e CCs somando 33.34+33.33+33.33).
+      // O dado não está errado; a leitura é que assumia um campo que o Alvo
+      // não garante — e o `|| 0` transformava a omissão num 0 que reprovava
+      // na guarda "classes do item somam 100,0000".
+      //   • Classe ÚNICA no item: 100 é aritmeticamente necessário — com uma
+      //     classe só não há o que dividir. Assume.
+      //   • MÚLTIPLAS classes: não há como inferir a divisão. NÃO adivinha,
+      //     deixa 0 e registra — a RPC reprova, que é o comportamento certo.
+      const pctBruto = Number(cls?.Percentual);
+      let pctClasse: number;
+      if (Number.isFinite(pctBruto) && pctBruto !== 0) {
+        pctClasse = pctBruto;
+      } else if (classes.length === 1) {
+        pctClasse = 100;
+      } else {
+        pctClasse = 0;
+        avisos.push(
+          `PERCENTUAL_CLASSE_OMITIDO: item ${sequencia}, classe ${codClasse}, ` +
+            `${classes.length} classes no item — divisão não inferível`,
+        );
+      }
+
       for (const cc of (cls?.RateioItemPedCompChildList || []) as any[]) {
         const codCc = cc?.CodigoCentroCtrl;
         if (!codCc) continue;
+        // `Valor` do CC pode vir null OU 0 (medido no 0003575). Nos dois casos
+        // a RPC deriva pelo percentual e marca `valor_derivado`. Aqui o null é
+        // preservado como null para a RPC distinguir "não veio" de "veio zero".
         out.push({
           sequencia,
-          classe: String(codClasse),
-          classe_label: cat.classes.get(String(codClasse)) ?? null,
-          percentual_classe: Number(cls?.Percentual) || 0,
+          classe: codClasse,
+          classe_label: cat.classes.get(codClasse) ?? null,
+          percentual_classe: pctClasse,
           cc: String(codCc),
           cc_label: cat.centros.get(String(codCc)) ?? null,
           percentual: Number(cc?.Percentual) || 0,
@@ -1251,7 +1285,7 @@ function extrairRateiosDoItem(alvo: any, cat: CatalogosLabels): any[] {
       }
     }
   }
-  return out;
+  return { linhas: out, avisos };
 }
 
 /** Nomes conferidos contra o parser autoritativo do open-load
@@ -1389,9 +1423,10 @@ async function persistirItensPedido(
   // service_role. Sem UNIQUE e sem upsert: repetição de (item, classe, CC) é
   // legítima (decisão D2), então o padrão é apagar os filhos e reinserir,
   // como o `limparFilhosDoPedido` do wizard já faz.
-  const rateios = extrairRateiosDoItem(alvo, cat);
+  const extracao = extrairRateiosDoItem(alvo, cat);
+  const rateios = extracao.linhas;
   const parcelas = extrairParcelasAlvo(alvo);
-  const avisos: string[] = [];
+  const avisos: string[] = [...extracao.avisos];
   let nRateios = 0;
   let nParcelas = 0;
 
@@ -1444,6 +1479,7 @@ async function completarCamposAusentes(
   ped: PedidoHub,
   alvo: any,
   cat: CatalogosLabels,
+  filhosOk: boolean,
 ): Promise<string[]> {
   const patch: Record<string, unknown> = {};
 
@@ -1451,11 +1487,20 @@ async function completarCamposAusentes(
   const parcelasPayload = extrairParcelasAlvo(alvo);
   const parcelasJsonb = montarParcelasJsonb(alvo);
   const classeRateioJsonb = montarClasseRateioJsonb(alvo);
-  const rateios = extrairRateiosDoItem(alvo, cat);
+  const rateios = extrairRateiosDoItem(alvo, cat).linhas;
 
-  if (jsonbAusente(ped.itens) && itensJsonb.length > 0) patch.itens = itensJsonb;
-  if (jsonbAusente(ped.parcelas) && parcelasJsonb.length > 0) patch.parcelas = parcelasJsonb;
-  if (jsonbAusente(ped.classe_rateio) && classeRateioJsonb.length > 0) patch.classe_rateio = classeRateioJsonb;
+  // CARD C3.2 — os três jsonb são o PROXY que o gate usa para decidir se os
+  // filhos relacionais estão faltando. Preenchê-los depois de a RPC falhar
+  // cega o gate: o pedido passa a "parecer" completo e nunca mais é
+  // reprocessado. Foi o que aconteceu com o 0004602 — jsonb populado, zero
+  // linhas de rateio. Quando os filhos falham, o proxy fica como está.
+  if (filhosOk) {
+    if (jsonbAusente(ped.itens) && itensJsonb.length > 0) patch.itens = itensJsonb;
+    if (jsonbAusente(ped.parcelas) && parcelasJsonb.length > 0) patch.parcelas = parcelasJsonb;
+    if (jsonbAusente(ped.classe_rateio) && classeRateioJsonb.length > 0) {
+      patch.classe_rateio = classeRateioJsonb;
+    }
+  }
 
   if (escalarAusente(ped.primeiro_vencimento)) {
     const pv = primeiroVencimentoDe(parcelasPayload);
@@ -1743,6 +1788,7 @@ async function syncPedidos(
       // e o pedido volta no próximo ciclo.
       const filhosAusentes =
         jsonbAusente(ped.classe_rateio) || jsonbAusente(ped.parcelas) || jsonbAusente(ped.itens);
+      let filhosOk = true;
       if (ped.detalhes_carregados !== true || filhosAusentes) {
         try {
           const r = await persistirItensPedido(supabase, ped.id, alvo, catalogos);
@@ -1759,6 +1805,7 @@ async function syncPedidos(
             });
           }
         } catch (itErr: any) {
+          filhosOk = false;
           console.error(`[sync-ped] ${ped.numero}: persistir filhos falhou:`, itErr?.message || itErr);
           result.detalhes.push({
             tipo: "ped",
@@ -1766,13 +1813,26 @@ async function syncPedidos(
             numero_alvo: ped.numero,
             erro: `c3_filhos: ${itErr?.message || itErr}`,
           });
+          // CARD C3.2 — devolve o pedido à fila explicitamente. Sem isto, um
+          // pedido que já tinha a flag `true` (todos os da geração nova têm)
+          // continuaria "carregado" apesar de os filhos não terem entrado, e
+          // dependeria só do proxy dos jsonb para voltar. A flag passa a dizer
+          // a verdade: o detalhe NÃO está completo.
+          try {
+            await supabase
+              .from("compras_pedidos")
+              .update({ detalhes_carregados: false })
+              .eq("id", ped.id);
+          } catch (flagErr: any) {
+            console.error(`[sync-ped][C3.2] ${ped.numero}: reabrir flag falhou:`, flagErr?.message || flagErr);
+          }
         }
       }
 
       // Completar ausentes roda SEMPRE e ANTES do `if (!mudou)` — pedido sem
       // mudança de status é exatamente o que nunca era revisitado.
       try {
-        const preenchidos = await completarCamposAusentes(supabase, ped, alvo, catalogos);
+        const preenchidos = await completarCamposAusentes(supabase, ped, alvo, catalogos, filhosOk);
         if (preenchidos.length > 0) {
           console.log(`[sync-ped][C3] ${ped.numero}: completados ${preenchidos.join(", ")}`);
         }
