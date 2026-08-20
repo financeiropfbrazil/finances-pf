@@ -603,3 +603,31 @@
 - **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-10`.
 - **Pendências/Sugestões:** os 6 motivos de INSUMO estão `provisorio = true` (§F.1) — a RPC já
   funciona com eles, e trocá-los depois é UPDATE, sem DDL e sem mexer nesta função.
+
+---
+### [SESSÃO S3 · 2026-08-20 17:16 BRT] FS2-11 — RPC `prod_estornar_movimento` (janela de 60 min)
+- **Status final:** concluída
+- **Janela de DDL:** iniciada às **17:16:02**, depois do `:15`.
+- **O que foi executado:** os 4 statements da FS2-11, literais: `create or replace function
+  public.prod_estornar_movimento(text, uuid, text) returns boolean` (plpgsql, `security
+  definer`, `set search_path = public`) + os 3 revoke/grant com assinatura completa.
+- **Verificações:** `proacl` no bloco consolidado da FS2-13. Desenho lido no fonte aplicado:
+  - **Uma função para 4 livros** (`ENTRADA`, `REFUGO`, `SAIDA`, `CONSUMO`), cada ramo lendo
+    `sala_id`, `registrado_por`, `registrado_em`, `estornada_em` da tabela certa. No ramo
+    `CONSUMO` a sala vem por join com `prod_bateladas` (a tabela de consumo não tem `sala_id`
+    própria) — está correto.
+  - **Regra de permissão (§A.6):** passa se tiver `salas.estornar` na sala **ou** se for
+    **o próprio autor**, dentro de **60 minutos**, **e** tiver a permissão de registrar daquele
+    tipo. As três condições do segundo braço são `and` — quem perdeu a permissão de registrar
+    não estorna nem dentro da janela.
+  - **Idempotência:** `'Registro já estornado'` se `estornada_em` não for nulo — não há estorno
+    de estorno, nem sobrescrita do autor/motivo original.
+  - **Sempre soft:** os 4 ramos fazem `update ... set estornada_em, estornada_por,
+    motivo_estorno`. **Nenhum DELETE, nenhum UPDATE de quantidade** — decisão §0.7 da FS1
+    preservada. `p_motivo` é obrigatório e não em branco.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-11`.
+- **Pendências/Sugestões:**
+  - Observação para o teste humano do §D: a janela usa `now() - registrado_em < 60 min`, tempo do
+    **banco**. Como o `registrado_em` é `default now()` do próprio banco, não há risco de relógio
+    de cliente influenciar — bom, mas vale saber ao montar o teste "depois da janela": não dá
+    para forçar com relógio local, é preciso um registro realmente antigo (ou o gestor).
