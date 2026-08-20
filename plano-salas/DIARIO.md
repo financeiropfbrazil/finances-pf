@@ -656,3 +656,43 @@
 - **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-12`.
 - **Pendências/Sugestões:** a view devolve `saldo_base` na **unidade base** do produto (gramas
   para silicone e bário). A conversão para exibição em KG/UNID é decisão de UI na FS3.
+
+---
+### [SESSÃO S3 · 2026-08-20 17:18 BRT] FS2-13 — NOTIFY pgrst + verificação final — **FS2 FECHADA**
+- **Status final:** concluída
+- **O que foi executado:** `NOTIFY pgrst, 'reload schema';` + as **6 consultas de verificação**
+  do §C, na ordem.
+- **Verificações (as 6 do §E, valores reais):**
+  | # | verificação | esperado | real | bate? |
+  |---|---|---|---|---|
+  | 1 | motivos de refugo | 5 PRODUTO def. + 6 INSUMO prov. | **PRODUTO 5 (0 prov.) · INSUMO 6 (6 prov.)** | ✅ |
+  | 2 | permissões do módulo `salas` | 8 | **8** | ✅ |
+  | 3 | 5 tabelas novas com RLS | todas `true` | **as 5 com `rowsecurity = true`** | ✅ |
+  | 4 | nenhuma policy de escrita nas tabelas do módulo | só SELECT | **as 10 tabelas do módulo só com SELECT** | ✅ (ver ressalva) |
+  | 5 | 6 funções novas, `proacl` sem `anon` | sem `anon` | **as 6 com `{postgres,authenticated,service_role}`** | ✅ |
+  | 6 | view existe e devolve 0 linhas | 0 | **0** | ✅ |
+- **CRITÉRIO DE ACEITE DA FS2 (§E): ATINGIDO.**
+- **Ressalva importante na verificação (4) — achado, não divergência:** a consulta do §C filtra
+  `tablename like 'prod\_%'`, o que **também pega as 5 tabelas legadas de teste**. Elas voltam com
+  `cmd = ALL`. Fui olhar o que essas policies permitem de fato:
+  ```
+  prod_apontamento_motivos / prod_apontamentos / prod_atividades / prod_itens / prod_motivos_refugo
+    → FOR ALL TO authenticated USING (true) WITH CHECK (true)
+  ```
+  Ou seja: **qualquer usuário autenticado do Hub (52 contas) pode ler, inserir, alterar e apagar
+  essas 5 tabelas.** Isso é **pré-existente**, anterior a este plano, e **não** foi causado por
+  nenhuma das fases FS1/FS2 — as 10 tabelas **do módulo** continuam só com SELECT, que é o que a
+  verificação (4) de fato exige. Por isso **não parei a fase**: o esperado do §C foi cumprido.
+  **Não corrigi** porque o §0.8 do plano diz que as legadas não são tocadas e o destino delas é
+  decisão do Pedro.
+  Dois motivos para isso não ficar só aqui: (a) é um buraco de escrita aberto em produção;
+  (b) como estão no mesmo prefixo `prod_*`, quem rodar a consulta (4) numa sessão futura vai ver
+  `ALL` e pode concluir, errado, que o módulo tem policy de escrita.
+- **Migração/Commit:** commit `salas: FS2-13 — verificação final OK, FS2 fechada`.
+- **Pendências/Sugestões:**
+  - **FS2 fechada ≠ FS2 validada.** Nenhuma das 6 RPCs foi executada — o §D proíbe testá-las pelo
+    MCP e eu não contornei. O que está provado é **estrutura, permissão e ACL**; o comportamento
+    (numeração da batelada, bloqueio de lote vencido, janela de 60 min, saldo) só será provado no
+    teste humano com sessão real. Vale de novo a regra da casa: *caminho feliz que nunca rodou
+    não é caminho validado*.
+  - `NOTIFY pgrst` emitido; o efeito não é verificável por SQL (mesma observação da FS1-10).

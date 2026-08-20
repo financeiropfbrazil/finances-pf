@@ -138,7 +138,7 @@ Decisões fechadas com o Pedro (Controller, dono do projeto):
 | FS2 | FS2-10 | RPC `prod_registrar_refugo` | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-11 | RPC `prod_estornar_movimento` | concluída | S3 · 20/08/2026 |
 | FS2 | FS2-12 | View `prod_vw_saldo_insumos` | concluída | S3 · 20/08/2026 |
-| FS2 | FS2-13 | `NOTIFY pgrst` + verificação final | pendente | — |
+| FS2 | FS2-13 | `NOTIFY pgrst` + verificação final | concluída | S3 · 20/08/2026 |
 | FS3 | — | Telas (aguardando GO do Pedro) | bloqueada | — |
 
 Valores de status: `pendente` · `em execução` · `concluída` · `bloqueada` · `falhou (ver DIARIO)`.
