@@ -331,3 +331,48 @@
 - **Migração/Commit:** commit junto da entrada da FS1-9.
 - **Pendências/Sugestões:** a FS1-10 só pode ser dada por concluída depois que a FS1-9 rodar.
   **Critério de aceite da FS1 (§4) NÃO atingido** — a fase continua aberta.
+
+---
+### [SESSÃO S2 · 2026-08-20 11:55 BRT] FS1-9 — Semeadura piloto (via AJUSTE A) — **concluída**
+- **Status final:** concluída
+- **Pré-voo da sessão (§2.1–2.4):** `git remote -v` = `financeiropfbrazil/finances-pf` ✔ ·
+  branch `main` ✔ · `git pull --rebase` = *Already up to date* (nada novo do Lovable) ·
+  árvore sem modificações rastreadas. Estado do banco reconferido **antes de escrever**:
+  5 tabelas FS1 ✔ · 3 funções FS1 ✔ · 7 permissões e 4 papéis `salas` ✔ ·
+  `prod_salas`/`prod_produtos`/`prod_sala_produtos` **todas com 0 linhas** — exatamente onde a
+  S1 parou, nada foi mexido entre as sessões.
+- **O que foi executado:**
+  1. **AJUSTE A Passo 1** — `select user_id from public.profiles where email =
+     'pedro.scrignoli@pfbrazil.com';` → **exatamente 1 linha** (gate do ajuste satisfeito):
+     `0b52e262-2fd2-4e84-b414-456b8eb6df65`. Coluna **`user_id`**, não `profiles.id`, conforme o aviso.
+  2. **AJUSTE A Passo 2** — INSERT em `prod_salas` com `criado_por` explícito (o uuid acima).
+  3. **FS1-9 original, statement 2** — INSERT dos 6 produtos, literal do `sql/FS1-fundacao.sql`
+     (conferi o arquivo antes: continua intacto, com o statement que falhou na S1 preservado).
+  4. **FS1-9 original, statement 3** — INSERT dos vínculos `prod_sala_produtos`, literal.
+- **Verificações:**
+  - Passo 3 do ajuste → **1 linha**: `PONTEIRAS` · `Sala de Produção de Ponteiras` · `CATETER` ·
+    `ativa = true` · `criado_por = 0b52e262-...` · `criado_em = 2026-08-20 14:55:13+00` = esperado.
+  - Produtos e vínculos (conferência detalhada, 6 linhas):
+    | codigo_alvo | alternativo | curto | base | papel | escala |
+    |---|---|---|---|---|---|
+    | 001.007.00065 | 810731 | Sub Assembly A | UNID | **PRODUTO** | UNID=1 |
+    | 001.007.00037 | 810017 | Silicone | GRAMAS | INSUMO | GRAMAS=1, KG=1000, **UNID=4540** |
+    | 001.007.00004 | 810021 | Sulfato de Bário | GRAMAS | INSUMO | GRAMAS=1, KG=1000, **UNID=450** |
+    | 001.007.00025 | 810020 | Tensionador | UNID | INSUMO | **UNID=1 (só)** |
+    | 001.007.00033 | 810086 | Tubo de Passagem | UNID | INSUMO | UNID=1 |
+    | 001.007.00012 | **810076** | Holder | UNID | INSUMO | UNID=1 |
+    Os 6 com `controla_lote = true`, `permite_lote_vencido = false`, `gera_lote_automatico = true`.
+  - Três pontos do §0 conferidos um a um, porque são exatamente os que dariam erro silencioso:
+    (a) **Tensionador com apenas `UNID`** — a escala KG invertida no ERP ficou **de fora**, como
+    manda o §0.5; (b) **Holder = `810076`**, não `810086` — a correção do erro de digitação da
+    planilha (§0.2) está honrada, e o `810086` aparece só no Tubo de Passagem, onde é correto;
+    (c) **só o Sub Assembly A entrou como PRODUTO** — o Sub Assembly F continua fora (§0.3).
+- **Migração/Commit:** sem entrada no histórico de migrações (DML via `execute_sql`).
+  Commit: `salas: FS1-9 — semeadura do piloto concluída (AJUSTE A)`.
+- **Pendências/Sugestões:**
+  - Observação de fingerprint: o CLAUDE.md registra `compras_pedidos ~1.650` como impressão
+    digital do projeto; hoje o count é **1906**. Crescimento normal do sync do ERP — o número no
+    CLAUDE.md está defasado, não é divergência de projeto. A identidade do projeto foi confirmada
+    por evidência bem mais específica (as 5 tabelas e 3 funções que **esta** frente criou na S1).
+    Vale atualizar o número no CLAUDE.md numa próxima passada, ou trocá-lo por um fingerprint que
+    não envelhece.
