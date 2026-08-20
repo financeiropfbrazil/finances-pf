@@ -120,7 +120,7 @@ Decisões fechadas com o Pedro (Controller, dono do projeto):
 | FS1 | FS1-3 | `prod_sala_produtos` | concluída | S1 · 20/08/2026 |
 | FS1 | FS1-4 | `prod_sala_usuarios` | concluída | S1 · 20/08/2026 |
 | FS1 | FS1-5 | `prod_entradas` | concluída | S1 · 20/08/2026 |
-| FS1 | FS1-6 | Catálogo RBAC (7 perms, 4 papéis, admin) | pendente | — |
+| FS1 | FS1-6 | Catálogo RBAC (7 perms, 4 papéis, admin) | concluída | S1 · 20/08/2026 |
 | FS1 | FS1-7 | `user_has_sala_permission` + revokes | pendente | — |
 | FS1 | FS1-8 | RPCs vínculo equipe + revokes | pendente | — |
 | FS1 | FS1-9 | Semeadura piloto (sala + 6 produtos + vínculos) | pendente | — |

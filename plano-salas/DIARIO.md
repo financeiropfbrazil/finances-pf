@@ -198,3 +198,24 @@
   que é o desenho do §4 (a escrita só existirá pelas RPCs da FS2).
 - **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS1-5`.
 - **Pendências/Sugestões:** —
+
+---
+### [SESSÃO S1 · 2026-08-20 11:28 BRT] FS1-6 — Catálogo RBAC (7 perms, 4 papéis, admin)
+- **Status final:** concluída
+- **O que foi executado:** os 7 statements da FS1-6, literais, na ordem, via `execute_sql`:
+  (1) `insert into hub_permissions` com as 7 permissões do módulo `salas`;
+  (2) `insert into hub_roles` com os 4 papéis (`is_system = false`);
+  (3–6) mapeamentos `operador_salas` (4), `qualidade_salas` (3), `gestor_salas` (todas do módulo),
+  `visualizador_salas` (2), todos com guarda `not exists` (idempotentes);
+  (7) mapeamento das 7 permissões do módulo ao papel **`admin`** — a lição do 42/55.
+- **Verificações:**
+  - `hub_permissions where modulo='salas'` → **7** = esperado.
+  - Contagem por papel → `gestor_salas` **7** · `operador_salas` **4** · `qualidade_salas` **3** ·
+    `visualizador_salas` **2** = esperado (§4).
+  - `admin` × permissões de `salas` → **7** = esperado.
+  - Totais do catálogo: **66 permissões** (59 do baseline + 7) e **18 papéis** (14 + 4) —
+    batem com o baseline medido no pré-voo, o que confirma que **nada além do previsto** foi
+    inserido.
+- **Migração/Commit:** sem entrada no histórico de migrações (DML via `execute_sql`, como manda
+  o §1.1). Commit: `salas: FS1-6 — catálogo RBAC do módulo`.
+- **Pendências/Sugestões:** —
