@@ -243,3 +243,30 @@
   - Lembrete para o §7.2 (validação humana): esta função **não pode ser validada pelo Pedro
     sozinho** — ele é `is_admin` e cai no bypass da primeira linha, que devolve `true` sempre.
     O teste que vale exige um usuário **sem** `is_admin`.
+
+---
+### [SESSÃO S1 · 2026-08-20 11:31 BRT] FS1-8 — RPCs de vínculo de equipe + revokes
+- **Status final:** concluída
+- **O que foi executado:** os 8 statements da FS1-8, literais, via `execute_sql`, iniciados às
+  **11:31** (esperei o minuto `:30` passar — cron da casa, §1.1):
+  `create or replace function public.prod_sala_usuario_vincular(uuid, uuid, text) returns uuid`
+  (plpgsql, security definer, `search_path = public`; gate `salas.cadastros.manage`; recusa sala
+  inexistente/inativa; recusa vínculo duplicado);
+  `create or replace function public.prod_sala_usuario_revogar(uuid, uuid, text) returns boolean`
+  (mesmo gate; **soft-delete** via `revogado_em/revogado_por`, nunca DELETE — decisão §0.7;
+  erro `Vínculo ativo não encontrado` quando `not found`);
+  seguidos dos 6 `revoke`/`grant` com assinatura completa `(uuid, uuid, text)`.
+- **Verificações:** `pg_proc` para as **3** funções novas do módulo:
+  | função | secdef | proconfig | proacl | anon? |
+  |---|---|---|---|---|
+  | `user_has_sala_permission` | true | `search_path=public` | postgres, authenticated, service_role | **não** |
+  | `prod_sala_usuario_vincular` | true | `search_path=public` | postgres, authenticated, service_role | **não** |
+  | `prod_sala_usuario_revogar` | true | `search_path=public` | postgres, authenticated, service_role | **não** |
+  = esperado. Esta é, na prática, a verificação final da FS1-10 sobre `proacl` já satisfeita.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS1-8`.
+- **Pendências/Sugestões:**
+  - Observação de desenho (não é defeito, não age sobre ela): as duas RPCs gateiam por
+    `user_has_permission` **global**, não por `user_has_sala_permission`. Ou seja, quem tem
+    `salas.cadastros.manage` gere equipe de **qualquer** sala, não só das suas. É coerente com o
+    §0.6 ("papel dá o verbo, vínculo dá o lugar" vale para o operador, não para o gestor de
+    cadastros), mas registro para o Pedro confirmar quando houver mais de uma sala.
