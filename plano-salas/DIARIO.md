@@ -57,3 +57,64 @@
     devolve `11:15:33` BRT / `14:15` UTC. Como a **janela de DDL do §1.1 é definida em minutos
     de cron BRT**, adotei o **relógio do banco** como autoridade para timestamps e para a
     checagem de janela. Registrado porque induziria erro em qualquer sessão futura.
+
+---
+### [SESSÃO S1 · 2026-08-20 11:18 BRT] CORREÇÃO da entrada FS1-0 — diagnóstico do relógio
+- **Status final:** concluída (correção de registro; nada no banco)
+- **O que foi executado:** nova medição dos três relógios após o registro anterior.
+- **Verificações:**
+  - `date` (sem TZ) → `11:17:47` = **BRT**, bate com o banco.
+  - `TZ=America/Sao_Paulo date` → `14:15` = **UTC**.
+  - Banco: `now()` = `14:15 UTC`; `now() at time zone 'America/Sao_Paulo'` = `11:15 BRT`.
+- **Correção:** a entrada FS1-0 afirmou que *"a máquina está efetivamente em UTC"*. **Isso está
+  errado.** A máquina está em **BRT** e o `date` puro devolve a hora certa. O que falha é
+  **passar `TZ=` explicitamente no Git Bash** (sem tzdata, cai silenciosamente para UTC) —
+  ou seja, a variável de ambiente que *deveria* garantir o fuso é justamente o que o quebra.
+  A conclusão operacional da entrada anterior (**usar o relógio do banco como autoridade**)
+  continua válida e segura; só o diagnóstico da causa estava invertido.
+- **Migração/Commit:** sem migração. Commit junto da tarefa seguinte.
+- **Pendências/Sugestões:** em sessões futuras, para hora local usar `date` **sem** `TZ=`, ou o
+  banco. Minutos de BRT e UTC coincidem (offset de horas inteiras), então a checagem de janela
+  de DDL por minuto é válida nos dois relógios.
+
+---
+### [SESSÃO S1 · 2026-08-20 11:18 BRT] ACHADO PRÉVIO (pré-FS1-9) — `auth.uid()` é NULL no MCP
+- **Status final:** registrado (achado; ainda não é a execução da FS1-9)
+- **O que foi executado:** leitura `select auth.uid(), current_user, session_user`.
+- **Verificações:** `auth.uid()` → **NULL** · `current_user` / `session_user` → **`postgres`**.
+  A sessão do MCP é **não autenticada** (mesmo comportamento do SQL editor descrito no CLAUDE.md).
+- **Achado:** `prod_salas.criado_por` é declarada `uuid **not null** default auth.uid()`
+  (FS1-1) e o INSERT de semeadura da **FS1-9** **não informa** `criado_por`. Executado via MCP,
+  o default resolve para NULL ⇒ **violação de NOT NULL**. Ou seja: a FS1-9, do jeito que está
+  escrita, **não pode passar** pelo meio de execução que o próprio plano manda usar (§1.1).
+  O mesmo padrão existe em `prod_sala_usuarios.atribuido_por` (`not null default auth.uid()`),
+  mas ali é inofensivo: só é populada pela RPC `prod_sala_usuario_vincular`, que roda com
+  usuário autenticado.
+- **Conduta:** **não vou improvisar correção** (§1.1). Sigo a ordem do plano; ao chegar na
+  FS1-9 executo o statement como está, e se falhar registro o erro literal e PARO (§1.3).
+- **Pendências/Sugestões:** decisão do Pedro. Opções, sem recomendação aplicada:
+  (i) semear `criado_por` explicitamente com o uuid do Pedro; (ii) tornar `criado_por` nullable;
+  (iii) semear via SQL editor autenticado/RPC. Qualquer uma entra como **seção nova** no plano.
+
+---
+### [SESSÃO S1 · 2026-08-20 11:20 BRT] FS1-0b — Canário de escrita MCP
+- **Status final:** concluída
+- **O que foi executado:** os 4 statements do `sql/FS1-fundacao.sql`, um a um, via `execute_sql`,
+  iniciados às **11:20:00 BRT** (minuto `:20` = janela segura do §1.1; esperei de propósito,
+  o relógio estava em `:16`, logo após o cron de `:15`).
+  `create table public.prod_zz_agent_canary (id int primary key, nota text);` →
+  `insert ... values (1,'mcp write ok');` → `select *;` → `drop table ...;`
+  Uso de `execute_sql` (e não `apply_migration`) por ser objeto descartável: registrar um
+  canário no histórico de migrações seria ruído permanente.
+- **Verificações:**
+  - `select *` → **1 linha** `{id: 1, nota: "mcp write ok"}` = esperado.
+  - Pós-`drop`, `pg_tables` `prod\_%` → de volta às **5 legadas**, sem resíduo do canário = esperado.
+  - Conclusão: **MCP confirmado em modo escrita** (DDL + DML) no projeto correto — desta vez
+    o canário rodou **depois** do fingerprint de conteúdo da FS1-0(a), então a prova de escrita
+    e a prova de projeto estão encadeadas na ordem certa.
+- **Migração/Commit:** sem migração (por decisão acima). Commit: `salas: FS1-0b — canário de escrita`.
+- **Pendências/Sugestões:**
+  - Nota de rastreabilidade: um canário idêntico já havia sido rodado nesta mesma máquina hoje
+    às **11:02 BRT**, a pedido direto do Pedro, **antes** de o plano existir e **sem** fingerprint
+    de projeto prévio. Aquele teste provou escrita, mas não provava *em qual projeto*. Esta
+    execução FS1-0b é a que vale para o plano.
