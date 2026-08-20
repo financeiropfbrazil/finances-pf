@@ -113,7 +113,7 @@ Decisões fechadas com o Pedro (Controller, dono do projeto):
 
 | Fase | Tarefa | Descrição | Status | Sessão/Data |
 |---|---|---|---|---|
-| FS1 | FS1-0 | Pré-voo (leituras) | pendente | — |
+| FS1 | FS1-0 | Pré-voo (leituras) | concluída | S1 · 20/08/2026 |
 | FS1 | FS1-0b | Canário de escrita MCP | pendente | — |
 | FS1 | FS1-1 | `prod_salas` | pendente | — |
 | FS1 | FS1-2 | `prod_produtos` | pendente | — |
