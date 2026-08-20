@@ -166,3 +166,35 @@
 - **Verificações:** consolidadas no SELECT de conferência ao fim das tabelas (FS1-5).
 - **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS1-3`.
 - **Pendências/Sugestões:** —
+
+---
+### [SESSÃO S1 · 2026-08-20 11:26 BRT] FS1-4 — `prod_sala_usuarios`
+- **Status final:** concluída
+- **O que foi executado:** os 4 statements da FS1-4, literais, via `execute_sql`, iniciados às
+  **11:26** (esperei o minuto `:25` passar — cron da casa, §1.1): `create table
+  public.prod_sala_usuarios (...)`; `create unique index prod_sala_usuarios_ativo_uq on
+  (sala_id, user_id) where revogado_em is null;`; `enable row level security`; policy
+  `prod_sala_usuarios_select`.
+- **Verificações:** RLS `true` · policy única `prod_sala_usuarios_select:SELECT:authenticated` ·
+  índices `prod_sala_usuarios_ativo_uq`, `prod_sala_usuarios_pkey` = esperado. O índice único
+  **parcial** é o que garante "um vínculo ativo por (sala, usuário)" permitindo histórico de
+  revogações — confirmado presente.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS1-4`.
+- **Pendências/Sugestões:** —
+
+---
+### [SESSÃO S1 · 2026-08-20 11:27 BRT] FS1-5 — `prod_entradas` (o livro)
+- **Status final:** concluída
+- **O que foi executado:** os 5 statements da FS1-5, literais, via `execute_sql`:
+  `create table public.prod_entradas (...)` (20 colunas, checks `quantidade > 0` e
+  `quantidade_base > 0`, campos de soft-estorno `estornada_em/por`, `motivo_estorno`);
+  `create index prod_entradas_saldo_ix on (sala_id, produto_id) where estornada_em is null;`;
+  `create index prod_entradas_registrado_ix on (registrado_em);`; `enable row level security`;
+  policy `prod_entradas_select`.
+- **Verificações:** RLS `true` · policy única `prod_entradas_select:SELECT:authenticated` ·
+  índices `prod_entradas_pkey`, `prod_entradas_registrado_ix`, `prod_entradas_saldo_ix` = esperado.
+- **Verificação consolidada das 5 tabelas (FS1-1..FS1-5):** todas com `relrowsecurity = true`,
+  **exatamente 1 policy de SELECT para `authenticated` cada** e **nenhuma policy de escrita** —
+  que é o desenho do §4 (a escrita só existirá pelas RPCs da FS2).
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS1-5`.
+- **Pendências/Sugestões:** —
