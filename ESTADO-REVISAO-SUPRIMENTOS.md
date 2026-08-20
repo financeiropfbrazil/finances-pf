@@ -1,5 +1,5 @@
 # ESTADO-REVISAO-SUPRIMENTOS
-### Estado vivo da missão · última atualização: 19/08/2026, fim do dia
+### Estado vivo da missão · última atualização: 20/08/2026, após o C3.2
 
 > **Leia este arquivo ANTES de qualquer coisa nesta missão.** Ele registra o que foi
 > executado, o que foi medido e — principalmente — **onde a documentação está errada**.
@@ -12,175 +12,227 @@
 
 ---
 
-## 1. Cards concluídos (19/08/2026)
+## 1. Cards concluídos
 
 | Card | O que foi feito | Validação |
 |---|---|---|
-| **F0** | `Produto/SavePartial` removido da whitelist do passthrough; routers MCP auditados (estão fechados: JWKS + lookup em `profiles`); `cost_centers` sincronizado à mão | — |
-| **A1** | Open-load de pedidos migrado para `GET /ped-comp/:filial/:numero` com JWT Supabase (commit `80bf323`) | Operadora sem credenciais locais abriu pedidos sem erro |
-| **B1** | Detalhe da requisição liberado para líder do CC, exceto rascunho alheio (commit `f40029c`) | Guilherme (líder de TI, sem `is_admin`) abriu e **rejeitou** pela tela |
-| **B3** | `EXECUTE` revogado de `public`+`anon` nas 5 RPCs; `_req_evento` fechada também para `authenticated` | V1: `anon_pode=false` nas cinco; `auth_pode=false` só em `_req_evento` |
-| **B4** | Auditoria append-only pela **Seção 3-ALT** (mantém INSERT, revoga UPDATE/DELETE) | V3/V4 conferidos; V5 mostrou eventos novos gravados pelas duas vias |
-| **C1** | Tabela `compras_pedidos_anchor` criada; âncoras `S1-t0` e `S1-t1` capturadas | 1.898 pedidos em cada |
-| **C2 + B2** | Fila do cron alinhada à contagem (`not.is.true` cobre false e null); `'rejeitada'` acrescentado a `STATUS_TERMINAIS` | 6+ ciclos com **zero erros**; drenagem 415 → 57 |
+| **F0** | `Produto/SavePartial` fora da whitelist do passthrough; routers MCP auditados (fechados: JWKS + lookup em `profiles`); `cost_centers` sincronizado à mão | — |
+| **A1** | Open-load migrado para `GET /ped-comp/:filial/:numero` com JWT Supabase (`80bf323`) | Operadora sem credenciais locais abriu pedidos sem erro |
+| **B1** | Detalhe da requisição liberado ao líder do CC, exceto rascunho alheio (`f40029c`) | Guilherme (líder de TI, sem `is_admin`) abriu e **rejeitou** pela tela |
+| **B3** | `EXECUTE` revogado de `public`+`anon` nas 5 RPCs; `_req_evento` fechada também para `authenticated` | V1: `anon_pode=false` nas cinco |
+| **B4** | Auditoria append-only pela **Seção 3-ALT** (mantém INSERT, revoga UPDATE/DELETE) | V3/V4/V5 conferidos |
+| **C1** | `compras_pedidos_anchor` criada; rodadas `S1-t0`, `S1-t1` e **`C3-t0`** (esta com os 7 valores em colunas) | 1.898 → 1.902 pedidos |
+| **C2 + B2** | Fila do cron alinhada à contagem (`not.is.true`); `'rejeitada'` em `STATUS_TERMINAIS` | 6+ ciclos, zero erros; drenagem 415 → 57 |
+| **C3** | Cron passa a gravar rateio por item + parcelas + completar cabeçalho; RPC transacional `sync_replace_filhos_pedido` | Ver §5 |
+| **C3.2** | Percentual de classe única ausente + gate de reprocesso (`105e1fb`) | Ver §5 |
 
-**Próximo card: C3.** Depois: E1/E2/E3 (data-fix) e Bloco D.
+**Próximo: Bloco E (backfill).** Ver §6 — é a maior parte do passivo.
 
 ---
 
 ## 2. 🔴 Correções de fato — a documentação está errada nestes pontos
 
-1. **O cron de compras se chama `bicephalous`** no campo `job_type` de `sync_runs`. Não
-   existe `job_type = 'compras'`. Job pg_cron: `sync-compras-status-cron-hourly`.
-2. **Ele roda DE HORA EM HORA**, das 11h às 20h UTC em dias úteis (8h–17h BRT) — cerca de
-   **10 ciclos por dia**. As "janelas do cron 07h30 / 12h30 / 16h30 BRT" que o plano e a
-   `MISSAO-SYNC-PEDIDOS` repetem **são de outros jobs** (despesas, docfin, intercompany).
-   Para deployar esta Edge, escolher um horário logo após uma hora cheia.
-3. **Não existe coluna `excluido_alvo`** em `compras_pedidos`. A spec e o plano falam dela
-   como se existisse. As únicas colunas com esse teor são `data_aprovacao_alvo`,
-   `data_digitacao_alvo` e `synced_at`. **Antes de escrever qualquer lógica de exclusão,
-   descobrir como o cross-check realmente marca isso.**
+1. **O cron de compras se chama `bicephalous`** no `job_type` de `sync_runs`. Job pg_cron:
+   `sync-compras-status-cron-hourly`.
+2. **Roda DE HORA EM HORA**, 11h–20h UTC em dias úteis (8h–17h BRT), ~10 ciclos/dia. As
+   janelas "07h30 / 12h30 / 16h30 BRT" do plano **são de outros jobs**.
+3. **`excluido_alvo` NÃO é coluna** — é **valor do enum `status_local`**, gravado por
+   `avaliarExclusaoPedido` só com o cross-check completo (lista OK, data na janela,
+   número ausente). *(Corrigido: a versão anterior deste arquivo dizia que a marcação não
+   existia.)*
 4. **`compras_pedidos_auditoria` NÃO registra valores** — só status, aprovação, comprado e
-   próximo aprovador (`status_anterior/novo` etc.). Não serve para investigar mudança de
-   campo monetário.
-5. **`sync_runs` não tem coluna `job`** — é `job_type`. E `elegiveis_sem_limit` mora em
-   `detalhes->>'elegiveis_sem_limit'`.
+   próximo aprovador.
+5. **`sync_runs` não tem coluna `job`** — é `job_type`. E **`detalhes` é um ARRAY na raiz**:
+   para varrer erros use `jsonb_array_elements(detalhes)`. O `elegiveis_sem_limit` aparece
+   no texto de `observacao`.
 6. **`compras_pedidos_itens` usa `valor_total_item`**, não `valor_total`.
-7. **A auditoria de REQUISIÇÕES é escrita majoritariamente pelo frontend** (887 de 933
-   linhas), não pelas RPCs — ver `AJUSTE-RS-B4.md`. Foi por isso que a especificação
-   original do B4 foi substituída pela 3-ALT.
+7. **A auditoria de REQUISIÇÕES é escrita majoritariamente pelo frontend** (887 de 933) —
+   ver `AJUSTE-RS-B4.md`.
+8. 🔴 **Todo número de população neste documento envelhece a cada ciclo do cron.**
+   O cron roda de hora em hora e move as contagens de fila, rateio, parcelas e passivo.
+   **Remedir antes de citar** — e **nunca reconciliar por aritmética**. O exemplo é a
+   decomposição dos 464 fora da fila, escrita como `450 + 14` para fechar a conta: a
+   medição real é **457 terminais + 4 pelo corte de 180 dias + 3 `excluido_alvo`**, e a
+   terceira causa nem aparecia no texto. Número ajustado para fechar soma vira
+   investigação perdida na sessão seguinte. Por isso cada medição abaixo leva a data e a
+   hora em que foi tirada.
 
 ---
 
 ## 3. Âncora — como usar
 
-**A âncora vigente é `S1-t1`** (capturada 19/08 20:11 UTC, 1.898 pedidos).
-A `S1-t0` está **queimada**: acusa 116 alterações legítimas do C2 e fica só como registro
-histórico. Não usar.
+**Vigente: `C3-t0`** (20/08 12:26 UTC, 1.902 pedidos, **com os 7 valores em colunas**).
+`S1-t0` e `S1-t1` são hash-only e estão queimadas — só registro histórico.
 
-**Verificação (rodar depois de QUALQUER intervenção no sync) — sucesso = zero linhas:**
-
-```sql
-select p.numero
-from public.compras_pedidos p
-join public.compras_pedidos_anchor a on a.pedido_id = p.id and a.rodada = 'S1-t1'
-where a.hash_valores <> md5(concat_ws('|', p.valor_total::text,
-      p.valor_mercadoria::text, p.valor_servico::text, p.valor_frete::text,
-      p.valor_desconto::text, p.valor_ipi::text, p.valor_outras_despesas::text));
-```
-
-⚠️ **Linha não-zero NÃO significa corrupção.** Significa "algum dos 7 campos mudou" — e
-`NULL` virando valor legítimo também muda o hash. Foi o que aconteceu no C2: 116 pedidos
-acusados, **todos** benignos (o Load preencheu campos que nunca tinham sido carregados).
-O teste que separa benigno de corrupção — **tem de dar zero**:
+**Verificação campo a campo (sucesso = zero linhas):**
 
 ```sql
-select count(*) as inconsistentes
+select p.numero, p.valor_total, a.valor_total as anc_total,
+       p.valor_ipi, a.valor_ipi as anc_ipi,
+       p.valor_outras_despesas, a.valor_outras_despesas as anc_outras, p.updated_at
 from public.compras_pedidos p
-join public.compras_pedidos_anchor a on a.pedido_id = p.id and a.rodada = 'S1-t1'
-where a.hash_valores <> md5(concat_ws('|', p.valor_total::text,
-      p.valor_mercadoria::text, p.valor_servico::text, p.valor_frete::text,
-      p.valor_desconto::text, p.valor_ipi::text, p.valor_outras_despesas::text))
-  and abs(p.valor_total - (coalesce(p.valor_mercadoria,0) + coalesce(p.valor_servico,0)
-      + coalesce(p.valor_frete,0) + coalesce(p.valor_ipi,0)
-      + coalesce(p.valor_outras_despesas,0) - coalesce(p.valor_desconto,0))) > 0.01;
+join public.compras_pedidos_anchor a on a.pedido_id = p.id and a.rodada = 'C3-t0'
+where p.valor_total is distinct from a.valor_total
+   or p.valor_mercadoria is distinct from a.valor_mercadoria
+   or p.valor_servico is distinct from a.valor_servico
+   or p.valor_frete is distinct from a.valor_frete
+   or p.valor_desconto is distinct from a.valor_desconto
+   or p.valor_ipi is distinct from a.valor_ipi
+   or p.valor_outras_despesas is distinct from a.valor_outras_despesas;
 ```
 
-**Melhoria pendente:** guardar os 7 valores em colunas próprias, não só o hash — hoje a
-verificação diz *que* mudou, não *o quê*. Fazer antes do C3.
+⚠️ **Linha não-zero NÃO é corrupção por si só.** `NULL` virando valor legítimo também
+conta. Padrão já visto duas vezes: pedido novo/nunca visitado entra com `valor_ipi` e
+`valor_outras_despesas` nulos e o Load preenche com zero. **Com a `C3-t0` isso se
+diagnostica em segundos** — as colunas mostram qual campo mudou e de quanto. Se o
+`valor_total` mudar sem correspondência no Alvo, aí sim é problema.
+
+ℹ️ A âncora cobre **1.902** pedidos; o Hub já tem **1.904** (medido 20/08 13:20 UTC).
+Pedido descoberto depois da captura não tem linha na âncora e, portanto, não é coberto
+pela verificação — não é falha, é o recorte da rodada.
 
 ---
 
-## 4. Estado medido do módulo (19/08/2026, fim do dia)
+## 4. Estado medido (todas as linhas: **medido 20/08 13:20 UTC**)
 
-- **1.898 pedidos** no Hub.
-- **Fila do cron:** ~507 candidatos por ciclo, `elegiveis_sem_limit` ~771,
-  `PED_BATCH_SIZE = 100`, ordenada por `synced_at asc`, chunks de 5 com 200 ms.
-- **Terminais sem detalhe:** 415 → **57** após a drenagem manual (7 ciclos por
-  "Rodar Agora"). Os 57 **pararam de cair**, com zero erros nos ciclos.
-  Hipótese principal: ficam fora da fila por um **corte de ~180 dias** (todos são de
-  nov/2025 a jan/2026, com `updated_at` de 31/03/2026, de alguma carga histórica).
-  **Confirmar no C3**; se for isso, ficam para o backfill (Bloco E).
-- **`compras_pedidos_itens_rateio`:** vazia para todos os pedidos verificados —
-  nunca foi populada por nenhum caminho, em nenhuma geração.
-- **`compras_pedidos_parcelas`:** idem, mesmo para pedidos cujo jsonb `parcelas` tem 10
-  linhas.
-- **Requisições:** 0 em `pendente_aprovacao` no momento; 14 CCs mapeados de 80 ativos,
-  3 líderes.
+- **1.904 pedidos** no Hub *(medido 20/08 13:20 UTC)*.
+- **Fila do Job 2: 407 elegíveis**, `PED_BATCH_SIZE = 100`, ordem `synced_at asc`
+  *(medido 20/08 13:20 UTC)*.
+- **`compras_pedidos_itens_rateio`: 637 linhas** em **296 pedidos**, dos quais **46** com
+  `valor_derivado = true`. Estava **vazia** em 19/08 *(medido 20/08 13:20 UTC)*.
+- **`compras_pedidos_parcelas`: 708 linhas.** Estava **vazia** em 19/08
+  *(medido 20/08 13:20 UTC)*.
+- **Terminais sem detalhe: 57**, parados — 56 fora do corte de ~180 dias; 1 é o `0004370`,
+  padrão de Load 404 permanente *(medido 20/08 13:20 UTC)*.
+- **1.164 pedidos** com `classe_rateio` jsonb cheio e relacional vazio — a geração antiga,
+  **invisível ao cron**. É o Bloco E *(medido 20/08 13:20 UTC)*.
+- **8 pedidos com `status` NULL** *(medido 20/08 13:20 UTC)*.
 
 ---
 
-## 5. Caso-teste canônico do C3
+## 5. C3 e C3.2 — o que foi aprendido
 
-**Pedido 0004640** (11/08/2026, WATERS TECHNOLOGIES, R$ 114.639,99).
+### O que a RPC faz
+`sync_replace_filhos_pedido(p_pedido_id, p_rateios, p_parcelas)` — `SECURITY DEFINER`,
+`search_path=public`, EXECUTE só para `service_role`. Valida percentual (100,0000 por
+(item,classe) e por item), apaga os filhos **daquele pedido** e reinsere, na mesma
+transação. Sem UNIQUE e sem upsert: repetição (item, classe, CC) é legítima.
+Valor: usa o do Alvo quando existe; deriva pelo percentual quando vem null/0, marcando
+`valor_derivado = true`, com residual na última linha de cada item.
 
-*No Hub hoje:* 2 itens normalizados (60.307,32 + 45.286,57 = 105.593,89), **0 rateios**,
-**0 parcelas**, `itens`/`parcelas`/`classe_rateio` = `[]`, `classe_rec_desp` nulo,
-`cnpj_entidade` nulo, `nome_cond_pag` nulo, `primeiro_vencimento` nulo,
-`detalhes_carregados = true`.
+### Defeito 1 (corrigido no C3.2) — percentual de classe omitido
+O Alvo às vezes manda `Percentual: null` **no nível da classe do item**, com os CCs
+completos e o cabeçalho preenchido. Caso real: 0004602 (classe 16.17, CCs
+33.34/33.33/33.33). A extração virava 0 e a validação reprovava.
+Correção: **classe única com percentual null/0 → assumir 100** (aritmeticamente
+necessário). Múltiplas classes → não adivinhar; aviso nomeado.
+*Medido: os 2 casos multiclasse da base têm uma classe em 100% e outra em 0%, então a soma
+fecha e a RPC aceita. Nenhum caso exige inferir divisão.*
 
-*No Alvo (Load conferido):* rateio por item, classe **19.02**, CC **00008.00001.00006**,
-100%; valores 69.353,42 (item 1, **inclui IPI de 9.046,10**) + 45.286,57 = 114.639,99.
+### Defeito 2 (corrigido no C3.2) — falha silenciosa que se auto-encobria
+Quando a RPC falhava, `completarCamposAusentes` **preenchia os jsonb assim mesmo**. Como o
+gate usa os jsonb como proxy do relacional, o pedido passava a parecer completo e **nunca
+mais seria reprocessado**, nem após a correção. Foi o que aconteceu com o 0004602.
+Correção: `filhosOk` controla o preenchimento dos jsonb, e a falha grava
+`detalhes_carregados = false`.
 
-*Critério de aprovação:* após um ciclo, 2 linhas em `compras_pedidos_itens_rateio` com
-essa classe e CC, percentual 100,0000 por item, soma = 114.639,99, `classe_rec_desp`
-preenchido, jsonb da transição populados. **`valor_total` não pode mudar.**
+### Validação (20/08, ciclo manual)
+`0004602` → 3 linhas, classe 16.17, 33.34/33.33/33.33, valores derivados
+17.153,43 + 17.148,29 + 17.148,28 = **51.450,00** = `valor_total`. ✅
+`0004640` → 2 linhas, classe 19.02, CC 00008.00001.00006, 100% em cada,
+69.353,42 + 45.286,57 = **114.639,99** = `valor_total`, `valor_derivado = false`. ✅
+*(o item 1 tem rateio 69.353,42 contra `valor_total_item` 60.307,32 — a diferença é o IPI
+de 9.046,10. Validar rateio contra o valor do item **sem** impostos rejeitaria este pedido
+indevidamente.)*
+Âncora `C3-t0`: 3 pedidos acusados, **todos benignos** (0004707/08/09, descobertos após a
+captura, `valor_ipi` e `valor_outras_despesas` de null → 0).
 
-**Outros casos úteis:** `0003406` (2 itens, 3 parcelas, 1 anexo, classe 11.05, CC
-00001.00005.00006 — Load completo já conferido) · `0003056` (7 itens, geração antiga) ·
-`0003625` (12 linhas de rateio, 2 classes, o único com divergência de centavos entre
-cabeçalho e item) · `0004453` (R$ 128.929,14 **sem nenhum CC** — o exemplo do tamanho do
-problema).
+### Truque operacional
+`synced_at = null` joga o pedido para o **topo** da fila (ordem `asc`, nulo primeiro).
+Combinado com `detalhes_carregados = false`, força o reprocesso imediato de um pedido
+específico — usado para validar o 0004602 e o 0004640 sem esperar vários ciclos.
+Não toca status nem valores, então a âncora segue protegida.
 
 ---
 
-## 6. Decisões vigentes (resumo; os arquivos mandam)
+## 6. Bloco E — o passivo (próximo trabalho)
 
-`AJUSTE-RS-C3.md` — rateio do **item** é canônico · gravar `Valor` em reais (coluna nova) ·
-validar contra total **com impostos** · `compras_pedidos.centro_custo` não é fonte de
-relatório por CC · **envio do Hub já está correto**, não mexer.
+*(toda esta seção: **medido 20/08 13:20 UTC**)*
 
-`AJUSTE-RS-C3.1.md` — "ausente" inclui **`[]`**, não só NULL (crítico: com `is null` o C3
-não corrige nada) · `Valor` do item pode vir **0** (validação forte é percentual, com
-fallback derivado) · backfill em **duas trilhas** (jsonb → relacional para os antigos;
-Load para os novos) · `centro_custo` preenchido com `classe_rec_desp` nulo prova origem
-diferente.
+**492 pedidos** com filhos ausentes. Destes, o cron alcança **28**; **464 estão fora da
+fila**, decompostos assim:
 
-`AJUSTE-RS-B4.md` — auditoria: Seção 3-ALT aplicada; dívida B4-B (mover as 9 escritas do
-frontend para RPC) pendente.
+| Causa de bloqueio | Pedidos |
+|---|---:|
+| Terminal (`Encerrado`/`Cancelado`/`Cancelado Parcial`) com `detalhes_carregados = true` | **457** |
+| Fora do corte de ~180 dias | **4** |
+| `status_local = 'excluido_alvo'` | **3** |
+| **Total fora da fila** | **464** |
+
+> ⚠️ A versão anterior deste documento decompunha os 464 como `450 + 14`, número ajustado
+> para fechar a soma. Não era medição. A decomposição acima foi medida; a terceira causa
+> não constava. Ver §2 item 8.
+
+**Observação — o C3 está estancando o fluxo.** Na medição do dia anterior o universo era
+de **717** pedidos com filhos ausentes, dos quais **253** alcançáveis pelo cron. Em poucas
+horas isso caiu para **492 / 28**: o C3 drenou **~225 pedidos vivos** sozinho, sem
+intervenção. É a confirmação prática de que o sangramento parou — pedido novo entra
+completo. O que sobra (**464**) não é dívida nova: é o passivo histórico, quase todo
+terminal com a flag já ligada, e **só sai pelo Bloco E**.
+
+Duas trilhas (`AJUSTE-RS-C3.1-C`):
+- **Trilha 1 — jsonb → relacional.** Os **1.164** pedidos da geração antiga têm
+  `classe_rateio` e `itens` cheios no jsonb, no formato de dois níveis que a tabela
+  precisa. **Zero chamadas ao Alvo**, migração SQL pura. É a maior parte do passivo e a
+  mais barata.
+- **Trilha 2 — Load → tudo.** Só a geração nova com jsonb vazio. Lotes de ~25 com pausa.
 
 ---
 
-## 7. Pendências registradas (nenhuma bloqueia o C3)
+## 7. Pendências registradas
 
-1. **57 terminais que não drenam** — confirmar o corte de 180 dias.
-2. **8 pedidos com `status` NULL** — passaram a entrar na fila com o C2; origem
-   desconhecida.
-3. **Terminal com Load 404 permanente reentra na fila para sempre** — vale um contador de
-   tentativas no C3.
-4. **Nome do CC na tela** — detalhe da requisição mostra só o código
-   (`00007.00001.00003`). Cosmético, card do Bloco F; depende do espelho `cost_centers`
-   estar atualizado (F3).
-5. **`funcionario_alvo_codigo` do Ryan** — banco tem `0000063`, roster dizia `0000153`.
-6. **`IntegradoFinanceiro`** — 0004705 voltou `"Sim"` e 0004706 `"Não"`, pedidos quase
-   idênticos; campo não enviado pelo Hub. Entender o critério do Alvo.
-7. **`PedCompUserFieldsObject`** — o Alvo devolve preenchido pelo workflow dele; testar se
+1. **RPC transacional derruba parcelas junto com rateio.** No 0004602, a falha do rateio
+   impediu também as 6 parcelas. Talvez valha separar em duas chamadas — uma classe mal
+   formada não deveria bloquear as parcelas. Card próprio.
+2. **Pedido cronicamente inválido reentra todo ciclo** (agora com `detalhes_carregados =
+   false` na falha). Visível pelo mesmo número repetindo em `detalhes`. Remédio: contador
+   de tentativas. Mesma família do item 3.
+3. **`0004370`** (02/07, R$ 100, Encerrado): único terminal sem detalhe dentro dos 180
+   dias; padrão de Load 404 permanente, reentra para sempre.
+4. **57 terminais fora do corte de 180 dias** — ficam para o Bloco E.
+5. **8 pedidos com `status` NULL** — entram na fila desde o C2; origem desconhecida.
+6. **Nome do CC na tela** — detalhe da requisição mostra só o código. Cosmético, Bloco F;
+   depende do espelho `cost_centers` atualizado (F3).
+7. **`funcionario_alvo_codigo` do Ryan** — banco `0000063` × roster `0000153`.
+8. **`IntegradoFinanceiro`** — 0004705 voltou `"Sim"` e 0004706 `"Não"`, pedidos quase
+   idênticos, campo não enviado pelo Hub. Entender o critério do Alvo.
+9. **`PedCompUserFieldsObject`** — o Alvo devolve preenchido pelo workflow dele; testar se
    preserva campo livre gravado pelo Hub (necessário para a idempotência do card D3).
-8. **Job `nfe` parado desde 11/06/2026** — fora do escopo, mas suspeito.
-9. **Pedidos de teste 0004705 e 0004706** — cancelar/excluir no Alvo se ainda não foi feito.
+10. **Job `nfe` parado desde 11/06/2026** — fora do escopo, mas suspeito.
+11. **Pedidos de teste 0004705 e 0004706** — cancelar/excluir no Alvo se ainda não foi feito.
+12. **jsonb `classe_rateio`**: o cron grava **cabeçalho-primeiro, item como fallback**,
+    igual ao open-load — contraria o C3-A na letra, mas mantém um formato único no jsonb
+    (duas telas o leem e o open-load também escreve). **A tabela relacional usa o item, que
+    é o que o C3-A exige.** Decisão ratificada em 20/08.
 
 ---
 
-## 8. Regras que se mostraram valiosas hoje
+## 8. Regras que se mostraram valiosas
 
-- **Rodar o cron manualmente** pelo botão "Rodar Agora" da tela de Cron Requisições é
-  seguro e acelera validação (7 ciclos em ~10 minutos, zero erros).
+- **"Rodar Agora"** na tela de Cron Requisições é seguro e acelera validação (7 ciclos em
+  ~10 minutos, zero erros).
 - **Antes de concluir corrupção, provar contra o Alvo.** O susto dos 116 pedidos virou
-  alarme falso com um Load do 0003406 e um teste de soma dos componentes.
-- **O terminal do Windows trunca saída larga.** SQL gerado por agente em tabelas/molduras
-  chega cortado — pedir um comando por bloco, sem arte ASCII.
-- **A Seção 1 (rollback) de qualquer SQL não deve ser executada** — é só para guardar.
-  Rodar por engano dá erro de objeto já existente (inofensivo, mas assusta).
+  alarme falso com um Load e um teste de soma dos componentes.
+- **Âncora com valores em colunas > âncora com hash.** O hash diz *que* mudou; as colunas
+  dizem *o quê*. Diferença entre 10 segundos e uma investigação inteira.
+- **Aplicar o SQL na ordem certa:** colunas antes da RPC. O Postgres cria função plpgsql
+  que referencia coluna inexistente **sem reclamar** — o erro só aparece na primeira
+  execução, em massa.
+- **O terminal do Windows trunca saída larga.** Peça SQL em arquivo, ou um comando por
+  bloco sem molduras.
+- **A Seção de rollback de qualquer SQL não deve ser executada** — é só para guardar.
+- **Número sem data não vale.** Ver §2 item 8: as contagens deste módulo mudam a cada
+  ciclo do cron; citar sem remedir induz a decisão errada de dimensionamento.
 
 ---
 
