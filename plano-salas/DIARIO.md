@@ -550,3 +550,34 @@
 - **Pendências/Sugestões:** **não testei a RPC** — §D é explícito: toda RPC desta fase morre em
   `'Sessão não autenticada'` pelo MCP, e isso é o comportamento correto. Nenhuma tentativa de
   contorno foi feita.
+
+---
+### [SESSÃO S3 · 2026-08-20 17:11 BRT] FS2-9 — RPCs de batelada (abrir · consumo · fechar)
+- **Status final:** concluída
+- **Janela de DDL:** lote iniciado às **17:11:03** — esperei o `:10` passar, porque um lote de 12
+  statements começado em `:08` atravessaria o minuto de cron.
+- **O que foi executado:** os 12 statements da FS2-9, literais, na ordem:
+  `create or replace function prod_abrir_batelada(uuid, uuid, text) returns table (id uuid,
+  numero text)`; `prod_declarar_consumo(uuid, uuid, numeric, text, text, text, text) returns
+  uuid`; `prod_fechar_batelada(uuid, numeric, text) returns uuid` — as três plpgsql,
+  `security definer`, `set search_path = public` — seguidas dos **9** revoke/grant, cada um com
+  a assinatura completa da sua função.
+- **Verificações:** `proacl` conferido no bloco consolidado da FS2-13. Pontos do desenho lidos no
+  fonte aplicado, que valem registro por serem os que evitam erro silencioso:
+  - **Numeração sem corrida:** `prod_abrir_batelada` faz
+    `pg_advisory_xact_lock(hashtext(sala_id || current_date))` **antes** de calcular
+    `max(split_part(numero,'-',3)::int) + 1`. Duas aberturas simultâneas na mesma sala/dia
+    serializam — sem isso, duas bateladas nasceriam com o mesmo `NN` e a segunda quebraria no
+    unique de `numero` (ou pior, num desenho sem unique, passariam as duas).
+  - **Numeração é derivada, nunca digitada** (§A.2): `PT-YYMMDD-NN`, montada a partir do
+    `prefixo_lote` da sala.
+  - **Fechar exige consumo declarado:** `prod_fechar_batelada` recusa com
+    `'Batelada sem consumo declarado — declare o consumo antes de fechar'` se não houver consumo
+    **não estornado**. Isso é o que impede batelada fechada sem baixa de insumo — o buraco
+    clássico desse tipo de módulo.
+  - **`qtd_produzida = 0` é permitido** (`< 0` que é recusado): batelada que perdeu tudo fecha
+    com zero e **não** gera linha em `prod_saidas` (o insert é condicionado a `> 0`), mas a
+    batelada é marcada FECHADA. Comportamento coerente com refugo total.
+  - **`lote_producao` da saída = `numero` da batelada**, fechando a genealogia do §A.3.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2-9`.
+- **Pendências/Sugestões:** nenhuma RPC foi chamada (§D).
