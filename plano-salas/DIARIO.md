@@ -1187,3 +1187,31 @@
 - **Pendências/Sugestões:** o `p_tipo` enviado vem do `tipo` que o log já normalizou
   (`ENTRADA`/`REFUGO`/`SAIDA`), então não há como pedir estorno do livro errado pela tela. O quarto
   tipo aceito pela RPC (`CONSUMO`) não é alcançável pela UI — correto: batelada dorme (Ajuste B).
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-10 — Aba Equipe (vincular / revogar)
+- **Status final:** concluída
+- **O que foi executado:** `src/components/salas/AbaEquipe.tsx` (novo), `listarUsuariosAtivos()`
+  acrescentada ao `salasService.ts`, e o painel reestruturado: com `salas.cadastros.manage` o rodapé
+  vira **abas** ("Hoje na sala" / "Equipe"); sem a permissão, continua sendo só o log, sem aba
+  nenhuma aparecendo.
+- **Verificações:** type-check → **exit 0**; `bun run build` → **passa**.
+- **O aviso do §E.6 está na tela, e não é decoração:** *"Vincular à sala **não** concede permissão.
+  O papel é atribuído no admin do Hub — o vínculo só diz em qual sala ele trabalha."* Sem essa
+  frase, o gestor vincula alguém, a pessoa continua sem conseguir registrar, e a culpa cai na tela.
+  É o mesmo par de eixos que aparece no hook e nas RPCs: papel dá o verbo, vínculo dá o lugar.
+- **🔴 A lista de candidatos NÃO é filtrada por papel, de propósito.** Seria "esperto" mostrar só
+  quem já tem `operador_salas` — e esconderia metade do problema do gestor: quem tem papel mas não
+  vínculo, e quem tem vínculo mas não papel, são situações diferentes e ambas precisam ser
+  visíveis. Filtrar faria a pessoa **sumir da lista sem explicação**. Mostro todas as contas ativas
+  ainda não vinculadas; quem já está na equipe sai da lista (só isso).
+- **Escritas só por RPC:** `prod_sala_usuario_vincular` / `prod_sala_usuario_revogar`. Nenhum
+  `insert`/`update` direto — não há policy de escrita nas tabelas do módulo, falharia de qualquer
+  forma (§G.4).
+- **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-10`.
+- **Pendências/Sugestões:**
+  - As RPCs de vínculo usam permissão **global** (`salas.cadastros.manage`), então quem a tem gere
+    a equipe de **qualquer** sala. Já estava registrado na FS1-9-AJUSTE-A §5 e continua valendo;
+    reavaliar quando existir a 2ª sala.
+  - A revogação não pede confirmação. É reversível (basta vincular de novo) e o §A.1 pede caminhos
+    curtos, mas se no teste da sala isso gerar revogação acidental, virar um diálogo é trivial.

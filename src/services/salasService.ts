@@ -347,6 +347,29 @@ export async function listarEquipe(salaId: string): Promise<VinculoEquipe[]> {
   }));
 }
 
+/**
+ * Pessoas que podem ser vinculadas à sala: contas ativas do Hub.
+ *
+ * A lista NÃO é filtrada por papel de propósito. Vínculo e papel são eixos
+ * independentes (§0.6): dá para vincular alguém antes de o admin conceder
+ * `operador_salas`, e o contrário também. Filtrar aqui esconderia metade do
+ * problema do gestor, que veria a pessoa sumir da lista sem entender por quê.
+ */
+export async function listarUsuariosAtivos(): Promise<{ user_id: string; nome: string; email: string | null }[]> {
+  const { data, error } = await (supabase as any)
+    .from("profiles")
+    .select("user_id, full_name, email, is_active")
+    .eq("is_active", true)
+    .order("full_name");
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((p: any) => ({
+    user_id: p.user_id,
+    nome: p.full_name || p.email || "—",
+    email: p.email ?? null,
+  }));
+}
+
 // ─── Escritas (só por RPC) ────────────────────────────────────────────────────
 
 /**

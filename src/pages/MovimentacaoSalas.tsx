@@ -6,6 +6,8 @@ import { FluxoEntrada } from "@/components/salas/FluxoEntrada";
 import { FluxoRefugo } from "@/components/salas/FluxoRefugo";
 import { FluxoSaida } from "@/components/salas/FluxoSaida";
 import { DialogoEstorno, podeMostrarEstorno } from "@/components/salas/DialogoEstorno";
+import { AbaEquipe } from "@/components/salas/AbaEquipe";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSalaContexto, useMovimentosDoDia } from "@/hooks/useSalaContexto";
 import type { MovimentoLog, TipoMovimento } from "@/services/salasService";
 import { cn } from "@/lib/utils";
@@ -35,6 +37,7 @@ export default function MovimentacaoSalas() {
     podeRefugo,
     podeSaida,
     podeEstornar,
+    podeGerirEquipe,
     userId,
   } = useSalaContexto();
 
@@ -130,6 +133,36 @@ export default function MovimentacaoSalas() {
   ];
   const eventosVisiveis = eventos.filter((e) => e.visivel);
 
+  const logDoDia = (
+    <>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => recarregar()}
+          className="text-sm text-primary underline-offset-4 hover:underline"
+        >
+          Atualizar
+        </button>
+      </div>
+      <LogDoDia
+        movimentos={movimentos}
+        carregando={carregandoLog}
+        acaoDaLinha={(mov) =>
+          podeMostrarEstorno(mov, userId, podeEstornar) ? (
+            <button
+              type="button"
+              onClick={() => setEstornando(mov)}
+              aria-label={`Estornar ${mov.produto_nome}`}
+              className="flex h-12 w-12 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Undo2 className="h-5 w-5" aria-hidden="true" />
+            </button>
+          ) : null
+        }
+      />
+    </>
+  );
+
   return (
     <div className="p-4 sm:p-6">
       <header className="flex items-baseline justify-between gap-3">
@@ -172,34 +205,29 @@ export default function MovimentacaoSalas() {
       )}
 
       <section className="mt-8">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-base font-semibold text-foreground">Hoje na sala</h2>
-          <button
-            type="button"
-            onClick={() => recarregar()}
-            className="text-sm text-primary underline-offset-4 hover:underline"
-          >
-            Atualizar
-          </button>
-        </div>
-        <div className="mt-2">
-          <LogDoDia
-            movimentos={movimentos}
-            carregando={carregandoLog}
-            acaoDaLinha={(mov) =>
-              podeMostrarEstorno(mov, userId, podeEstornar) ? (
-                <button
-                  type="button"
-                  onClick={() => setEstornando(mov)}
-                  aria-label={`Estornar ${mov.produto_nome}`}
-                  className="flex h-12 w-12 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <Undo2 className="h-5 w-5" aria-hidden="true" />
-                </button>
-              ) : null
-            }
-          />
-        </div>
+        {podeGerirEquipe ? (
+          <Tabs defaultValue="movimentos">
+            <TabsList>
+              <TabsTrigger value="movimentos" className="h-11 px-4">
+                Hoje na sala
+              </TabsTrigger>
+              <TabsTrigger value="equipe" className="h-11 px-4">
+                Equipe
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="movimentos" className="mt-4">
+              {logDoDia}
+            </TabsContent>
+            <TabsContent value="equipe" className="mt-4">
+              <AbaEquipe sala={salaAtiva} />
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <>
+            <h2 className="text-base font-semibold text-foreground">Hoje na sala</h2>
+            <div className="mt-2">{logDoDia}</div>
+          </>
+        )}
       </section>
 
       <DialogoEstorno
