@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { LogDoDia } from "@/components/salas/LogDoDia";
 import { FluxoEntrada } from "@/components/salas/FluxoEntrada";
 import { FluxoRefugo } from "@/components/salas/FluxoRefugo";
+import { FluxoSaida } from "@/components/salas/FluxoSaida";
 import { useSalaContexto, useMovimentosDoDia } from "@/hooks/useSalaContexto";
 import type { TipoMovimento } from "@/services/salasService";
 import { cn } from "@/lib/utils";
@@ -107,7 +108,12 @@ export default function MovimentacaoSalas() {
             onCancelar={fecharFluxo}
           />
         ) : (
-          <FluxoEmPreparacao tipo={fluxo} onVoltar={fecharFluxo} />
+          <FluxoSaida
+            sala={salaAtiva}
+            produtosFinais={produtosFinais}
+            onConcluido={concluir}
+            onCancelar={fecharFluxo}
+          />
         )}
       </div>
     );
@@ -177,33 +183,5 @@ export default function MovimentacaoSalas() {
         </div>
       </section>
     </div>
-  );
-}
-
-/**
- * Marcador temporário dos fluxos de evento.
- *
- * Existe para que o painel seja navegável e seguro para publicar já na FS3-5:
- * cada tarefa seguinte (FS3-6 Entrada, FS3-7 Refugo, FS3-8 Saída) substitui a
- * chamada correspondente pelo fluxo de verdade. Se a sessão parar no meio, o
- * que vai ao ar é um painel funcional com o log do dia e um aviso honesto — não
- * um botão que finge registrar.
- */
-function FluxoEmPreparacao({ tipo, onVoltar }: { tipo: TipoMovimento; onVoltar: () => void }) {
-  const rotulo = tipo === "ENTRADA" ? "Entrada" : tipo === "REFUGO" ? "Refugo" : "Saída";
-  return (
-    <Card className="mx-auto max-w-lg p-6 text-center">
-      <h2 className="text-lg font-semibold text-foreground">{rotulo} — em preparação</h2>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Esta etapa ainda não está disponível. Nada foi registrado.
-      </p>
-      <button
-        type="button"
-        onClick={onVoltar}
-        className="mt-4 h-14 w-full rounded-lg border border-border text-base font-medium text-foreground transition-colors hover:bg-accent"
-      >
-        Voltar
-      </button>
-    </Card>
   );
 }

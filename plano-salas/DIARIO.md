@@ -1139,3 +1139,26 @@
 - **Pendências/Sugestões:** os 6 motivos de INSUMO continuam `provisorio = true` no banco (§F.1 da
   FS2). A tela **não** distingue provisório de definitivo — de propósito: para o operador a
   distinção não significa nada, e é o Pedro quem valida a lista com a sala (§I.3).
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-8 — Tela de Saída (3 passos) — **os três eventos do MVP em pé**
+- **Status final:** concluída
+- **O que foi executado:** `src/components/salas/FluxoSaida.tsx` (novo) com os 3 passos do §E.4 —
+  Produto → Quantidade e lote → Conferência — ligado ao painel. **O `FluxoEmPreparacao` foi
+  removido**: os três fluxos existem, o marcador cumpriu o papel e não sobra código morto.
+- **Verificações:** type-check `tsc --noEmit -p tsconfig.app.json` → **exit 0**;
+  `grep FluxoEmPreparacao` → **0 ocorrências** (o marcador saiu de fato, não ficou órfão).
+- **O campo "Lote" desta tela é o de PRODUÇÃO, não o do material** — é o número da peça que a sala
+  acabou de fazer. Rótulo **"Lote"** por decisão do §B.2; se a sala confundir com o lote do
+  material no teste, o próprio §B.2 manda trocar para "Lote de produção". O `placeholder` diz
+  "Lote de produção desta peça", que é a pista sem poluir o rótulo.
+- **Sem validação de formato, de propósito:** a origem do número ainda é desconhecida (§F.2 do
+  Ajuste B, o Pedro vai investigar). Inventar máscara agora seria chutar regra de outra pessoa e
+  criar retrabalho quando a regra real aparecer. Campo livre, obrigatório, gravado com `btrim`
+  pela RPC.
+- **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-8`.
+- **Estado do módulo:** os **três eventos do MVP** (Entrada, Refugo, Saída) estão em pé, ligados às
+  RPCs reais, com conferência antes de gravar e mensagem da RPC exibida como veio. Falta o estorno
+  (FS3-9) e a aba Equipe (FS3-10).
+- **Pendências/Sugestões:** nenhuma das três telas foi aberta num navegador ainda — só compilam.
+  A validação de verdade é o §I.2, no tablet da sala e com luva.
