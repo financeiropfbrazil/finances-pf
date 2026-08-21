@@ -70,6 +70,7 @@ import ProducaoOrdens from "./pages/ProducaoOrdens";
 import ProducaoOrdemDetalhe from "./pages/ProducaoOrdemDetalhe";
 import ProducaoRM from "./pages/ProducaoRM";
 import ProducaoRMDetalhe from "./pages/ProducaoRMDetalhe";
+import MovimentacaoSalas from "./pages/MovimentacaoSalas";
 import RecebimentoFila from "./pages/RecebimentoFila";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
 import ConfigContasDespesas from "@/pages/despesas/ConfigContasDespesas";
@@ -358,6 +359,20 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="producao.rm.access">
               <ProducaoRMDetalhe />
+            </PermissionRoute>
+          }
+        />
+
+        {/* Movimentação de Salas — módulo próprio (`salas.access`), não um
+            sub-recurso de `producao.access`: o RBAC do módulo tem catálogo e
+            papéis dedicados desde a FS1-6. O gate da rota é só o acesso ao
+            módulo; o escopo por sala (vínculo em `prod_sala_usuarios`) é
+            resolvido dentro da página, e cobrado de novo pela RPC ao gravar. */}
+        <Route
+          path="/salas"
+          element={
+            <PermissionRoute permKey="salas.access">
+              <MovimentacaoSalas />
             </PermissionRoute>
           }
         />

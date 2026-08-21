@@ -74,6 +74,22 @@ export const PERMISSIONS = {
   PRODUCAO_RM_ACCESS: "producao.rm.access",
   PRODUCAO_RM_CREATE: "producao.rm.create",
   PRODUCAO_RM_ATENDER: "producao.rm.atender",
+
+  // ─── Módulo Movimentação de Salas ───────────────────────────────
+  // As 8 existem no banco desde a FS1-6/FS2-7 e estão mapeadas aos 4 papéis
+  // do módulo + `admin`. ATENÇÃO: ter a permissão não basta para registrar —
+  // a RPC cobra também vínculo ativo com a sala (`prod_sala_usuarios`), via
+  // `user_has_sala_permission`. Papel dá o verbo, vínculo dá o lugar.
+  // `SALAS_BATELADA_MANAGE` fica declarada sem uso na UI: a batelada dorme
+  // desde o Ajuste B (MVP de três eventos).
+  SALAS_ACCESS: "salas.access",
+  SALAS_REGISTRAR_ENTRADA: "salas.registrar.entrada",
+  SALAS_REGISTRAR_REFUGO: "salas.registrar.refugo",
+  SALAS_REGISTRAR_SAIDA: "salas.registrar.saida",
+  SALAS_ESTORNAR: "salas.estornar",
+  SALAS_CADASTROS_MANAGE: "salas.cadastros.manage",
+  SALAS_DASHBOARD_VIEW: "salas.dashboard.view",
+  SALAS_BATELADA_MANAGE: "salas.batelada.manage",
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -95,6 +111,10 @@ export const ROLES = {
   FINANCEIRO: "financeiro",
   OPERADOR_PRODUCAO: "operador_producao",
   GESTOR_PRODUCAO: "gestor_producao",
+  OPERADOR_SALAS: "operador_salas",
+  QUALIDADE_SALAS: "qualidade_salas",
+  GESTOR_SALAS: "gestor_salas",
+  VISUALIZADOR_SALAS: "visualizador_salas",
 } as const;
 
 export type RoleCode = (typeof ROLES)[keyof typeof ROLES];

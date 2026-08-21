@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
+import { PERMISSIONS } from "@/constants/permissions";
 import {
   listarSalasDoUsuario,
   listarProdutosDaSala,
@@ -25,19 +26,16 @@ import {
  * Esconder botão é conveniência: a RPC (`user_has_sala_permission`) é quem
  * decide de fato, e ela cobra os dois eixos.
  *
- * Os códigos aparecem como string literal porque `PERMISSIONS` ainda não tem o
- * módulo `salas` — entra na FS3-3, junto com rota e menu, e estas chamadas
- * passam a usar as constantes.
  */
 export function useSalaContexto() {
   const { user, profile } = useAuth();
   const isAdmin = profile?.is_admin === true;
 
-  const podeEntrada = useHasPermission("salas.registrar.entrada");
-  const podeRefugo = useHasPermission("salas.registrar.refugo");
-  const podeSaida = useHasPermission("salas.registrar.saida");
-  const podeEstornar = useHasPermission("salas.estornar");
-  const podeGerirEquipe = useHasPermission("salas.cadastros.manage");
+  const podeEntrada = useHasPermission(PERMISSIONS.SALAS_REGISTRAR_ENTRADA);
+  const podeRefugo = useHasPermission(PERMISSIONS.SALAS_REGISTRAR_REFUGO);
+  const podeSaida = useHasPermission(PERMISSIONS.SALAS_REGISTRAR_SAIDA);
+  const podeEstornar = useHasPermission(PERMISSIONS.SALAS_ESTORNAR);
+  const podeGerirEquipe = useHasPermission(PERMISSIONS.SALAS_CADASTROS_MANAGE);
 
   const [salaIdSelecionada, setSalaIdSelecionada] = useState<string | null>(null);
 

@@ -968,3 +968,44 @@
   `src/constants/permissions.ts` ainda não tem o módulo `salas`. Isso entra na **FS3-3**, junto com
   rota e menu, e estas 5 chamadas passam a usar as constantes — deliberado: o Pedro pediu para ver
   o diff da FS3-3 isolado, e adiantar a edição desse arquivo aqui o esconderia daquele diff.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-3 — Rota + item de menu + catálogo de permissões
+- **Status final:** concluída (**diff revisado e aprovado pelo Pedro antes do commit**)
+- **O que foi executado:** 3 arquivos existentes tocados — os **únicos** que o §G.1 autoriza — e
+  1 arquivo novo:
+  - `src/constants/permissions.ts` (+20): as **8 permissões** do módulo em `PERMISSIONS` e os
+    **4 papéis** em `ROLES`. Só declarações; não alteram comportamento de outro módulo.
+  - `src/App.tsx` (+15): import + rota `/salas` gateada por `PermissionRoute permKey="salas.access"`,
+    inserida após o bloco da RM. **Nenhuma rota existente alterada.**
+  - `src/components/AppSidebar.tsx` (+25): ícone `DoorOpen` no import, função `itemSalas()` e a
+    linha `add("salas", true, () => itemSalas())` logo após Produção.
+  - `src/pages/MovimentacaoSalas.tsx` (novo): página mínima — resolve a sala, seletor de cartões
+    com 2+, e estado vazio explicando que falta vínculo.
+  - `src/hooks/useSalaContexto.ts`: as 5 permissões trocadas de string literal para
+    `PERMISSIONS.SALAS_*`, fechando a pendência que a FS3-2 deixou de propósito.
+- **Verificações:** type-check `tsc --noEmit -p tsconfig.app.json` → **exit 0**;
+  `bun run build` → **passa** (aviso de chunk >500 kB é **pré-existente**, não veio desta fase).
+- **Decisões de desenho:**
+  1. **Rota `/salas` e item de menu próprio**, não subitem de Produção (§A do FS3-TELAS). O módulo
+     tem catálogo RBAC dedicado desde a FS1-6; pendurá-lo em `producao.access` misturaria dois
+     RBACs e daria acesso a quem não deve.
+  2. **Copiei o padrão do Email NF-e** (item fixo, sem i18n, gate dentro da própria função) em vez
+     de `itemSolto()`. `itemSolto` depende de `navItems` + `routePermMap` + chave de tradução —
+     seriam 3 arquivos compartilhados a mais tocados, para nenhum ganho.
+  3. **`add("salas", true, …)` não é gate aberto:** o `hasAccess("salas.access")` está dentro de
+     `itemSalas()`, exatamente como o Email NF-e. Registrado aqui porque a linha, lida isolada,
+     parece liberar o item para todos — e não libera.
+  4. **`Factory` já estava em uso** pelo grupo Produção; por isso `DoorOpen`, ícone novo no import.
+- **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-3`.
+- **🔴 ACHADO — arquivo de terceiro no working tree (não é do agente):** durante esta tarefa
+  apareceu `src/services/pedidosService.ts` **modificado (+129 linhas)** na árvore de trabalho —
+  anexos de pedido, validação de MIME e tamanho, `MAX_ARQUIVOS`, `ArquivoExistenteInput`. É do
+  módulo de **Suprimentos**, sem relação com Salas, e **não constava** no `git status` do início
+  da sessão. **Não foi tocado nem commitado.** Todos os `git add` desta sessão são por caminho
+  explícito; conferi os commits um a um e nenhum o contém. Reportado ao Pedro; a origem
+  (edição local dele × Lovable) ainda **não foi confirmada** no momento deste registro.
+- **Pendências/Sugestões:** conduta reforçada pelo Pedro nesta sessão e que fica valendo para o
+  módulo: **arquivo fora do escopo do plano nunca entra em commit do agente, mesmo parecendo
+  inofensivo.** O risco real não é o conteúdo — é um `git add -A` de sessão futura levar junto o
+  trabalho pela metade de outra pessoa.

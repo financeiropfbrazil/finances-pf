@@ -32,6 +32,7 @@ import {
   Coins,
   Factory,
   PackageSearch,
+  DoorOpen,
 } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { NavLink } from "@/components/NavLink";
@@ -263,6 +264,29 @@ export function AppSidebar() {
     );
   };
 
+  /**
+   * Movimentação de Salas — item fixo (sem i18n), como o Email NF-e.
+   * Gate `salas.access`: quem não tem a permissão não vê o item. O vínculo com
+   * a sala NÃO é checado aqui — é escopo, resolvido dentro da página.
+   */
+  const itemSalas = () => {
+    if (!hasAccess("salas.access")) return null;
+    return (
+      <SidebarMenuItem>
+        <SidebarMenuButton asChild>
+          <NavLink
+            to="/salas"
+            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+          >
+            <DoorOpen className="h-4 w-4 shrink-0" />
+            <span>Movimentação de Salas</span>
+          </NavLink>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  };
+
   const entradas: ReactNode[] = [];
   const add = (key: string, mostrar: boolean, node: () => ReactNode) => {
     if (!mostrar) return;
@@ -283,6 +307,7 @@ export function AppSidebar() {
   add("recebimento", isAdmin, () => renderRecebimentoGroup(t, isRecebimentoActive));
   add("estoques", hasAccess("inventory"), () => renderInventoryGroup(t, isInventoryActive));
   add("producao", hasAccess("producao.access"), () => renderProducaoGroup(t, isProducaoActive, hasAccess));
+  add("salas", true, () => itemSalas());
 
   // 3) financeiro
   add("cash", true, () => itemSolto("/cash"));
