@@ -940,3 +940,31 @@
 - **Pendências/Sugestões:** `listarMovimentosDoDia` faz 3 consultas + 3 de resolução de nomes
   (6 idas ao banco). Aceitável no volume de uma sala/dia; se um dia o log crescer, o caminho é uma
   view `prod_vw_movimentos` no banco — **não** é para resolver agora, e exigiria tarefa própria.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-2 — Hook de contexto da sala
+- **Status final:** concluída
+- **O que foi executado:** criado `src/hooks/useSalaContexto.ts` (arquivo novo). Três hooks:
+  `useSalaContexto` (salas, sala ativa, produtos separados por papel, as 5 permissões),
+  `useMotivosRefugo(tipoItem)` e `useMovimentosDoDia(salaId)`. Nenhum arquivo existente tocado.
+- **Padrão seguido:** `@tanstack/react-query` com `useQuery` + `queryKey` + `enabled` +
+  `staleTime`, copiado de `src/hooks/useAprovacoesPendentes.ts`. Nenhuma biblioteca nova (§G.2).
+- **Verificações:** type-check `tsc --noEmit -p tsconfig.app.json` → **exit 0**.
+- **O ponto de desenho que mais importa aqui — os dois eixos de permissão:**
+  o módulo tem **papel** (`salas.registrar.*`, permissão global do RBAC) e **vínculo**
+  (`prod_sala_usuarios`, em que sala a pessoa trabalha). "Papel dá o verbo, vínculo dá o lugar"
+  (§0.6 do plano). No hook, **o vínculo já foi aplicado ao montar a lista de salas** — então,
+  dentro de uma sala, basta o verbo para decidir quais botões aparecem. Deixei isso escrito no
+  cabeçalho do arquivo porque é exatamente o tipo de coisa que, lida pela metade numa sessão
+  futura, vira o erro silencioso e plausível que o CLAUDE.md descreve: a tela continuaria
+  "parecendo certa" enquanto perguntasse o eixo errado.
+- **Escolhas menores, registradas:**
+  - `salaAtiva` sai de `useMemo`, não de `useEffect` + `setState` — evita um render com `null`
+    antes de resolver a sala única (§B.4: uma sala só entra direto, sem seletor).
+  - `staleTime` de 15s no log do dia (contra 5 min nas listas de cadastro): o log é a confirmação
+    visual de que o registro entrou; o operador acabou de tocar em "Registrar" e quer ver a linha.
+- **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-2`.
+- **Pendências/Sugestões:** os códigos de permissão estão como **string literal** no hook porque
+  `src/constants/permissions.ts` ainda não tem o módulo `salas`. Isso entra na **FS3-3**, junto com
+  rota e menu, e estas 5 chamadas passam a usar as constantes — deliberado: o Pedro pediu para ver
+  o diff da FS3-3 isolado, e adiantar a edição desse arquivo aqui o esconderia daquele diff.
