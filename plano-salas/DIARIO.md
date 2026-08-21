@@ -1009,3 +1009,36 @@
   módulo: **arquivo fora do escopo do plano nunca entra em commit do agente, mesmo parecendo
   inofensivo.** O risco real não é o conteúdo — é um `git add -A` de sessão futura levar junto o
   trabalho pela metade de outra pessoa.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-4 — Componentes base do estilo caixa
+- **Status final:** concluída
+- **O que foi executado:** 3 arquivos novos em `src/components/salas/` — `CartaoEscolha.tsx`,
+  `TecladoNumerico.tsx`, `PassoFluxo.tsx`. Nenhum arquivo existente tocado. Sem biblioteca nova:
+  `Button` do shadcn, ícones do `lucide-react` e `cn` de `@/lib/utils`, tudo já no app.
+- **Verificações:** type-check `tsc --noEmit -p tsconfig.app.json` → **exit 0**.
+- **Como o §A.1 (luva, sala limpa, tablet em saco selado) virou código:**
+  - `CartaoEscolha`: altura mínima **80px** (o piso do §A.1 para cartão). Estado selecionado
+    marcado por **borda + fundo + ícone de check**, nunca só por cor — através do plástico, e para
+    quem enxerga cor de outro jeito, cor sozinha não é sinal. `hover:` continua lá, mas só como
+    afago para quem abre a mesma tela no computador: **no toque não existe hover**, então ele
+    nunca carrega informação.
+  - `TecladoNumerico`: teclas de **64px**, na própria página. O teclado virtual do sistema está
+    proibido no caminho normal (§A.1) — de luva ele cobre metade da tela e tem tecla de 30px.
+  - `PassoFluxo`: Voltar **na mesma posição em todos os passos** (de luva, procurar onde fica o
+    botão é o que faz o operador desistir e chamar o supervisor) e ação principal **fixa no
+    rodapé** (`sticky bottom-0`, 56px) para continuar alcançável quando a lista rolar.
+- **🔴 Decisão técnica que evita um bug clássico:** o `TecladoNumerico` guarda o valor como
+  **texto**, não como número. Se convertesse a cada tecla, `"1,"` e `"1"` viram o mesmo `1` e a
+  **vírgula sumiria debaixo do dedo do operador** no instante em que ele a digitasse. A conversão
+  acontece só no envio, em `valorNumerico()`. Separador é **vírgula** — é o que está impresso na
+  balança da sala e o que o operador brasileiro digita.
+- **Regras defensivas embutidas:** zero à esquerda não acumula (`0` + `5` = `5`);
+  casas decimais limitadas (`casasDecimais = 0` para peça, que não se conta pela metade);
+  `valorNumerico()` devolve `null` para vazio/`"0"`/`"0,"`, alinhado ao que as RPCs recusam
+  (`quantidade <= 0`). A validação real continua sendo do banco — isto é só o que impede o
+  operador de chegar até lá com um valor impossível.
+- **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-4`.
+- **Pendências/Sugestões:** os três componentes ainda **não foram vistos numa tela real** — só
+  compilam. Tamanho de alvo, contraste e legibilidade com paramentação só se validam no tablet da
+  sala (§I.2), que é o teste que de fato importa nesta fase.
