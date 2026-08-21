@@ -4,6 +4,10 @@ const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 const EMPRESA_FILIAL = "1.01";
 const USUARIO_LOGADO = "PEDRO.SCRIGNOLI";
 const STORAGE_BUCKET = "compras-pedidos";
+const MAX_ARQUIVOS = 3;
+const MAX_TAMANHO_ARQUIVO_BYTES = 5 * 1024 * 1024;
+const MIME_TYPES_ACEITOS = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const MAX_OBSERVACAO_ITEM = 255;
 
 // ════════════════════════════════════════════════════════════
 // TIPOS — Abordagem A: hierarquia Classe → CCs
@@ -48,6 +52,15 @@ export interface ArquivoInput {
   upload_identify_guid: string;
 }
 
+export interface ArquivoExistenteInput {
+  id: string;
+  upload_identify_guid: string;
+  nome_original: string;
+  storage_path: string;
+  mime_type: string;
+  tamanho_bytes: number;
+}
+
 export interface NovoPedidoInput {
   user_id: string;
   analista_nome: string;
@@ -73,6 +86,7 @@ export interface NovoPedidoInput {
 
   parcelas: ParcelaInput[];
   arquivos?: ArquivoInput[];
+  arquivos_existentes?: ArquivoExistenteInput[];
 
   texto_livre: string;
   texto_historico_novo: string;
@@ -133,6 +147,111 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function centesimosNormalizados(n: number): number {
+  return Math.round(round2(n) * 100);
+}
+
+function contarCaracteres(texto: string): number {
+  return Array.from(texto || "").length;
+}
+
+function validarNovoPedidoInput(input: NovoPedidoInput): void {
+  if (!input.itens || input.itens.length === 0) {
+    throw new Error("Adicione ao menos um item ao pedido.");
+  }
+
+  if (!input.parcelas || input.parcelas.length === 0) {
+    throw new Error("Adicione ao menos uma parcela ao pedido.");
+  }
+
+  const valorTotal = round2(input.itens.reduce((acc, item) => acc + item.quantidade * item.valor_unitario, 0));
+  const totalCentavos = centesimosNormalizados(valorTotal);
+  const somaParcelasCentavos = input.parcelas.reduce((acc, parcela, idx) => {
+    if (!Number.isFinite(parcela.valor_parcela)) {
+      throw new Error(`Parcela ${idx + 1} possui valor inválido.`);
+    }
+    return acc + centesimosNormalizados(parcela.valor_parcela);
+  }, 0);
+
+  if (somaParcelasCentavos !== totalCentavos) {
+    throw new Error(
+      `A soma das parcelas deve ser exatamente igual ao total do pedido: R$ ${(somaParcelasCentavos / 100).toFixed(2)} informado para R$ ${(totalCentavos / 100).toFixed(2)} do pedido.`,
+    );
+  }
+
+  input.itens.forEach((item, itemIdx) => {
+    if (contarCaracteres(item.observacao) > MAX_OBSERVACAO_ITEM) {
+      throw new Error(`A observação do item ${itemIdx + 1} deve ter no máximo ${MAX_OBSERVACAO_ITEM} caracteres.`);
+    }
+
+    if (!item.rateio || item.rateio.length === 0) {
+      throw new Error(`O item ${itemIdx + 1} precisa ter ao menos uma classe no rateio.`);
+    }
+
+    const somaClasses = item.rateio.reduce((acc, classe, classeIdx) => {
+      if (!classe.codigo_classe_rec_desp) {
+        throw new Error(`O item ${itemIdx + 1} possui uma classe de rateio não preenchida.`);
+      }
+      if (!Number.isFinite(classe.percentual) || classe.percentual <= 0) {
+        throw new Error(`O item ${itemIdx + 1}, classe ${classeIdx + 1}, possui percentual inválido.`);
+      }
+      if (!classe.ccs || classe.ccs.length === 0) {
+        throw new Error(`O item ${itemIdx + 1}, classe ${classe.codigo_classe_rec_desp}, está sem Centro de Custo.`);
+      }
+
+      const somaCcs = classe.ccs.reduce((soma, cc, ccIdx) => {
+        if (!cc.codigo_centro_ctrl) {
+          throw new Error(
+            `O item ${itemIdx + 1}, classe ${classe.codigo_classe_rec_desp}, possui um Centro de Custo não preenchido.`,
+          );
+        }
+        if (!Number.isFinite(cc.percentual) || cc.percentual <= 0) {
+          throw new Error(
+            `O item ${itemIdx + 1}, classe ${classe.codigo_classe_rec_desp}, Centro de Custo ${ccIdx + 1}, possui percentual inválido.`,
+          );
+        }
+        return soma + centesimosNormalizados(cc.percentual);
+      }, 0);
+
+      if (somaCcs !== 10000) {
+        throw new Error(
+          `O rateio por Centro de Custo do item ${itemIdx + 1}, classe ${classe.codigo_classe_rec_desp}, deve somar exatamente 100%.`,
+        );
+      }
+
+      return acc + centesimosNormalizados(classe.percentual);
+    }, 0);
+
+    if (somaClasses !== 10000) {
+      throw new Error(`O rateio entre classes do item ${itemIdx + 1} deve somar exatamente 100%.`);
+    }
+  });
+
+  const arquivosNovos = input.arquivos || [];
+  const arquivosExistentes = input.arquivos_existentes || [];
+  if (arquivosNovos.length + arquivosExistentes.length > MAX_ARQUIVOS) {
+    throw new Error(`O pedido pode ter no máximo ${MAX_ARQUIVOS} anexos, contando os existentes e os novos.`);
+  }
+
+  for (const arquivo of arquivosNovos) {
+    if (!MIME_TYPES_ACEITOS.has(arquivo.file.type)) {
+      throw new Error(`O anexo "${arquivo.file.name}" deve ser PDF, JPG ou PNG.`);
+    }
+    if (arquivo.file.size > MAX_TAMANHO_ARQUIVO_BYTES) {
+      throw new Error(`O anexo "${arquivo.file.name}" excede o limite de 5MB.`);
+    }
+  }
+
+  for (const arquivo of arquivosExistentes) {
+    if (!MIME_TYPES_ACEITOS.has(arquivo.mime_type)) {
+      throw new Error(`O anexo existente "${arquivo.nome_original}" deve ser PDF, JPG ou PNG.`);
+    }
+    if (arquivo.tamanho_bytes > MAX_TAMANHO_ARQUIVO_BYTES) {
+      throw new Error(`O anexo existente "${arquivo.nome_original}" excede o limite de 5MB.`);
+    }
+  }
+}
+
 function montarStampAnalista(input: NovoPedidoInput): string {
   const idCurto = input.user_id.substring(0, 8);
   const now = new Date();
@@ -156,7 +275,11 @@ function montarTextoHistoricoCompleto(input: NovoPedidoInput): string {
 async function getSupabaseJWT(): Promise<string> {
   const {
     data: { session },
+    error,
   } = await supabase.auth.getSession();
+  if (error) {
+    throw new Error(`Erro ao validar a sessão do Supabase: ${error.message}`);
+  }
   if (!session?.access_token) {
     throw new Error("Sessão do Supabase inválida. Faça login novamente.");
   }
@@ -262,10 +385,16 @@ async function callGatewayGet(path: string): Promise<any> {
  */
 export async function resolverUsuarioAlvoOuNull(userId: string, email?: string | null): Promise<string | null> {
   const porId = await (supabase as any).from("profiles").select("alvo_usuario").eq("user_id", userId).maybeSingle();
+  if (porId.error) {
+    throw new Error(`Erro ao consultar o usuário do Alvo pelo user_id: ${porId.error.message}`);
+  }
   if (porId?.data?.alvo_usuario) return porId.data.alvo_usuario;
 
   if (email) {
     const porEmail = await (supabase as any).from("profiles").select("alvo_usuario").eq("email", email).maybeSingle();
+    if (porEmail.error) {
+      throw new Error(`Erro ao consultar o usuário do Alvo pelo e-mail: ${porEmail.error.message}`);
+    }
     if (porEmail?.data?.alvo_usuario) return porEmail.data.alvo_usuario;
   }
 
@@ -1101,44 +1230,115 @@ async function salvarArquivoNoStorage(pedidoId: string, arquivo: ArquivoInput, u
     .single();
 
   if (insertErr || !data) {
-    await supabase.storage.from(STORAGE_BUCKET).remove([storagePath]);
-    throw new Error(`Erro ao gravar metadados do arquivo: ${insertErr?.message}`);
+    const { error: cleanupErr } = await supabase.storage.from(STORAGE_BUCKET).remove([storagePath]);
+    const detalheCleanup = cleanupErr ? ` Falha adicional ao desfazer o upload: ${cleanupErr.message}` : "";
+    throw new Error(`Erro ao gravar metadados do arquivo: ${insertErr?.message}.${detalheCleanup}`);
   }
 
   return data as ArquivoPedido;
 }
 
 /**
- * Limpa todos os filhos de um pedido (itens, rateios, parcelas, arquivos).
+ * Limpa os filhos recriados na retomada e remove somente os anexos que o
+ * usuário retirou explicitamente do wizard.
  */
-async function limparFilhosDoPedido(pedidoId: string): Promise<void> {
-  const { data: arquivos } = await (supabase as any)
+async function limparFilhosDoPedido(
+  pedidoId: string,
+  arquivosPreservados: ArquivoExistenteInput[],
+): Promise<ArquivoExistenteInput[]> {
+  const { data: arquivos, error: errArquivos } = await (supabase as any)
     .from("compras_pedidos_arquivos")
-    .select("storage_path")
+    .select("id, upload_identify_guid, nome_original, storage_path, mime_type, tamanho_bytes")
     .eq("pedido_id", pedidoId);
+  if (errArquivos) {
+    throw new Error(`Erro ao listar anexos existentes do pedido: ${errArquivos.message}`);
+  }
 
-  if (arquivos && arquivos.length > 0) {
-    const paths = arquivos.map((a: any) => a.storage_path);
-    try {
-      await supabase.storage.from(STORAGE_BUCKET).remove(paths);
-    } catch (e) {
-      console.warn("Aviso: falha ao remover arquivos do storage:", e);
+  const idsPreservados = new Set(arquivosPreservados.map((arquivo) => arquivo.id));
+  if (idsPreservados.size !== arquivosPreservados.length) {
+    throw new Error("A lista de anexos existentes contém identificadores duplicados.");
+  }
+
+  const arquivosAtuais = (arquivos || []) as ArquivoExistenteInput[];
+  const preservadosConfirmados = arquivosAtuais.filter((arquivo) => idsPreservados.has(arquivo.id));
+  if (preservadosConfirmados.length !== idsPreservados.size) {
+    throw new Error("Um ou mais anexos existentes não pertencem ao pedido ou já não estão disponíveis.");
+  }
+
+  const arquivosRemovidos = arquivosAtuais.filter((arquivo) => !idsPreservados.has(arquivo.id));
+  if (arquivosRemovidos.length > 0) {
+    const paths = arquivosRemovidos.map((arquivo) => arquivo.storage_path);
+    const { error: errStorage } = await supabase.storage.from(STORAGE_BUCKET).remove(paths);
+    if (errStorage) {
+      throw new Error(`Erro ao remover do Storage os anexos excluídos pelo usuário: ${errStorage.message}`);
+    }
+
+    const { error: errMetadados } = await (supabase as any)
+      .from("compras_pedidos_arquivos")
+      .delete()
+      .in(
+        "id",
+        arquivosRemovidos.map((arquivo) => arquivo.id),
+      );
+    if (errMetadados) {
+      throw new Error(`Erro ao remover os metadados dos anexos excluídos: ${errMetadados.message}`);
     }
   }
 
-  const { data: itensIds } = await (supabase as any)
+  const { data: itensIds, error: errItensIds } = await (supabase as any)
     .from("compras_pedidos_itens")
     .select("id")
     .eq("pedido_id", pedidoId);
+  if (errItensIds) {
+    throw new Error(`Erro ao listar itens anteriores do pedido: ${errItensIds.message}`);
+  }
 
   if (itensIds && itensIds.length > 0) {
     const ids = itensIds.map((i: any) => i.id);
-    await (supabase as any).from("compras_pedidos_itens_rateio").delete().in("item_id", ids);
+    const { error: errRateios } = await (supabase as any)
+      .from("compras_pedidos_itens_rateio")
+      .delete()
+      .in("item_id", ids);
+    if (errRateios) {
+      throw new Error(`Erro ao limpar os rateios anteriores do pedido: ${errRateios.message}`);
+    }
   }
 
-  await (supabase as any).from("compras_pedidos_itens").delete().eq("pedido_id", pedidoId);
-  await (supabase as any).from("compras_pedidos_parcelas").delete().eq("pedido_id", pedidoId);
-  await (supabase as any).from("compras_pedidos_arquivos").delete().eq("pedido_id", pedidoId);
+  const { error: errItens } = await (supabase as any)
+    .from("compras_pedidos_itens")
+    .delete()
+    .eq("pedido_id", pedidoId);
+  if (errItens) {
+    throw new Error(`Erro ao limpar os itens anteriores do pedido: ${errItens.message}`);
+  }
+
+  const { error: errParcelas } = await (supabase as any)
+    .from("compras_pedidos_parcelas")
+    .delete()
+    .eq("pedido_id", pedidoId);
+  if (errParcelas) {
+    throw new Error(`Erro ao limpar as parcelas anteriores do pedido: ${errParcelas.message}`);
+  }
+
+  return preservadosConfirmados;
+}
+
+async function carregarBlobsArquivosExistentes(
+  arquivos: ArquivoExistenteInput[],
+): Promise<Array<{ guid: string; blob: Blob; nome: string }>> {
+  const blobs: Array<{ guid: string; blob: Blob; nome: string }> = [];
+  for (const arquivo of arquivos) {
+    const { data: blob, error } = await supabase.storage.from(STORAGE_BUCKET).download(arquivo.storage_path);
+    if (error || !blob) {
+      throw new Error(`Erro ao carregar o anexo existente "${arquivo.nome_original}": ${error?.message || "arquivo vazio"}`);
+    }
+    blobs.push({
+      guid: arquivo.upload_identify_guid,
+      blob,
+      nome: arquivo.nome_original,
+    });
+  }
+  return blobs;
 }
 
 function montarFormDataMultipart(payload: any, arquivos: Array<{ guid: string; blob: Blob; nome: string }>): FormData {
@@ -1150,27 +1350,80 @@ function montarFormDataMultipart(payload: any, arquivos: Array<{ guid: string; b
   return formData;
 }
 
+async function marcarPedidoComErro(params: {
+  pedidoId: string;
+  modoEdicao: boolean;
+  erroEnvioPayload: Record<string, unknown>;
+  mensagemAuditoria: string;
+  userId: string;
+  userNome: string;
+}): Promise<void> {
+  const { pedidoId, modoEdicao, erroEnvioPayload, mensagemAuditoria, userId, userNome } = params;
+  let numero = `RASCUNHO-${pedidoId.substring(0, 8)}`;
+
+  if (modoEdicao) {
+    const { data: pedidoAtual, error: errPedidoAtual } = await (supabase as any)
+      .from("compras_pedidos")
+      .select("numero")
+      .eq("id", pedidoId)
+      .single();
+    if (errPedidoAtual || !pedidoAtual) {
+      throw new Error(`Erro ao recuperar o pedido para registrar a falha: ${errPedidoAtual?.message}`);
+    }
+    numero = pedidoAtual.numero || numero;
+  }
+
+  const { error: errStatus } = await (supabase as any).from("compras_pedidos").upsert(
+    {
+      id: pedidoId,
+      codigo_empresa_filial: EMPRESA_FILIAL,
+      numero,
+      status_local: "erro_envio",
+      erro_envio: erroEnvioPayload,
+    },
+    { onConflict: "id" },
+  );
+  if (errStatus) {
+    throw new Error(`Erro ao marcar o pedido como erro de envio: ${errStatus.message}`);
+  }
+
+  const { error: errAuditoria } = await (supabase as any).from("compras_pedidos_auditoria").insert({
+    pedido_id: pedidoId,
+    evento: "envio_falha",
+    user_id: userId,
+    user_nome: userNome,
+    sucesso: false,
+    mensagem_erro: mensagemAuditoria,
+  });
+  if (errAuditoria) {
+    throw new Error(`Erro ao registrar a auditoria da falha do pedido: ${errAuditoria.message}`);
+  }
+}
+
 // ════════════════════════════════════════════════════════════
 // FUNÇÃO PRINCIPAL: enviarPedido
 // ════════════════════════════════════════════════════════════
 
 export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: string): Promise<EnvioPedidoResult> {
-  if (input.arquivos && input.arquivos.length > 3) {
-    throw new Error("Máximo de 3 arquivos por pedido.");
-  }
+  validarNovoPedidoInput(input);
 
   const textoCompleto = montarTextoCompleto(input);
   const textoHistoricoCompleto = montarTextoHistoricoCompleto(input);
 
   let pedidoId: string | null = pedidoIdExistente || null;
   const modoEdicao = !!pedidoIdExistente;
+  let arquivosExistentesPreservados: ArquivoExistenteInput[] = [];
+
+  if (!modoEdicao && (input.arquivos_existentes?.length || 0) > 0) {
+    throw new Error("Anexos existentes só podem ser informados na retomada de um pedido.");
+  }
 
   try {
     const codigoUsuarioAlvo = await resolverUsuarioAlvo(input.user_id, input.analista_email);
     const valorTotal = input.itens.reduce((acc, it) => acc + it.quantidade * it.valor_unitario, 0);
 
     if (modoEdicao) {
-      await limparFilhosDoPedido(pedidoId!);
+      arquivosExistentesPreservados = await limparFilhosDoPedido(pedidoId!, input.arquivos_existentes || []);
 
       const { data: pedAtual, error: errFetch } = await (supabase as any)
         .from("compras_pedidos")
@@ -1287,7 +1540,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       for (const cls of item.rateio) {
         for (const cc of cls.ccs) {
           const percFinal = round2((cls.percentual * cc.percentual) / 100);
-          await (supabase as any).from("compras_pedidos_itens_rateio").insert({
+          const { error: errRateio } = await (supabase as any).from("compras_pedidos_itens_rateio").insert({
             item_id: itemCriado.id,
             codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
             classe_rec_desp_label: cls.classe_rec_desp_label,
@@ -1295,12 +1548,17 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
             centro_ctrl_label: cc.centro_ctrl_label,
             percentual: percFinal,
           });
+          if (errRateio) {
+            throw new Error(
+              `Erro ao gravar rateio do item ${idx + 1}, classe ${cls.codigo_classe_rec_desp}, CC ${cc.codigo_centro_ctrl}: ${errRateio.message}`,
+            );
+          }
         }
       }
     }
 
     for (const p of input.parcelas) {
-      await (supabase as any).from("compras_pedidos_parcelas").insert({
+      const { error: errParcela } = await (supabase as any).from("compras_pedidos_parcelas").insert({
         pedido_id: pedidoId,
         sequencia: p.sequencia,
         dias_entre_parcelas: p.dias_entre_parcelas,
@@ -1308,6 +1566,9 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         valor_parcela: p.valor_parcela,
         data_vencimento: p.data_vencimento,
       });
+      if (errParcela) {
+        throw new Error(`Erro ao gravar a parcela ${p.sequencia}: ${errParcela.message}`);
+      }
     }
 
     if (input.arquivos && input.arquivos.length > 0) {
@@ -1316,22 +1577,28 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       }
     }
 
-    await (supabase as any).from("compras_pedidos_auditoria").insert({
+    const { error: errAuditoriaCriacao } = await (supabase as any).from("compras_pedidos_auditoria").insert({
       pedido_id: pedidoId,
       evento: modoEdicao ? "editado_hub" : "criado_hub",
       user_id: input.user_id,
       user_nome: input.analista_nome,
       sucesso: true,
     });
+    if (errAuditoriaCriacao) {
+      throw new Error(`Erro ao registrar auditoria de criação do pedido: ${errAuditoriaCriacao.message}`);
+    }
 
     if (modoEdicao) {
-      const { data: pedAtualEnviando } = await (supabase as any)
+      const { data: pedAtualEnviando, error: errPedAtualEnviando } = await (supabase as any)
         .from("compras_pedidos")
         .select("numero")
         .eq("id", pedidoId)
         .single();
+      if (errPedAtualEnviando || !pedAtualEnviando) {
+        throw new Error(`Erro ao carregar o número do pedido antes do envio: ${errPedAtualEnviando?.message}`);
+      }
 
-      await (supabase as any).from("compras_pedidos").upsert(
+      const { error: errStatusEnviando } = await (supabase as any).from("compras_pedidos").upsert(
         {
           id: pedidoId,
           codigo_empresa_filial: EMPRESA_FILIAL,
@@ -1340,8 +1607,11 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         },
         { onConflict: "id" },
       );
+      if (errStatusEnviando) {
+        throw new Error(`Erro ao marcar o pedido como enviando: ${errStatusEnviando.message}`);
+      }
     } else {
-      await (supabase as any).from("compras_pedidos").upsert(
+      const { error: errStatusEnviando } = await (supabase as any).from("compras_pedidos").upsert(
         {
           id: pedidoId,
           codigo_empresa_filial: EMPRESA_FILIAL,
@@ -1350,9 +1620,15 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         },
         { onConflict: "id" },
       );
+      if (errStatusEnviando) {
+        throw new Error(`Erro ao marcar o pedido como enviando: ${errStatusEnviando.message}`);
+      }
     }
 
-    const guids = input.arquivos?.map((a) => a.upload_identify_guid) || [];
+    const guids = [
+      ...arquivosExistentesPreservados.map((arquivo) => arquivo.upload_identify_guid),
+      ...(input.arquivos?.map((arquivo) => arquivo.upload_identify_guid) || []),
+    ];
 
     // ── ENRIQUECIMENTO FISCAL ──────────────────────────────
     const itensEnriquecidos: ItemEnriquecido[] = [];
@@ -1391,29 +1667,42 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       codigo_usuario_alvo: codigoUsuarioAlvo,
     });
 
-    await (supabase as any).from("compras_pedidos_auditoria").insert({
+    const { error: errAuditoriaTentativa } = await (supabase as any).from("compras_pedidos_auditoria").insert({
       pedido_id: pedidoId,
       evento: "envio_tentado",
       user_id: input.user_id,
       user_nome: input.analista_nome,
       payload_enviado: payload,
-      sucesso: true,
+      sucesso: false,
     });
+    if (errAuditoriaTentativa) {
+      throw new Error(`Erro ao registrar a tentativa de envio: ${errAuditoriaTentativa.message}`);
+    }
 
-    const blobs = (input.arquivos || []).map((a) => ({
+    const blobsExistentes = await carregarBlobsArquivosExistentes(arquivosExistentesPreservados);
+    const blobsNovos = (input.arquivos || []).map((a) => ({
       guid: a.upload_identify_guid,
       blob: a.file,
       nome: a.file.name,
     }));
 
-    const formData = montarFormDataMultipart(payload, blobs);
+    const formData = montarFormDataMultipart(payload, [...blobsExistentes, ...blobsNovos]);
 
     try {
       const respData = await callGatewayMultipart("/ped-comp/insert-multipart", formData);
 
-      const numeroAlvo = respData?.Numero || "";
+      const numeroAlvo = String(respData?.Numero ?? "").trim();
+      if (!numeroAlvo) {
+        const erroSemNumero = new Error("O ERP respondeu ao envio sem informar o número do pedido.") as Error & {
+          code?: string;
+          details?: any;
+        };
+        erroSemNumero.code = "RESPOSTA_200_SEM_NUMERO";
+        erroSemNumero.details = { resposta_alvo: respData };
+        throw erroSemNumero;
+      }
 
-      await (supabase as any).from("compras_pedidos").upsert(
+      const { error: errPedidoEnviado } = await (supabase as any).from("compras_pedidos").upsert(
         {
           id: pedidoId,
           codigo_empresa_filial: EMPRESA_FILIAL,
@@ -1431,6 +1720,9 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         },
         { onConflict: "id" },
       );
+      if (errPedidoEnviado) {
+        throw new Error(`O ERP criou o pedido ${numeroAlvo}, mas o Hub não conseguiu registrar o sucesso: ${errPedidoEnviado.message}`);
+      }
 
       // ── BAIXA DA REQUISIÇÃO (v1: só a req é atualizada) ──────────────
       {
@@ -1438,11 +1730,14 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         let filialReqParaBaixar: string | null = input.origem_codigo_empresa_filial || null;
 
         if (!reqAlvoParaBaixar || !filialReqParaBaixar) {
-          const { data: pedOrigem } = await (supabase as any)
+          const { data: pedOrigem, error: errPedOrigem } = await (supabase as any)
             .from("compras_pedidos")
             .select("numero_req_comp, codigo_empresa_filial_req_comp")
             .eq("id", pedidoId)
             .single();
+          if (errPedOrigem) {
+            throw new Error(`Erro ao recuperar a requisição de origem do pedido: ${errPedOrigem.message}`);
+          }
           if (pedOrigem) {
             reqAlvoParaBaixar = reqAlvoParaBaixar || pedOrigem.numero_req_comp || null;
             filialReqParaBaixar = filialReqParaBaixar || pedOrigem.codigo_empresa_filial_req_comp || null;
@@ -1460,7 +1755,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
             numeroPedidoAlvo: numeroAlvo,
           });
 
-          await (supabase as any).from("compras_pedidos_auditoria").insert({
+          const { error: errAuditoriaBaixa } = await (supabase as any).from("compras_pedidos_auditoria").insert({
             pedido_id: pedidoId,
             evento: resultadoBaixa.ok ? "req_baixada" : "req_baixa_falhou",
             user_id: input.user_id,
@@ -1470,6 +1765,9 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
               ? null
               : `[req ${reqAlvoParaBaixar} → ped ${numeroAlvo}] ${resultadoBaixa.erro || "erro desconhecido"}`,
           });
+          if (errAuditoriaBaixa) {
+            throw new Error(`Erro ao registrar auditoria da baixa da requisição: ${errAuditoriaBaixa.message}`);
+          }
         } else {
           console.warn(
             `[baixaReq] origem incompleta — baixa não disparada. req=${reqAlvoParaBaixar} filialReq=${filialReqParaBaixar}`,
@@ -1484,21 +1782,24 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
           p_numero_alvo: numeroAlvo,
         });
         if (errMarcar) {
-          console.warn(`Aviso: falha ao marcar arquivo ${guid} como enviado:`, errMarcar.message);
+          throw new Error(`Erro ao marcar o anexo ${guid} como enviado: ${errMarcar.message}`);
         }
       }
 
       if (input.origem_requisicao_id) {
-        const { data: reqRow } = await (supabase as any)
+        const { data: reqRow, error: errReqRow } = await (supabase as any)
           .from("compras_requisicoes")
           .select(
             "id, requisitante_user_id, status, codigo_empresa_filial, codigo_funcionario, codigo_centro_ctrl, codigo_finalidade_compra, data_necessidade, total_itens",
           )
           .eq("id", input.origem_requisicao_id)
           .single();
+        if (errReqRow) {
+          throw new Error(`Erro ao carregar a requisição vinculada: ${errReqRow.message}`);
+        }
 
         if (reqRow) {
-          await (supabase as any).from("compras_requisicoes").upsert(
+          const { error: errAtualizarReq } = await (supabase as any).from("compras_requisicoes").upsert(
             {
               id: reqRow.id,
               requisitante_user_id: reqRow.requisitante_user_id,
@@ -1514,6 +1815,9 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
             },
             { onConflict: "id" },
           );
+          if (errAtualizarReq) {
+            throw new Error(`Erro ao vincular o pedido ${numeroAlvo} à requisição: ${errAtualizarReq.message}`);
+          }
         }
 
         if (!modoEdicao) {
@@ -1522,7 +1826,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         }
       }
 
-      await (supabase as any).from("compras_pedidos_auditoria").insert({
+      const { error: errAuditoriaSucesso } = await (supabase as any).from("compras_pedidos_auditoria").insert({
         pedido_id: pedidoId,
         evento: "envio_sucesso",
         user_id: input.user_id,
@@ -1530,6 +1834,9 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         resposta_alvo: respData,
         sucesso: true,
       });
+      if (errAuditoriaSucesso) {
+        throw new Error(`Erro ao registrar a auditoria de sucesso do envio: ${errAuditoriaSucesso.message}`);
+      }
 
       return { sucesso: true, pedido_id: pedidoId!, numero_alvo: numeroAlvo };
     } catch (errEnvio: any) {
