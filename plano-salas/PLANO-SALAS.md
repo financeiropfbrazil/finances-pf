@@ -142,7 +142,7 @@ Decisões fechadas com o Pedro (Controller, dono do projeto):
 | FS2B | FS2B-0 | Pré-voo do Ajuste B (leituras) | concluída | S4 · 21/08/2026 |
 | FS2B | FS2B-1 | `prod_saidas.batelada_id` → opcional (DROP NOT NULL) | concluída | S4 · 21/08/2026 |
 | FS2B | FS2B-2 | RPC `prod_registrar_saida` | concluída | S4 · 21/08/2026 |
-| FS2B | FS2B-3 | `NOTIFY pgrst` + verificação final | pendente | — |
+| FS2B | FS2B-3 | `NOTIFY pgrst` + verificação final | concluída | S4 · 21/08/2026 |
 | FS3 | — | Telas (aguardando GO do Pedro) | bloqueada | — |
 
 Valores de status: `pendente` · `em execução` · `concluída` · `bloqueada` · `falhou (ver DIARIO)`.

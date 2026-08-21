@@ -794,3 +794,49 @@
   - O produto da sala é `UNID` com `controla_lote = true`, mas a RPC de saída **não** consulta
     `controla_lote`: o lote de produção é sempre exigido, por decisão do ajuste. São coisas
     diferentes — `controla_lote` é do material, `lote_producao` é da peça que a sala produziu.
+
+---
+### [SESSÃO S4 · 2026-08-21 13:40 BRT] FS2B-3 — NOTIFY pgrst + verificação final — **AJUSTE B FECHADO**
+- **Status final:** concluída
+- **O que foi executado:** `NOTIFY pgrst, 'reload schema';` + as **4 consultas de verificação**
+  do §C/FS2B-3, na ordem.
+- **Verificações (as 4 do §E, valores reais):**
+  | # | verificação | esperado | real | bate? |
+  |---|---|---|---|---|
+  | 1 | `prod_saidas.batelada_id` | `is_nullable = YES` | **YES** | ✅ |
+  | 2 | 7 funções do módulo, `proacl` sem `anon` | sem `anon` | **as 7 com `{postgres,authenticated,service_role}`** | ✅ |
+  | 3 | 10 tabelas do módulo, só policies de SELECT | só SELECT | **10 tabelas · 10 policies · todas `SELECT` · todas `TO authenticated`** | ✅ |
+  | 4 | 11 motivos de refugo, 6 provisórios | 5 PRODUTO def. + 6 INSUMO prov. | **PRODUTO 5 (0 prov.) · INSUMO 6 (6 prov.)** | ✅ |
+- **CRITÉRIO DE ACEITE DO AJUSTE B (§E): ATINGIDO.**
+- **A verificação (3) mudou de significado desde a FS2-13, e para melhor.** Na S3 essa mesma
+  consulta devolvia **15 tabelas**, e as 5 legadas vinham com `cmd = ALL` (`FOR ALL TO
+  authenticated USING (true)`) — eu registrei como achado e não corrigi, porque o §0.8 dizia que
+  as legadas não eram tocadas. Hoje ela devolve **exatamente 10 linhas, todas SELECT**. O Pedro
+  dropou as legadas em 21/08 (§F.3 do ajuste). Consequências: o buraco de escrita aberto a 52
+  contas **deixou de existir**, o §7.3 do plano está **fechado**, e a armadilha de leitura que eu
+  havia apontado (quem rodasse a consulta veria `ALL` e concluiria, errado, que o módulo tem
+  policy de escrita) **desapareceu junto**.
+- **Estado do módulo após o Ajuste B — os três eventos do MVP estão completos:**
+  | evento | RPC | gate | livro |
+  |---|---|---|---|
+  | ENTRADA | `prod_registrar_entrada` | `salas.registrar.entrada` | `prod_entradas` |
+  | REFUGO | `prod_registrar_refugo` | `salas.registrar.refugo` | `prod_refugos` |
+  | SAÍDA | `prod_registrar_saida` | `salas.registrar.saida` | `prod_saidas` |
+  | (correção) | `prod_estornar_movimento` | `salas.estornar` ou autor < 60 min | soft-estorno nos 4 |
+  Dormindo, intactos e sem uso no MVP: `prod_bateladas`, `prod_batelada_consumos`,
+  `prod_vw_saldo_insumos`, `prod_abrir_batelada`, `prod_declarar_consumo`, `prod_fechar_batelada`
+  e a permissão `salas.batelada.manage`. **Nada foi dropado, revogado ou alterado neles** — dormir
+  era a instrução.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2B-3`.
+- **Pendências/Sugestões:**
+  - **Ajuste B fechado ≠ Ajuste B validado.** `prod_registrar_saida` **nunca foi executada**. O
+    §D proíbe testá-la pelo MCP e eu não contornei. Vale de novo a regra da casa: *caminho feliz
+    que nunca rodou não é caminho validado* — e o roteiro de 5 passos do §D continua pendente de
+    teste humano com sessão real.
+  - `NOTIFY pgrst` emitido; o efeito não é verificável por SQL (mesma observação da FS1-10 e da
+    FS2-13). Se a RPC não aparecer para o PostgREST no teste pela UI, o reload é o primeiro
+    suspeito — não o código da função.
+  - **Nota de commits desta sessão:** FS2B-0 e FS2B-1 saíram **num commit só** (`6ee6dc0`), não em
+    dois como as entradas acima sugerem. Motivo: o pré-voo não escreve nada no banco — seu único
+    artefato é o próprio registro no diário, que já estava no mesmo arquivo da FS2B-1. FS2B-2 e
+    FS2B-3 têm commit próprio. Registrado aqui por append, sem editar as entradas anteriores.
