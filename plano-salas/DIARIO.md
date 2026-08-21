@@ -1042,3 +1042,35 @@
 - **Pendências/Sugestões:** os três componentes ainda **não foram vistos numa tela real** — só
   compilam. Tamanho de alvo, contraste e legibilidade com paramentação só se validam no tablet da
   sala (§I.2), que é o teste que de fato importa nesta fase.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-5 — Painel da sala (três botões + log do dia)
+- **Status final:** concluída
+- **O que foi executado:** `src/components/salas/LogDoDia.tsx` (novo) e
+  `src/pages/MovimentacaoSalas.tsx` reescrita — a versão mínima da FS3-3 vira o painel do §E.1:
+  cabeçalho com a sala, os três botões de evento (96px) e o log do dia. Nenhum arquivo
+  compartilhado do Hub tocado nesta tarefa.
+- **Verificações:** type-check `tsc --noEmit -p tsconfig.app.json` → **exit 0**. Confirmei no
+  `tailwind.config.ts` que os semânticos `success`/`warning`/`info` existem e que
+  `bg-success/15` é uso previsto (o próprio config cita esse exemplo) — não inventei paleta,
+  como manda o §D.5.
+- **Desenho, e o porquê de cada escolha:**
+  - **Botões conforme permissão** (`podeEntrada`/`podeRefugo`/`podeSaida`): sem permissão, o botão
+    não aparece (§E.1). Se **nenhum** aparecer, a tela não fica muda — diz que a pessoa está
+    vinculada mas o perfil não permite registrar, e manda falar com o gestor. Sem isso o operador
+    veria uma sala vazia sem explicação.
+  - **Estornado aparece tachado, com o motivo, e não some.** O livro é append-only (§0.7); esconder
+    o registro corrigido tiraria da sala justamente a informação de que alguém já corrigiu aquilo.
+  - **"Trocar de sala" só aparece com 2+ salas** — coerente com o §B.4 (sala única entra direto).
+  - Log com hora, tipo (etiqueta colorida), item, quem registrou, lote/motivo e quantidade em
+    `tabular-nums`, mais recente primeiro.
+- **🔴 Decisão deliberada — `FluxoEmPreparacao`:** os fluxos de Entrada/Refugo/Saída só existem na
+  FS3-6/7/8. Em vez de deixar os botões mortos ou apontando para nada, cada um abre um marcador que
+  diz **"em preparação — nada foi registrado"** e volta. Motivo: **todo commit desta fase precisa
+  ser seguro para publicar**. O Pedro pediu (instrução 3) que, se a sessão esticar, eu pare em
+  tarefa concluída — então o estado intermediário não pode ser um botão que finge registrar. Se a
+  sessão parar aqui, o que vai ao ar é um painel funcional com log do dia e um aviso honesto.
+  **Cada uma das próximas três tarefas remove a sua parte do marcador.**
+- **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-5`.
+- **Pendências/Sugestões:** o botão de estorno do §E.1 (`[↩]`) ainda não está no log — o `LogDoDia`
+  já tem o encaixe (`acaoDaLinha`), e ele é preenchido na FS3-9.

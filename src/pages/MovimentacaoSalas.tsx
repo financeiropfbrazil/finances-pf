@@ -1,18 +1,37 @@
+import { useState } from "react";
+import { ArrowDownToLine, ArrowUpFromLine, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { useSalaContexto } from "@/hooks/useSalaContexto";
+import { LogDoDia } from "@/components/salas/LogDoDia";
+import { useSalaContexto, useMovimentosDoDia } from "@/hooks/useSalaContexto";
+import type { TipoMovimento } from "@/services/salasService";
+import { cn } from "@/lib/utils";
 
 /**
- * Movimentação de Salas — entrada do módulo (FS3-3).
+ * Movimentação de Salas — painel da sala (FS3-5).
  *
- * Nesta tarefa a página resolve só a sala: uma sala vinculada entra direto,
- * mais de uma pede escolha, nenhuma explica o porquê. Os três botões de evento
- * e o log do dia entram na FS3-5.
+ * Uma decisão por tela: o painel só faz duas coisas — oferecer os três eventos
+ * e mostrar o que já aconteceu hoje. Cada evento abre seu próprio fluxo em
+ * passos (FS3-6/7/8).
  *
- * A rota já está gateada por `salas.access` no `App.tsx`; aqui não se repete o
- * gate de acesso ao módulo, só o de escopo (em que sala a pessoa trabalha).
+ * Os botões aparecem conforme a permissão do RBAC. Esconder é conveniência: a
+ * RPC cobra permissão E vínculo com a sala na hora de gravar, e é ela quem
+ * decide de verdade.
  */
+type FluxoAberto = TipoMovimento | null;
+
 export default function MovimentacaoSalas() {
-  const { salas, salaAtiva, selecionarSala, carregando } = useSalaContexto();
+  const {
+    salas,
+    salaAtiva,
+    selecionarSala,
+    carregando,
+    podeEntrada,
+    podeRefugo,
+    podeSaida,
+  } = useSalaContexto();
+
+  const [fluxo, setFluxo] = useState<FluxoAberto>(null);
+  const { movimentos, carregando: carregandoLog, recarregar } = useMovimentosDoDia(salaAtiva?.id ?? null);
 
   if (carregando) {
     return (
@@ -60,10 +79,105 @@ export default function MovimentacaoSalas() {
     );
   }
 
+  if (fluxo) {
+    return (
+      <div className="p-4 sm:p-6">
+        <FluxoEmPreparacao tipo={fluxo} onVoltar={() => setFluxo(null)} />
+      </div>
+    );
+  }
+
+  const eventos: { tipo: TipoMovimento; rotulo: string; icone: typeof ArrowDownToLine; visivel: boolean }[] = [
+    { tipo: "ENTRADA", rotulo: "Entrada", icone: ArrowDownToLine, visivel: podeEntrada },
+    { tipo: "REFUGO", rotulo: "Refugo", icone: Trash2, visivel: podeRefugo },
+    { tipo: "SAIDA", rotulo: "Saída", icone: ArrowUpFromLine, visivel: podeSaida },
+  ];
+  const eventosVisiveis = eventos.filter((e) => e.visivel);
+
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-semibold text-foreground">{salaAtiva.nome}</h1>
-      <p className="mt-1 text-sm text-muted-foreground">{salaAtiva.codigo}</p>
+    <div className="p-4 sm:p-6">
+      <header className="flex items-baseline justify-between gap-3">
+        <h1 className="truncate text-xl font-semibold text-foreground">{salaAtiva.nome}</h1>
+        {salas.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => selecionarSala(null)}
+            className="shrink-0 text-sm text-primary underline-offset-4 hover:underline"
+          >
+            Trocar de sala
+          </button>
+        ) : null}
+      </header>
+
+      {eventosVisiveis.length === 0 ? (
+        <Card className="mt-6 p-4 text-sm text-muted-foreground">
+          Você está vinculado a esta sala, mas seu perfil não permite registrar movimentos. Fale com
+          o gestor se isso não estiver certo.
+        </Card>
+      ) : (
+        <div
+          className={cn(
+            "mt-6 grid gap-3",
+            eventosVisiveis.length === 1 ? "sm:grid-cols-1" : "sm:grid-cols-2 lg:grid-cols-3",
+          )}
+        >
+          {eventosVisiveis.map((evento) => (
+            <button
+              key={evento.tipo}
+              type="button"
+              onClick={() => setFluxo(evento.tipo)}
+              className="flex h-24 items-center justify-center gap-3 rounded-lg border-2 border-border bg-card text-lg font-medium text-foreground transition-colors hover:bg-accent active:bg-accent"
+            >
+              <evento.icone className="h-6 w-6" aria-hidden="true" />
+              {evento.rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <section className="mt-8">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-base font-semibold text-foreground">Hoje na sala</h2>
+          <button
+            type="button"
+            onClick={() => recarregar()}
+            className="text-sm text-primary underline-offset-4 hover:underline"
+          >
+            Atualizar
+          </button>
+        </div>
+        <div className="mt-2">
+          <LogDoDia movimentos={movimentos} carregando={carregandoLog} />
+        </div>
+      </section>
     </div>
+  );
+}
+
+/**
+ * Marcador temporário dos fluxos de evento.
+ *
+ * Existe para que o painel seja navegável e seguro para publicar já na FS3-5:
+ * cada tarefa seguinte (FS3-6 Entrada, FS3-7 Refugo, FS3-8 Saída) substitui a
+ * chamada correspondente pelo fluxo de verdade. Se a sessão parar no meio, o
+ * que vai ao ar é um painel funcional com o log do dia e um aviso honesto — não
+ * um botão que finge registrar.
+ */
+function FluxoEmPreparacao({ tipo, onVoltar }: { tipo: TipoMovimento; onVoltar: () => void }) {
+  const rotulo = tipo === "ENTRADA" ? "Entrada" : tipo === "REFUGO" ? "Refugo" : "Saída";
+  return (
+    <Card className="mx-auto max-w-lg p-6 text-center">
+      <h2 className="text-lg font-semibold text-foreground">{rotulo} — em preparação</h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Esta etapa ainda não está disponível. Nada foi registrado.
+      </p>
+      <button
+        type="button"
+        onClick={onVoltar}
+        className="mt-4 h-14 w-full rounded-lg border border-border text-base font-medium text-foreground transition-colors hover:bg-accent"
+      >
+        Voltar
+      </button>
+    </Card>
   );
 }
