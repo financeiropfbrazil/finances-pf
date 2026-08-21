@@ -1215,3 +1215,44 @@
     reavaliar quando existir a 2ª sala.
   - A revogação não pede confirmação. É reversível (basta vincular de novo) e o §A.1 pede caminhos
     curtos, mas se no teste da sala isso gerar revogação acidental, virar um diálogo é trivial.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-11 — Build, type-check, lint e fechamento da FS3
+- **Status final:** concluída — **FS3 FECHADA**
+- **O que foi executado:** verificação final de qualidade e o Quadro de Status atualizado com as
+  12 tarefas da fase.
+- **Verificações (valores reais):**
+  | verificação | comando | resultado |
+  |---|---|---|
+  | Type-check | `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.app.json` | **exit 0** |
+  | Build | `bun run build` | **passa** (✓ built in 25.57s) |
+  | Lint do módulo | `npx eslint` nos 10 arquivos novos | 40 erros `no-explicit-any` + 2 warnings |
+- **O type-check rodou a cada tarefa, não só aqui** (instrução 2 do Pedro nesta fase). Isso pegou o
+  que o `bun run build` **não** pegaria: `build` é só `vite build` e não checa tipo.
+- **Sobre os 40 erros de lint — não é regressão, é a norma do projeto.** Todos são
+  `@typescript-eslint/no-explicit-any`, vindos dos `(supabase as any)` que o módulo é **obrigado**
+  a usar: o `types.ts` gerado não conhece nenhuma tabela `prod_*` (achado da FS3-0). Comparação
+  medida, não suposta: **`src/services/opService.ts`, arquivo pré-existente da casa, tem 35 erros
+  exatamente do mesmo tipo.** O CLAUDE.md já registra esse passivo.
+- **Sobre os 2 warnings `react-refresh/only-export-components`** (`TecladoNumerico.tsx` exporta
+  `valorNumerico`, `DialogoEstorno.tsx` exporta `podeMostrarEstorno`, ambos junto de componentes):
+  medi o repo inteiro — **12 ocorrências no app, das quais 10 são pré-existentes**. É padrão
+  tolerado aqui, e o efeito é só hot-reload em desenvolvimento local. Deixei como está: separar as
+  duas funções em arquivos próprios criaria dois arquivos a mais para ganho de DX que ninguém neste
+  projeto usa (o desenvolvimento é via Lovable). **Registrado para ser decisão, não esquecimento.**
+- **Arquivos entregues pela FS3** — 10 novos, 3 existentes tocados:
+  - Novos: `services/salasService.ts` · `hooks/useSalaContexto.ts` · `pages/MovimentacaoSalas.tsx` ·
+    `components/salas/`: `CartaoEscolha` · `TecladoNumerico` · `PassoFluxo` · `CamposPasso` ·
+    `LogDoDia` · `FluxoEntrada` · `FluxoRefugo` · `FluxoSaida` · `DialogoEstorno` · `AbaEquipe`.
+  - Existentes (só o que o §G.1 autoriza): `App.tsx` (rota), `AppSidebar.tsx` (menu),
+    `constants/permissions.ts` (catálogo).
+- **Migração/Commit:** nenhuma escrita no banco em toda a FS3 — a fase é 100% frontend.
+  Commit: `salas: FS3-11`.
+- **CRITÉRIO DE ACEITE DA FS3 (§H): parcialmente atingido — e a parte que falta é humana.**
+  §H.1 (build passa) ✔ e §H.5 (diário, status, commits, push) ✔. Os itens **§H.2, §H.3 e §H.4**
+  — menu aparece, sala abre, os três fluxos registram, entrada vencida é recusada, estorno tacha o
+  item — **exigem o app rodando e não podem ser marcados por mim**. Nenhuma das telas foi aberta
+  num navegador nesta sessão; o que está provado é que compilam.
+- **Pendências/Sugestões:** o `pedidosService.ts` de terceiro seguiu **intocado** no working tree
+  durante toda a sessão, conforme decisão do Pedro (ele commita separado). Nenhum commit desta
+  sessão o contém — conferido arquivo a arquivo.

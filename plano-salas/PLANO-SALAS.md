@@ -144,17 +144,17 @@ Decisões fechadas com o Pedro (Controller, dono do projeto):
 | FS2B | FS2B-2 | RPC `prod_registrar_saida` | concluída | S4 · 21/08/2026 |
 | FS2B | FS2B-3 | `NOTIFY pgrst` + verificação final | concluída | S4 · 21/08/2026 |
 | FS3 | FS3-0 | Pré-voo: padrões do app (rota, menu, gate, service, tema) | concluída | S5 · 21/08/2026 |
-| FS3 | FS3-1 | Camada de dados: tipos + `salasService.ts` | pendente | — |
-| FS3 | FS3-2 | Hook de contexto da sala | pendente | — |
-| FS3 | FS3-3 | Rota + item de menu gateado em `salas.access` | pendente | — |
-| FS3 | FS3-4 | Componentes base do estilo caixa | pendente | — |
-| FS3 | FS3-5 | Painel da sala (três botões + log do dia) | pendente | — |
-| FS3 | FS3-6 | Tela de Entrada | pendente | — |
-| FS3 | FS3-7 | Tela de Refugo | pendente | — |
-| FS3 | FS3-8 | Tela de Saída | pendente | — |
-| FS3 | FS3-9 | Estorno a partir do log do dia | pendente | — |
-| FS3 | FS3-10 | Aba Equipe (vincular/revogar) | pendente | — |
-| FS3 | FS3-11 | Build + type-check + push + roteiro de validação | pendente | — |
+| FS3 | FS3-1 | Camada de dados: tipos + `salasService.ts` | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-2 | Hook de contexto da sala | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-3 | Rota + item de menu gateado em `salas.access` | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-4 | Componentes base do estilo caixa | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-5 | Painel da sala (três botões + log do dia) | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-6 | Tela de Entrada | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-7 | Tela de Refugo | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-8 | Tela de Saída | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-9 | Estorno a partir do log do dia | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-10 | Aba Equipe (vincular/revogar) | concluída | S5 · 21/08/2026 |
+| FS3 | FS3-11 | Build + type-check + push + roteiro de validação | concluída | S5 · 21/08/2026 |
 
 Valores de status: `pendente` · `em execução` · `concluída` · `bloqueada` · `falhou (ver DIARIO)`.
 
