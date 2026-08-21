@@ -1108,3 +1108,34 @@
   o operador tem de ver a linha aparecer, é a confirmação de que entrou. Os campos opcionais
   (NF, observação) do "Mais dados" (§E.2) **não** foram implementados: ficam fora do caminho
   normal e ninguém pediu para o MVP. Se a sala precisar, é tarefa nova.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-7 — Tela de Refugo (4 passos)
+- **Status final:** concluída
+- **O que foi executado:** `src/components/salas/CamposPasso.tsx` (novo, extração) e
+  `src/components/salas/FluxoRefugo.tsx` (novo) com os 4 passos do §E.3 — O que foi refugado →
+  Motivo → Quantidade e lote → Conferência. Painel ligado ao fluxo; só a Saída segue no marcador.
+- **Verificações:** type-check `tsc --noEmit -p tsconfig.app.json` → **exit 0**.
+- **Extração feita nesta tarefa:** `SeletorUnidade`, `LinhaConferencia` e `VisorQuantidade`
+  nasceram dentro do `FluxoEntrada` e foram movidos para `CamposPasso.tsx` quando o Refugo passou a
+  precisar dos mesmos. Motivo não é estética: os três fluxos fazem a **mesma** pergunta de
+  quantidade e a **mesma** conferência, e a sala tem de ver os três idênticos — dois seletores de
+  unidade com comportamento diferente é erro de operação esperando acontecer. `FluxoEntrada` foi
+  ajustado para importar de lá; nada mudou no comportamento dele.
+- **🔴 Decisão de desenho — o tipo do item não é pergunta.** O §E.3 pede dois grupos ("Peça
+  produzida" e "Insumo") no passo 1. Implementei os grupos, mas **`p_tipo_item` sai do `papel` que
+  o produto tem na sala**, não de uma escolha separada do operador. Perguntar duas vezes a mesma
+  coisa — escolher "Insumo" e depois escolher um item que é PRODUTO — é exatamente onde o operador
+  erra, e a RPC recusaria com *"Produto é INSUMO nesta sala, não PRODUTO"* depois de ele ter
+  preenchido tudo. Assim a combinação inválida **não chega a existir na tela**.
+- **Outras escolhas:**
+  - **Trocar de item limpa o motivo** (`setMotivo(null)`): a lista de motivos muda com o tipo
+    (`aplica_a`), e um motivo de peça sobrevivendo numa escolha de insumo seria recusado pela RPC
+    — ou, pior, passaria despercebido se um dia houvesse motivo `AMBOS` equivalente.
+  - **Lote obrigatório só quando a RPC exige**: `controla_lote` **e** `tipo_item = 'INSUMO'`. Para
+    peça produzida o campo nem aparece — a RPC não pede.
+  - Motivos vêm de `useMotivosRefugo(tipo)`, que já filtra `ativo = true` e inclui `AMBOS`.
+- **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-7`.
+- **Pendências/Sugestões:** os 6 motivos de INSUMO continuam `provisorio = true` no banco (§F.1 da
+  FS2). A tela **não** distingue provisório de definitivo — de propósito: para o operador a
+  distinção não significa nada, e é o Pedro quem valida a lista com a sala (§I.3).

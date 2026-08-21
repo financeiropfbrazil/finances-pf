@@ -3,6 +3,7 @@ import { ArrowDownToLine, ArrowUpFromLine, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LogDoDia } from "@/components/salas/LogDoDia";
 import { FluxoEntrada } from "@/components/salas/FluxoEntrada";
+import { FluxoRefugo } from "@/components/salas/FluxoRefugo";
 import { useSalaContexto, useMovimentosDoDia } from "@/hooks/useSalaContexto";
 import type { TipoMovimento } from "@/services/salasService";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ export default function MovimentacaoSalas() {
     selecionarSala,
     carregando,
     insumos,
+    produtosFinais,
     podeEntrada,
     podeRefugo,
     podeSaida,
@@ -93,6 +95,14 @@ export default function MovimentacaoSalas() {
           <FluxoEntrada
             sala={salaAtiva}
             insumos={insumos}
+            onConcluido={concluir}
+            onCancelar={fecharFluxo}
+          />
+        ) : fluxo === "REFUGO" ? (
+          <FluxoRefugo
+            sala={salaAtiva}
+            insumos={insumos}
+            produtosFinais={produtosFinais}
             onConcluido={concluir}
             onCancelar={fecharFluxo}
           />

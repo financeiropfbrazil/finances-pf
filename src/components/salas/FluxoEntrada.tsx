@@ -4,6 +4,7 @@ import { PassoFluxo } from "@/components/salas/PassoFluxo";
 import { CartaoEscolha } from "@/components/salas/CartaoEscolha";
 import { TecladoNumerico, valorNumerico } from "@/components/salas/TecladoNumerico";
 import { Input } from "@/components/ui/input";
+import { SeletorUnidade, LinhaConferencia, VisorQuantidade } from "@/components/salas/CamposPasso";
 import {
   registrarEntrada,
   textoConversao,
@@ -12,7 +13,6 @@ import {
   type ProdutoSala,
   type Sala,
 } from "@/services/salasService";
-import { cn } from "@/lib/utils";
 
 /**
  * Entrada de insumo na sala (FS3-6) — 4 passos do §E.2.
@@ -129,12 +129,8 @@ export function FluxoEntrada({ sala, insumos, onConcluido, onCancelar }: FluxoEn
       >
         <SeletorUnidade produto={produto} unidade={unidade} onEscolher={setUnidade} />
 
-        <div className="mt-4 rounded-lg border border-border bg-card p-4 text-right">
-          <span className="text-3xl font-semibold tabular-nums text-foreground">
-            {quantidade || "0"}
-          </span>
-          <span className="ml-2 text-lg text-muted-foreground">{unidade}</span>
-          {conversao ? <p className="mt-1 text-sm text-muted-foreground">{conversao}</p> : null}
+        <div className="mt-4">
+          <VisorQuantidade quantidade={quantidade} unidade={unidade} conversao={conversao} />
         </div>
 
         <div className="mt-4">
@@ -225,63 +221,4 @@ export function FluxoEntrada({ sala, insumos, onConcluido, onCancelar }: FluxoEn
   }
 
   return null;
-}
-
-/** Unidades da escala como botões. Some quando o produto só tem a base. */
-export function SeletorUnidade({
-  produto,
-  unidade,
-  onEscolher,
-}: {
-  produto: ProdutoSala;
-  unidade: string;
-  onEscolher: (u: string) => void;
-}) {
-  if (produto.escala_unidades.length <= 1) return null;
-  return (
-    <div className="flex flex-wrap gap-2">
-      {produto.escala_unidades
-        .slice()
-        .sort((a, b) => a.posicao - b.posicao)
-        .map((u) => (
-          <button
-            key={u.unidade}
-            type="button"
-            onClick={() => onEscolher(u.unidade)}
-            className={cn(
-              "h-14 min-w-[88px] rounded-lg border-2 px-4 text-base font-medium transition-colors",
-              u.unidade === unidade
-                ? "border-primary bg-primary/10 text-foreground"
-                : "border-border bg-card text-muted-foreground",
-            )}
-          >
-            {u.unidade}
-          </button>
-        ))}
-    </div>
-  );
-}
-
-export function LinhaConferencia({
-  rotulo,
-  valor,
-  destaque = false,
-}: {
-  rotulo: string;
-  valor: string;
-  destaque?: boolean;
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 p-4">
-      <dt className="shrink-0 text-sm text-muted-foreground">{rotulo}</dt>
-      <dd
-        className={cn(
-          "min-w-0 truncate text-right text-foreground",
-          destaque ? "text-lg font-semibold tabular-nums" : "text-sm",
-        )}
-      >
-        {valor}
-      </dd>
-    </div>
-  );
 }
