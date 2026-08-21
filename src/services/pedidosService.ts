@@ -1841,103 +1841,61 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
       return { sucesso: true, pedido_id: pedidoId!, numero_alvo: numeroAlvo };
     } catch (errEnvio: any) {
       const msgErro = errEnvio?.message || String(errEnvio);
-
+      const respostaSemNumero = errEnvio?.code === "RESPOSTA_200_SEM_NUMERO";
       const erroEnvioPayload = {
         message: msgErro,
         details: errEnvio?.details || null,
         timestamp: new Date().toISOString(),
+        tipo: respostaSemNumero ? "resposta_200_sem_numero" : "falha_envio",
+        resposta_200_sem_numero: respostaSemNumero,
       };
 
-      if (modoEdicao) {
-        const { data: pedAtualErro } = await (supabase as any)
-          .from("compras_pedidos")
-          .select("numero")
-          .eq("id", pedidoId)
-          .single();
-
-        await (supabase as any).from("compras_pedidos").upsert(
-          {
-            id: pedidoId,
-            codigo_empresa_filial: EMPRESA_FILIAL,
-            numero: pedAtualErro?.numero || `RASCUNHO-${pedidoId!.substring(0, 8)}`,
-            status_local: "erro_envio",
-            erro_envio: erroEnvioPayload,
-          },
-          { onConflict: "id" },
-        );
-      } else {
-        await (supabase as any).from("compras_pedidos").upsert(
-          {
-            id: pedidoId,
-            codigo_empresa_filial: EMPRESA_FILIAL,
-            numero: `RASCUNHO-${pedidoId!.substring(0, 8)}`,
-            status_local: "erro_envio",
-            erro_envio: erroEnvioPayload,
-          },
-          { onConflict: "id" },
-        );
+      try {
+        await marcarPedidoComErro({
+          pedidoId: pedidoId!,
+          modoEdicao,
+          erroEnvioPayload,
+          mensagemAuditoria: msgErro,
+          userId: input.user_id,
+          userNome: input.analista_nome,
+        });
+        return { sucesso: false, pedido_id: pedidoId!, erro: msgErro };
+      } catch (errRegistro: any) {
+        return {
+          sucesso: false,
+          pedido_id: pedidoId!,
+          erro: `${msgErro} Além disso, o Hub não conseguiu registrar a falha: ${errRegistro?.message || String(errRegistro)}`,
+        };
       }
-
-      await (supabase as any).from("compras_pedidos_auditoria").insert({
-        pedido_id: pedidoId,
-        evento: "envio_falha",
-        user_id: input.user_id,
-        user_nome: input.analista_nome,
-        sucesso: false,
-        mensagem_erro: msgErro,
-      });
-
-      return { sucesso: false, pedido_id: pedidoId!, erro: msgErro };
     }
   } catch (errCriacao: any) {
     const msgErro = errCriacao?.message || String(errCriacao);
 
     if (pedidoId) {
+      const mensagemCriacao = `Erro durante criação: ${msgErro}`;
       const erroEnvioPayload = {
-        message: `Erro durante criação: ${msgErro}`,
+        message: mensagemCriacao,
         timestamp: new Date().toISOString(),
+        tipo: "erro_criacao",
       };
 
-      if (modoEdicao) {
-        const { data: pedAtualCatch } = await (supabase as any)
-          .from("compras_pedidos")
-          .select("numero")
-          .eq("id", pedidoId)
-          .single();
-
-        await (supabase as any).from("compras_pedidos").upsert(
-          {
-            id: pedidoId,
-            codigo_empresa_filial: EMPRESA_FILIAL,
-            numero: pedAtualCatch?.numero || `RASCUNHO-${pedidoId.substring(0, 8)}`,
-            status_local: "erro_envio",
-            erro_envio: erroEnvioPayload,
-          },
-          { onConflict: "id" },
-        );
-      } else {
-        await (supabase as any).from("compras_pedidos").upsert(
-          {
-            id: pedidoId,
-            codigo_empresa_filial: EMPRESA_FILIAL,
-            numero: `RASCUNHO-${pedidoId.substring(0, 8)}`,
-            status_local: "erro_envio",
-            erro_envio: erroEnvioPayload,
-          },
-          { onConflict: "id" },
-        );
+      try {
+        await marcarPedidoComErro({
+          pedidoId,
+          modoEdicao,
+          erroEnvioPayload,
+          mensagemAuditoria: mensagemCriacao,
+          userId: input.user_id,
+          userNome: input.analista_nome,
+        });
+        return { sucesso: false, pedido_id: pedidoId, erro: msgErro };
+      } catch (errRegistro: any) {
+        return {
+          sucesso: false,
+          pedido_id: pedidoId,
+          erro: `${msgErro} Além disso, o Hub não conseguiu registrar a falha: ${errRegistro?.message || String(errRegistro)}`,
+        };
       }
-
-      await (supabase as any).from("compras_pedidos_auditoria").insert({
-        pedido_id: pedidoId,
-        evento: "envio_falha",
-        user_id: input.user_id,
-        user_nome: input.analista_nome,
-        sucesso: false,
-        mensagem_erro: `Erro durante criação: ${msgErro}`,
-      });
-
-      return { sucesso: false, pedido_id: pedidoId, erro: msgErro };
     }
 
     throw errCriacao;

@@ -441,17 +441,51 @@ export default function SuprimentosPedidoNovo() {
             .select("nome_original, storage_path, mime_type, tamanho_bytes")
             .eq("requisicao_id", cloneResult.origem_requisicao_id);
 
-          if (!errAnexos && anexosReq && anexosReq.length > 0) {
+          if (errAnexos) {
+            throw new Error(`Erro ao listar anexos da requisição: ${errAnexos.message}`);
+          }
+
+          if (anexosReq && anexosReq.length > 0) {
             const anexosCarregados: ArquivoInput[] = [];
+
+            if (anexosReq.length > MAX_ARQUIVOS) {
+              toast({
+                title: "Anexos da requisição excedem o limite",
+                description: `A requisição possui ${anexosReq.length} anexos; somente os primeiros ${MAX_ARQUIVOS} podem ser incluídos no pedido.`,
+                variant: "destructive",
+              });
+            }
 
             for (const anexo of anexosReq.slice(0, MAX_ARQUIVOS)) {
               try {
+                if (!MIME_TYPES_ACEITOS.includes(anexo.mime_type)) {
+                  toast({
+                    title: "Anexo da requisição não incluído",
+                    description: `"${anexo.nome_original}" não é PDF, JPG ou PNG.`,
+                    variant: "destructive",
+                  });
+                  continue;
+                }
+                if (Number(anexo.tamanho_bytes) > MAX_TAMANHO_BYTES) {
+                  toast({
+                    title: "Anexo da requisição não incluído",
+                    description: `"${anexo.nome_original}" excede ${MAX_TAMANHO_MB}MB.`,
+                    variant: "destructive",
+                  });
+                  continue;
+                }
+
                 const { data: blob, error: errDl } = await supabase.storage
                   .from("compras-requisicoes")
                   .download(anexo.storage_path);
 
                 if (errDl || !blob) {
                   console.warn(`[clone-anexos] Falha ao baixar ${anexo.storage_path}:`, errDl?.message);
+                  toast({
+                    title: "Anexo da requisição não carregado",
+                    description: `Não foi possível carregar "${anexo.nome_original}".`,
+                    variant: "destructive",
+                  });
                   continue;
                 }
 
@@ -460,9 +494,23 @@ export default function SuprimentosPedidoNovo() {
                   type: anexo.mime_type || "application/octet-stream",
                 });
 
+                if (!MIME_TYPES_ACEITOS.includes(file.type) || file.size > MAX_TAMANHO_BYTES) {
+                  toast({
+                    title: "Anexo da requisição não incluído",
+                    description: `"${file.name}" não atende ao limite de tipo/tamanho do pedido.`,
+                    variant: "destructive",
+                  });
+                  continue;
+                }
+
                 anexosCarregados.push({ file, upload_identify_guid: crypto.randomUUID() });
               } catch (errAnexo: any) {
                 console.warn(`[clone-anexos] Exceção ao processar ${anexo.nome_original}:`, errAnexo?.message);
+                toast({
+                  title: "Anexo da requisição não carregado",
+                  description: `Não foi possível processar "${anexo.nome_original}".`,
+                  variant: "destructive",
+                });
               }
             }
 
@@ -473,6 +521,11 @@ export default function SuprimentosPedidoNovo() {
         } catch (errAnexosGeral: any) {
           // Falha ao carregar anexos não deve impedir o clone dos itens
           console.warn("[clone-anexos] Erro geral ao carregar anexos da req:", errAnexosGeral?.message);
+          toast({
+            title: "Erro ao carregar anexos da requisição",
+            description: errAnexosGeral?.message || "Revise os anexos antes de enviar o pedido.",
+            variant: "destructive",
+          });
         }
 
         toast({
@@ -1072,7 +1125,9 @@ export default function SuprimentosPedidoNovo() {
 
   const somaParcelas = useMemo(() => round2(parcelas.reduce((s, p) => s + p.valor_parcela, 0)), [parcelas]);
 
-  const parcelasValorOk = parcelas.length > 0 && Math.abs(somaParcelas - valorTotalPedido) <= 0.01;
+  const parcelasValorOk =
+    parcelas.length > 0 &&
+    Math.round(round2(somaParcelas) * 100) === Math.round(round2(valorTotalPedido) * 100);
 
   // ── Handlers de anexos (espelho da Req) ─────────────────
 
@@ -1228,6 +1283,7 @@ export default function SuprimentosPedidoNovo() {
 
         parcelas,
         arquivos,
+        arquivos_existentes: arquivosExistentes,
 
         texto_livre: textoLivre,
         texto_historico_novo: textoHistoricoNovo,

@@ -357,6 +357,11 @@ async function registrarDesfechoViaRpc(
  * quem passa a gravá-lo é `enviarRequisicaoAlvo` no modo de persistência legado.
  */
 export async function criarRequisicao(input: NovaRequisicaoInput): Promise<string> {
+  const itemComObservacaoLonga = input.itens.findIndex((item) => Array.from(item.observacao || "").length > 255);
+  if (itemComObservacaoLonga >= 0) {
+    throw new Error(`A observação do item ${itemComObservacaoLonga + 1} deve ter no máximo 255 caracteres.`);
+  }
+
   if (input.arquivos && input.arquivos.length > 3) {
     throw new Error("Máximo de 3 arquivos por requisição.");
   }
