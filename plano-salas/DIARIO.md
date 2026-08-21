@@ -748,3 +748,49 @@
 - **Pendências/Sugestões:** com 0 linhas na tabela, o `DROP NOT NULL` é mudança de catálogo pura —
   sem rescan, sem lock relevante. Se um dia houver volume e for preciso **voltar** (`SET NOT NULL`),
   aí sim há scan da tabela inteira: rollback não é simétrico em custo.
+
+---
+### [SESSÃO S4 · 2026-08-21 13:35 BRT] FS2B-2 — RPC `prod_registrar_saida`
+- **Status final:** concluída
+- **Janela de DDL:** iniciada às **13:35:32** pelo relógio do banco — minuto `:35`, um dos seguros
+  do §1.1. **Esperei de propósito:** ao terminar a FS2B-1 eram 13:29, e o `:30` é minuto de cron.
+  Criar função é sub-segundo, mas encostar no cron é exatamente o que o guardrail manda evitar,
+  então a sessão ficou parada ~6 minutos até a janela abrir.
+- **O que foi executado:** os 4 statements da FS2B-2, literais — `create or replace function
+  public.prod_registrar_saida(uuid, uuid, numeric, text, text, uuid, text, timestamptz)
+  returns uuid` (plpgsql, `security definer`, `set search_path = public`) + os 3 revoke/grant
+  com **assinatura completa de 8 tipos**. Via `execute_sql` (mesma razão da FS2B-1).
+- **Verificações:**
+  - `prosecdef` = **true** ✔ · `proconfig` = **`{search_path=public}`** ✔
+  - `proacl` final = **`{postgres=X/postgres, authenticated=X/postgres, service_role=X/postgres}`**
+    — **sem `anon`, sem PUBLIC**. Idêntico ao padrão das outras 6 funções do módulo. ✔
+- **🔴 Evidência colhida ao vivo do default grant a `anon` (vale registrar):** li o `proacl`
+  **entre** o `create` e os revokes, e ele veio:
+  ```
+  {=X/postgres, postgres=X/postgres, anon=X/postgres, authenticated=X/postgres, service_role=X/postgres}
+  ```
+  Ou seja: a função nasceu com EXECUTE concedido **nominalmente a `anon`** (`anon=X`) **e** a
+  PUBLIC (`=X`). É exatamente o que o CLAUDE.md descreve a partir da OP-2.7 — e confirma por que
+  `revoke ... from public` sozinho **não** trancaria: revogar de PUBLIC não alcança um grant
+  nominal. Os dois revokes são necessários, não redundância defensiva.
+- **Desenho lido no fonte aplicado (o que a RPC garante):**
+  - **Gate por sala** (`user_has_sala_permission(uid, sala, 'salas.registrar.saida')`) — o código
+    da permissão foi conferido contra o catálogo no pré-voo, então o gate não nasce impossível.
+  - **Papel `PRODUTO` obrigatório:** insumo não sai por aqui, sai `PRODUTO` da sala. Espelha a
+    regra da entrada (que exige `INSUMO`).
+  - **Lote de produção obrigatório e sem validação de formato** (§C do ajuste): qualquer texto
+    não-vazio passa, gravado com `btrim`. Proposital — a origem do número ainda é desconhecida
+    (§F.2 do ajuste).
+  - **`p_batelada_id` opcional** e, se informado, tem de ser batelada **da mesma sala**. No MVP
+    vai sempre NULL — é o que a FS2B-1 destravou. Note que aqui **não** se exige `status='ABERTA'`
+    (a RPC de refugo exige); coerente com o Ajuste B, onde batelada está dormindo.
+  - **Conversão de unidade** pelo `escala_unidades` do produto, gravando `quantidade_base` e
+    `fator_usado` — mesma mecânica de entrada e refugo.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2B-2`.
+- **Pendências/Sugestões:**
+  - **A RPC não foi executada** — §D do ajuste proíbe testar pelo MCP (`auth.uid()` = NULL) e eu
+    não contornei. O que está provado é estrutura, `security definer`, `search_path` e ACL. O
+    comportamento (gate, papel PRODUTO, lote obrigatório, conversão) só se prova no teste humano.
+  - O produto da sala é `UNID` com `controla_lote = true`, mas a RPC de saída **não** consulta
+    `controla_lote`: o lote de produção é sempre exigido, por decisão do ajuste. São coisas
+    diferentes — `controla_lote` é do material, `lote_producao` é da peça que a sala produziu.
