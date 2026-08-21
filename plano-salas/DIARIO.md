@@ -696,3 +696,55 @@
     teste humano com sessão real. Vale de novo a regra da casa: *caminho feliz que nunca rodou
     não é caminho validado*.
   - `NOTIFY pgrst` emitido; o efeito não é verificável por SQL (mesma observação da FS1-10).
+
+---
+### [SESSÃO S4 · 2026-08-21 10:05 BRT] FS2B-0 — Pré-voo do Ajuste B + abertura da fase FS2B
+- **Status final:** concluída
+- **Contexto da sessão:** a FS2 foi fechada na S3 (20/08 17:18) **sem bloqueio** — a fase
+  simplesmente acabou. Em 21/08 o Pedro criou o `FS2-AJUSTE-B.md`: o MVP não tem controle de
+  estoque de sala, então a batelada perde a razão de ser e o desenho volta a **três eventos
+  independentes (entrada → refugo → saída)**. Faltava exatamente uma peça: a RPC de saída, que
+  não existia — a única saída possível era o fechamento de batelada.
+- **O que foi executado:** fingerprint do projeto + as 4 leituras do §C/FS2B-0, literais.
+- **Verificações (valores reais):**
+  | # | verificação | esperado | real | bate? |
+  |---|---|---|---|---|
+  | — | fingerprint do projeto | `hbtggrbauguukewiknew` | **`compras_pedidos` = 1913 · sala `PONTEIRAS` presente** | ✅ |
+  | a | `prod_saidas.batelada_id` | `is_nullable = NO` | **NO** (16 colunas lidas) | ✅ |
+  | b | saídas registradas | 0 | **0** | ✅ |
+  | c | `prod_registrar_saida` existe? | não | **não existe** (0 linhas em `pg_proc`) | ✅ |
+  | d | PRODUTO da sala PONTEIRAS | 1 linha | **`001.007.00065` · Ponteira + Tubo Passante (Sub Assembly A) · `UNID` · `controla_lote = true`** | ✅ |
+- **Duas leituras extras (fora do §C, por prudência — ambas confirmam premissas do ajuste):**
+  - **As 5 tabelas legadas de teste sumiram.** `pg_tables like 'prod\_%'` devolve **exatamente 10
+    tabelas, todas com `rowsecurity = true`** — as 5 da FS1 + as 5 da FS2. Isso confirma o §F.3 do
+    Ajuste B e **fecha o achado que eu havia registrado na FS2-13**: o buraco de escrita
+    (`FOR ALL TO authenticated USING (true)` em 5 tabelas, aberto a 52 contas) **não existe mais**.
+    Fecha também o §7.3 do plano.
+  - **`salas.registrar.saida` já existe no catálogo** (8 permissões no módulo `salas`). O gate da
+    RPC nova tem lastro — não nasce barrando todo mundo por código inexistente.
+- **Migração/Commit:** sem escrita no banco (fase de leitura). Commit: `salas: FS2B-0`.
+- **Pendências/Sugestões:** o `FS2-AJUSTE-B.md` estava **untracked** no repo — entra no commit
+  desta tarefa, que é o que abre formalmente a fase FS2B.
+
+---
+### [SESSÃO S4 · 2026-08-21 13:26 BRT] FS2B-1 — `prod_saidas.batelada_id` passa a ser opcional
+- **Status final:** concluída
+- **Janela de DDL:** iniciada às **13:26:04** pelo relógio do **banco** (`select now()` = 16:26 UTC).
+  Minuto `26` — o `:25` já passou e o `:30` ainda não chegou, portanto fora dos crons do §1.1.
+- **O que foi executado:** o statement único da FS2B-1, literal:
+  `alter table public.prod_saidas alter column batelada_id drop not null;`
+  Executado por `execute_sql` — `apply_migration` segue bloqueado pelo harness (registrado na S1,
+  autorizado pelo §1.1 "conforme o MCP expuser"). Consequência conhecida: sem entrada em
+  `supabase_migrations`.
+- **Verificações:**
+  - `information_schema.columns` → `batelada_id` com **`is_nullable = YES`** = esperado ✅
+  - **Verificação extra de não-destrutividade** (minha, não do §C): `pg_constraint` devolve as
+    **3 FKs intactas** — `prod_saidas_batelada_id_fkey → prod_bateladas(id)`,
+    `prod_saidas_produto_id_fkey → prod_produtos(id)`, `prod_saidas_sala_id_fkey → prod_salas(id)`.
+    O ALTER removeu **só** a obrigatoriedade: a coluna, a FK e a integridade referencial ficam.
+    Uma saída futura pode não apontar para batelada nenhuma, mas se apontar, tem que ser para uma
+    batelada que existe.
+- **Migração/Commit:** sem entrada no histórico de migrações. Commit: `salas: FS2B-1`.
+- **Pendências/Sugestões:** com 0 linhas na tabela, o `DROP NOT NULL` é mudança de catálogo pura —
+  sem rescan, sem lock relevante. Se um dia houver volume e for preciso **voltar** (`SET NOT NULL`),
+  aí sim há scan da tabela inteira: rollback não é simétrico em custo.
