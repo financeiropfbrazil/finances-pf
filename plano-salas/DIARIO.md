@@ -899,3 +899,44 @@
 - **Pendências/Sugestões:** `salas.access` e as outras 7 permissões do módulo ainda **não estão**
   em `src/constants/permissions.ts`. A convenção do arquivo pede que toda permissão nova do
   catálogo entre lá; entra na FS3-3, junto com rota e menu.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-1 — Camada de dados: `salasService.ts`
+- **Status final:** concluída
+- **O que foi executado:** criado `src/services/salasService.ts` (arquivo novo, ~420 linhas).
+  Nenhum arquivo existente tocado. Antes de escrever, **li o schema no banco** em vez de assumir:
+  colunas das 7 tabelas, `escala_unidades` real dos 6 produtos, colunas de `profiles` e as FKs.
+- **Conteúdo:** 7 interfaces (`Sala`, `ProdutoSala`, `EscalaUnidade`, `MotivoRefugo`,
+  `MovimentoLog`, `VinculoEquipe`, + os 3 `Dados*` de escrita); 5 leituras
+  (`listarSalasDoUsuario`, `listarProdutosDaSala`, `listarMotivosRefugo`,
+  `listarMovimentosDoDia`, `listarEquipe`); as **6 RPCs** do §F; e 4 auxiliares de exibição.
+- **Verificações:**
+  - **Type-check** `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.app.json` → **exit 0**,
+    zero erros. (Rodado por tarefa, conforme instrução 2 do Pedro nesta fase.)
+  - **FK do join embutido confirmada no banco:** `prod_sala_produtos_produto_id_fkey →
+    prod_produtos(id)` existe, então `select("papel, produto:prod_produtos(...)")` resolve no
+    PostgREST. **Isto não era verificável por type-check** — sem a FK o embed falharia só em
+    runtime, com a tela na mão do operador.
+  - `escala_unidades` real conferida: Silicone e Bário têm 3 unidades
+    (`GRAMAS` peso 1 · `KG` peso 1000 · `UNID` peso 4540/450); os outros 4 têm só `UNID` peso 1.
+    Confirma o formato `{unidade, posicao, peso}` do §F.
+- **Decisões de desenho que precisaram de escolha (registradas para o Pedro conferir):**
+  1. **🔴 Admin sem vínculo vê todas as salas ativas.** Consultei `prod_sala_usuarios`: o **único
+     vínculo existente é o `nfe@pfbrazil.com`** (não-admin). O Pedro **não** está vinculado. Se
+     `listarSalasDoUsuario` filtrasse só por vínculo, a tela abriria vazia para ele e o **§H.2 do
+     critério de aceite** ("com a conta do Pedro, a Sala de Ponteiras abre") falharia na primeira
+     tentativa. O ramo de admin espelha o bypass que já existe dentro de
+     `user_has_sala_permission`. É conveniência de UI — quem decide continua sendo a RPC.
+  2. **O corte do log do dia é `data_movimento`, não `registrado_em`**, e o "hoje" é o do
+     **navegador do operador**, não o do servidor. `data_movimento` é o momento do fato,
+     `registrado_em` é o do registro; hoje coincidem, mas divergiriam se a tela um dia aceitar
+     lançamento retroativo. O operador quer ver o próprio turno.
+  3. **`profiles` resolvido em query separada, não por embed** — `prod_sala_usuarios` **não tem
+     FK para `profiles`** (só para `prod_salas`), então não existe embed possível. Resolução em
+     lote por `.in("user_id", ...)`, sempre por **`user_id`**, nunca `id` (§G.7).
+  4. `pesoDaUnidade` / `textoConversao` existem **só para exibir** a conversão. O front não
+     calcula `quantidade_base` em lugar nenhum (§G.5) — envia quantidade + unidade e a RPC grava.
+- **Migração/Commit:** nenhuma escrita no banco (só leitura de schema). Commit: `salas: FS3-1`.
+- **Pendências/Sugestões:** `listarMovimentosDoDia` faz 3 consultas + 3 de resolução de nomes
+  (6 idas ao banco). Aceitável no volume de uma sala/dia; se um dia o log crescer, o caminho é uma
+  view `prod_vw_movimentos` no banco — **não** é para resolver agora, e exigiria tarefa própria.
