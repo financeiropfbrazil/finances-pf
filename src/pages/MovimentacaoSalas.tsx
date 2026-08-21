@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { ArrowDownToLine, ArrowUpFromLine, Trash2 } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Trash2, Undo2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LogDoDia } from "@/components/salas/LogDoDia";
 import { FluxoEntrada } from "@/components/salas/FluxoEntrada";
 import { FluxoRefugo } from "@/components/salas/FluxoRefugo";
 import { FluxoSaida } from "@/components/salas/FluxoSaida";
+import { DialogoEstorno, podeMostrarEstorno } from "@/components/salas/DialogoEstorno";
 import { useSalaContexto, useMovimentosDoDia } from "@/hooks/useSalaContexto";
-import type { TipoMovimento } from "@/services/salasService";
+import type { MovimentoLog, TipoMovimento } from "@/services/salasService";
 import { cn } from "@/lib/utils";
 
 /**
@@ -33,9 +34,12 @@ export default function MovimentacaoSalas() {
     podeEntrada,
     podeRefugo,
     podeSaida,
+    podeEstornar,
+    userId,
   } = useSalaContexto();
 
   const [fluxo, setFluxo] = useState<FluxoAberto>(null);
+  const [estornando, setEstornando] = useState<MovimentoLog | null>(null);
   const { movimentos, carregando: carregandoLog, recarregar } = useMovimentosDoDia(salaAtiva?.id ?? null);
 
   if (carregando) {
@@ -179,9 +183,33 @@ export default function MovimentacaoSalas() {
           </button>
         </div>
         <div className="mt-2">
-          <LogDoDia movimentos={movimentos} carregando={carregandoLog} />
+          <LogDoDia
+            movimentos={movimentos}
+            carregando={carregandoLog}
+            acaoDaLinha={(mov) =>
+              podeMostrarEstorno(mov, userId, podeEstornar) ? (
+                <button
+                  type="button"
+                  onClick={() => setEstornando(mov)}
+                  aria-label={`Estornar ${mov.produto_nome}`}
+                  className="flex h-12 w-12 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Undo2 className="h-5 w-5" aria-hidden="true" />
+                </button>
+              ) : null
+            }
+          />
         </div>
       </section>
+
+      <DialogoEstorno
+        movimento={estornando}
+        onFechar={() => setEstornando(null)}
+        onEstornado={() => {
+          setEstornando(null);
+          recarregar();
+        }}
+      />
     </div>
   );
 }

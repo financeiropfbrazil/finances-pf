@@ -1162,3 +1162,28 @@
   (FS3-9) e a aba Equipe (FS3-10).
 - **Pendências/Sugestões:** nenhuma das três telas foi aberta num navegador ainda — só compilam.
   A validação de verdade é o §I.2, no tablet da sala e com luva.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-9 — Estorno a partir do log do dia
+- **Status final:** concluída
+- **O que foi executado:** `src/components/salas/DialogoEstorno.tsx` (novo) — diálogo do §E.5 com
+  o que está sendo estornado, motivo obrigatório e confirmação — mais o botão `[↩]` no log,
+  preenchendo o encaixe `acaoDaLinha` que o `LogDoDia` já tinha desde a FS3-5.
+- **Verificações:** type-check `tsc --noEmit -p tsconfig.app.json` → **exit 0**.
+- **🔴 A regra dos 60 minutos está em DOIS relógios, e isso é deliberado.** `podeMostrarEstorno()`
+  calcula a janela com o relógio do **navegador**; a RPC calcula com o do **banco**
+  (`now() - registrado_em < interval '60 minutes'`). Eles **podem divergir** se o tablet da sala
+  estiver com a hora errada. Aceitei a divergência porque **esconder o botão é só conveniência**:
+  se a UI mostrar a mais, a RPC recusa e o operador lê a mensagem dela; se mostrar a menos,
+  perde-se um clique. O que não pode acontecer — e não acontece — é a **UI decidir**. Mesma lógica
+  do lote vencido na FS3-6: onde há regra de negócio, a autoridade é o banco.
+  Anotado porque a tentação de "corrigir" isso numa sessão futura, sincronizando relógios ou
+  duplicando a regra, seria um retrocesso, não uma melhoria.
+- **Exibição do botão** espelha o que a RPC concede: `salas.estornar` sempre; o autor, só dentro da
+  janela; nunca em registro já estornado (a RPC recusaria com "Registro já estornado").
+- **Motivo obrigatório na UI e na RPC:** a checagem daqui não substitui a do banco — existe para o
+  operador não descobrir o problema **depois** de confirmar.
+- **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-9`.
+- **Pendências/Sugestões:** o `p_tipo` enviado vem do `tipo` que o log já normalizou
+  (`ENTRADA`/`REFUGO`/`SAIDA`), então não há como pedir estorno do livro errado pela tela. O quarto
+  tipo aceito pela RPC (`CONSUMO`) não é alcançável pela UI — correto: batelada dorme (Ajuste B).
