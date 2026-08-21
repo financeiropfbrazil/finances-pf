@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LogDoDia } from "@/components/salas/LogDoDia";
+import { FluxoEntrada } from "@/components/salas/FluxoEntrada";
 import { useSalaContexto, useMovimentosDoDia } from "@/hooks/useSalaContexto";
 import type { TipoMovimento } from "@/services/salasService";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ export default function MovimentacaoSalas() {
     salaAtiva,
     selecionarSala,
     carregando,
+    insumos,
     podeEntrada,
     podeRefugo,
     podeSaida,
@@ -80,9 +82,23 @@ export default function MovimentacaoSalas() {
   }
 
   if (fluxo) {
+    const fecharFluxo = () => setFluxo(null);
+    const concluir = () => {
+      setFluxo(null);
+      recarregar(); // o registro tem de aparecer no log já na volta
+    };
     return (
       <div className="p-4 sm:p-6">
-        <FluxoEmPreparacao tipo={fluxo} onVoltar={() => setFluxo(null)} />
+        {fluxo === "ENTRADA" ? (
+          <FluxoEntrada
+            sala={salaAtiva}
+            insumos={insumos}
+            onConcluido={concluir}
+            onCancelar={fecharFluxo}
+          />
+        ) : (
+          <FluxoEmPreparacao tipo={fluxo} onVoltar={fecharFluxo} />
+        )}
       </div>
     );
   }

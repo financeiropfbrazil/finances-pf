@@ -1074,3 +1074,37 @@
 - **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-5`.
 - **Pendências/Sugestões:** o botão de estorno do §E.1 (`[↩]`) ainda não está no log — o `LogDoDia`
   já tem o encaixe (`acaoDaLinha`), e ele é preenchido na FS3-9.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-6 — Tela de Entrada (4 passos)
+- **Status final:** concluída
+- **O que foi executado:** `src/components/salas/FluxoEntrada.tsx` (novo) com os 4 passos do §E.2 —
+  Insumo → Quantidade → Lote e validade → Conferência — e o painel ligado a ele
+  (`MovimentacaoSalas.tsx`): o botão Entrada agora abre o fluxo de verdade; Refugo e Saída seguem
+  no marcador até a FS3-7/8.
+- **Verificações:** type-check `tsc --noEmit -p tsconfig.app.json` → **exit 0**.
+- **🔴 Decisão que vale registrar — o front NÃO valida lote vencido.** Seria fácil desabilitar o
+  botão quando a validade já passou, e está **errado** fazer isso: a regra é do banco
+  (`p_validade < p_data_movimento`, contra o **relógio do servidor**) e duplicá-la no front cria
+  **duas verdades que podem divergir** — o tablet da sala pode estar com a data errada e liberaria
+  o que o banco recusa, ou o contrário. A RPC recusa e a mensagem dela aparece como veio: *"Lote X
+  vencido em 30/06/2026 — não pode entrar na sala"*. É também o que o **teste 2 do roteiro §D**
+  espera ver.
+- **Outras escolhas:**
+  - **Unidade base pré-selecionada** por `unidadePadrao()` (`posicao = 1` da escala). Silicone e
+    Bário abrem em GRAMAS, que é como a sala pesa (§A.4 da FS2).
+  - **Casas decimais por unidade:** `UNID` aceita **0** casas (peça não se conta pela metade),
+    o resto aceita 3. É o teclado que impede, não uma validação depois do fato.
+  - **Conversão ao vivo** ("2 KG = 2.000 GRAMAS") aparece no passo 2 e de novo na conferência, mas
+    é **só texto**: o que vai para a RPC é quantidade + unidade, e quem converte é o banco (§G.5).
+  - **Validade em `<input type="date">` de 56px**, não no calendário do shadcn. O §A.1 proíbe
+    "seletor de data" — o que ele proíbe é o calendário de biblioteca, com alvos pequenos; o input
+    nativo abre o seletor do próprio sistema, que é grande e tocável, e é o "campo de data grande"
+    que o §E.2 autoriza. A validade é uma data exata impressa na etiqueta: lista de opções rápidas
+    não serviria.
+  - **Toast do `sonner`** (padrão da casa) — sucesso e erro.
+- **Migração/Commit:** nenhuma escrita no banco. Commit: `salas: FS3-6`.
+- **Pendências/Sugestões:** ao concluir, o fluxo volta ao painel e força `recarregar()` do log —
+  o operador tem de ver a linha aparecer, é a confirmação de que entrou. Os campos opcionais
+  (NF, observação) do "Mais dados" (§E.2) **não** foram implementados: ficam fora do caminho
+  normal e ninguém pediu para o MVP. Se a sala precisar, é tarefa nova.
