@@ -840,3 +840,62 @@
     dois como as entradas acima sugerem. Motivo: o pré-voo não escreve nada no banco — seu único
     artefato é o próprio registro no diário, que já estava no mesmo arquivo da FS2B-1. FS2B-2 e
     FS2B-3 têm commit próprio. Registrado aqui por append, sem editar as entradas anteriores.
+
+---
+### [SESSÃO S5 · 2026-08-21] REGISTRO ACOLHIDO — teste funcional das RPCs: **20/20**
+- **Status final:** registrado (execução do Pedro, não do agente)
+- **Origem:** cabeçalho do `FS3-TELAS.md`, criado em 21/08. O resultado existia **só lá** — esta
+  entrada o traz para o diário, que é onde o histórico de execução do módulo mora.
+- **O que aconteceu:** o Pedro executou o roteiro de teste funcional pelo **console do navegador
+  com sessão real** (mesmo método do Lab de API), em 21/08. **20 de 20 casos passando.** Cobertura
+  relatada: bloqueio de lote vencido, conversão de unidade, gates de papel do produto
+  (`INSUMO` × `PRODUTO`), motivo de refugo por tipo de item, lote obrigatório e soft-estorno.
+- **Por que isso importa:** **fecha a pendência que eu venho carregando desde a FS2-13 e repeti na
+  FS2B-3.** Até ontem o módulo tinha estrutura, permissão e ACL provadas, mas **nenhuma RPC havia
+  sido executada uma única vez** — eu não podia testá-las pelo MCP (`auth.uid()` = NULL) e não
+  contornei. Era o caso clássico da regra da casa: *caminho feliz que nunca rodou não é caminho
+  validado*. Agora rodou, com sessão real, nos 6 caminhos que importam.
+- **O que isto NÃO cobre (segue aberto):** o §7.2 do plano — teste com usuário **sem `is_admin`**.
+  O Pedro é o único admin de 52 contas e tem bypass em `user_has_sala_permission`, então **erro de
+  permissão nunca aparece para ele**. Os 20/20 provam a mecânica das RPCs, não o RBAC na prática.
+  Isso é justamente o §I.1 da FS3 (com `nfe@pfbrazil.com`), a fazer depois do push desta fase.
+- **Migração/Commit:** sem escrita no banco. Commit junto com a FS3-0.
+
+---
+### [SESSÃO S5 · 2026-08-21] FS3-0 — Pré-voo: mapeamento dos padrões do app
+- **Status final:** concluída
+- **Contexto:** a FS3 estava `bloqueada` no §3/§6 do plano aguardando GO. O `FS3-TELAS.md`
+  (21/08) libera a fase e define 12 tarefas. **Primeira fase que toca `src/`.**
+- **O que foi executado:** os 6 itens do §D, por leitura do código. Nenhuma escrita.
+- **Mapeamento (o agente copia a arquitetura do app, não inventa):**
+  | # | Item | Padrão encontrado |
+  |---|---|---|
+  | 1 | Roteamento | `src/App.tsx` — `PermissionRoute` definido na **linha 126** do próprio arquivo; rotas são `<Route path element={<PermissionRoute permKey="x"><Page/></PermissionRoute>} />` |
+  | 2 | Menu | `src/components/AppSidebar.tsx` — registro por `add("chave", hasAccess("codigo"), () => render…)` na **linha 285**; grupos com subitens usam array `<modulo>SubItems` com `perm?` opcional por item |
+  | 3 | Gate | `usePermissions().hasAccess(key)`: código com ponto → checa `rbacPermissions` do `AuthContext`, que vem de **`get_user_permissions`**; `profile.is_admin` tem bypass |
+  | 4 | Cliente / RPC | `@/integrations/supabase/client` (URL **`hbtggrbauguukewiknew`** ✔); padrão `(supabase as any).rpc("nome", {…})` + `if (error) throw new Error(error.message)` |
+  | 5 | UI kit | shadcn/ui completo (**48 componentes** em `src/components/ui/`) + Tailwind; toast = **`sonner`** (`import { toast } from "sonner"`) |
+  | 6 | Tema | `src/index.css` — "institucional calmo (Bloomberg-calm)": 3 superfícies, **sem glow/glassmorphism/gradiente**, `tabular-nums`, variáveis em canais HSL |
+  | 7 | Nomenclatura | páginas PascalCase em `src/pages/`; componentes de módulo em `src/components/<modulo>/`; services `<modulo>Service.ts` |
+- **Divergência grave? Não.** A condição de parada do §D ("ex.: não há gate de menu por permissão")
+  não se materializou: o gate existe e é o mecanismo padrão da casa.
+- **🔴 Achado que muda como a camada de dados será escrita:** `src/integrations/supabase/types.ts`
+  (3.616 linhas, gerado) **não conhece nenhuma tabela `prod_*`** — e **também não conhece
+  `op_ordens`**, do módulo de OP. Não é defasagem só do nosso módulo: é consequência conhecida de
+  o projeto criar objetos por `execute_sql`/MCP fora das migrations. **Por isso o
+  `(supabase as any)` é o padrão da casa, não um atalho preguiçoso** — sem ele o TypeScript recusa
+  qualquer tabela nova. Decisão: seguir `opService.ts`, que declara as **próprias interfaces** no
+  service e usa `(supabase as any)` no acesso. **Não vou regenerar o `types.ts`**: está fora do
+  escopo da fase e alteraria a superfície de tipos de todos os outros módulos.
+- **Modelo de referência escolhido:** `src/services/opService.ts` — mesmo formato de problema
+  (módulo de produção, leitura direta gateada por RLS, escrita só por RPC `SECURITY DEFINER`).
+- **Instruções do Pedro para esta fase (registradas):**
+  1. **Parar e mostrar o diff da FS3-3** antes da FS3-4 — é a tarefa que toca `App.tsx`,
+     `AppSidebar.tsx` e `constants/permissions.ts`, arquivos compartilhados com todo o Hub.
+  2. **Type-check (`tsc --noEmit -p tsconfig.app.json`) antes de CADA push**, não só na FS3-11 —
+     `bun run build` é só `vite build` e não checa tipo.
+  3. Se a sessão esticar, **parar em tarefa concluída**, com commit e diário em dia.
+- **Migração/Commit:** commit `salas: FS3-0`, incluindo o próprio `FS3-TELAS.md` (estava untracked).
+- **Pendências/Sugestões:** `salas.access` e as outras 7 permissões do módulo ainda **não estão**
+  em `src/constants/permissions.ts`. A convenção do arquivo pede que toda permissão nova do
+  catálogo entre lá; entra na FS3-3, junto com rota e menu.
