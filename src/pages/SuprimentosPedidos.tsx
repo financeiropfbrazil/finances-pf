@@ -239,7 +239,7 @@ export default function SuprimentosPedidos() {
 
   // ── Ordenação SERVER-SIDE unificada ─────────────────────────────────
   // Um único estado: qual campo do banco ordenar e a direção. null = padrão
-  // (data_pedido desc). Toda ordenação varre TODOS os registros no servidor,
+  // (numero desc). Toda ordenação varre TODOS os registros no servidor,
   // então a sequência é coerente em qualquer página. Inicializa da URL.
   const [orderBy, setOrderBy] = useState<{ field: string; dir: SortDir } | null>(() => {
     const field = searchParams.get("ordCampo");
@@ -337,13 +337,11 @@ export default function SuprimentosPedidos() {
       // ── Ordenação SERVER-SIDE ─────────────────────────────────────────
       // Ordena pelo campo escolhido no banco (varre TODOS os registros antes
       // de paginar -> sequência coerente em qualquer página). nullsFirst:false
-      // joga nulos pro fim. Sem ordenação ativa -> padrão data_pedido desc
-      // (pedidos mais recentes por COMPETÊNCIA no topo, independente de quando
-      // foram modificados pelo cron).
+      // joga nulos pro fim. Sem ordenação ativa -> padrão numero desc.
       if (orderBy) {
         query = query.order(orderBy.field, { ascending: orderBy.dir === "asc", nullsFirst: false });
       } else {
-        query = query.order("data_pedido", { ascending: false, nullsFirst: false });
+        query = query.order("numero", { ascending: false, nullsFirst: false });
       }
 
       query = query.range(inicio, fim);

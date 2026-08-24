@@ -26,6 +26,10 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ChevronsLeft,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
 } from "lucide-react";
 import { format, subDays, startOfWeek, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -59,19 +63,15 @@ const VIEW_STORAGE_KEY = "suprimentos_requisicoes_view";
 type ViewMode = "cards" | "lista";
 type SortDir = "asc" | "desc";
 
-const COLUNAS_REQUISICOES: Array<{
-  key: string;
-  label: string;
-  className?: string;
-  accessor: (r: any) => any;
-}> = [
-  { key: "numero_alvo", label: "Nº", accessor: (r) => r.numero_alvo || "" },
-  { key: "created_at", label: "Data Requisição", accessor: (r) => r.created_at || "" },
-  { key: "status", label: "Status", accessor: (r) => getStatusRequisicao(r).label },
-  { key: "descricao", label: "Descrição", accessor: (r) => (r.descricao || "").toLowerCase() },
-  { key: "total_itens", label: "Itens", className: "text-right", accessor: (r) => Number(r.total_itens) || 0 },
-  { key: "funcionario_nome", label: "Funcionário", accessor: (r) => (r.funcionario_nome || "").toLowerCase() },
-  { key: "data_necessidade", label: "Data Necessidade", accessor: (r) => r.data_necessidade || "" },
+// key = coluna real no banco, usada pela ordenação server-side.
+const COLUNAS_REQUISICOES: Array<{ key: string; label: string; className?: string }> = [
+  { key: "numero_alvo", label: "Nº" },
+  { key: "created_at", label: "Data Requisição" },
+  { key: "status", label: "Status" },
+  { key: "descricao", label: "Descrição" },
+  { key: "total_itens", label: "Itens", className: "text-right" },
+  { key: "funcionario_nome", label: "Funcionário" },
+  { key: "data_necessidade", label: "Data Necessidade" },
 ];
 
 export default function SuprimentosRequisicoes() {
@@ -110,6 +110,8 @@ export default function SuprimentosRequisicoes() {
 
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const PAGE_SIZE = 30;
+  const [paginaAtual, setPaginaAtual] = useState(1);
 
   const handleSort = (colKey: string) => {
     if (sortCol === colKey) {
@@ -139,7 +141,7 @@ export default function SuprimentosRequisicoes() {
     enabled: podeVerTodas,
   });
 
-  const { data: requisicoes = [], isLoading } = useQuery({
+  const { data: requisicoesResult, isLoading } = useQuery({
     queryKey: [
       "requisicoes_lista",
       user?.id,
@@ -150,14 +152,24 @@ export default function SuprimentosRequisicoes() {
       filtroDataFim?.toISOString(),
       filtroFuncionario,
       buscaDebounced,
+      sortCol,
+      sortDir,
+      paginaAtual,
     ],
     queryFn: async () => {
-      // Ordem padrão por DATA DA REQUISIÇÃO (created_at), mais recente no topo
-      // — espelha a coluna "Data Requisição" da tela. Antes era updated_at desc,
-      // o que fazia requisições antigas "subirem" ao serem modificadas pelo cron
-      // (ex.: backfill de itens). A ordenação por clique no cabeçalho (client-side,
-      // via requisicoesOrdenadas) continua funcionando por cima desta ordem base.
-      let query = (supabase as any).from("compras_requisicoes").select("*").order("created_at", { ascending: false });
+      const inicio = (paginaAtual - 1) * PAGE_SIZE;
+      const fim = inicio + PAGE_SIZE - 1;
+
+      let query = (supabase as any).from("compras_requisicoes").select("*", { count: "exact" });
+
+      // Ordenação no banco antes da paginação. Sem coluna ativa, o número do
+      // Alvo é o padrão; como todos os números reais têm 7 dígitos, text DESC
+      // preserva a ordem numérica. Requisições ainda sem número ficam no fim.
+      if (sortCol) {
+        query = query.order(sortCol, { ascending: sortDir === "asc", nullsFirst: false });
+      } else {
+        query = query.order("numero_alvo", { ascending: false, nullsFirst: false });
+      }
 
       if (!podeVerTodas && user) {
         const funcionarioCodigo = (profile as any)?.funcionario_alvo_codigo;
@@ -202,31 +214,24 @@ export default function SuprimentosRequisicoes() {
         query = query.lte("updated_at", fim.toISOString());
       }
 
-      const { data, error } = await query;
+      query = query.range(inicio, fim);
+
+      const { data, count, error } = await query;
       if (error) throw error;
-      return data || [];
+      return { requisicoes: data || [], total: count || 0 };
     },
     enabled: !!user,
   });
 
-  const requisicoesOrdenadas = (() => {
-    if (!sortCol) return requisicoes;
-    const coluna = COLUNAS_REQUISICOES.find((c) => c.key === sortCol);
-    if (!coluna) return requisicoes;
-    const copia = [...requisicoes];
-    copia.sort((a, b) => {
-      const va = coluna.accessor(a);
-      const vb = coluna.accessor(b);
-      let cmp = 0;
-      if (typeof va === "number" && typeof vb === "number") {
-        cmp = va - vb;
-      } else {
-        cmp = String(va).localeCompare(String(vb), "pt-BR");
-      }
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    return copia;
-  })();
+  const requisicoes = requisicoesResult?.requisicoes || [];
+  const totalRequisicoes = requisicoesResult?.total || 0;
+  const totalPaginas = Math.max(1, Math.ceil(totalRequisicoes / PAGE_SIZE));
+  const paginaCorrigida = Math.min(paginaAtual, totalPaginas);
+
+  // Uma nova busca, filtro ou ordenação sempre começa pela primeira página.
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [filtroStatus, filtroDataInicio, filtroDataFim, filtroFuncionario, buscaDebounced, sortCol, sortDir]);
 
   const handlePresetData = (preset: string) => {
     setFiltroPreset(preset);
@@ -413,10 +418,18 @@ export default function SuprimentosRequisicoes() {
       </Card>
 
       {/* Contagem */}
-      {!isLoading && requisicoes.length > 0 && (
+      {!isLoading && totalRequisicoes > 0 && (
         <p className="text-sm text-muted-foreground">
-          {requisicoes.length} requisição{requisicoes.length !== 1 ? "ões" : ""} encontrada
-          {requisicoes.length !== 1 ? "s" : ""}
+          {totalRequisicoes === 1 ? (
+            "1 requisição encontrada"
+          ) : totalPaginas > 1 ? (
+            <>
+              Mostrando {(paginaCorrigida - 1) * PAGE_SIZE + 1}–
+              {Math.min(paginaCorrigida * PAGE_SIZE, totalRequisicoes)} de {totalRequisicoes} requisições
+            </>
+          ) : (
+            <>{totalRequisicoes} requisições encontradas</>
+          )}
         </p>
       )}
 
@@ -425,7 +438,7 @@ export default function SuprimentosRequisicoes() {
         <div className="flex min-h-[40vh] items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : requisicoes.length === 0 ? (
+      ) : totalRequisicoes === 0 ? (
         <div className="flex min-h-[40vh] items-center justify-center rounded-lg border border-dashed border-border">
           <Card className="border-0 bg-transparent shadow-none text-center max-w-md">
             <CardContent className="flex flex-col items-center gap-4 pt-6">
@@ -471,7 +484,7 @@ export default function SuprimentosRequisicoes() {
                   </tr>
                 </thead>
                 <tbody>
-                  {requisicoesOrdenadas.map((req: any) => {
+                  {requisicoes.map((req: any) => {
                     const statusVisual = getStatusRequisicao(req);
                     return (
                       <tr
@@ -577,6 +590,53 @@ export default function SuprimentosRequisicoes() {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Paginação */}
+      {!isLoading && totalRequisicoes > 0 && totalPaginas > 1 && (
+        <div className="mt-6 flex items-center justify-between gap-4 border-t pt-4">
+          <p className="text-xs text-muted-foreground">
+            Página {paginaCorrigida} de {totalPaginas}
+          </p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaginaAtual(1)}
+              disabled={paginaCorrigida === 1}
+              title="Primeira página"
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
+              disabled={paginaCorrigida === 1}
+            >
+              <ChevronLeft className="mr-1 h-4 w-4" />
+              Anterior
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
+              disabled={paginaCorrigida === totalPaginas}
+            >
+              Próxima
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaginaAtual(totalPaginas)}
+              disabled={paginaCorrigida === totalPaginas}
+              title="Última página"
+            >
+              <ChevronsRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       )}
     </div>
