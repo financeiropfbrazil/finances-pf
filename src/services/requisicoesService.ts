@@ -16,6 +16,7 @@ export interface ItemInput {
   codigo_produto: string;
   codigo_alternativo_produto: string | null;
   codigo_prod_unid_med: string;
+  codigo_centro_ctrl?: string;
   produto_nome: string;
   produto_unidade: string;
   quantidade: number;
@@ -410,7 +411,7 @@ export async function criarRequisicao(input: NovaRequisicaoInput): Promise<strin
           codigo_prod_unid_med: item.codigo_prod_unid_med,
           quantidade: item.quantidade,
           data_necessidade: input.data_necessidade,
-          codigo_centro_ctrl: input.codigo_centro_ctrl,
+          codigo_centro_ctrl: item.codigo_centro_ctrl || input.codigo_centro_ctrl,
           observacao: item.observacao || null,
           produto_nome: item.produto_nome,
           produto_unidade: item.produto_unidade,
