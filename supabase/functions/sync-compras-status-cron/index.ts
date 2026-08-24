@@ -708,6 +708,204 @@ async function syncDescobrirRequisicoes(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// CARD R1.2 — espelhamento do detalhe completo de requisições
+// ─────────────────────────────────────────────────────────────────────
+
+interface ItemRequisicaoAlvoNormalizado {
+  sequencia: number;
+  item_servico: boolean;
+  codigo_produto: string;
+  codigo_alternativo_produto: string | null;
+  codigo_prod_unid_med: string;
+  quantidade: number;
+  data_necessidade: string;
+  codigo_centro_ctrl: string;
+  observacao: string | null;
+  produto_nome: string | null;
+  produto_unidade: string | null;
+}
+
+interface ResultadoEspelhoRequisicao {
+  itens_inseridos: number;
+  itens_cc_atualizados: number;
+  classes_rateio: number;
+  ccs_rateio: number;
+}
+
+function textoObrigatorioAlvo(valor: unknown, campo: string): string {
+  const texto = typeof valor === "string" ? valor.trim() : "";
+  if (!texto) throw new Error(`${campo}_AUSENTE`);
+  return texto;
+}
+
+/** Preserva null no percentual de classe: a RPC normaliza somente quando há
+ * uma única classe. Converter omissão para zero aqui esconderia a diferença
+ * entre "não veio" e "veio zero" antes da validação autoritativa. */
+function percentualRequisicaoAlvo(valor: unknown, campo: string): number | null {
+  if (valor === null || valor === undefined || valor === "") return null;
+  const numero = Number(valor);
+  if (!Number.isFinite(numero)) throw new Error(`${campo}_INVALIDO: ${String(valor)}`);
+  return numero;
+}
+
+function extrairRateioRequisicaoAlvo(alvo: any, catalogos: CatalogosLabels): any[] {
+  const classes = alvo?.ReqCompClasseRecDespChildList;
+  if (!Array.isArray(classes)) {
+    throw new Error("REQ_RATEIO_AUSENTE_NO_LOAD");
+  }
+
+  return classes.map((classe: any, indiceClasse: number) => {
+    const codigoClasse = textoObrigatorioAlvo(
+      classe?.CodigoClasseRecDesp,
+      `REQ_CLASSE_${indiceClasse + 1}_CODIGO`,
+    );
+    const ccs = classe?.RateioReqCompChildList;
+    if (!Array.isArray(ccs)) {
+      throw new Error(`REQ_CLASSE_${indiceClasse + 1}_CCS_AUSENTES_NO_LOAD`);
+    }
+
+    return {
+      codigo_classe_rec_desp: codigoClasse,
+      classe_rec_desp_label: catalogos.classes.get(codigoClasse) ?? null,
+      percentual: percentualRequisicaoAlvo(
+        classe?.Percentual,
+        `REQ_CLASSE_${indiceClasse + 1}_PERCENTUAL`,
+      ),
+      ccs: ccs.map((cc: any, indiceCc: number) => {
+        const codigoCc = textoObrigatorioAlvo(
+          cc?.CodigoCentroCtrl,
+          `REQ_CLASSE_${indiceClasse + 1}_CC_${indiceCc + 1}_CODIGO`,
+        );
+        return {
+          codigo_centro_ctrl: codigoCc,
+          centro_ctrl_label: catalogos.centros.get(codigoCc) ?? null,
+          percentual: percentualRequisicaoAlvo(
+            cc?.Percentual,
+            `REQ_CLASSE_${indiceClasse + 1}_CC_${indiceCc + 1}_PERCENTUAL`,
+          ),
+        };
+      }),
+    };
+  });
+}
+
+function extrairItensRequisicaoAlvo(alvo: any, req: RequisicaoHub): ItemRequisicaoAlvoNormalizado[] {
+  const itens = alvo?.ItemReqCompChildList;
+  if (!Array.isArray(itens) || itens.length === 0) {
+    throw new Error("REQ_ITENS_AUSENTES_NO_LOAD");
+  }
+
+  const sequencias = new Set<number>();
+  return itens.map((item: any, indice: number) => {
+    const sequencia = Number(item?.Sequencia);
+    if (!Number.isInteger(sequencia) || sequencia <= 0) {
+      throw new Error(`REQ_ITEM_${indice + 1}_SEQUENCIA_INVALIDA: ${String(item?.Sequencia)}`);
+    }
+    if (sequencias.has(sequencia)) {
+      throw new Error(`REQ_ITEM_SEQUENCIA_DUPLICADA_NO_LOAD: ${sequencia}`);
+    }
+    sequencias.add(sequencia);
+
+    const quantidade = Number(item?.QuantidadeProdUnidMedPrincipal);
+    if (!Number.isFinite(quantidade) || quantidade <= 0) {
+      throw new Error(`REQ_ITEM_${sequencia}_QUANTIDADE_INVALIDA: ${String(item?.QuantidadeProdUnidMedPrincipal)}`);
+    }
+
+    const dataNecessidade = textoObrigatorioAlvo(
+      item?.DataNecessidade ?? req.data_necessidade,
+      `REQ_ITEM_${sequencia}_DATA_NECESSIDADE`,
+    );
+
+    return {
+      sequencia,
+      item_servico: item?.ItemServico === "Sim",
+      codigo_produto: textoObrigatorioAlvo(item?.CodigoProduto, `REQ_ITEM_${sequencia}_PRODUTO`),
+      codigo_alternativo_produto: item?.CodigoAlternativoProduto ?? null,
+      codigo_prod_unid_med: textoObrigatorioAlvo(item?.CodigoProdUnidMed, `REQ_ITEM_${sequencia}_UNIDADE`),
+      quantidade,
+      data_necessidade: dataNecessidade,
+      // Fonte canônica é o ITEM. Ausência é erro: nunca cai para o CC do
+      // cabeçalho, pois isso apagaria justamente a divergência que o R1 mede.
+      codigo_centro_ctrl: textoObrigatorioAlvo(item?.CodigoCentroCtrl, `REQ_ITEM_${sequencia}_CC`),
+      observacao: item?.Observacao ?? null,
+      produto_nome: item?.NomeProduto ?? item?.DescricaoAlternativaProduto ?? null,
+      produto_unidade: item?.CodigoProdUnidMed ?? null,
+    };
+  });
+}
+
+async function espelharDetalheRequisicao(
+  supabase: SupabaseClient,
+  req: RequisicaoHub,
+  alvo: any,
+  catalogos: CatalogosLabels,
+): Promise<ResultadoEspelhoRequisicao> {
+  // Toda a entrada é extraída e validada antes da primeira escrita.
+  const rateio = extrairRateioRequisicaoAlvo(alvo, catalogos);
+  const itensAlvo = extrairItensRequisicaoAlvo(alvo, req);
+
+  const { data: itensHub, error: errItensHub } = await supabase
+    .from("compras_requisicoes_itens")
+    .select("id, sequencia, codigo_centro_ctrl")
+    .eq("requisicao_id", req.id);
+  if (errItensHub) throw new Error(`REQ_ITENS_HUB_SELECT: ${errItensHub.message}`);
+
+  const itensPorSequencia = new Map<number, { id: string; codigo_centro_ctrl: string }>();
+  for (const item of itensHub || []) {
+    const sequencia = Number(item.sequencia);
+    if (itensPorSequencia.has(sequencia)) {
+      throw new Error(`REQ_ITEM_SEQUENCIA_DUPLICADA_NO_HUB: ${sequencia}`);
+    }
+    itensPorSequencia.set(sequencia, {
+      id: item.id,
+      codigo_centro_ctrl: item.codigo_centro_ctrl,
+    });
+  }
+
+  // Sempre chama, inclusive com []: o Load é autoritativo e [] precisa apagar
+  // qualquer espelho anterior. A RPC valida e substitui os dois níveis em uma
+  // transação; se falhar, nenhum item é tocado e a requisição não é rotacionada.
+  const { data: rpcResult, error: errRpc } = await supabase.rpc("req_replace_rateio", {
+    p_requisicao_id: req.id,
+    p_rateio: rateio,
+    p_origem: "alvo",
+  });
+  if (errRpc) throw new Error(`req_replace_rateio: ${errRpc.message}`);
+
+  let itensCcAtualizados = 0;
+  const itensNovos: Record<string, unknown>[] = [];
+  for (const item of itensAlvo) {
+    const existente = itensPorSequencia.get(item.sequencia);
+    if (!existente) {
+      itensNovos.push({ requisicao_id: req.id, ...item });
+      continue;
+    }
+    if (existente.codigo_centro_ctrl === item.codigo_centro_ctrl) continue;
+
+    const { error: errUpdateCc } = await supabase
+      .from("compras_requisicoes_itens")
+      .update({ codigo_centro_ctrl: item.codigo_centro_ctrl })
+      .eq("id", existente.id);
+    if (errUpdateCc) {
+      throw new Error(`REQ_ITEM_${item.sequencia}_UPDATE_CC: ${errUpdateCc.message}`);
+    }
+    itensCcAtualizados++;
+  }
+
+  if (itensNovos.length > 0) {
+    const { error: errInsertItens } = await supabase.from("compras_requisicoes_itens").insert(itensNovos);
+    if (errInsertItens) throw new Error(`REQ_ITENS_INSERT: ${errInsertItens.message}`);
+  }
+
+  return {
+    itens_inseridos: itensNovos.length,
+    itens_cc_atualizados: itensCcAtualizados,
+    classes_rateio: Number((rpcResult as any)?.classes_inseridas) || 0,
+    ccs_rateio: Number((rpcResult as any)?.ccs_inseridos) || 0,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // JOB 1: Sincronizar Requisições (mudanças)
 // ─────────────────────────────────────────────────────────────────────
 
@@ -750,6 +948,9 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
 
   console.log(`[sync-req] ${reqs.length} candidatas`);
 
+  // Labels são enriquecimento local; duas leituras por ciclo, não por req.
+  const catalogos = await carregarCatalogosLabels(supabase);
+
   await processInChunks(reqs, CHUNK_SIZE, SLEEP_BETWEEN_CHUNKS_MS, async (req) => {
     try {
       const path = `/req-comp/${encodeURIComponent(req.codigo_empresa_filial)}/${encodeURIComponent(req.numero_alvo)}`;
@@ -770,9 +971,48 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
         return;
       }
 
+      if (!notFound) {
+        try {
+          const espelho = await espelharDetalheRequisicao(supabase, req, resp.data, catalogos);
+          console.log(
+            `[sync-req][R1.2] ${req.numero_alvo}: ` +
+              `${espelho.itens_inseridos} itens inseridos, ` +
+              `${espelho.itens_cc_atualizados} CCs de item atualizados, ` +
+              `${espelho.classes_rateio} classes e ${espelho.ccs_rateio} CCs de rateio`,
+          );
+        } catch (detalheErr: any) {
+          result.total_erros++;
+          result.detalhes.push({
+            tipo: "req",
+            id: req.id,
+            numero_alvo: req.numero_alvo,
+            erro: `r1_2_detalhe: ${detalheErr?.message || String(detalheErr)}`,
+          });
+          console.error(`[sync-req][R1.2] ${req.numero_alvo}: espelhar detalhe falhou:`, detalheErr);
+          // Não atualiza status nem updated_at: continua elegível e volta no
+          // próximo ciclo. Em especial, falha da RPC nunca parece sucesso.
+          return;
+        }
+      }
+
       const { novoStatus } = mapReqAlvoToHub(resp.data, notFound);
 
       if (novoStatus === req.status) {
+        // Rotaciona apenas depois do sucesso TOTAL do detalhe. Sem isto, as 50
+        // candidatas mais antigas monopolizam o lote e o restante nunca chega.
+        const { error: errTouch } = await supabase
+          .from("compras_requisicoes")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", req.id);
+        if (errTouch) {
+          result.total_erros++;
+          result.detalhes.push({
+            tipo: "req",
+            id: req.id,
+            numero_alvo: req.numero_alvo,
+            erro: `R1.2 rotação da fila falhou: ${errTouch.message}`,
+          });
+        }
         return;
       }
 
