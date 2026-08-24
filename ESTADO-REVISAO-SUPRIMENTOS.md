@@ -83,8 +83,8 @@ nova frente ativa e o saldo do plano v1.1 estão na §9.
     `detalhes` mas não incrementa o contador. Ciclos aparecem com "0 erros" tendo falhas
     dentro. Para varrer erros: `jsonb_array_elements(detalhes)`.
 13. **"Cabeçalho e itens somam o mesmo total" NÃO é regra universal** — a varredura de
-    24/08 encontrou 98 contraexemplos em 996 Loads comparáveis. É uma medição histórica
-    daquela varredura, não uma regra para extrapolar.
+    24/08 encontrou 98 contraexemplos em 996 Loads comparáveis *(medição histórica de
+    24/08/2026; o horário original não foi registrado)*. Não é regra para extrapolar.
 
 ---
 
@@ -188,9 +188,10 @@ Não toca status nem valores, então a âncora segue protegida.
 ### C3.3 — a varredura de formas e por que ela existiu
 
 As duas normalizações anteriores nasceram de **um caso cada**. Em 24 horas isso quase
-produziu uma correção errada. A varredura fechada em 24/08 sobre 1.211 Loads mostrou que
-os 10 pedidos "presos" não tinham causa comum; o universo auditado já alcançava 1.213
-pedidos às 19:19 UTC do mesmo dia:
+produziu uma correção errada. A varredura fechada em 24/08 sobre 1.211 Loads
+*(medição histórica de 24/08/2026; o horário original não foi registrado)* mostrou que os
+10 pedidos "presos" não tinham causa comum; o universo auditado já alcançava 1.213 pedidos
+às 19:19 UTC do mesmo dia:
 
 - 3 eram problema de percentual (0004371, 0004471, 0004691);
 - 4 (0002931, 0002990, 0003047, 0003095) estão fora da janela de 180 dias do Job 2 e
@@ -270,6 +271,34 @@ Referência do desenho: `AJUSTE-RS-C3.1-C`. **Nada disso está agendado.**
 
 ---
 
+## 6-A. Requisições — estado e contrato do Alvo
+
+**Provado em teste controlado (24/08):** o Alvo aceita rateio de CC em requisição na
+estrutura de dois níveis `ReqCompClasseRecDespChildList[]` (classe, `Percentual`) →
+`RateioReqCompChildList[]` (`CodigoClasseRecDesp`, `CodigoCentroCtrl`, `Percentual`), sem
+campo de valor. Valida 100% por nível (erro 412 `BrokenRulesException`). O
+`CodigoCentroCtrl` do item pode divergir do cabeçalho e é preservado. Casos controlados:
+**0001445** (classe 11.05, 60/40) e **0001446** (item divergente).
+
+**O que já existia e NÃO é rateio de CC:**
+`compras_requisicoes_itens_classe_rec_desp` divide o item por classe contábil, sem CC. A
+UI já chama isso de "rateio" — ⚠️ conflito de vocabulário a resolver antes do wizard
+(R3.3).
+
+**Estado atual:** 356 requisições, 439 itens e 40 requisições sem itens; nenhuma das 40
+ainda está elegível ao Job 1. As tabelas novas têm 2 requisições, 2 classes e 4 CCs —
+somente os testes 0001445/0001446, ambos com `origem='alvo'`; continuam existindo **zero
+exemplos nativos de produção com rateio**. Entre as 316 requisições com itens, 313 mantêm
+o CC do item igual ao cabeçalho e 3 divergem: 0000775, 0001157 e 0001446
+*(toda esta medição: 24/08/2026 19:17 UTC)*.
+
+**Cobertura de líderes:** 81 CCs folha ativos, 14 com líder (17,3%), 3 líderes distintos,
+concentração 12/1/1. Dos 32 CCs que movimentaram requisição nos 90 dias anteriores à
+medição, apenas 3 têm líder *(medido 24/08/2026 19:18 UTC)*. A implantação organizacional
+ainda não começou.
+
+---
+
 ## 7. Pendências registradas
 
 1. **RPC transacional derruba parcelas junto com rateio.** No 0004602, a falha do rateio
@@ -283,7 +312,8 @@ Referência do desenho: `AJUSTE-RS-C3.1-C`. **Nada disso está agendado.**
    Fica o registro do padrão, útil se ele aparecer em volume.
 4. ~~**57 terminais sem detalhe**~~ (56 fora do corte de 180 dias + o `0004370`).
    **NÃO SERÁ TRATADA — ver §6.** Dependia do Bloco E, que foi dispensado.
-5. **8 pedidos com `status` NULL** — entram na fila desde o C2; origem desconhecida.
+5. ~~**8 pedidos com `status` NULL**~~ — zerou após a drenagem: **0**
+   *(medido 24/08/2026 19:18 UTC)*.
 6. **Nome do CC na tela** — detalhe da requisição mostra só o código. Cosmético, Bloco F;
    depende do espelho `cost_centers` atualizado (F3).
 7. **`funcionario_alvo_codigo` do Ryan** — banco `0000063` × roster `0000153`.
@@ -297,6 +327,27 @@ Referência do desenho: `AJUSTE-RS-C3.1-C`. **Nada disso está agendado.**
     igual ao open-load — contraria o C3-A na letra, mas mantém um formato único no jsonb
     (duas telas o leem e o open-load também escreve). **A tabela relacional usa o item, que
     é o que o C3-A exige.** Decisão ratificada em 20/08.
+13. **Passos 4–6 do `AJUSTE-RS-C3.3`:** fallback de cabeçalho com coluna `origem_rateio`
+    (destrava 0004098 e 0004495, só para pedido de item único); estrutura incompleta parar
+    de passar em silêncio; contador de tentativas para conter 0004500 e 0004370.
+14. **Semântica dupla do `percentual`** (§2 item 11) — bloqueia a visão por CC.
+15. **RPC de requisições mais estrita que a de pedidos** — decidir se tolerância e linha
+    única do C3.3 valem lá. Reconstrução por valor não se aplica: requisição não tem valor.
+16. **As 13 RPCs `*_para` restantes ainda confiam em `p_user_id` do chamador** em vez de
+    `auth.uid()`. O acesso anônimo foi fechado, mas usuário autenticado ainda pode passar
+    o UUID de outro. Dívida de desenho.
+17. **RPC e itens não compartilham transação no R1.2** — se a gravação de itens falhar
+    após a RPC, o rateio fica certo e os itens não; o `updated_at` não rotaciona e o ciclo
+    seguinte refaz.
+18. **Corrida entre open-load e cron** na inserção de itens de requisição — não há UNIQUE
+    por `(requisicao_id, sequencia)`.
+19. **R1.2 não remove filhos excedentes** — o conjunto de CCs do último Load diverge do
+    Hub em 9 de 221 requisições comparáveis *(medido 24/08/2026 19:20 UTC)*.
+20. **17 de 2.015 itens com rateio de valor positivo** não fecham nem contra
+    `ValorTotal+IPI` nem contra `ValorFinal` *(medido 24/08/2026 19:20 UTC)*.
+21. **6 pedidos e 38 requisições sem detalhe utilizável em nenhuma fonte local** — sem
+    itens relacionais e sem itens aproveitáveis nos jsonb/audits correspondentes
+    *(medido 24/08/2026 19:20 UTC)*.
 
 ---
 
@@ -316,13 +367,26 @@ Referência do desenho: `AJUSTE-RS-C3.1-C`. **Nada disso está agendado.**
 - **A Seção de rollback de qualquer SQL não deve ser executada** — é só para guardar.
 - **Número sem data não vale.** Ver §2 item 8: as contagens deste módulo mudam a cada
   ciclo do cron; citar sem remedir induz a decisão errada de dimensionamento.
+- **Conferir o efeito, não o "Success".** SQL Editor e lotes podem falhar sem produzir a
+  mudança esperada; o VERIFY é parte da aplicação.
+- **Varredura de formas antes de normalizar.** Caso isolado gera regra errada; sempre
+  procurar o contraexemplo antes de transformar ausência, zero ou arredondamento.
 
 ---
 
-## 9. Se esta frente for retomada — o que sobrou do plano v1.1
+## 9. Frente ativa de orçamento por CC e saldo do plano v1.1
+
+`PLANO-RATEIO-CC-REQUISICOES.md` é a frente ativa. As decisões R1–R10 estão na §0 daquele
+plano e **não devem ser reabertas**. Próximos blocos:
+
+- **R1.3** — backfill das 40 requisições ainda sem itens, todas fora da fila normal
+  *(população medida 24/08/2026 19:17 UTC)*.
+- **R2** — visão por CC; entrega valor imediato para orçamento.
+- **R3** — criação com rateio no Hub.
+- **R4** — aprovação múltipla por líderes distintos.
 
 Catálogo do que **nunca foi executado**, para não obrigar ninguém a reler o plano inteiro.
-Nada aqui está agendado; a frente está encerrada (§1).
+Nada deste catálogo legado está agendado; isso não encerra a frente nova acima.
 
 **Bloco D — endurecimento da criação** (o envio Hub → Alvo, que o C3 não tocou):
 - **D1** — invariantes no `enviarPedido` e erros que gritam em vez de falhar em silêncio.
@@ -354,6 +418,15 @@ Nada aqui está agendado; a frente está encerrada (§1).
 **A2** (validação com a operação) não tem card próprio em aberto: a validação prevista
 — operadora sem credenciais locais abrindo pedidos — foi cumprida e está registrada na
 linha do **A1**, §1.
+
+---
+
+## 10. Documentos criados em 24/08
+
+`PLANO-RATEIO-CC-REQUISICOES.md` (plano da missão, com as 10 regras de negócio) ·
+`PROMPTS-DISCOVERY-RATEIO-REQ.md` · `PROMPTS-VARREDURA-RATEIO.md` ·
+`AJUSTE-RS-C3.3.md` (as 7 regras de normalização, com evidência e contraexemplo) ·
+`SQL-R1.1-RATEIO-REQUISICOES.md`.
 
 ---
 
