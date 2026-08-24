@@ -1,5 +1,5 @@
 # ESTADO-REVISAO-SUPRIMENTOS
-### Estado vivo da missão · última atualização: 20/08/2026, após o C3.2
+### Estado vivo da missão · última atualização: 24/08/2026, após R1.2, C3.3 e SEC-1
 
 > **Leia este arquivo ANTES de qualquer coisa nesta missão.** Ele registra o que foi
 > executado, o que foi medido e — principalmente — **onde a documentação está errada**.
@@ -25,11 +25,15 @@
 | **C2 + B2** | Fila do cron alinhada à contagem (`not.is.true`); `'rejeitada'` em `STATUS_TERMINAIS` | 6+ ciclos, zero erros; drenagem 415 → 57 |
 | **C3** | Cron passa a gravar rateio por item + parcelas + completar cabeçalho; RPC transacional `sync_replace_filhos_pedido` | Ver §5 |
 | **C3.2** | Percentual de classe única ausente + gate de reprocesso (`105e1fb`) | Ver §5 |
+| **R1.1** | Tabelas `compras_requisicoes_rateio_classes` / `_cc` + RPC `req_replace_rateio` (`SECURITY DEFINER`, EXECUTE só para `service_role`). `ItemInput` ganhou `codigo_centro_ctrl` próprio (`37852c3`) | VERIFY de assinatura, ACL e RLS ok; tabelas inicialmente vazias como esperado |
+| **R1.2** | Cron passa a espelhar rateio de CC e CC de item das requisições vindas do Alvo (`04aa5bf`, deployado) | Itens no Hub: **330 → 439**; requisições sem itens: **94 → 40** *(medido 24/08/2026 19:17 UTC)* |
+| **C3.3** | Normalização de rateio: `null` deixa de virar `0`; tolerância ±0,01 com residual; reconstrução de percentual por valor (`d767457` + RPC substituída) | 0004371, 0004471 e 0004691 destravados, com soma fechando exata *(medido 24/08/2026 19:18 UTC)* |
+| **SEC-1** | `suprimentos_requisicoes_para` dividida em wrapper + `_impl`; `anon` revogado das 14 RPCs públicas `*_para` e da `_impl` | `anon_pode=false` nas 15 assinaturas; `authenticated` preservado nas 14 públicas e `_impl` restrita a `service_role` *(medido 24/08/2026 19:19 UTC)* |
 
-**Frente de sync ENCERRADA em 20/08/2026** com os cards **A1, B1, B3, B4, C1, C2, C3 e
-C3.2**. Nenhum card em aberto. O Bloco E (backfill histórico) foi **dispensado por decisão
-do Pedro** — ver §6. O que restou do plano v1.1 e nunca foi executado está catalogado na
-**§9**, para quem eventualmente retomar.
+**Frente de sync encerrada em 20/08 e reaberta em 24/08** pela missão de orçamento por
+centro de custo — ver `PLANO-RATEIO-CC-REQUISICOES.md`. Cards **R1.1, R1.2, C3.3 e SEC-1**
+entregues em 24/08. A dispensa do Bloco E histórico de pedidos continua valendo (§6); a
+nova frente ativa e o saldo do plano v1.1 estão na §9.
 
 ---
 
@@ -59,13 +63,36 @@ do Pedro** — ver §6. O que restou do plano v1.1 e nunca foi executado está c
    terceira causa nem aparecia no texto. Número ajustado para fechar soma vira
    investigação perdida na sessão seguinte. Por isso cada medição abaixo leva a data e a
    hora em que foi tirada.
+9. **A âncora de valores tem prazo de validade curto.** A `C3-t0` (20/08) acusou 9
+   alterações em 24/08 — três benignas (null→0) e **seis por edição legítima no ERP**
+   (0004635, 0004685, 0004533, 0004704, 0003766, 0004582). Provado contra o Alvo: o
+   0004582 foi de R$ 50.504,85 para R$ 51.799,85 no ERP, e o Hub espelhou certo.
+   **A âncora serve para conferir imediatamente após uma intervenção, não como referência
+   permanente.** Vigente agora: **`C3.3-t0`**, com 1.924 pedidos
+   *(capturada 24/08/2026 18:45 UTC; conferida 24/08/2026 19:18 UTC)*.
+10. **Lote de comandos no SQL Editor pode falhar em silêncio.** 14 revokes colados juntos
+    não surtiram efeito nenhum, sem mensagem de erro; o primeiro da lista provavelmente
+    abortou o bloco. Já havia acontecido no R1.1, com 3 blocos perdidos.
+    **Regra: conferir o EFEITO com um VERIFY, nunca confiar no "Success".**
+11. **`compras_pedidos_itens_rateio.percentual` tem DUAS semânticas históricas.** No legado
+    anterior ao C3 o percentual é achatado; nas linhas novas é o percentual do CC
+    **dentro** da classe. Há 10 grupos em 4 pedidos (0004026, 0004060, 0004228, 0004269)
+    que somam ≠ 100 por isso *(medido 24/08/2026 19:18 UTC)*.
+    **Qualquer relatório de orçamento que some essa coluna hoje mistura as duas.**
+12. **`sync_runs.total_erros` NÃO conta as falhas de rateio** — o catch registra em
+    `detalhes` mas não incrementa o contador. Ciclos aparecem com "0 erros" tendo falhas
+    dentro. Para varrer erros: `jsonb_array_elements(detalhes)`.
+13. **"Cabeçalho e itens somam o mesmo total" NÃO é regra universal** — a varredura de
+    24/08 encontrou 98 contraexemplos em 996 Loads comparáveis. É uma medição histórica
+    daquela varredura, não uma regra para extrapolar.
 
 ---
 
 ## 3. Âncora — como usar
 
-**Vigente: `C3-t0`** (20/08 12:26 UTC, 1.902 pedidos, **com os 7 valores em colunas**).
-`S1-t0` e `S1-t1` são hash-only e estão queimadas — só registro histórico.
+**Vigente: `C3.3-t0`** (24/08/2026 18:45 UTC, 1.924 pedidos, **com os 7 valores em
+colunas**). `C3-t0`, `S1-t0` e `S1-t1` são só registro histórico; as duas `S1` são
+hash-only.
 
 **Verificação campo a campo (sucesso = zero linhas):**
 
@@ -74,7 +101,7 @@ select p.numero, p.valor_total, a.valor_total as anc_total,
        p.valor_ipi, a.valor_ipi as anc_ipi,
        p.valor_outras_despesas, a.valor_outras_despesas as anc_outras, p.updated_at
 from public.compras_pedidos p
-join public.compras_pedidos_anchor a on a.pedido_id = p.id and a.rodada = 'C3-t0'
+join public.compras_pedidos_anchor a on a.pedido_id = p.id and a.rodada = 'C3.3-t0'
 where p.valor_total is distinct from a.valor_total
    or p.valor_mercadoria is distinct from a.valor_mercadoria
    or p.valor_servico is distinct from a.valor_servico
@@ -90,9 +117,9 @@ conta. Padrão já visto duas vezes: pedido novo/nunca visitado entra com `valor
 diagnostica em segundos** — as colunas mostram qual campo mudou e de quanto. Se o
 `valor_total` mudar sem correspondência no Alvo, aí sim é problema.
 
-ℹ️ A âncora cobre **1.902** pedidos; o Hub já tem **1.904** (medido 20/08 13:20 UTC).
-Pedido descoberto depois da captura não tem linha na âncora e, portanto, não é coberto
-pela verificação — não é falha, é o recorte da rodada.
+ℹ️ A âncora vigente e o Hub tinham **1.924 pedidos** na conferência
+*(medido 24/08/2026 19:18 UTC)*. Pedido descoberto depois da captura não terá linha na
+âncora e, portanto, não será coberto pela verificação — não é falha, é o recorte da rodada.
 
 ---
 
@@ -113,13 +140,15 @@ pela verificação — não é falha, é o recorte da rodada.
 
 ---
 
-## 5. C3 e C3.2 — o que foi aprendido
+## 5. C3, C3.2 e C3.3 — o que foi aprendido
 
 ### O que a RPC faz
 `sync_replace_filhos_pedido(p_pedido_id, p_rateios, p_parcelas)` — `SECURITY DEFINER`,
-`search_path=public`, EXECUTE só para `service_role`. Valida percentual (100,0000 por
-(item,classe) e por item), apaga os filhos **daquele pedido** e reinsere, na mesma
-transação. Sem UNIQUE e sem upsert: repetição (item, classe, CC) é legítima.
+`search_path=public`, EXECUTE só para `service_role`. Normaliza grupos unitários, reconstrói
+o único percentual nulo quando há valores, aceita soma dentro de ±0,01 e grava o residual
+na última linha; depois valida 100,0000 exato por (item,classe) e por item. Apaga os filhos
+**daquele pedido** e reinsere, na mesma transação. Sem UNIQUE e sem upsert: repetição
+(item, classe, CC) é legítima.
 Valor: usa o do Alvo quando existe; deriva pelo percentual quando vem null/0, marcando
 `valor_derivado = true`, com residual na última linha de cada item.
 
@@ -155,6 +184,32 @@ captura, `valor_ipi` e `valor_outras_despesas` de null → 0).
 Combinado com `detalhes_carregados = false`, força o reprocesso imediato de um pedido
 específico — usado para validar o 0004602 e o 0004640 sem esperar vários ciclos.
 Não toca status nem valores, então a âncora segue protegida.
+
+### C3.3 — a varredura de formas e por que ela existiu
+
+As duas normalizações anteriores nasceram de **um caso cada**. Em 24 horas isso quase
+produziu uma correção errada. A varredura fechada em 24/08 sobre 1.211 Loads mostrou que
+os 10 pedidos "presos" não tinham causa comum; o universo auditado já alcançava 1.213
+pedidos às 19:19 UTC do mesmo dia:
+
+- 3 eram problema de percentual (0004371, 0004471, 0004691);
+- 4 (0002931, 0002990, 0003047, 0003095) estão fora da janela de 180 dias do Job 2 e
+  nunca serão visitados — o jsonb deles está íntegro;
+- 2 (0004271, 0004441) estão `excluido_alvo`;
+- 1 (0004019) tem audit `not_found` com status `sincronizada` — inconsistência própria.
+
+As quatro famílias, detalhadas em `AJUSTE-RS-C3.3.md`, são: F1 arredondamento; F2
+percentual ausente com valor recuperável; F3 sem informação (`0004500`, seis CCs nulos,
+que **deve falhar**); e F4 item mutilado com cabeçalho íntegro (`0004098`, `0004495`, que
+esperam o fallback de cabeçalho).
+
+🔴 **Contraexemplo que salvou a correção:** 0004052 e 0004053 têm CCs a 0% em rateios que
+já somam 100. Zero só vira 100 quando a linha é a **única** do grupo.
+
+🔴 **Falso-negativo:** 12 documentos com item ativo passam sem erro porque nenhuma linha
+chega à RPC — 3 com item sem classe e 9 com classe sem CC
+*(medido 24/08/2026 19:21 UTC, sobre o último Load de 1.213 pedidos auditados)*. São
+marcados como completos e ficam invisíveis.
 
 ---
 
