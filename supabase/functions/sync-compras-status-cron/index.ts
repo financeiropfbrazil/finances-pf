@@ -1489,25 +1489,33 @@ function extrairRateiosDoItem(
       // na guarda "classes do item somam 100,0000".
       //   • Classe ÚNICA no item: 100 é aritmeticamente necessário — com uma
       //     classe só não há o que dividir. Assume.
-      //   • MÚLTIPLAS classes: não há como inferir a divisão. NÃO adivinha,
-      //     deixa 0 e registra — a RPC reprova, que é o comportamento certo.
-      const pctBruto = Number(cls?.Percentual);
-      let pctClasse: number;
-      if (Number.isFinite(pctBruto) && pctBruto !== 0) {
-        pctClasse = pctBruto;
-      } else if (classes.length === 1) {
+      //   • MÚLTIPLAS classes: não há como inferir a divisão. NÃO adivinha;
+      //     preserva null para a RPC distinguir omissão de zero explícito.
+      const pctBruto = escalarAusente(cls?.Percentual) ? null : Number(cls.Percentual);
+      let pctClasse: number | null;
+      if (classes.length === 1 && (pctBruto === null || pctBruto === 0)) {
         pctClasse = 100;
+      } else if (pctBruto !== null && Number.isFinite(pctBruto)) {
+        pctClasse = pctBruto;
       } else {
-        pctClasse = 0;
+        pctClasse = null;
         avisos.push(
           `PERCENTUAL_CLASSE_OMITIDO: item ${sequencia}, classe ${codClasse}, ` +
             `${classes.length} classes no item — divisão não inferível`,
         );
       }
 
-      for (const cc of (cls?.RateioItemPedCompChildList || []) as any[]) {
+      const centros = (cls?.RateioItemPedCompChildList || []) as any[];
+      for (const cc of centros) {
         const codCc = cc?.CodigoCentroCtrl;
         if (!codCc) continue;
+        const pctCcBruto = escalarAusente(cc?.Percentual) ? null : Number(cc.Percentual);
+        const pctCc =
+          centros.length === 1 && (pctCcBruto === null || pctCcBruto === 0)
+            ? 100
+            : pctCcBruto !== null && Number.isFinite(pctCcBruto)
+              ? pctCcBruto
+              : null;
         // `Valor` do CC pode vir null OU 0 (medido no 0003575). Nos dois casos
         // a RPC deriva pelo percentual e marca `valor_derivado`. Aqui o null é
         // preservado como null para a RPC distinguir "não veio" de "veio zero".
@@ -1518,7 +1526,7 @@ function extrairRateiosDoItem(
           percentual_classe: pctClasse,
           cc: String(codCc),
           cc_label: cat.centros.get(String(codCc)) ?? null,
-          percentual: Number(cc?.Percentual) || 0,
+          percentual: pctCc,
           valor: cc?.Valor === null || cc?.Valor === undefined ? null : Number(cc.Valor),
           total_item: totalItem,
         });
