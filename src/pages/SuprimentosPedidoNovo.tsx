@@ -130,6 +130,17 @@ const STEPS = [
   { id: 5, label: "Revisão" },
 ];
 
+const MAX_OBSERVACAO_ITEM = 255;
+const ALERTA_OBSERVACAO_ITEM = 250;
+
+function contarCaracteres(texto: string): number {
+  return Array.from(texto || "").length;
+}
+
+function limitarCaracteres(texto: string): string {
+  return Array.from(texto || "").slice(0, MAX_OBSERVACAO_ITEM).join("");
+}
+
 // ════════════════════════════════════════════════════════════
 // FORMATADORES
 // ════════════════════════════════════════════════════════════
@@ -758,6 +769,14 @@ export default function SuprimentosPedidoNovo() {
       toast({ title: "Valor unitário não pode ser negativo", variant: "destructive" });
       return;
     }
+    if (contarCaracteres(itemObs) > MAX_OBSERVACAO_ITEM) {
+      toast({
+        title: "Observação do item muito longa",
+        description: "Use no máximo 255 caracteres antes de avançar.",
+        variant: "destructive",
+      });
+      return;
+    }
     setItemStep(2);
   };
 
@@ -803,6 +822,15 @@ export default function SuprimentosPedidoNovo() {
   };
 
   const handleSaveItem = () => {
+    if (contarCaracteres(itemObs) > MAX_OBSERVACAO_ITEM) {
+      toast({
+        title: "Observação do item muito longa",
+        description: "Use no máximo 255 caracteres antes de salvar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const val = validarRateio();
     if (!val.ok) {
       toast({ title: "Rateio inválido", description: val.erro, variant: "destructive" });
@@ -2569,9 +2597,20 @@ export default function SuprimentosPedidoNovo() {
                 <Label>Observação (opcional)</Label>
                 <Textarea
                   value={itemObs}
-                  onChange={(e) => setItemObs(e.target.value)}
+                  onChange={(e) => setItemObs(limitarCaracteres(e.target.value))}
                   placeholder="Ex: marca preferida, especificação técnica..."
+                  maxLength={MAX_OBSERVACAO_ITEM}
                 />
+                <p
+                  className={cn(
+                    "text-xs text-right",
+                    contarCaracteres(itemObs) >= ALERTA_OBSERVACAO_ITEM
+                      ? "font-medium text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {contarCaracteres(itemObs)}/{MAX_OBSERVACAO_ITEM} — limite do ERP
+                </p>
               </div>
             </div>
           )}

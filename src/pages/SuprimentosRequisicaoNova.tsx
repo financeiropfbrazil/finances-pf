@@ -98,6 +98,17 @@ const FINALIDADES_COMPRA = [
   { codigo: "0000007", label: "PRESTAÇÃO DE SERVIÇO" },
 ];
 
+const MAX_OBSERVACAO_ITEM = 255;
+const ALERTA_OBSERVACAO_ITEM = 250;
+
+function contarCaracteres(texto: string): number {
+  return Array.from(texto || "").length;
+}
+
+function limitarCaracteres(texto: string): string {
+  return Array.from(texto || "").slice(0, MAX_OBSERVACAO_ITEM).join("");
+}
+
 export default function SuprimentosRequisicaoNova() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -596,10 +607,27 @@ export default function SuprimentosRequisicaoNova() {
       toast({ title: "Quantidade deve ser maior que zero", variant: "destructive" });
       return;
     }
+    if (contarCaracteres(itemObs) > MAX_OBSERVACAO_ITEM) {
+      toast({
+        title: "Observação do item muito longa",
+        description: "Use no máximo 255 caracteres antes de avançar.",
+        variant: "destructive",
+      });
+      return;
+    }
     setItemStep(2);
   };
 
   const handleSaveItem = () => {
+    if (contarCaracteres(itemObs) > MAX_OBSERVACAO_ITEM) {
+      toast({
+        title: "Observação do item muito longa",
+        description: "Use no máximo 255 caracteres antes de salvar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (itemRateio.length === 0) {
       toast({ title: "Adicione ao menos uma classe ao rateio", variant: "destructive" });
       return;
@@ -1369,9 +1397,20 @@ export default function SuprimentosRequisicaoNova() {
                 <Label>Observação (opcional)</Label>
                 <Textarea
                   value={itemObs}
-                  onChange={(e) => setItemObs(e.target.value)}
+                  onChange={(e) => setItemObs(limitarCaracteres(e.target.value))}
                   placeholder="Ex: link do produto, fornecedor preferido, urgência..."
+                  maxLength={MAX_OBSERVACAO_ITEM}
                 />
+                <p
+                  className={cn(
+                    "text-xs text-right",
+                    contarCaracteres(itemObs) >= ALERTA_OBSERVACAO_ITEM
+                      ? "font-medium text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {contarCaracteres(itemObs)}/{MAX_OBSERVACAO_ITEM} — limite do ERP
+                </p>
               </div>
             </div>
           )}
