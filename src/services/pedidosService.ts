@@ -2686,6 +2686,16 @@ export async function enviarPedidoParaAprovacao(
     if (!pedidoAlvo.PedCompUserFieldsObject || typeof pedidoAlvo.PedCompUserFieldsObject !== "object") {
       pedidoAlvo.PedCompUserFieldsObject = {};
     }
+
+    // ── OBSERVABILIDADE (card 28-A) ────────────────────────────────────────
+    // Snapshot do estado ANTES do comando, tirado agora porque a linha seguinte
+    // muta `pedidoAlvo` no lugar. Sem este "antes", a única forma de saber se o
+    // ERP agiu é inferir de leituras posteriores do cron — que é log de MUDANÇA,
+    // com mediana de ~18h entre registros. Foi essa cegueira que fez a pendência
+    // 28 ser aberta com um diagnóstico errado e levou horas para ser desfeita.
+    const ufoAntes = { ...pedidoAlvo.PedCompUserFieldsObject };
+    const statusAprovAntes = pedidoAlvo?.StatusAprovacao ?? null;
+
     pedidoAlvo.PedCompUserFieldsObject.UserEnviarAprovacao = "Sim";
 
     const resp = await callGatewayJson("/ped-comp/update", pedidoAlvo);
@@ -2708,12 +2718,33 @@ export async function enviarPedidoParaAprovacao(
       { onConflict: "id" },
     );
 
+    // ── OBSERVABILIDADE (card 28-A) ────────────────────────────────────────
+    // Até 27/08/2026 este insert gravava só `sucesso: true`, e os 111 eventos
+    // da história ficaram com `resposta_alvo` e `payload_enviado` NULOS. Ou seja:
+    // NINGUÉM jamais observou o que o Alvo devolveu no instante do envio, e o
+    // registro do Hub seria idêntico se o ERP tivesse feito um no-op silencioso.
+    // O defeito era infalsificável — que não é o mesmo que inofensivo.
+    //
+    // ⚠️ `sucesso: true` continua como estava DE PROPÓSITO: ele significa "a
+    // chamada HTTP não falhou", que é verdade (callGatewayJson lança em !ok).
+    // Interpretar se o ERP AGIU é o que estes dois campos passam a permitir —
+    // e a decisão sobre o fallback `|| "Sim"` da linha ~2704 fica para depois
+    // de haver dado, não antes (decisão do Pedro em 27/08).
     await (supabase as any).from("compras_pedidos_auditoria").insert({
       pedido_id: pedidoId,
       evento: "enviado_aprovacao",
       user_id: userId,
       user_nome: userNome,
       sucesso: true,
+      // O comando e o estado ANTES dele — o "antes" que faltava para datar efeito.
+      payload_enviado: {
+        comando: { UserEnviarAprovacao: "Sim" },
+        antes: { PedCompUserFieldsObject: ufoAntes, StatusAprovacao: statusAprovAntes },
+        numero: numeroAlvo,
+        codigo_empresa_filial: filial,
+      },
+      // A resposta crua do ERP ao POST /ped-comp/update — o dado que nunca existiu.
+      resposta_alvo: respPedido ?? resp ?? null,
     });
 
     console.log(`[enviarAprovacao] pedido ${numeroAlvo} → aprovação OK (status=${statusAprov} prox=${proxAprov})`);
