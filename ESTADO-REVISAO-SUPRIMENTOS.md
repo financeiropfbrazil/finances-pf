@@ -361,6 +361,14 @@ ainda não começou.
 24. **Rateio do ITEM não tem ajuste residual** (o do cabeçalho tem) — com percentuais
     quebrados sobra centavo entre a soma das linhas e o valor da classe. Anterior ao D4 e não
     tocado por ele. Só vale mexer se o Alvo passar a validar a soma no nível do item. Ver §12.
+25. 🔴 **LIVRO × ESPELHO no rateio do item — o Hub GRAVA cru e ENVIA consolidado.**
+    `compras_pedidos_itens_rateio` recebe o `item.rateio` cru (`pedidosService.ts` ~1655); o
+    payload vai consolidado por (classe, CC). Num colapso real a tabela local terá 2 linhas e
+    o Alvo 1 — e **a tela lê a tabela local**. O dinheiro é o mesmo e o Alvo recebe certo:
+    é divergência de **representação**, não de valor. **Decisão do Pedro em 27/08: registrar,
+    NÃO implementar** — só depois de fechar o D4. Quando entrar, decidir qual é o LIVRO:
+    gravar consolidado também, ou sinalizar na tela que o Alvo consolidou.
+    Report: §39.2 item 9-B e §40.4 item 14-A.
 
 ---
 
@@ -569,6 +577,31 @@ colapso — **a consolidação acontece independentemente do aviso**.
    da classe. O comportamento é idêntico antes e depois da consolidação; quem tem ajuste
    residual é o caminho do **cabeçalho**, que é onde o Alvo valida a soma. **Não foi tocado**
    (fora do escopo aprovado). Ver pendência §7.24.
+
+### Validação em produção — parcial (27/08/2026)
+
+Dois pedidos criados no Alvo para validar: **0004794** (dois CCs distintos) e **0004795**
+(pretendia repetir o mesmo CC). Medido pelo MCP às 14:20 UTC:
+
+| | 0004794 | 0004795 |
+|---|---|---|
+| Rateio | classe 13.07, 2 CCs, 50/50 | classe 13.04, **3 CCs distintos**, 33,33/33,33/33,34 |
+| CC repetido | não | **não** |
+| Tentativas de envio | 1, sucesso | 1, sucesso |
+| `Friendly_Message_UQ_PK` | não | não |
+| Load do Alvo | chegou (2 CCs a R$ 50) | ainda não (`detalhes_carregados=false`) |
+
+🔴 **O 0004795 NÃO reproduziu o defeito** — saiu com três CCs diferentes, não com o mesmo
+repetido. Confirmado nas três fontes (tabela local, `ItemPedCompChildList` do payload e
+cabeçalho), e de forma definitiva: a persistência local grava o rateio **cru**, então 3 linhas
+distintas = 3 CCs digitados. Se houvesse colapso, o payload traria uma linha com percentual
+somado (66,66); trouxe 33,33/33,33/33,34.
+
+**Portanto os dois valeram como CONTROLE, não como prova do colapso.** O que ficou provado: o
+caminho feliz não regrediu em produção contra o ERP real, em duas formas (percentual redondo e
+quebrado), com numeração 0004786→0004795 **sem buracos** — nenhum número queimado. A prova do
+colapso depende do pedido C (1 item, 1 classe, mesmo CC duas vezes, 50/50), com o toast de
+consolidação confirmado na tela **antes** do envio: sem toast, não é o caso de teste.
 
 ### Garantia de não-regressão
 
