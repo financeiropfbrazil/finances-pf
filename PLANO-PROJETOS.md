@@ -156,9 +156,15 @@ não tem `compras.pedidos.access`, que é o gate da rota `/suprimentos/pedidos/:
 Opções (decisão do Pedro, card à parte): **(a)** conceder `compras.pedidos.access` à Ana e
 aceitar o envio pela tela do Suprimentos · **(b)** espelhar `enviarPedidoParaAprovacao` na
 tela do Projetos · **(c)** manter o envio manual dentro do Alvo.
-⚠️ Se for **(b)**, ler antes a pendência **§7.28 do `ESTADO-REVISAO-SUPRIMENTOS.md`**: esse
-passo do Suprimentos tem um caso de "sucesso gravado sem efeito no ERP" ainda não explicado —
-não replicar às cegas.
+⚠️ Se for **(b)**, ler antes a pendência **§7.28-A do `ESTADO-REVISAO-SUPRIMENTOS.md`**.
+**Correção de 27/08:** a versão anterior desta linha dizia que o passo de envio do Suprimentos
+tinha "um caso de sucesso gravado sem efeito no ERP ainda não explicado". **Isso foi
+INVALIDADO por medição** — dos 111 eventos, 106 (95,5%) surtiram efeito na primeira leitura,
+mais 3 tardios, e **zero SEM_EFEITO comprovado**; o controle normalizado por pedido-hora dá
+razão **9,9×** a favor do Hub. O envio funciona. O que sobra (28-A) é outra coisa e é menor:
+**o Hub não grava a resposta do ERP, então não consegue provar que agiu** — replicar o passo é
+seguro, mas replique **junto com** a gravação de `resposta_alvo`, senão o módulo Projetos
+herda a mesma cegueira.
 
 ### 13.6 🔴 Pendência: o pedido deste módulo não tem marca de origem no ERP
 

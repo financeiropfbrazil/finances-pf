@@ -378,20 +378,71 @@ ainda não começou.
     ~2235). Não é erro de valor, mas confunde na revisão do wizard — justamente na tela em que
     a pessoa deveria perceber que repetiu o CC. Registrado em 27/08 a partir do 0004797.
 
-28. 🔴 **CARD PRÓPRIO — `enviarPedidoParaAprovacao` grava sucesso em ação que não aconteceu.**
-    **Prioridade acima da 29.** Em 2 de 2 pedidos examinados, o **primeiro** evento
-    `enviado_aprovacao` foi gravado com `sucesso=true` e **o estado no Alvo não mudou**; só o
-    segundo envio surtiu efeito:
-    · 0004495 — evento 23/07 14:07 (`sucesso=true`); Alvo ainda `Não/Não` em 24/07 17:00.
-    · 0004725 — evento 21/08 18:57 (`sucesso=true`); Alvo ainda `Não/Não` em 24/08 16:13.
-    **Por que é grave:** é o Hub afirmando um fato que o ERP não confirma — mesma família da
-    "flag de completude que mente". E o sinal de aprovação é justamente o que o sistema
-    externo da Riosoft consome, então um falso "enviado" contamina a visão dele.
-    ⚠️ **São 2 amostras. O card COMEÇA medindo a prevalência em todos os 111 eventos
-    `enviado_aprovacao`, não concluindo.** Complicador já medido: as colunas de delta do
-    evento nunca são preenchidas (0 de 111 têm `proximo_aprovador_novo`), então a resposta
-    imediata do Alvo ao `/ped-comp/update` não fica registrada — a medição terá de cruzar com
-    as leituras do cron. Aberto em 27/08.
+28. ~~🔴 CARD PRÓPRIO — `enviarPedidoParaAprovacao` grava sucesso em ação que não aconteceu.~~
+    ### ❌ **INVALIDADA em 27/08/2026 — o card estava errado. Ver 28-A abaixo, que o substitui.**
+
+    **O enunciado errado, preservado para registro** *(escrito em 27/08, com "prioridade acima
+    da 29")*: "Em 2 de 2 pedidos examinados, o **primeiro** evento `enviado_aprovacao` foi
+    gravado com `sucesso=true` e **o estado no Alvo não mudou**; só o segundo envio surtiu
+    efeito. · 0004495 — evento 23/07 14:07; Alvo ainda `Não/Não` em 24/07 17:00. · 0004725 —
+    evento 21/08 18:57; Alvo ainda `Não/Não` em 24/08 16:13."
+
+    🔴 **O que o derrubou — medido sobre os 111 eventos, série completa:**
+
+    | Classe | Eventos | % |
+    |---|---|---|
+    | EFETIVO na 1ª leitura | **106** | 95,5% |
+    | EFETIVO TARDIO (virou `Sim` em 22–44h, **sem reenvio**) | 3 | 2,7% |
+    | INDETERMINADO | 2 | 1,8% |
+    | **SEM_EFEITO comprovado** | **0** | **0%** |
+
+    Os dois pedidos que originaram o card **funcionaram no primeiro envio**: a primeira leitura
+    do ERP após o evento de 0004495 é **23/07 18:00:45 (+3h53)** e diz `Sim/Sim`,
+    `StatusAprovacao='Em Andamento'`, `prox=HUGO.MAFFEI`.
+
+    **Grupo de controle normalizado por pedido-hora** (o teste que faltava): eventos COM
+    comando do Hub produzem transição a **63,8/1000h**; sem comando do Hub, **6,5/1000h** —
+    **razão 9,9×**. Sob a hipótese nula as 1.661h do grupo do Hub dariam ~11 transições;
+    deram 106. **O envio pelo Hub funciona.** E as 87 reversões `Sim→Não` do histórico:
+    **zero** tiveram evento do Hub.
+
+    🔴 **CAUSA DO ERRO, registrada de propósito:** a leitura citada (`24/07 17:00`) **não era a
+    primeira posterior ao evento** — era uma reversão ocorrida **23 horas depois** da
+    confirmação de que o envio pegou. Foi **leitura seletiva de duas amostras contra a série
+    completa**, exatamente a armadilha que o próprio documento já registrava. Os dados
+    completos estavam à vista quando o card foi escrito. **O registro do erro vale mais que a
+    ausência dele.**
+
+28-A. **CARD PRÓPRIO — o Hub é incapaz de saber se o ERP agiu** *(substitui a 28;
+    **prioridade ABAIXO da 29**)*. O defeito real não é "grava sucesso falso", é observabilidade:
+    · `pedidosService.ts:2696` — `|| "Sim"` grava `"Sim"` quando o ERP devolve nulo.
+      **Gatilho comprovado:** em **138 de 138** respostas de gravação (`envio_sucesso`) o Alvo
+      devolve `UserEnviouAprovacao = null`.
+    · `:2711-2717` — audit com `sucesso: true` incondicional, sem verificar efeito.
+    · Nenhuma verificação de pós-condição; **0 de 111** eventos gravam `resposta_alvo` ou
+      `payload_enviado`.
+    ⇒ Se o ERP fizesse um no-op silencioso, **o registro do Hub seria idêntico**. O defeito é
+    **infalsificável com os dados atuais — o que não é o mesmo que inofensivo.**
+    **Dano medido: R$ 120** (0004228 R$ 20 e 0004231 R$ 100, ambos de 16/06/2026, o dia de
+    estreia da funcionalidade, ambos indeterminados e **já autocorrigidos pelo cron**).
+    ✅ **ESCOPO MÍNIMO APROVADO (Pedro, 27/08): OBSERVABILIDADE PRIMEIRO** — gravar
+    `resposta_alvo` e `payload_enviado` no insert do evento `enviado_aprovacao` (`:2711`).
+    ⛔ **NÃO tocar no `|| "Sim"` enquanto não soubermos o que o `/ped-comp/update` devolve.**
+    Mexer antes é adivinhação: nunca gravamos essa resposta.
+
+28-B. 🔴 **CARD PRÓPRIO — 26 reversões `Sim→Não` sem causa identificada.** Das 87 reversões do
+    histórico, **61 são `Aberto→Reavaliar`** (o ERP reseta o flag na devolução — comportamento
+    conhecido, **não confundir**). As outras **26 são `Aberto→Aberto`** e não têm explicação.
+    Os dois pedidos que originaram a 28 estão entre elas — o card errou a causa, mas tropeçou
+    num fenômeno real.
+    **Escopo estreito, começa MEDINDO se há padrão:** mesmos aprovadores? mesma faixa de valor?
+    mesmo horário? correlação com ciclos do cron? Só depois investigar causa. Aberto em 27/08.
+
+    ⚠️ **Dois limites estruturais que valem para qualquer medição futura aqui:**
+    (i) `sync_status` é **log de mudança, não amostragem** — o cron só grava quando `mudou=true`;
+    mediana de ~18h entre leituras. Um ciclo `Sim → reset` inteiro cabe na janela sem rastro.
+    (ii) O ramo `jaEnviou` (`:2658-2684`) sai antes **sem gravar auditoria** — **111 é piso de
+    tentativas, não teto.**
 
 29. **Rateio do módulo PROJETOS repete a forma pré-D4** (pendência, não agora).
     `alvoProjetoPedidoService.ts:151-172` (item) e `:204-221` (cabeçalho) fazem `rateio.map()`
