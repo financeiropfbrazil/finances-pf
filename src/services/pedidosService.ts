@@ -1920,6 +1920,11 @@ export interface CarregarPedidoResult {
   cnpj_entidade: string | null;
   codigo_cond_pag: string;
   nome_cond_pag: string;
+  // MOEDA-PEDIDOS — moeda do pedido (0000001=BRL, 0000002=USD, 0000003=EUR).
+  // `null` = o ERP não confirmou; a exibição mostra o valor SEM símbolo, nunca
+  // R$ por suposição. As parcelas herdam esta moeda — ela é atributo do
+  // cabeçalho, não do item nem da parcela.
+  codigo_ind_economico: string | null;
   tipo_entrega: "Total" | "Parcial";
   data_pedido: string; // YYYY-MM-DD
   data_entrega: string;
@@ -2178,6 +2183,7 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
     cnpj_entidade: ped.cnpj_entidade,
     codigo_cond_pag: ped.codigo_cond_pag,
     nome_cond_pag: ped.nome_cond_pag,
+    codigo_ind_economico: ped.codigo_ind_economico ?? null,
     tipo_entrega: (ped.tipo === "Parcial" ? "Parcial" : "Total") as "Total" | "Parcial",
     data_pedido: ped.data_pedido,
     data_entrega: ped.data_entrega,

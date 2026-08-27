@@ -66,9 +66,24 @@ interface PedidoData {
 }
 
 // ── Formatadores ──
-function fmtBRL(v: number | null | undefined): string {
+// MOEDA-PEDIDOS: o símbolo sai da moeda do pedido (CodigoIndEconomico do
+// Alvo), nunca de `R$` fixo. Há pedidos em US$ e €, e este e-mail é lido por
+// quem aprova valor — mostrar R$ num pedido em dólar induz a decisão errada.
+// Sem moeda confirmada, o valor sai SEM símbolo. Nunca converter.
+const SIMBOLOS_MOEDA: Record<string, string> = {
+  "0000001": "R$",
+  "0000002": "US$",
+  "0000003": "€",
+};
+
+function fmtValor(v: number | null | undefined, codigoIndEconomico?: string | null): string {
   if (v == null) return "—";
-  return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const numero = Number(v).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const simbolo = codigoIndEconomico ? SIMBOLOS_MOEDA[String(codigoIndEconomico).trim()] : undefined;
+  return simbolo ? `${simbolo} ${numero}` : `${numero} —`;
 }
 
 function escapeHtml(text: string): string {
@@ -140,7 +155,7 @@ function buildEmailHtml(ped: PedidoData, requisitanteNome: string): string {
                       <tr>
                         <td style="padding-bottom:14px;">
                           <div style="font-size:11px;color:${COLOR.gray};letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">Valor total</div>
-                          <div style="font-size:22px;font-weight:700;color:${COLOR.emerald};">${fmtBRL(ped.valor_total)}</div>
+                          <div style="font-size:22px;font-weight:700;color:${COLOR.emerald};">${fmtValor(ped.valor_total, ped.codigo_ind_economico)}</div>
                         </td>
                       </tr>
                       <tr>
@@ -220,7 +235,7 @@ async function buscarDadosPedido(
   const { data: ped, error: errPed } = await supabase
     .from("compras_pedidos")
     .select(
-      "id, numero, valor_total, nome_entidade, cnpj_entidade, proximo_aprovador, numero_req_comp, codigo_empresa_filial_req_comp, status_aprovacao, aprovado",
+      "id, numero, valor_total, codigo_ind_economico, nome_entidade, cnpj_entidade, proximo_aprovador, numero_req_comp, codigo_empresa_filial_req_comp, status_aprovacao, aprovado",
     )
     .eq("id", pedidoId)
     .single();

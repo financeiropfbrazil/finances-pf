@@ -37,6 +37,7 @@ import {
   Search,
 } from "lucide-react";
 import { getStatusPedido, STATUS_PEDIDO_FILTER_OPTIONS, aplicarFiltroStatusPedido } from "@/lib/statusPedido";
+import { formatarValorMoeda } from "@/services/moedaPedido";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Home } from "lucide-react";
 import { format } from "date-fns";
@@ -71,9 +72,13 @@ const STATUS_ALVO_CONFIG: Record<string, string> = {
 // FORMATADORES
 // ════════════════════════════════════════════════════════════
 
-function formatBRL(valor: number | null | undefined): string {
+// MOEDA-PEDIDOS: na lista a moeda muda LINHA A LINHA — há pedidos em R$, US$
+// e € na mesma tela. Por isso o formatador recebe a moeda do pedido daquela
+// linha, e não existe mais um `formatBRL` global aqui. Sem moeda confirmada,
+// o valor sai sem símbolo (nunca R$ por suposição).
+function formatValor(valor: number | null | undefined, codigoIndEconomico: string | null | undefined): string {
   if (valor === null || valor === undefined) return "—";
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(valor));
+  return formatarValorMoeda(valor, codigoIndEconomico);
 }
 
 // Formata datas para exibição (dd/MM/yyyy).
@@ -751,7 +756,7 @@ export default function SuprimentosPedidos() {
                           <span className="line-clamp-1">{ped.nome_entidade || "—"}</span>
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-emerald-600 whitespace-nowrap">
-                          {formatBRL(ped.valor_total)}
+                          {formatValor(ped.valor_total, ped.codigo_ind_economico)}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">{ped.codigo_usuario || "—"}</td>
                         <td className="px-4 py-3 whitespace-nowrap">{ped.proximo_aprovador || "—"}</td>
@@ -827,7 +832,7 @@ export default function SuprimentosPedidos() {
                     <p className="text-sm font-medium text-foreground line-clamp-2">
                       {ped.nome_entidade || "(sem fornecedor)"}
                     </p>
-                    <p className="mt-1 text-sm font-mono text-emerald-600">{formatBRL(ped.valor_total)}</p>
+                    <p className="mt-1 text-sm font-mono text-emerald-600">{formatValor(ped.valor_total, ped.codigo_ind_economico)}</p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">

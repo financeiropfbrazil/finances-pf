@@ -57,6 +57,7 @@ import {
 } from "@/services/pedidosService";
 import VincularRequisicaoCard from "@/components/VincularRequisicaoCard";
 import { getStatusPedido } from "@/lib/statusPedido";
+import { formatarValorMoeda, moedaNaoConfirmada, MOEDA_NAO_CONFIRMADA } from "@/services/moedaPedido";
 import { carregarDetalhesPedido, isPedidoInexistenteNoAlvo } from "@/services/alvoPedCompLoadService";
 
 // ════════════════════════════════════════════════════════════
@@ -102,12 +103,13 @@ const EVENTO_CONFIG: Record<string, { label: string; icon: any; className: strin
 // FORMATADORES
 // ════════════════════════════════════════════════════════════
 
-function formatBRL(valor: number | null | undefined): string {
+// MOEDA-PEDIDOS: o símbolo sai da moeda do pedido, nunca de `R$` fixo.
+// Não existe `formatBRL` aqui de propósito — o pedido pode ser em US$ ou €,
+// e o valor é sempre exibido na moeda ORIGINAL, sem conversão.
+// Use o `fmt` do componente, que já fecha sobre a moeda do pedido aberto.
+function formatValor(valor: number | null | undefined, codigoIndEconomico: string | null | undefined): string {
   if (valor == null) return "—";
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(valor);
+  return formatarValorMoeda(valor, codigoIndEconomico);
 }
 
 function formatTamanho(bytes: number): string {
@@ -427,6 +429,13 @@ export default function SuprimentosPedidoDetalhe() {
   }
 
   // ── Derivados ──────────────────────────────────────────────
+  // MOEDA-PEDIDOS: um formatador só, fechado sobre a moeda DESTE pedido.
+  // Vale para total, itens, rateio e parcelas — as parcelas herdam a moeda
+  // do cabeçalho, não têm moeda própria.
+  const moedaPedido = pedido.codigo_ind_economico ?? null;
+  const fmt = (valor: number | null | undefined) => formatValor(valor, moedaPedido);
+  const semMoedaConfirmada = moedaNaoConfirmada(moedaPedido);
+
   const isEditavel = pedido.status_local === "rascunho" || pedido.status_local === "erro_envio";
   const isExcluivel = pedido.status_local === "rascunho" || pedido.status_local === "erro_envio";
 
@@ -603,7 +612,15 @@ export default function SuprimentosPedidoDetalhe() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-muted-foreground">Valor total do pedido</p>
-              <p className="mt-1 text-3xl font-bold text-emerald-600 dark:text-emerald-400">{formatBRL(valorTotal)}</p>
+              <p
+                className="mt-1 text-3xl font-bold text-emerald-600 dark:text-emerald-400"
+                title={semMoedaConfirmada ? MOEDA_NAO_CONFIRMADA : undefined}
+              >
+                {fmt(valorTotal)}
+              </p>
+              {/* MOEDA-PEDIDOS: sem moeda confirmada o valor sai sem símbolo,
+                  com esta nota. Chutar R$ repetiria o bug original. */}
+              {semMoedaConfirmada && <p className="mt-1 text-xs text-muted-foreground">{MOEDA_NAO_CONFIRMADA}</p>}
             </div>
             <div className="text-right text-sm text-muted-foreground">
               {pedidoMeta?.codigo_usuario && (
@@ -635,14 +652,14 @@ export default function SuprimentosPedidoDetalhe() {
                   <span className="text-muted-foreground">{linha.label}</span>
                   <span className="font-mono">
                     {linha.sinal === "-" ? "− " : ""}
-                    {formatBRL(linha.valor)}
+                    {fmt(linha.valor)}
                   </span>
                 </div>
               ))}
               <Separator className="my-2" />
               <div className="flex items-center justify-between font-semibold">
                 <span>Total</span>
-                <span className="font-mono text-emerald-600 dark:text-emerald-400">{formatBRL(valorTotal)}</span>
+                <span className="font-mono text-emerald-600 dark:text-emerald-400">{fmt(valorTotal)}</span>
               </div>
             </div>
           </CardContent>
@@ -733,10 +750,10 @@ export default function SuprimentosPedidoDetalhe() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-muted-foreground">
-                      {item.quantidade} {item.codigo_prod_unid_med} × {formatBRL(item.valor_unitario)}
+                      {item.quantidade} {item.codigo_prod_unid_med} × {fmt(item.valor_unitario)}
                     </p>
                     <p className="mt-1 text-base font-bold text-emerald-600 dark:text-emerald-400">
-                      {formatBRL(valorTotalItem)}
+                      {fmt(valorTotalItem)}
                     </p>
                   </div>
                 </div>
@@ -759,7 +776,7 @@ export default function SuprimentosPedidoDetalhe() {
                               )}
                             </span>
                             <span className="font-medium">
-                              {cls.percentual.toFixed(2)}% ({formatBRL(valorClasse)})
+                              {cls.percentual.toFixed(2)}% ({fmt(valorClasse)})
                             </span>
                           </div>
                           {cls.ccs.length > 0 && (
@@ -775,7 +792,7 @@ export default function SuprimentosPedidoDetalhe() {
                                       )}
                                     </span>
                                     <span>
-                                      {cc.percentual.toFixed(2)}% ({formatBRL(valorCC)})
+                                      {cc.percentual.toFixed(2)}% ({fmt(valorCC)})
                                     </span>
                                   </div>
                                 );
@@ -798,7 +815,7 @@ export default function SuprimentosPedidoDetalhe() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <CreditCard className="h-4 w-4" />
-            Parcelas ({pedido.parcelas.length}) — Total: {formatBRL(valorTotal)}
+            Parcelas ({pedido.parcelas.length}) — Total: {fmt(valorTotal)}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -817,7 +834,7 @@ export default function SuprimentosPedidoDetalhe() {
                   <tr key={idx} className="border-b last:border-b-0">
                     <td className="py-2 pr-4 font-mono">{p.sequencia}</td>
                     <td className="py-2 pr-4">{formatData(p.data_vencimento)}</td>
-                    <td className="py-2 pr-4 text-right font-mono">{formatBRL(p.valor_parcela)}</td>
+                    <td className="py-2 pr-4 text-right font-mono">{fmt(p.valor_parcela)}</td>
                     <td className="py-2 text-right font-mono">{p.dias_entre_parcelas || 0}</td>
                   </tr>
                 ))}
@@ -993,7 +1010,7 @@ export default function SuprimentosPedidoDetalhe() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Valor total</span>
                     <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                      {formatBRL(valorTotal)}
+                      {fmt(valorTotal)}
                     </span>
                   </div>
                   <div className="flex justify-between">
