@@ -183,6 +183,16 @@ do ERP, a contagem ficou sendo um **piso** e não um total (§13.4) — e é a r
 hoje. Seria a marcação de origem no próprio ERP: imune a edição de texto e independente da
 descoberta do Job 3.
 
+**MEDIDO em 27/08/2026:** `NumeroCtrlProjeto` é **null em 4.139 de 4.139 leituras** do Alvo (3
+meses, 1.281 pedidos distintos) e **0 de 158 payloads** do Hub jamais o escreveram.
+**Preservação INDETERMINADA — exige A/B próprio.**
+
+✅ **Uma objeção que existia contra o candidato foi REFUTADA:** dizia-se que adotá-lo obrigaria
+um Load por pedido (≈609 chamadas extras ao Alvo em 3 meses). **O custo real é ZERO** — o cron
+já executa `GET /ped-comp/{filial}/{numero}` para todo pedido candidato em todo ciclo
+(`sync-compras-status-cron/index.ts:2046-2048`), e é desse Load que saem as leituras do campo.
+O candidato segue viável; falta apenas o A/B.
+
 ⚠️ **Avaliar antes de adotar:**
 1. **O Alvo preserva o campo?** É a mesma dúvida da §12/L7-B sobre campo livre
    (`PedCompUserFieldsObject`), que travou o card D3 do Suprimentos. **Não presumir — testar.**
@@ -512,6 +522,7 @@ Roteiro na ordem, com print/console de cada passo:
 - **E-mail ao Responsável na aprovação** (P-2) — hoje a Ana não é avisada quando o Fernando aprova.
 - **Relatório gerencial PDF** (gerado 06/08) tem um ponto a corrigir numa v2: tratava as duas vias de admin como equivalentes; a Permissoes_v2 §9.1 mostra que o papel `admin` tem 42/55 permissões (defasado). Não urgente.
 - **A-10 — `nfe@` e `pedro.scrignoli@` compartilham `funcionario_alvo_codigo = 0000149`**: requisição criada pela conta funcional em **Suprimentos** vai ao Alvo como se fosse o Pedro. Mesma classe do A-8, módulo diferente. Detalhe na seção 12; o lote pertence ao **PLANO-PEDIDOS**.
+  - 🔴 **Atualização 27/08/2026 — o padrão tem TRÊS ocorrências, não duas, e a terceira é a maior.** Medido: **230 de 230** requisições efetivamente enviadas foram ao Alvo com `CodigoUsuario` literal `PEDRO.SCRIGNOLI`; **3 delas eram da ANA.SANCHES** (`0001250`, `0001261`, `0001270`, jun/2026), que **tinha identidade própria disponível** e foi descartada. Grupo de controle no mesmo repo: o caminho de **pedido** acerta 120 de 134 (89,6%); o de **requisição**, **0 de 230**. Card em `ESTADO-REVISAO-SUPRIMENTOS.md` §14.4. A-8 (Projetos, `alvo_usuario`) · A-10 (Suprimentos, `funcionario_alvo_codigo`) · §14.4 (requisições, `CodigoUsuario`) são o **mesmo padrão em três módulos, por três campos diferentes**.
 - **`profiles.is_admin` único (só Pedro)** — considerar segundo admin de contingência (bus factor).
 - **Papel `admin` defasado (13 permissões órfãs)** — mapear as novas ao papel (checklist §8.7 da Permissoes_v2); não bloqueia Projetos.
 

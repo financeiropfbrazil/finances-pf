@@ -361,7 +361,16 @@ ainda não começou.
 24. **Rateio do ITEM não tem ajuste residual** (o do cabeçalho tem) — com percentuais
     quebrados sobra centavo entre a soma das linhas e o valor da classe. Anterior ao D4 e não
     tocado por ele. Só vale mexer se o Alvo passar a validar a soma no nível do item. Ver §12.
-25. 🔴 **LIVRO × ESPELHO no rateio do item — o Hub GRAVA cru e ENVIA consolidado.**
+25. ✅ ~~**LIVRO × ESPELHO no rateio do item**~~ — **FECHADA em 27/08/2026 como TRANSITÓRIA.**
+    A divergência medida foi **0 pedidos**. O único caso (0004797, 2 linhas locais × 1 no Alvo)
+    **desapareceu durante a própria investigação**: o cron reescreveu as duas linhas de 50% em
+    uma de 100% às **19:01:08 UTC**, minutos antes da consulta que o procurava.
+    🔴 **Caso didático — dado que se reescreve sozinho.** `compras_pedidos_itens_rateio` é
+    **espelho**, não livro: a RPC de sync apaga e reinsere a versão consolidada do Alvo.
+    **Medir taxa de digitação humana ali é medir um numerador que se apaga.** A fonte durável é
+    `compras_pedidos_auditoria.payload_enviado`, que é imutável. Esse erro de fonte já produziu
+    uma taxa inventada nesta mesma investigação (ver 29). *Enunciado original abaixo, preservado:*
+    ~~o Hub GRAVA cru e ENVIA consolidado.~~
     `compras_pedidos_itens_rateio` recebe o `item.rateio` cru (`pedidosService.ts` ~1655); o
     payload vai consolidado por (classe, CC). Num colapso real a tabela local terá 2 linhas e
     o Alvo 1 — e **a tela lê a tabela local**. O dinheiro é o mesmo e o Alvo recebe certo:
@@ -369,9 +378,23 @@ ainda não começou.
     NÃO implementar** — só depois de fechar o D4. Quando entrar, decidir qual é o LIVRO:
     gravar consolidado também, ou sinalizar na tela que o Alvo consolidou.
     Report: §39.2 item 9-B e §40.4 item 14-A.
-26. **D4 — parte de PARCELAS continua aberta.** O card D4 original era "normalizar parcelas
+26. ✅ ~~**D4 — parte de PARCELAS**~~ — **FECHADA em 27/08/2026: o defeito NÃO EXISTE.**
+    🔴 **A premissa do card D4 original estava errada.** Ele assumia que faltava normalizar a
+    última parcela e que "tolerância de R$ 0,01 chega ao Alvo". Medido:
+    · O **ajuste residual já existe** — `calcularParcelas` acumula as N−1 primeiras e faz a
+      última = total − acumulado. Absorveu sobras reais (a maior: R$ 0,16 no 0004495, 36
+      parcelas de R$ 110.000).
+    · **Zero divergência em 152 payloads / 296 linhas de parcela**:
+      `sum(ParcPagPedCompChildList[].ValorParcela) == ValorTotal`, diferença máxima R$ 0,00.
+    · **Nenhuma** das 22 falhas de envio da história menciona parcela — a única recusa por
+      "soma ≠ total" é do **rateio**, não das parcelas.
+    · Existe **gate exato ao centavo**, entregue em 21/08/2026 pelo commit **`fc80ae5`** — o
+      que torna a tolerância de centavo impossível de chegar ao ERP.
+    ⚠️ Não confundir com o card **NOVO §14.3** (parcelas congeladas após atualização do
+    `valor_total` pelo cron), que é outro defeito, real, e continua aberto.
+    *Enunciado original preservado:* ~~O card D4 original era "normalizar parcelas
     **e** rateio no payload". Só o **rateio** foi entregue e validado em 27/08 (§12). A
-    normalização de parcelas (última parcela = total − anteriores) segue pendente.
+    normalização de parcelas (última parcela = total − anteriores) segue pendente.~~
 27. **Rótulo do chip de rateio conta LINHAS, não CCs distintos** (cosmético). Na tela do
     wizard o chip diz `11.01 (100%) — 2 CCs` para duas linhas do **mesmo** CC; depois da
     consolidação é 1 CC. Vem de `cls.ccs.length` em `SuprimentosPedidoNovo.tsx` (~1507 e
@@ -920,6 +943,153 @@ Projetos não tem botão de envio** (zero referências a `/ped-comp/update` no m
 não tem `compras.pedidos.access`, que é o gate da rota `/suprimentos/pedidos/:id`
 (`App.tsx:314`). Ela **não alcança** `SuprimentosPedidoDetalhe`. A opção (a) está fora sem
 uma mudança de permissão.
+
+---
+
+## 14. Cards abertos em 27/08/2026 pela varredura de pendências
+
+> Tudo abaixo é **diagnóstico**. Nenhuma implementação foi feita. Ordem de execução aprovada
+> pelo Pedro no fim desta seção (§14.9).
+
+### 14.1 🔴 CARD 1 — `compras_pedidos.tipo` grava o eixo errado
+
+A coluna deveria carregar a **natureza** da compra (Produto / Serviço / Misto). O cron grava o
+**tipo de entrega** do Alvo (`Total`). São **dois eixos diferentes na mesma coluna** — a família
+LIVRO × ESPELHO de novo.
+
+| Mês | Pedidos | Filtráveis por natureza |
+|---|---|---|
+| 2026-04 | 214 | 47 |
+| 2026-05 | 187 | 99 |
+| **2026-06** | **233** | **0** |
+| **2026-07** | **214** | **0** |
+| **2026-08** | **214** | **0** |
+
+**916 pedidos gravados como `Total`, R$ 9.570.393,60** *(medido 27/08/2026)*. Nos três últimos
+meses o filtro de natureza retorna **zero de 661**. Não é degradação — é falha total, e **todo
+pedido novo entra assim** (o cron tem janela rolante de 30 dias).
+
+- Domínio real do campo no Alvo: **`Total` (4.746) e `Programado` (2)**. `Parcial` não existe.
+- O efeito na tela é **por mês**, não "916 escondidos numa lista": `ComprasPedidosCompra.tsx:141-145`
+  carrega um mês por vez.
+- ✅ **TETO DE GRAVIDADE — nenhum cálculo financeiro lê a coluna.** Só filtro, badge e export
+  Excel. **É defeito de relatório, não de dinheiro.**
+
+**Plano mínimo:** o `mapPedido` do list já deriva a natureza de `ValorMercadoria`/`ValorServico`;
+o cron precisa fazer o mesmo em vez de copiar `Tipo`. **Custo** baixo, um ponto.
+**Depende do Pedro:** o backfill dos 916 é decisão à parte — mexe em 46% da tabela.
+
+### 14.2 🔴 CARD 2 — 6 requisições rebaixadas sem auditoria · **ESCRITA NÃO RASTREADA**
+
+Seis requisições passaram de `convertida_pedido` para `sincronizada` **sem uma única linha de
+auditoria**. **Escritor desconhecido.**
+
+🔴 **É a única classe de achado que contamina todas as outras.** Enquanto houver escrita não
+rastreada em `compras_requisicoes`, **nenhuma medição de status de requisição é confiável —
+inclusive as desta própria varredura.** Por isso é o **1º da ordem de execução**.
+
+**Plano mínimo — investigação, não correção:** identificar o escritor antes de qualquer fix.
+Candidatos a descartar um a um: RPC com `SECURITY DEFINER`, trigger, o cron, o open-load, ou
+escrita manual pelo SQL Editor. **Depende do Pedro:** confirmar se houve intervenção manual no
+período.
+
+### 14.3 CARD 3 — parcelas congeladas após o cron atualizar `valor_total`
+
+**Não confundir com o D4-parcelas (§7.26), que foi fechado como inexistente.**
+
+**26 de 363 pedidos (7,2%)** têm as parcelas locais divergindo do `valor_total`,
+**R$ 240.747,29** em valor absoluto. Piores: 0004586 (R$ 143.045,42), 0004495 (R$ 55.000,00),
+0004674 (R$ 13.500,00).
+
+**Causa medida:** no envio o payload estava **perfeito** (`dif_no_envio = R$ 0,00`); o cron
+atualizou o `valor_total` depois e **as parcelas ficaram congeladas**. **Zero casos na faixa
+R$ 0,01–R$ 0,10** — não é arredondamento; a menor divergência é R$ 8,50.
+
+### 14.4 CARD 4 — identidade da requisição: 230/230 vão ao ERP como PEDRO.SCRIGNOLI
+
+**230 de 230** requisições efetivamente enviadas foram ao Alvo com `CodigoUsuario` literal
+`PEDRO.SCRIGNOLI`. Destas, **3 eram da ANA.SANCHES** (0001250, 0001261, 0001270 — jun/2026),
+que **tinha identidade própria disponível** e foi descartada.
+
+*(Denominador corrigido na verificação: `numero_alvo is not null` dá 355, mas 125 vieram do
+espelho e nunca passaram pelo payload do Hub.)*
+
+🔴 **Mesma família do A-8 do `PLANO-PROJETOS` §12** — identidade emprestada no ERP —, só que no
+módulo de **requisições** e por outro campo. Grupo de controle no mesmo repo: o caminho de
+**pedido** acerta 120 de 134 (89,6%); o de **requisição**, 0 de 230.
+
+### 14.5 🔴 CARD 5 — caminho ATIVO para o `UQ_PK` no wizard de Projetos
+
+**Separado do §7.29 de propósito:** aquele é latente com exposição zero; **este é ativo**.
+
+Com o rateio já em 100%, **dois cliques em "Adicionar Classe"** criam duas linhas com
+`percentual: 0` e classe/CC **vazios** (`ProjetoRequisicoes.tsx:1635` — `100 - totalRateio > 0
+? ... : 0`). A soma continua 100, então passa nas **três** validações (UI `:429`, RPC
+`projeto_pedido_salvar`, e `validar()` do service — nenhuma checa unicidade), e o payload sai
+com **dois nós idênticos** de `CodigoClasseRecDesp: ''` + `CodigoCentroCtrl: ''`.
+
+**Tratar junto com o item do percentual (5º da ordem).**
+*Hipótese não testada:* se o Alvo rejeita por classe inválida **antes** de bater no UNIQUE.
+
+### 14.6 Moeda no envio — decisão registrada (Pedro, 27/08)
+
+**MEDIDO:** 111 de 134 pedidos do Hub (82,8%) sem moeda, **R$ 1.023.389,75**; destes **36
+(R$ 641.793,59) são irrecuperáveis** (terminal + `detalhes_carregados=true`, o cron não visita).
+Normalizado por exposição: 69,6% dos nativos têm moeda no 1º Load contra 9,1% do Hub — **razão
+7,6×**. Dano materializado: **1 pedido** (0004592, €226,50, corrigido à mão em 4h32).
+
+⚠️ **Correção de enunciado:** o payload **OMITE** `CodigoIndEconomico` (não manda null) e manda
+**`ValorCambio: 1` hardcoded**.
+
+- ✅ **(a) Parar de mandar `ValorCambio: 1` — APROVADO.** O Hub afirma um câmbio que não sabe;
+  omitir é mais honesto e é a mesma regra do card MOEDA-PEDIDOS.
+- ⛔ **(b) Seletor de moeda na UI — NÃO por ora.** Taxa estrangeira de **0,90%** entre os
+  sem-moeda e **um** caso materializado não justificam mudar a UI; o Alvo define sozinho em 82%.
+  **Reavaliar se a taxa subir.**
+
+*(A extrapolação de "~R$ 200 mil de subestimação de KPI" foi **refutada** na verificação →
+faixa real **R$ 4,3 mil a R$ 30,5 mil**.)*
+
+### 14.7 `NumeroCtrlProjeto` — o argumento que o matava foi REFUTADO
+
+**MEDIDO:** null em **4.139 de 4.139** leituras (3 meses, 1.281 pedidos) e **0 de 158** payloads.
+**Preservação INDETERMINADA — continua exigindo A/B próprio** (§7.30 e `PLANO-PROJETOS` §13.6).
+
+🔴 **Refutado na verificação:** a objeção de que adotá-lo custaria "609 chamadas extras ao Alvo"
+está **errada — o custo é ZERO**. O cron já executa `GET /ped-comp/{filial}/{numero}` para todo
+pedido candidato em todo ciclo (`sync-compras-status-cron/index.ts:2046-2048`), e é desse Load
+que saem as leituras do campo. O candidato volta a ser viável; o que falta é só o A/B.
+
+Corrosão do fingerprint alternativo (`texto`): **12 de 134 (8,96%)** foram alterados no ERP.
+
+### 14.8 Fingerprint do CLAUDE.md — texto proposto
+
+O critério por contagem envelhece (documento diz ~1.650; hoje 1.977) e **já quase interrompeu
+uma sessão** por falso positivo. O critério por "tabelas características" foi **refutado**: não
+temos acesso aos outros 3 projetos da conta para provar exclusividade. Texto sugerido:
+
+> **Identificação do projeto (fingerprint).** A identificação **primária e suficiente** é o
+> **`project_ref = hbtggrbauguukewiknew`** — na URL do MCP e no `--project-ref` explícito do
+> CLI. `current_database()` **não** identifica o projeto (todos retornam `postgres`).
+> Como sanidade secundária, `select count(*) from compras_pedidos` deve retornar um valor **na
+> casa dos milhares e crescente** (ordem de 2.000 em ago/2026). ⚠️ **O número exato NÃO é
+> critério** — ele muda todo dia e já produziu falso "projeto errado". Divergir da faixa é
+> motivo para conferir, nunca para parar sozinho; divergir do `project_ref` é PARE.
+
+### 14.9 Ordem de execução aprovada (Pedro, 27/08/2026)
+
+1. **§14.2** — 6 requisições rebaixadas sem auditoria. *Escrita não rastreada contamina toda
+   medição de status de requisição, inclusive as desta varredura. Única classe com essa
+   propriedade.*
+2. **§14.1** — `tipo`. *Ativo e crescente, mas estável e conhecido: não piora de natureza
+   enquanto espera.*
+3. **§7.28-A** — observabilidade (gravar `resposta_alvo`). *Barata e desbloqueia os demais: sem
+   ela, 28-B e vários da §14 seguem infalsificáveis.*
+4. **§14.6(a)** — parar o `ValorCambio: 1` hardcoded.
+5. **Dupla convenção do `percentual` + §14.5 (wizard)**, juntos.
+
+**Fechados sem trabalho:** §7.25 e §7.26.
+**Por último:** §7.29 (exposição zero), §14.7 (precisa de A/B, não de código), §7.27 (chip).
 
 ---
 
