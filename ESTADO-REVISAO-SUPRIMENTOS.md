@@ -1224,14 +1224,56 @@ Normalizado por exposição: 69,6% dos nativos têm moeda no 1º Load contra 9,1
 ⚠️ **Correção de enunciado:** o payload **OMITE** `CodigoIndEconomico` (não manda null) e manda
 **`ValorCambio: 1` hardcoded**.
 
-- ✅ **(a) Parar de mandar `ValorCambio: 1` — APROVADO.** O Hub afirma um câmbio que não sabe;
-  omitir é mais honesto e é a mesma regra do card MOEDA-PEDIDOS.
+- ❌ **(a) Parar de mandar `ValorCambio: 1` — CANCELADO em 27/08/2026, depois de aprovado.**
+
+  *Decisão anterior, preservada:* ~~APROVADO. O Hub afirma um câmbio que não sabe; omitir é
+  mais honesto e é a mesma regra do card MOEDA-PEDIDOS.~~
+
+  🔴 **A premissa estava CERTA; a medição esvaziou a consequência.** O Hub de fato afirma um
+  câmbio que não sabe — mas essa afirmação **não vincula nada**:
+
+  | O que o Alvo guardou, em pedidos criados pelo Hub | Moeda | Pedidos |
+  |---|---|---|
+  | `ValorCambio = 1` | `(null)` | 108 |
+  | `ValorCambio = 1` | `0000001` (BRL) | 21 |
+  | **`ValorCambio = 5.8473`** | **`0000003` (EUR)** | **1** |
+
+  **Evidência decisiva — o 0004592:** saiu do Hub com `ValorCambio: 1` e o Alvo hoje guarda
+  **5,8473**. **O ERP sobrescreve o câmbio assim que define a moeda.** Nos outros 129, `1` é o
+  valor correto de qualquer forma.
+  ⇒ **Ganho da mudança: honestidade de payload, sem nenhuma consequência em dado.**
+
+  **Risco, do outro lado:** **152 de 152** pedidos da história mandam o campo — **zero
+  omissões**. Não há uma única evidência de que o Alvo aceite a ausência em `PedComp`.
+  *(As 226/226 requisições que omitem são `ReqComp`, outra entidade — não transferem. E o
+  gateway não valida o campo, então ele não é obstáculo nem juiz.)* Omitir arrisca o **caminho
+  de criação**, o mais usado do módulo.
+
+  **E o teste também não será feito** (decisão do Pedro): confirmá-lo exigiria **publicar a
+  mudança em produção**, e o desfecho mais provável — "o Alvo aceita e grava `1` sozinho" — não
+  mudaria a decisão. **Não se arrisca o caminho de criação para provar que uma mudança é
+  inócua.**
+
+  🔴 **Mesmo padrão do card 28: premissa plausível, medição derruba.** Fica como precedente —
+  antes de mexer num caminho de escrita em produção, medir se o que se corrige tem consequência.
 - ⛔ **(b) Seletor de moeda na UI — NÃO por ora.** Taxa estrangeira de **0,90%** entre os
   sem-moeda e **um** caso materializado não justificam mudar a UI; o Alvo define sozinho em 82%.
   **Reavaliar se a taxa subir.**
 
 *(A extrapolação de "~R$ 200 mil de subestimação de KPI" foi **refutada** na verificação →
 faixa real **R$ 4,3 mil a R$ 30,5 mil**.)*
+
+#### Mapa dos 4 sites de `ValorCambio` — para não refazer a busca
+
+| Site | Função | Valor | Escopo |
+|---|---|---|---|
+| `pedidosService.ts:610` | `enriquecerItemViaAlvo` | `1` | **Consulta**, não criação — busca impostos/classificação fiscal do item. Não tocar. |
+| `pedidosService.ts:676` | `enriquecerItemViaAlvo` | **`0`** | Idem, e é outro valor. Não tocar. |
+| **`pedidosService.ts:1278`** | **`montarPayloadPedComp`** | `1` | **É o payload de CRIAÇÃO** — era o alvo do item (a), agora cancelado. |
+| `alvoProjetoPedidoService.ts:245` | `buildPayload` | `1` | **Módulo Projetos**, outro payload. Acompanha `CodigoIndEconomico: "0000001"` fixo (`:254`) — Projetos declara BRL, Suprimentos omite. |
+
+⚠️ Buscar por `ValorCambio` devolve 4 acertos e **só um é payload de criação**. Os dois de
+`enriquecerItemViaAlvo` já enganaram uma vez.
 
 ### 14.7 `NumeroCtrlProjeto` — o argumento que o matava foi REFUTADO
 
