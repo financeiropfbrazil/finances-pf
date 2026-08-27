@@ -982,16 +982,113 @@ o cron precisa fazer o mesmo em vez de copiar `Tipo`. **Custo** baixo, um ponto.
 ### 14.2 🔴 CARD 2 — 6 requisições rebaixadas sem auditoria · **ESCRITA NÃO RASTREADA**
 
 Seis requisições passaram de `convertida_pedido` para `sincronizada` **sem uma única linha de
-auditoria**. **Escritor desconhecido.**
+auditoria**.
 
 🔴 **É a única classe de achado que contamina todas as outras.** Enquanto houver escrita não
 rastreada em `compras_requisicoes`, **nenhuma medição de status de requisição é confiável —
-inclusive as desta própria varredura.** Por isso é o **1º da ordem de execução**.
+inclusive as desta própria varredura** (o §14.4, por exemplo, sai da mesma tabela). Por isso foi
+o **1º da ordem de execução**.
 
-**Plano mínimo — investigação, não correção:** identificar o escritor antes de qualquer fix.
-Candidatos a descartar um a um: RPC com `SECURITY DEFINER`, trigger, o cron, o open-load, ou
-escrita manual pelo SQL Editor. **Depende do Pedro:** confirmar se houve intervenção manual no
-período.
+#### As 6 (medido 27/08/2026)
+
+| Requisição | Convertida em | Pedido vinculado | Auditorias após a conversão |
+|---|---|---|---|
+| 0001187 | 11/06 20:52 | null | **0** |
+| 0001240 | 16/06 18:12 | null | **0** |
+| 0001259 | 23/06 15:00 | null | **0** |
+| **0001215** | 03/07 19:00 | **0004382** | **0** |
+| 0001343 | 24/07 15:28 | null | **0** |
+| 0001397 | 19/08 12:00 | null | **0** |
+
+Todas têm evento `convertida_pedido` auditado e hoje estão em `sincronizada`. Confere pelo
+agregado: **238 eventos `convertida_pedido` contra 234 requisições nesse status.**
+
+#### 🔴 Investigação — a conclusão errada, e o que a derrubou
+
+**Registrado na ordem em que aconteceu, porque o percurso vale mais que o resultado.**
+
+**1. Conclusão errada.** Medi que as 6 tinham `updated_at` de **hoje**, dentro dos ciclos do
+cron das 18:00 e 19:00 UTC, e concluí que o rebaixamento estava acontecendo naquele momento.
+Montei a cadeia inteira: o mapper `mapReqAlvoToHub` (`index.ts:436`) tem um **fallback** que
+devolve `sincronizada`; o upsert de `:1060` grava o status; o insert de auditoria de `:1094` usa
+`evento: 'sync_status'`, que **não está no CHECK**
+(`compras_requisicoes_auditoria_evento_check`, 15 valores, sem esse); e o insert **não checa
+`error`** — o supabase-js retorna `{data, error}` em vez de lançar. Status gravado, auditoria
+rejeitada, erro descartado. Cadeia coerente, e errada.
+
+**2. O que a derrubou.** `index.ts:1045` — quando o status **não** muda, o cron faz
+`update({ updated_at: now() })` **só para rotacionar a fila** (comentário no código: *"sem isto,
+as 50 candidatas mais antigas monopolizam o lote"*). As 6 estão em `sincronizada`, o mapper
+devolve `sincronizada`, então elas são **rotacionadas toda hora**. Eu li um carimbo de rotação
+como carimbo de mudança.
+
+**3. 🔴 Consequência permanente — regra para medições futuras:**
+> **`compras_requisicoes.updated_at` NÃO É EVIDÊNCIA TEMPORAL.** É reescrito a cada ciclo em
+> toda candidata cujo status não mudou. **A data do rebaixamento das 6 é desconhecida e não é
+> recuperável por esse campo.** Nenhuma medição futura deve usá-lo para datar nada.
+
+#### Escritores eliminados — por código, um a um
+
+| Escritor | Motivo da eliminação |
+|---|---|
+| **Cron (job de requisições)** | A fila é `.eq("status", "sincronizada")` (`index.ts:970`) — **nunca seleciona** uma requisição em `convertida_pedido`. E `git log -S` mostra o filtro nascendo junto com o arquivo em **`f6d795e` (24/05/2026)**, anterior a **todas** as 6 conversões (11/06 a 19/08). **Nunca houve janela.** Eliminado **por código, não por horário.** |
+| **RPCs (9 que escrevem na tabela)** | **Nenhuma seta `status`.** Consulta por `update … compras_requisicoes` + `status =` retorna **zero**. |
+| **`desvincular_pedido_requisicao`** | Dois motivos independentes: **não toca `status`** (só limpa `numero_pedido_compra_alvo`) e **audita sempre** (`desvinculado_pedido`). As 6 têm `tem_desvinculo = 0`. |
+| **Triggers** | Só existem `set_..._updated_at` e `fn_req_protege_aprovacao`; este **apenas lança exceção**, nunca modifica linha. |
+| **Frontend** | Só dois pontos setam `sincronizada` — `requisicoesService.ts:629` e `:1003` —, ambos no caminho de envio, e **ambos auditam** (`envio_tentado` antes, `envio_sucesso`/`envio_falha` depois). As 6 têm **zero** auditorias após a conversão. |
+
+**Nenhum caminho de código do repositório explica o rebaixamento.**
+
+#### Suspeitos que sobram — investigação ABERTA, não forçada a conclusão
+
+1. **Escrita direta no SQL Editor** (`service_role`, sem auditoria por construção) — **o mais
+   provável**, e consistente com o histórico de correções manuais do projeto.
+2. **Outro cliente com `service_role`** — o CLAUDE.md registra um agente Codex no mesmo Supabase.
+3. **Caminho de código removido** — sem evidência; `git log -S` só alcança o que se sabe procurar.
+
+⏳ **Pedro vai verificar se rodou `UPDATE` em `compras_requisicoes` entre junho e agosto.** Se
+lembrar, a investigação fecha. **Se não, ela permanece aberta com os 3 suspeitos — e é assim que
+deve ficar registrada.**
+
+#### 🔴 Destaque: 0001215 é o caso anômalo dentro da anomalia
+
+É a **única das 6 que MANTÉM o pedido vinculado** (`numero_pedido_compra_alvo = 0004382`). As
+outras cinco perderam o vínculo. **Se o rebaixamento foi manual, alguém mexeu numa requisição
+que estava consistente** — o que enfraquece a hipótese de "correção de dado órfão" e fortalece a
+de engano.
+**A conferir:** o que o pedido **0004382** diz no Alvo sobre a requisição de origem.
+
+### 14.2-A 🔴 CARD — ARMADILHA ADORMECIDA: `sync_status` fora do CHECK
+
+**Achado colateral da investigação do §14.2, e mais acionável que o culpado dela.**
+
+O cron monta `eventoAudit = "sync_status"` para o ramo `sincronizada` (`index.ts:1092`), mas
+**`sync_status` NÃO está no CHECK** `compras_requisicoes_auditoria_evento_check` (15 valores
+aceitos, nenhum é esse). O insert seria **rejeitado**.
+
+Hoje é **código morto — por acidente de fluxo, não por desenho**: a fila só traz requisições já
+em `sincronizada` (`:970`), o mapper devolve `sincronizada`, então cai no `if (novoStatus ===
+req.status)` e o ramo nunca é alcançado. **É por isso que `sync_status` tem zero ocorrências na
+tabela.**
+
+🔴 **Se alguém mudar o filtro da fila, ela acorda como escrita sem rastro de verdade** — e com o
+agravante de que:
+- o insert de `:1094` **não checa `error`**, e o supabase-js **retorna `{data, error}` em vez de
+  lançar** ⇒ a rejeição é descartada em silêncio;
+- o `result.total_mudaram++` da linha seguinte executa como se tivesse dado certo ⇒ **o
+  `sync_runs` reportaria sucesso**.
+
+O status já teria sido gravado em `:1060`, **antes** do insert. Resultado: exatamente o padrão
+do §14.2, só que causado pelo próprio código.
+
+**Duas defesas independentes — registrar as duas, implementar depois:**
+- **(a) Alinhar CHECK e código** — incluir `sync_status` na constraint **ou** remover o ramo.
+- **(b) Checar o `error` do insert de auditoria** e **não** contar `total_mudaram++` quando ele
+  falhar. Sem (b), qualquer valor futuro fora do CHECK reproduz o problema.
+
+⚠️ **(a) sozinha não basta:** ela conserta este valor, não a classe. **(b) sozinha não basta:**
+o ciclo passaria a acusar erro em vez de mentir, mas o status continuaria gravado sem auditoria.
+São complementares.
 
 ### 14.3 CARD 3 — parcelas congeladas após o cron atualizar `valor_total`
 
@@ -1090,6 +1187,47 @@ temos acesso aos outros 3 projetos da conta para provar exclusividade. Texto sug
 
 **Fechados sem trabalho:** §7.25 e §7.26.
 **Por último:** §7.29 (exposição zero), §14.7 (precisa de A/B, não de código), §7.27 (chip).
+
+### 14.10 🔴 CARD 6 — `/ped-comp/insert` fora da `NAO_REPETIR` do gateway
+
+**MEDIDO** no `erp-proxy` em `origin/main` (`fc5d549`), lido por `git show` — o clone local está
+em `45db047` e **não foi alterado** (o erp-proxy é editado só pelo Pedro, via GitHub Web).
+
+`callAlvo` (`src/alvo-client.ts`) **repete a chamada automaticamente** em **401/403/409**,
+invalidando o token e refazendo o POST:
+
+```
+if (isAuthError(firstAttempt.status) && !NAO_REPETIR.has(endpoint.split("?")[0])) { … }
+```
+
+O `Set NAO_REPETIR` existe justamente para impedir repetição onde ela causa efeito colateral, e
+o comentário do próprio código diz por quê: *"a primeira chamada pode ter baixado estoque antes
+de o erro voltar, e o retry baixaria de novo"*. Mas ele contém **apenas**
+`ReqMat/ValidarAtendimento` e `ReqMat/FinalizarAtendimento`.
+
+🔴 **`PedComp/SavePartial` NÃO está na lista** — logo `/ped-comp/insert` (`action=Insert`, o
+caminho de **criação de pedido do módulo Projetos**) **é repetido automaticamente**. Se a
+primeira tentativa criou o pedido no ERP **antes** de devolver 401/403/409, o retry cria um
+**segundo pedido**. É a mesma família da **§38.6 do `Requisicoes_e_Compras.md`** (bug de
+duplicação no gateway), agora **medida no `callAlvo`** e não no handler.
+
+⚠️ O retry **não é novidade do último deploy**: o diff `45db047→fc5d549` apenas **acrescentou
+exclusões**; o comportamento para `SavePartial` é o mesmo de antes.
+
+**ESCOPO — INVESTIGAÇÃO, não correção.** A pergunta que decide a prioridade:
+**existe caso histórico de pedido duplicado no Alvo compatível com retry** — dois pedidos de
+mesmo fornecedor, mesmo valor, dentro do mesmo minuto?
+- **Se NÃO houver:** risco **latente**, entra **depois do 4º** da ordem (§14.9).
+- **Se houver:** **sobe** na ordem.
+
+**Nota de execução:** a correção, se vier, é **uma linha no `erp-proxy`** (acrescentar
+`PedComp/SavePartial` ao Set) — e **o erp-proxy é editado exclusivamente pelo Pedro, via GitHub
+Web**. Diagnóstico e texto da mudança saem daqui; a edição não.
+⚠️ Atenção ao escopo do Set: a chave é `endpoint.split("?")[0]`, então incluir
+`PedComp/SavePartial` alcançaria **`action=Insert` E `action=Update`** de uma vez — o
+`/ped-comp/update` (envio para aprovação) perderia o retry junto. Decidir se isso é desejado:
+no `Update` o retry é provavelmente inócuo (setar um flag duas vezes dá o mesmo resultado), e
+perdê-lo pode reintroduzir falhas de token que hoje se resolvem sozinhas.
 
 ---
 
