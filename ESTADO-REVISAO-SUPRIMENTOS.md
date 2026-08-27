@@ -401,6 +401,24 @@ ainda não começou.
     ✅ **O reuso é barato: `consolidarRateioDoItem` já é `export` e é função pura** — basta
     `import` + chamada, **não precisa tocar em `pedidosService.ts`** e não é refactor. Os 11
     testes do D4 cobrem a função e continuam valendo. Próximo card.
+30. 🔴 **Pedido de Projetos é indistinguível de pedido nativo do ERP na lista do Suprimentos**
+    (pendência, avaliar em card próprio — não implementar agora). Eles chegam a
+    `compras_pedidos` pelo Job 3 com `criado_no_hub = false` e **`nome_entidade` vazio**
+    (medido em 0004798 e 0004799), sem nenhuma marca de origem. **Foi exatamente isso que me
+    obrigou a achar os 8 afetados por fingerprint do campo `texto`** — e o `texto` é editável
+    dentro do ERP, o que tornou a contagem um piso em vez de um total (§13.3), e tornou o
+    0004626 irrecuperável.
+    ✅ **Candidato natural: `NumeroCtrlProjeto` do PedComp** — o campo existe no Alvo e vem
+    `null` hoje. Seria a marcação de origem no próprio ERP, imune a edição de texto e
+    independente da descoberta do Job 3.
+    ⚠️ **Avaliar antes de adotar:** (a) o campo é preservado pelo Alvo? É a mesma dúvida da
+    pendência §7.9 sobre campo livre (`PedCompUserFieldsObject`), que já custou o card D3 —
+    **não presumir, testar**; (b) escrever nele muda o payload de criação do Projetos, que
+    acabou de ser validado — exige novo A/B; (c) decidir se `compras_pedidos` ganha coluna
+    espelhada, senão a marca fica só no ERP e a lista continua cega.
+    Efeito colateral já medido: os 8 pedidos entram nos KPIs de Suprimentos sem filtro de
+    origem (R$ 157.119,80 de R$ 19.998.185,98).
+
 
 ---
 
@@ -670,11 +688,10 @@ limpo, `bun run build` limpo, lint **110 erros = exatamente a baseline do HEAD**
 
 ## 13. PROJETOS — pedido nascia enviado para aprovação (27/08/2026)
 
-> 🚨 **AVISO OPERACIONAL — NÃO ENVIAR PEDIDO PELO MÓDULO PROJETOS ATÉ O FIX ESTAR
-> PUBLICADO.** Há **21 rascunhos** em `projeto_requisicoes` e **cada envio reproduz o
-> defeito**: o pedido chega ao ERP já com a cadeia de aprovação disparada. O fix está
-> commitado (`65fa83e`) mas o Publish do Lovable é manual — enquanto não publicar, o
-> comportamento antigo continua em produção.
+> ✅ **RESOLVIDO E VALIDADO EM PRODUÇÃO — 27/08/2026 17:42 UTC.** O aviso operacional que
+> vivia aqui ("não enviar pelo módulo Projetos") **está encerrado**: o fix foi publicado e
+> comprovado pelo par 0004798 × 0004799 (§13.5). Os 21 rascunhos voltaram a ser seguros.
+> *(Histórico: entre a descoberta e o Publish, cada envio reproduzia o defeito.)*
 
 ### 13.1 🚨 INCIDENTE DE CONTROLE INTERNO — pedido 0004664
 
@@ -786,7 +803,39 @@ endpoint do Alvo**, diferindo só no `action`, e no `/update` o disparo é coman
 campo. Mas **nenhum caso natural separa rota de payload**, então H2 não está provada inerte.
 **O teste de aceite desempata de graça.**
 
-### 13.5 Teste de aceite (pós-Publish)
+### 13.5 ✅ FECHAMENTO — o par 0004798 × 0004799 (27/08/2026)
+
+**Card fechado com um A/B controlado em produção**, e não apenas com um teste de aceite.
+Dois pedidos do mesmo módulo, mesmo operador, mesmo projeto, mesmo valor, **9 minutos de
+intervalo**, lidos pelo **mesmo ciclo do cron com 0,2 segundo de diferença**
+(`descoberto_alvo` às 17:42:11.118 e 17:42:11.338 UTC). A única variável que mudou entre os
+dois foi o código publicado.
+
+Objeto devolvido pelo **próprio ERP** (`resposta_alvo->'PedCompUserFieldsObject'`):
+
+| | **0004798** — 17:29:47 UTC · **pré-fix** | **0004799** — 17:38:40 UTC · **pós-fix** |
+|---|---|---|
+| `UserEnviarAprovacao` | **"Sim"** | **"Nao"** |
+| `UserEnviouAprovacao` | **"Sim"** | **null** |
+| `UserProximoAprovador` | FLAVIO.DIAS | FLAVIO.DIAS |
+| Badge na lista do Suprimentos | **"Enviado para aprovação"** | **"Aguardando envio p/ aprovação"** |
+
+Antes e depois lado a lado na mesma tela.
+
+🔴 **Isto REFUTA a H2 — não a enfraquece.** Os dois pedidos usaram a **mesma rota**
+(`/ped-comp/insert` → `PedComp/SavePartial?action=Insert`). Payload diferente ⇒ resultado
+diferente. **O endpoint está provado inerte.** O resíduo que a entrega declarou
+honestamente — "afirmo que a rota não é *necessária*, não que seja inofensiva" — **está
+fechado por evidência**. Era o único caso natural que separava rota de payload, e ele não
+existia até este teste criá-lo.
+
+⚠️ **`UserProximoAprovador = "FLAVIO.DIAS"` aparece nos DOIS.** Confirma, na prática, o
+alerta de §13.5 anterior: se o critério de aceite fosse `proximo_aprovador`, teria dado
+falso negativo. **O marcador válido é `UserEnviarAprovacao` / `UserEnviouAprovacao`.**
+Registre-se também a grafia do default do ERP: `"Nao"` **sem til** — diferente do `"Não"`
+que aparece em outras leituras. Não comparar por string exata sem normalizar.
+
+### 13.5-A Procedimento do teste de aceite (mantido para reuso)
 
 Criar 1 pedido pelo módulo Projetos, esperar o Job 3, e ler o objeto do **ERP**:
 

@@ -8,14 +8,15 @@
 
 ---
 
-## 🚨 AVISO OPERACIONAL (27/08/2026) — NÃO ENVIAR PEDIDO POR ESTE MÓDULO ATÉ O FIX SER PUBLICADO
+## ✅ RESOLVIDO (27/08/2026 17:42 UTC) — o módulo voltou a ser seguro para envio
 
-Todo pedido criado por este módulo chega ao Alvo **já com a cadeia de aprovação disparada**,
-pulando a autorização humana. Há **21 rascunhos** em `projeto_requisicoes` e **cada envio
-reproduz o defeito**.
+Durante 27/08 vigorou aqui um aviso operacional de **não enviar pedido por este módulo**: todo
+pedido criado chegava ao Alvo **já com a cadeia de aprovação disparada**, pulando a
+autorização humana, e havia 21 rascunhos que reproduziriam o defeito.
 
-O fix está **commitado** (`65fa83e`), mas o **Publish do Lovable é manual** — enquanto não
-publicar, o comportamento antigo continua em produção. Detalhe completo na **seção 13**.
+**Encerrado.** O fix (`65fa83e`) foi publicado e **comprovado em produção** pelo par
+0004798 × 0004799 — antes e depois, no mesmo dia, lado a lado na tela (§13.3-A). Detalhe
+completo na **seção 13**.
 
 ---
 
@@ -84,13 +85,36 @@ módulo.**
 `pedidosService.ts` intocado (preserva o Suprimentos e a consolidação D4), rota inalterada,
 erp-proxy inalterado. `tsc` limpo, build limpo, lint na baseline do HEAD.
 
-**Teste de aceite (pós-Publish):** criar 1 pedido pelo módulo e ler o objeto do ERP no
-primeiro `descoberto_alvo`/`sync_status`. Esperado `Não`/`Não`/`null`. Se voltar `Sim` com
-payload vazio, a hipótese da rota (`SavePartial?action=Insert` disparar sozinha) ressuscita e
-a correção passa a ser de rota — card novo.
-✅ Pré-requisito conferido em 27/08: os 3 projetos estão em `fase_atual='actual'` +
-`status='aprovado'` e `ana.sanches` tem `alvo_usuario='ANA.SANCHES'` — os gates de
-`alvoProjetoPedidoService.ts:334-335` e `:350-356` não matam o teste.
+### 13.3-A ✅ VALIDAÇÃO EM PRODUÇÃO — o par 0004798 × 0004799
+
+Fechado com um **A/B controlado**, não só com um teste de aceite. Dois pedidos deste módulo,
+mesmo operador (`pedro.scrignoli@`), mesmo projeto ("teste"), mesmo valor (R$ 100), **9
+minutos de intervalo**, lidos pelo **mesmo ciclo do cron com 0,2 s de diferença**
+(`descoberto_alvo` 17:42:11.118 e 17:42:11.338 UTC). A única variável entre eles é o código
+publicado.
+
+Objeto devolvido pelo próprio ERP (`resposta_alvo->'PedCompUserFieldsObject'`):
+
+| | **0004798** — 17:29:47 · **pré-fix** | **0004799** — 17:38:40 · **pós-fix** |
+|---|---|---|
+| `UserEnviarAprovacao` | **"Sim"** | **"Nao"** |
+| `UserEnviouAprovacao` | **"Sim"** | **null** |
+| `UserProximoAprovador` | FLAVIO.DIAS | FLAVIO.DIAS |
+| Badge no Suprimentos | **"Enviado para aprovação"** | **"Aguardando envio p/ aprovação"** |
+
+🔴 **Refuta a hipótese da rota — não a enfraquece.** Os dois usaram a **mesma rota**
+(`/ped-comp/insert` → `PedComp/SavePartial?action=Insert`). Payload diferente ⇒ resultado
+diferente. **O endpoint está provado inerte.** Até este teste não existia nenhum caso natural
+que separasse rota de payload; o teste criou o caso.
+
+⚠️ Dois cuidados que o par expôs: `UserProximoAprovador='FLAVIO.DIAS'` vem nos **dois** — se
+o critério de aceite fosse esse campo, teria dado falso negativo. E o default do ERP é
+`"Nao"` **sem til**, diferente do `"Não"` de outras leituras: não comparar string exata sem
+normalizar.
+
+✅ Pré-requisito conferido antes do teste: os 3 projetos em `fase_atual='actual'` +
+`status='aprovado'` e `ana.sanches` com `alvo_usuario='ANA.SANCHES'` — os gates de
+`alvoProjetoPedidoService.ts:334-335` e `:350-356` não mataram o teste.
 
 ### 13.4 Universo afetado — 8 conhecidos (piso declarado)
 
@@ -136,7 +160,35 @@ tela do Projetos · **(c)** manter o envio manual dentro do Alvo.
 passo do Suprimentos tem um caso de "sucesso gravado sem efeito no ERP" ainda não explicado —
 não replicar às cegas.
 
-### 13.6 Passivo latente: o rateio deste módulo repete a forma pré-D4
+### 13.6 🔴 Pendência: o pedido deste módulo não tem marca de origem no ERP
+
+**Registrar, avaliar em card próprio — não implementar agora.**
+
+Pedidos deste módulo chegam a `compras_pedidos` (pelo Job 3 do cron de Suprimentos) com
+`criado_no_hub = false` e **`nome_entidade` vazio** — medido em 0004798 e 0004799. Na lista do
+Suprimentos são **indistinguíveis de um pedido digitado direto no ERP**.
+
+**Custo já pago por isso:** foi essa cegueira que obrigou a identificar os 8 pedidos afetados
+pelo incidente da §13.1 via **fingerprint do campo `texto`**. Como o `texto` é editável dentro
+do ERP, a contagem ficou sendo um **piso** e não um total (§13.4) — e é a razão de o
+**0004626** ser irrecuperável.
+
+✅ **Candidato natural: `NumeroCtrlProjeto` do PedComp.** O campo existe no Alvo e vem `null`
+hoje. Seria a marcação de origem no próprio ERP: imune a edição de texto e independente da
+descoberta do Job 3.
+
+⚠️ **Avaliar antes de adotar:**
+1. **O Alvo preserva o campo?** É a mesma dúvida da §12/L7-B sobre campo livre
+   (`PedCompUserFieldsObject`), que travou o card D3 do Suprimentos. **Não presumir — testar.**
+2. **Escrever nele muda o payload de criação**, que acabou de ser validado pelo A/B da
+   §13.3-A. Exige novo A/B; não entra de carona neste card.
+3. **Decidir se `compras_pedidos` ganha coluna espelhada** — senão a marca fica só no ERP e a
+   lista do Suprimentos continua cega, que é o problema original.
+
+Efeito colateral já medido: os 8 pedidos entram nos KPIs de Suprimentos sem filtro de origem
+(R$ 157.119,80 de R$ 19.998.185,98).
+
+### 13.7 Passivo latente: o rateio deste módulo repete a forma pré-D4
 
 `alvoProjetoPedidoService.ts:151-172` (item) e `:204-221` (cabeçalho) montam o rateio com
 `rateio.map()` 1:1, **sem agrupar (classe, CC)** — exatamente a forma que derrubou o pedido
