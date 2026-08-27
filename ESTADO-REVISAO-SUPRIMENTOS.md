@@ -33,7 +33,7 @@
 | **MOEDA A3** | Backfill a partir do audit `sync_status` (append-only do B4), **sem uma chamada ao Alvo** | 847 pedidos provados; **0** ainda sem moeda na tabela *(medido 27/08/2026 12:42 UTC)* |
 | **MOEDA A4** | Exibição na moeda original (card, lista, KPIs e os 3 e-mails) com helper único R$/US$/€; KPIs com escopo de moeda declarado | `d1d3d02`, `57b4243`, `7181846`, `a9e7979` |
 | **MOEDA — anti-wipe** | `docs/TESTE-ANTIWIPE-MOEDA.sql` rodado sobre ciclo válido | **W1=W2=W3=0** sobre 847 provados *(27/08/2026 12:31–12:45 UTC)* — ver §11 |
-| **D4** | `consolidarRateioDoItem` — o caminho do ITEM passa a consolidar (classe, CC) como o do cabeçalho já fazia; aviso na UI quando colapsa | 11 testes em `src/test/rateio-consolidacao-d4.test.ts`, incluindo a forma exata do 0004781. Ver §12 |
+| **D4 — rateio** *(a parte de **parcelas** segue aberta, §7.26)* | `consolidarRateioDoItem` — o caminho do ITEM passa a consolidar (classe, CC) como o do cabeçalho já fazia; aviso na UI quando colapsa | 11 testes automatizados + **validado em produção pelo pedido 0004797**: 2 linhas locais → **1 linha, 100%, R$ 100** no payload, 1 tentativa, sem `UQ_PK`, sem buraco de numeração. Ver §12 |
 
 **Frente de sync encerrada em 20/08 e reaberta em 24/08** pela missão de orçamento por
 centro de custo — ver `PLANO-RATEIO-CC-REQUISICOES.md`. Cards **R1.1, R1.2, C3.3 e SEC-1**
@@ -369,6 +369,14 @@ ainda não começou.
     NÃO implementar** — só depois de fechar o D4. Quando entrar, decidir qual é o LIVRO:
     gravar consolidado também, ou sinalizar na tela que o Alvo consolidou.
     Report: §39.2 item 9-B e §40.4 item 14-A.
+26. **D4 — parte de PARCELAS continua aberta.** O card D4 original era "normalizar parcelas
+    **e** rateio no payload". Só o **rateio** foi entregue e validado em 27/08 (§12). A
+    normalização de parcelas (última parcela = total − anteriores) segue pendente.
+27. **Rótulo do chip de rateio conta LINHAS, não CCs distintos** (cosmético). Na tela do
+    wizard o chip diz `11.01 (100%) — 2 CCs` para duas linhas do **mesmo** CC; depois da
+    consolidação é 1 CC. Vem de `cls.ccs.length` em `SuprimentosPedidoNovo.tsx` (~1507 e
+    ~2235). Não é erro de valor, mas confunde na revisão do wizard — justamente na tela em que
+    a pessoa deveria perceber que repetiu o CC. Registrado em 27/08 a partir do 0004797.
 
 ---
 
@@ -578,7 +586,31 @@ colapso — **a consolidação acontece independentemente do aviso**.
    residual é o caminho do **cabeçalho**, que é onde o Alvo valida a soma. **Não foi tocado**
    (fora do escopo aprovado). Ver pendência §7.24.
 
-### Validação em produção — parcial (27/08/2026)
+### ✅ Validação do colapso — pedido 0004797 (27/08/2026 15:11 UTC)
+
+O caso de teste real: 1 item (BOVINE PERICARDIUM LEAFLET IVC 31, 1 UNID × R$ 100,00), **uma**
+classe `11.01`, o **mesmo CC** `00010.00002.00007.00002` **duas vezes**, 50/50. O toast de
+consolidação apareceu na tela antes do envio, com a mensagem correta — que é o que separa este
+pedido dos dois controles.
+
+| # | Conferência | Esperado | Medido |
+|---|---|---|---|
+| 1 | `compras_pedidos_itens_rateio` (cru) | 2 linhas, 50/50 | ✅ 2 linhas, mesmo CC, 50% + 50% |
+| 2 | `payload_enviado` → item | 1 linha, 100%, R$ 100 | ✅ **1 linha, 100%, R$ 100,00** |
+| 3 | `payload_enviado` → cabeçalho | 1 linha, 100% | ✅ 1 linha, 100%, R$ 100,00 |
+| 4 | Tentativas de envio | 1, sem `Friendly_Message_UQ_PK` | ✅ 1 `envio_tentado` → `envio_sucesso` em 5s, zero `envio_falha` |
+| 5 | Numeração | sem buraco | ✅ 0004793→0004797; o 0004796 é do cron (`criado_no_hub=false`) |
+| 6 | Load do Alvo | 1 linha | ⏳ pendente — pedido criado 15:11, ciclo anterior 15:00; chega às 16:00 UTC |
+
+🔴 **A divergência 2 × 1 entre a tabela local e o payload É a prova de que o colapso agiu** —
+e aqui ela é esperada e correta (é a pendência §7.25 em ação). Onde o Hub guardou 50 + 50, o
+Alvo recebeu uma linha a 100%. É a forma exata que queimou 6 números do sequencer no 0004781;
+desta vez o ERP aceitou de primeira.
+
+**Card D4-rateio FECHADO.** ⚠️ A parte de **PARCELAS** do D4 original (normalizar parcelas no
+payload) **continua aberta** — ver §7.26. O D4 nunca foi só rateio.
+
+### Validação anterior — os dois controles (27/08/2026)
 
 Dois pedidos criados no Alvo para validar: **0004794** (dois CCs distintos) e **0004795**
 (pretendia repetir o mesmo CC). Medido pelo MCP às 14:20 UTC:
