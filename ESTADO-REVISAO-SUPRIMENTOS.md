@@ -975,9 +975,48 @@ pedido novo entra assim** (o cron tem janela rolante de 30 dias).
 - ✅ **TETO DE GRAVIDADE — nenhum cálculo financeiro lê a coluna.** Só filtro, badge e export
   Excel. **É defeito de relatório, não de dinheiro.**
 
-**Plano mínimo:** o `mapPedido` do list já deriva a natureza de `ValorMercadoria`/`ValorServico`;
-o cron precisa fazer o mesmo em vez de copiar `Tipo`. **Custo** baixo, um ponto.
-**Depende do Pedro:** o backfill dos 916 é decisão à parte — mexe em 46% da tabela.
+#### Caminho demonstrado — dois escritores, duas semânticas, uma coluna
+
+| Escritor | Código | Grava | Eixo |
+|---|---|---|---|
+| **Cron — Job 1 (descoberta)** | `sync-compras-status-cron/index.ts:1290` → `tipo: ped.Tipo` | `"Total"` | **entrega** |
+| **Frontend** | `alvoPedCompService.ts:257-262` (deriva de `ValorServico`/`ValorMercadoria`) | `"Produto"` / `"Serviço"` / `"Misto"` | **natureza** |
+
+**MEDIDO — o Alvo nunca devolve natureza:** `resposta_alvo->>'Tipo'` tem **`Total` em 4.746
+leituras** e `Programado` em 2. Produto/Serviço/Misto: **zero**. O cron não está "copiando
+errado" — está copiando um campo que **nunca teve** a informação que a coluna promete.
+
+**Corte temporal, medido:**
+
+| tipo | `criado_no_hub` | pedidos | mais recente |
+|---|---|---|---|
+| `Produto` | false | 624 | **21/05/2026** |
+| `Serviço` | false | 428 | 20/05/2026 |
+| `Misto` | false | 9 | 20/05/2026 |
+| **`Total`** | false | **782** | 27/08/2026 |
+| **`Total`** | **true** | **134** | 27/08/2026 |
+
+O frontend deixou de escrever em **21/05**; o Job 1 assumiu e não saiu mais. ⚠️ **Até os 134
+pedidos criados no Hub estão como `Total`** — a descoberta os alcança e sobrescreve.
+Só o **Job 1** grava a coluna (o Job 2 não a inclui no upsert).
+
+#### Teto de gravidade — VERIFICADO
+
+Leitores da coluna em todo o repo: **exatamente 3, todos em `ComprasPedidosCompra.tsx`** —
+filtro (`:207`), export Excel (`:223`) e badge (`:580`). **Nenhum cálculo financeiro, nenhuma
+RPC, nenhum KPI.** Confirma: **defeito de relatório, não de dinheiro.**
+
+**Plano mínimo:** o `mapPedido` do frontend já tem a derivação pronta e correta
+(`alvoPedCompService.ts:257-262`) — o Job 1 precisa aplicar a mesma regra em `:1290` em vez de
+copiar `ped.Tipo`. Os campos de que ela depende (`ValorMercadoria`, `ValorServico`) **já vêm no
+list** e já são gravados nas linhas vizinhas. **Custo: uma expressão, um ponto.**
+⚠️ **Não extrair helper compartilhado agora** — o frontend e o cron são deployados por caminhos
+diferentes (Lovable × Edge Function); duplicar a regra com comentário cruzado é mais seguro
+neste momento do que criar acoplamento entre os dois.
+
+**Depende do Pedro:** o **backfill dos 916** é decisão à parte — mexe em 46% da tabela e é
+reversível só com recarga do Alvo. O fix do cron sozinho **não corrige o passado**: pedidos já
+gravados como `Total` só mudam se forem revisitados e o Job 2 não escreve essa coluna.
 
 ### 14.2 🔴 CARD 2 — 6 requisições rebaixadas sem auditoria · **ESCRITA NÃO RASTREADA**
 
