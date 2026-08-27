@@ -265,10 +265,17 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
     ItemPedCompChildList: itemChildList,
     ParcPagPedCompChildList: parcelas,
     PedCompClasseRecDespChildList: classeHeader,
-    PedCompUserFieldsObject: {
-      UserEnviarAprovacao: "Sim",
-      UserEnviouAprovacao: "Sim",
-    },
+    // 🔴 NÃO REPOR OS CAMPOS DE APROVAÇÃO AQUI.
+    // `UserEnviarAprovacao: "Sim"` é o COMANDO que dispara a cadeia de aprovação
+    // no Alvo — é exatamente o que `enviarPedidoParaAprovacao` escreve no passo
+    // manual do Suprimentos (pedidosService.ts:2689, seguido de POST
+    // /ped-comp/update). Mandá-lo no INSERT faz o pedido nascer já enviado para
+    // aprovação, pulando a autorização humana: foi assim que o 0004664
+    // (R$ 110 mil) percorreu a cadeia inteira e foi aprovado em 26/08/2026 sem
+    // ninguém no Hub ter dado o comando.
+    // `UserEnviouAprovacao` é o FATO, derivado pelo ERP — o Hub só lê, nunca escreve.
+    // Objeto vazio replica o contrato do Suprimentos (pedidosService.ts:1256).
+    PedCompUserFieldsObject: {},
     UploadIdentify: "",
   };
 }
