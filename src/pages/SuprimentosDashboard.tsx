@@ -30,7 +30,11 @@ import {
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { getDashboardSuprimentos, type PeriodoFiltro } from "@/services/dashboardSuprimentosService";
+import {
+  getDashboardSuprimentos,
+  type PeriodoFiltro,
+  type ComposicaoMoeda,
+} from "@/services/dashboardSuprimentosService";
 
 // ════════════════════════════════════════════════════════════
 // FORMATADORES
@@ -45,6 +49,67 @@ function formatBRLCompact(valor: number): string {
   if (valor >= 1_000_000) return `R$ ${(valor / 1_000_000).toFixed(1)}M`;
   if (valor >= 1_000) return `R$ ${(valor / 1_000).toFixed(0)}k`;
   return formatBRL(valor);
+}
+
+// ── MOEDA-PEDIDOS: composição declarada dos agregados ──────────────────
+//
+// Todo KPI de valor aqui soma SÓ o bucket em reais. Parte desse bucket é
+// "BRL presumido" — pedido cuja moeda o ERP ainda não confirmou e cujo
+// fornecedor nunca teve pedido em moeda estrangeira.
+//
+// Essa nota é OBRIGATÓRIA onde houver presumido. Sem ela, o agregado vira
+// presunção silenciosa — que é justamente o que a missão veio corrigir.
+// A regra INDICADOR (valor sem símbolo) governa o pedido individual; no
+// agregado, presumir é aceitável DESDE QUE declarado.
+function NotaComposicao({ comp }: { comp: ComposicaoMoeda }) {
+  if (comp.qtdSemMoeda === 0 && comp.qtdFora === 0) return null;
+  return (
+    <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+      {comp.qtdSemMoeda > 0 && (
+        <>
+          inclui {formatBRLCompact(comp.valorSemMoeda)} de {comp.qtdSemMoeda}{" "}
+          {comp.qtdSemMoeda === 1 ? "pedido sem moeda confirmada" : "pedidos sem moeda confirmada"} no ERP
+        </>
+      )}
+      {comp.qtdSemMoeda > 0 && comp.qtdFora > 0 && " · "}
+      {comp.qtdFora > 0 && (
+        <>
+          {comp.qtdFora} de fornecedor com histórico em moeda estrangeira {comp.qtdFora === 1 ? "ficou" : "ficaram"}{" "}
+          fora da soma
+        </>
+      )}
+    </p>
+  );
+}
+
+// Tiles de moeda estrangeira. NUNCA somados a nada — nem entre si, nem ao
+// total em reais. Só aparecem quando existe pedido naquela moeda.
+function TilesMoedaEstrangeira({ comp }: { comp: ComposicaoMoeda }) {
+  if (comp.qtdUsd === 0 && comp.qtdEur === 0) return null;
+  const fmt = (v: number, simbolo: string) =>
+    `${simbolo} ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {comp.qtdUsd > 0 && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Dólar · à parte</p>
+          <p className="text-sm font-semibold text-foreground">{fmt(comp.valorUsd, "US$")}</p>
+          <p className="text-[10px] text-muted-foreground">
+            {comp.qtdUsd} {comp.qtdUsd === 1 ? "pedido" : "pedidos"}
+          </p>
+        </div>
+      )}
+      {comp.qtdEur > 0 && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Euro · à parte</p>
+          <p className="text-sm font-semibold text-foreground">{fmt(comp.valorEur, "€")}</p>
+          <p className="text-[10px] text-muted-foreground">
+            {comp.qtdEur} {comp.qtdEur === 1 ? "pedido" : "pedidos"}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function formatDias(dias: number | null): string {
@@ -123,6 +188,8 @@ export default function SuprimentosDashboard() {
                         <> · mais antigo parado há {data.aguardando.diasEsperaMax.toFixed(0)} dias</>
                       )}
                     </p>
+                    <NotaComposicao comp={data.aguardando} />
+                    <TilesMoedaEstrangeira comp={data.aguardando} />
                   </>
                 )}
               </div>
@@ -220,8 +287,10 @@ export default function SuprimentosDashboard() {
                   {formatBRL(data.valorMedio.valorMedio)}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {data.valorMedio.qtd} pedidos · total {formatBRLCompact(data.valorMedio.valorTotal)}
+                  {data.valorMedio.qtd} pedidos em reais · total {formatBRLCompact(data.valorMedio.valorTotal)}
                 </p>
+                <NotaComposicao comp={data.valorMedio} />
+                <TilesMoedaEstrangeira comp={data.valorMedio} />
               </CardContent>
             </Card>
 
@@ -326,7 +395,22 @@ export default function SuprimentosDashboard() {
               {data.volumeMensal.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Sem dados nos últimos 6 meses.</p>
               ) : (
-                <div className="h-80 w-full">
+                <>
+                  {/* MOEDA-PEDIDOS: a barra de valor é só o bucket em reais.
+                      A nota declara o presumido e o que saiu da série. */}
+                  <NotaComposicao
+                    comp={{
+                      qtdSemMoeda: data.volumeMensal.reduce((a, m) => a + m.qtdSemMoeda, 0),
+                      valorSemMoeda: data.volumeMensal.reduce((a, m) => a + m.valorSemMoeda, 0),
+                      qtdUsd: 0,
+                      valorUsd: data.volumeMensal.reduce((a, m) => a + m.valorUsd, 0),
+                      qtdEur: 0,
+                      valorEur: data.volumeMensal.reduce((a, m) => a + m.valorEur, 0),
+                      qtdFora: 0,
+                      valorFora: 0,
+                    }}
+                  />
+                  <div className="h-80 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={data.volumeMensal} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
@@ -367,7 +451,8 @@ export default function SuprimentosDashboard() {
                       />
                     </BarChart>
                   </ResponsiveContainer>
-                </div>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

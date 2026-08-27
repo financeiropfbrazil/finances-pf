@@ -32,7 +32,33 @@ export interface TempoResult {
   diasMedia: number | null;
 }
 
-export interface ValorMedioResult {
+// MOEDA-PEDIDOS — composição por moeda nos agregados.
+//
+// Somar pedidos de moedas diferentes é uma conversão implícita a 1:1, que é
+// pior que o `R$` errado que a missão veio corrigir. Por isso os KPIs de
+// valor passam a declarar o escopo:
+//   · `valorTotal` agrega SÓ o bucket em reais (BRL confirmado + presumido);
+//   · `valorSemMoeda`/`qtdSemMoeda` é o pedaço PRESUMIDO desse total, e a
+//     tela é obrigada a declará-lo — sem o rótulo, B vira presunção
+//     silenciosa (condição do Pedro em 26/08/2026);
+//   · USD e EUR vêm à parte e NUNCA são somados a nada;
+//   · `Fora` é o balde da dúvida: pedido sem moeda cujo fornecedor já teve
+//     pedido em moeda estrangeira. Não entra em soma nenhuma.
+//
+// O bucket presumido é DECRESCENTE: o completarCamposAusentes do cron
+// preenche a moeda dos pedidos vivos de hora em hora.
+export interface ComposicaoMoeda {
+  qtdSemMoeda: number;
+  valorSemMoeda: number;
+  qtdUsd: number;
+  valorUsd: number;
+  qtdEur: number;
+  valorEur: number;
+  qtdFora: number;
+  valorFora: number;
+}
+
+export interface ValorMedioResult extends ComposicaoMoeda {
   qtd: number;
   valorMedio: number;
   valorMin: number;
@@ -40,12 +66,52 @@ export interface ValorMedioResult {
   valorTotal: number;
 }
 
-export interface AguardandoAprovacaoResult {
+export interface AguardandoAprovacaoResult extends ComposicaoMoeda {
   qtd: number;
   valorTotal: number;
   diasEsperaMax: number | null;
   diasEsperaMediana: number | null;
 }
+
+// Lê a composição de uma linha de RPC. Tolera as colunas ausentes: enquanto
+// o SQL do A4 não estiver aplicado, tudo vem zerado e a tela simplesmente
+// não mostra as notas — nada quebra e nenhum número fica errado.
+type NumeroDaRpc = number | string | null | undefined;
+
+interface LinhaComposicao {
+  qtd_sem_moeda?: NumeroDaRpc;
+  valor_sem_moeda?: NumeroDaRpc;
+  qtd_usd?: NumeroDaRpc;
+  valor_usd?: NumeroDaRpc;
+  qtd_eur?: NumeroDaRpc;
+  valor_eur?: NumeroDaRpc;
+  qtd_fora?: NumeroDaRpc;
+  valor_fora?: NumeroDaRpc;
+}
+
+function lerComposicao(r: LinhaComposicao | null | undefined): ComposicaoMoeda {
+  return {
+    qtdSemMoeda: Number(r?.qtd_sem_moeda) || 0,
+    valorSemMoeda: Number(r?.valor_sem_moeda) || 0,
+    qtdUsd: Number(r?.qtd_usd) || 0,
+    valorUsd: Number(r?.valor_usd) || 0,
+    qtdEur: Number(r?.qtd_eur) || 0,
+    valorEur: Number(r?.valor_eur) || 0,
+    qtdFora: Number(r?.qtd_fora) || 0,
+    valorFora: Number(r?.valor_fora) || 0,
+  };
+}
+
+const COMPOSICAO_VAZIA: ComposicaoMoeda = {
+  qtdSemMoeda: 0,
+  valorSemMoeda: 0,
+  qtdUsd: 0,
+  valorUsd: 0,
+  qtdEur: 0,
+  valorEur: 0,
+  qtdFora: 0,
+  valorFora: 0,
+};
 
 export interface FunilEstagio {
   estagio: string;
@@ -57,7 +123,13 @@ export interface VolumeMes {
   mes: string; // "YYYY-MM"
   mesLabel: string; // "Dez/25"
   qtd: number;
+  // MOEDA-PEDIDOS: só o bucket em reais. O que é estrangeiro sai da série e
+  // vem em `valorUsd`/`valorEur`, para o gráfico poder declarar.
   valorTotal: number;
+  qtdSemMoeda: number;
+  valorSemMoeda: number;
+  valorUsd: number;
+  valorEur: number;
 }
 
 // Cores do funil (mapeadas por estágio)
@@ -84,7 +156,7 @@ export async function getValorMedioPedidos(periodo: PeriodoFiltro): Promise<Valo
 
   if (error || !data || data.length === 0) {
     if (error) console.error("[dashboard] valor_medio:", error);
-    return { qtd: 0, valorMedio: 0, valorMin: 0, valorMax: 0, valorTotal: 0 };
+    return { qtd: 0, valorMedio: 0, valorMin: 0, valorMax: 0, valorTotal: 0, ...COMPOSICAO_VAZIA };
   }
 
   const r = data[0];
@@ -94,6 +166,7 @@ export async function getValorMedioPedidos(periodo: PeriodoFiltro): Promise<Valo
     valorMin: Number(r.valor_min) || 0,
     valorMax: Number(r.valor_max) || 0,
     valorTotal: Number(r.valor_total) || 0,
+    ...lerComposicao(r),
   };
 }
 
@@ -189,6 +262,10 @@ export async function getVolumeMensal(): Promise<VolumeMes[]> {
       mesLabel: `${MESES_PT[mesIdx]}/${ano.slice(2)}`,
       qtd: Number(r.qtd) || 0,
       valorTotal: Number(r.valor_total) || 0,
+      qtdSemMoeda: Number(r.qtd_sem_moeda) || 0,
+      valorSemMoeda: Number(r.valor_sem_moeda) || 0,
+      valorUsd: Number(r.valor_usd) || 0,
+      valorEur: Number(r.valor_eur) || 0,
     };
   });
 }
@@ -203,15 +280,18 @@ export async function getAguardandoAprovacao(): Promise<AguardandoAprovacaoResul
 
   if (error || !data || data.length === 0) {
     if (error) console.error("[dashboard] aguardando_aprovacao:", error);
-    return { qtd: 0, valorTotal: 0, diasEsperaMax: null, diasEsperaMediana: null };
+    return { qtd: 0, valorTotal: 0, diasEsperaMax: null, diasEsperaMediana: null, ...COMPOSICAO_VAZIA };
   }
 
   const r = data[0];
   return {
+    // `qtd` é a fila INTEIRA, todas as moedas — "quantos pedidos estão
+    // parados" não sofre com moeda mista; só o valor sofre.
     qtd: Number(r.qtd) || 0,
     valorTotal: Number(r.valor_total) || 0,
     diasEsperaMax: r.dias_espera_max !== null ? Number(r.dias_espera_max) : null,
     diasEsperaMediana: r.dias_espera_mediana !== null ? Number(r.dias_espera_mediana) : null,
+    ...lerComposicao(r),
   };
 }
 
