@@ -131,6 +131,11 @@ interface PedidoHub {
   itens: unknown;
   parcelas: unknown;
   classe_rateio: unknown;
+  // MOEDA-PEDIDOS — lidos para não regravar o que já está correto e para
+  // detectar o pedido cuja única defasagem é a moeda. Precisam vir do
+  // SELECT: ausentes, o gate compara contra `undefined` e reescreve sempre.
+  codigo_ind_economico: string | null;
+  valor_cambio: number | null;
 }
 
 interface DetalheMudanca {
@@ -267,6 +272,42 @@ function resolverValorTotalAlvo(alvo: any): number {
     return somaItens;
   }
   return cabNum;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// MOEDA-PEDIDOS — moeda e câmbio do pedido
+// ─────────────────────────────────────────────────────────────────────
+// A moeda é atributo do CABEÇALHO do PedComp, nunca do item (no item o
+// Alvo devolve CodigoIndEconomico null e ValorCambio 0 mesmo em pedido
+// de dólar). De-para: 0000001=BRL, 0000002=USD, 0000003=EUR.
+//
+// ⚠️ DIALETO: no PedComp o câmbio é `ValorCambio`; no DocFin o mesmo
+// conceito é `CotacaoIndice`. Não extrapolar entre entidades.
+//
+// ⚠️ SÓ O LOAD TRAZ. Medido 26/08/2026: zero das 605 auditorias
+// `descoberto_alvo` (payload do list leve) têm as chaves, contra 3.786
+// de 3.786 auditorias `sync_status` (payload do Load). O Job 3, que
+// monta o pedido a partir do LIST, não pode gravar estas colunas.
+//
+// (Espelho de src/services/moedaPedido.ts — duplicado porque a Edge roda
+// em Deno e não importa de src/.)
+function extrairMoedaDoLoadAlvo(alvo: any): {
+  codigo_ind_economico?: string;
+  valor_cambio?: number;
+} {
+  const out: { codigo_ind_economico?: string; valor_cambio?: number } = {};
+
+  const ind = alvo?.CodigoIndEconomico;
+  if (ind !== null && ind !== undefined && String(ind).trim() !== "") {
+    out.codigo_ind_economico = String(ind).trim();
+  }
+
+  const cambio = alvo?.ValorCambio;
+  if (cambio !== null && cambio !== undefined && Number.isFinite(Number(cambio))) {
+    out.valor_cambio = Number(cambio);
+  }
+
+  return out;
 }
 
 /**
@@ -1260,6 +1301,12 @@ async function syncDescobrirPedidos(
           valor_total: ped.ValorTotal ?? 0,
           valor_frete: ped.ValorFrete ?? 0,
           codigo_cond_pag: ped.CondPagPedCompObject?.CodigoCondPag ?? null,
+          // ⚠️ ANTI-WIPE (MOEDA-PEDIDOS): `codigo_ind_economico` e
+          // `valor_cambio` estão AUSENTES daqui de propósito. Este objeto
+          // vem do LIST leve, que não traz moeda (zero das 605 auditorias
+          // `descoberto_alvo` têm as chaves, medido 26/08/2026). Incluir a
+          // chave — mesmo como null — apagaria o que o Load gravou. Quem
+          // grava moeda é o Job 2 / o Load; a descoberta, nunca.
           centro_custo: ped.CodigoCentroCtrl,
           codigo_usuario: ped.CodigoUsuario,
           texto: ped.Texto,
@@ -1767,6 +1814,27 @@ async function completarCamposAusentes(
   const nomeCondPag = alvo?.CondPagPedCompObject?.Nome ?? null;
   if (escalarAusente(ped.nome_cond_pag) && nomeCondPag) patch.nome_cond_pag = nomeCondPag;
 
+  // ── MOEDA (MOEDA-PEDIDOS) ────────────────────────────────────────────
+  // Backfill incremental dos pedidos vivos: preenche só quando o Hub não
+  // tem e o Alvo informou. Nunca sobrescreve valor já gravado.
+  //
+  // ⚠️ Moeda ausente NÃO entra no gate de completude, de propósito. Um
+  // `CodigoIndEconomico` null é resposta legítima e frequente do Alvo
+  // (407 dos 1.247 pedidos auditados em 26/08/2026 estavam assim no
+  // último Load) — significa "ainda não definiu", não "faltou dado".
+  // Fazer disso pendência colocaria centenas de pedidos reentrando todo
+  // ciclo, que é a pendência §7.2. O que a armadilha 9 exige é não MENTIR
+  // sobre completude: aqui, se o Alvo informou a moeda e o UPDATE abaixo
+  // falhar, a função retorna [] sem marcar nada como preenchido — o
+  // pedido volta no próximo ciclo. Nenhuma flag é ligada por engano.
+  const moedaAlvo = extrairMoedaDoLoadAlvo(alvo);
+  if (escalarAusente(ped.codigo_ind_economico) && moedaAlvo.codigo_ind_economico !== undefined) {
+    patch.codigo_ind_economico = moedaAlvo.codigo_ind_economico;
+  }
+  if (escalarAusente(ped.valor_cambio) && moedaAlvo.valor_cambio !== undefined) {
+    patch.valor_cambio = moedaAlvo.valor_cambio;
+  }
+
   // Entidade: Load primeiro, cache local como fallback — é o caso 0004664
   // (R$ 110 mil sem fornecedor), em que o list veio sem `NomeEntidade` e o
   // Job 1 nunca revisita. O cache é leitura local, não chama o Alvo.
@@ -1941,7 +2009,7 @@ async function syncPedidos(
   const { data: candidatos, error: errSelect } = await supabase
     .from("compras_pedidos")
     .select(
-      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, data_pedido, numero_req_comp, vinculo_requisicao, detalhes_carregados, codigo_entidade, nome_entidade, cnpj_entidade, nome_cond_pag, centro_custo, classe_rec_desp, primeiro_vencimento, itens, parcelas, classe_rateio",
+      "id, numero, codigo_empresa_filial, status, aprovado, status_aprovacao, comprado, proximo_aprovador, enviou_aprovacao, data_notificacao_aprovador, valor_total, data_pedido, numero_req_comp, vinculo_requisicao, detalhes_carregados, codigo_entidade, nome_entidade, cnpj_entidade, nome_cond_pag, centro_custo, classe_rec_desp, primeiro_vencimento, itens, parcelas, classe_rateio, codigo_ind_economico, valor_cambio",
     )
     // CARD C2 — este SELECT excluía TODOS os terminais, enquanto a contagem de
     // elegíveis acima já abria a exceção do detalhe faltante (d8edf1c, 21/07,
@@ -2119,6 +2187,20 @@ async function syncPedidos(
       const novoValorOutrasDespesas = alvo?.ValorOutrasDespesas ?? null;
       const novoValorIpi = alvo?.GeralValorIPI ?? null;
 
+      // ── MOEDA (MOEDA-PEDIDOS) ───────────────────────────────────────
+      // Fonte Load. Chave omitida quando o Alvo não informou — nunca
+      // grava null por cima de valor bom (null no Alvo é "ainda não
+      // definiu": 10 pedidos já foram null→moeda, nenhum o contrário).
+      const moedaNova = extrairMoedaDoLoadAlvo(alvo);
+      // Só conta como mudança quando há valor novo E ele difere do
+      // gravado. Sem isto, um pedido cuja única defasagem é a moeda
+      // nunca entraria no upsert e ficaria sem a coluna para sempre.
+      const moedaMudou =
+        (moedaNova.codigo_ind_economico !== undefined &&
+          moedaNova.codigo_ind_economico !== (ped.codigo_ind_economico ?? null)) ||
+        (moedaNova.valor_cambio !== undefined &&
+          Number(moedaNova.valor_cambio) !== Number(ped.valor_cambio ?? NaN));
+
       // Comparação numérica do total (tolerância de 0,005 p/ float)
       const valorMudou = Math.abs((Number(novoValorTotal) || 0) - (Number(ped.valor_total) || 0)) > 0.005;
 
@@ -2143,6 +2225,7 @@ async function syncPedidos(
         !sameStr(novoEnviouAprovacao, ped.enviou_aprovacao) ||
         tsToMs(novoDataNotif) !== tsToMs(ped.data_notificacao_aprovador) ||
         valorMudou ||
+        moedaMudou ||
         vinculoMudou;
 
       if (!mudou) {
@@ -2185,6 +2268,8 @@ async function syncPedidos(
           valor_desconto: novoValorDesconto,
           valor_outras_despesas: novoValorOutrasDespesas,
           valor_ipi: novoValorIpi,
+          // ── Moeda do Alvo (MOEDA-PEDIDOS) ──────────────────────────
+          ...moedaNova,
           // ── Vínculo com requisição (cabeçalho + itens) ──────────────
           // Detalhe completo é fonte autorizada: afirma presença E ausência.
           vinculo_requisicao: vinculo.vinculo_requisicao,
@@ -2316,8 +2401,14 @@ async function syncPedidos(
 // Handler principal
 // ─────────────────────────────────────────────────────────────────────
 
+// Marcador de versão — anti deploy-fantasma. Aparece no log de CADA
+// invocação. Se após o deploy o log não mostrar esta string, a versão
+// nova NÃO está no ar (o deploy silenciosamente não subiu).
+const BUILD_TAG = "MOEDA-PEDIDOS-A2 (2026-08-26)";
+
 Deno.serve(async (req: Request) => {
   const startTime = Date.now();
+  console.log(`[cron] build=${BUILD_TAG}`);
 
   if (req.method === "OPTIONS") {
     return new Response(null, {

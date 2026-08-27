@@ -1,4 +1,5 @@
 import { authenticateAlvo, clearAlvoToken } from "./alvoService";
+import { extrairMoedaDoLoad } from "./moedaPedido";
 import { supabase } from "@/integrations/supabase/client";
 
 const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
@@ -238,6 +239,13 @@ async function resolveEntidadesCnpj(
   return { cache, usedToken: currentToken };
 }
 
+// ⚠️ ANTI-WIPE (MOEDA-PEDIDOS): este mapeamento vem do LIST leve, que NÃO
+// traz moeda — medido em 26/08/2026, zero das 605 auditorias
+// `descoberto_alvo` têm `CodigoIndEconomico` ou `ValorCambio`. Por isso
+// `codigo_ind_economico` e `valor_cambio` estão AUSENTES do objeto abaixo,
+// de propósito. Incluir as chaves (mesmo como null) apagaria a moeda que o
+// Load gravou, porque este upsert roda por cima de pedidos já detalhados.
+// Quem grava moeda é o Load — aqui, nunca.
 function mapPedido(pedido: any, entidade: { cnpj: string | null; nome: string | null } | null) {
   return {
     numero: pedido.Numero,
@@ -472,6 +480,10 @@ export async function syncPedidosCompra(
           valor_desconto: loadData?.ValorDescontoGeral ?? null,
           valor_outras_despesas: loadData?.ValorOutrasDespesas ?? null,
           valor_ipi: loadData?.GeralValorIPI ?? null,
+          // ── MOEDA (MOEDA-PEDIDOS) ──────────────────────────────────────
+          // Fonte Load (`loadData`), não o list — só o Load traz moeda.
+          // Chave omitida quando o Alvo não informou; nunca grava null.
+          ...extrairMoedaDoLoad(loadData),
           primeiro_vencimento: primeiroVencimento,
           detalhes_carregados: true,
           detalhes_carregados_em: new Date().toISOString(),

@@ -1,4 +1,5 @@
 import { authenticateAlvo, clearAlvoToken } from "./alvoService";
+import { extrairMoedaDoLoad } from "./moedaPedido";
 import { supabase } from "@/integrations/supabase/client";
 
 const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
@@ -422,6 +423,11 @@ export async function carregarDetalhesPedido(
     valor_desconto: data?.ValorDescontoGeral ?? null,
     valor_outras_despesas: data?.ValorOutrasDespesas ?? null,
     valor_ipi: data?.GeralValorIPI ?? null,
+    // ── MOEDA (MOEDA-PEDIDOS) ────────────────────────────────────────────
+    // Fonte Load: o cabeçalho traz CodigoIndEconomico + ValorCambio.
+    // Spread com chave omitida quando o Alvo não informou — nunca grava
+    // null por cima de um valor bom (ver extrairMoedaDoLoad).
+    ...extrairMoedaDoLoad(data),
     primeiro_vencimento: calcularPrimeiroVencimento(parcelas),
     detalhes_carregados: true,
     detalhes_carregados_em: new Date().toISOString(),
