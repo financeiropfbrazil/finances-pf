@@ -951,7 +951,9 @@ uma mudança de permissão.
 > Tudo abaixo é **diagnóstico**. Nenhuma implementação foi feita. Ordem de execução aprovada
 > pelo Pedro no fim desta seção (§14.9).
 
-### 14.1 🔴 CARD 1 — `compras_pedidos.tipo` grava o eixo errado
+### 14.1 ✅ CARD 1 — `compras_pedidos.tipo` grava o eixo errado — **FECHADO em 27/08/2026**
+
+> **Corrigido (`ab0e0f3`) e backfill aplicado pelo Pedro.** Evidência de fechamento em §14.1-F.
 
 A coluna deveria carregar a **natureza** da compra (Produto / Serviço / Misto). O cron grava o
 **tipo de entrega** do Alvo (`Total`). São **dois eixos diferentes na mesma coluna** — a família
@@ -1017,6 +1019,51 @@ neste momento do que criar acoplamento entre os dois.
 **Depende do Pedro:** o **backfill dos 916** é decisão à parte — mexe em 46% da tabela e é
 reversível só com recarga do Alvo. O fix do cron sozinho **não corrige o passado**: pedidos já
 gravados como `Total` só mudam se forem revisitados e o Job 2 não escreve essa coluna.
+
+### 14.1-F ✅ Fechamento do CARD 1 — evidência
+
+**Correção** (`ab0e0f3`), 3 pontos, regra duplicada de propósito com comentário cruzado:
+`sync-compras-status-cron/index.ts` (nova `derivarNaturezaPedido` + call site `:1290`) ·
+`alvoPedCompService.ts` (mesma função no `mapPedido`) · `ComprasPedidosCompra.tsx` (fallback do
+`tipoBadge` de `"Misto"` para `"—"` — sem isso, `null` continuaria exibindo "Misto").
+**Backfill** por `docs/BACKFILL-TIPO-NATUREZA.sql`, derivação local, zero chamadas ao gateway.
+
+#### VERIFY funcional por mês — o filtro voltou, e além do previsto
+
+| Mês | Total | Filtráveis por natureza | Sem valor |
+|---|---|---|---|
+| 2026-04 | 214 | **213** | 1 |
+| 2026-05 | 187 | **186** | 1 |
+| **2026-06** | 233 | **231** *(era 0)* | 2 |
+| **2026-07** | 214 | **210** *(era 0)* | 4 |
+| **2026-08** | 215 | **211** *(era 0)* | 4 |
+
+🔴 **O alcance foi maior que o diagnóstico previa.** Abril e maio **também** estavam
+degradados — 167 e 88 pedidos como `Total` — e não apareceram na medição original porque ela
+olhou só a queda a zero de jun/jul/ago. A transição não foi um corte limpo em 21/05: foi
+**gradual desde abril**, com o Job 1 e o frontend disputando a coluna.
+
+#### VERIFY estrutural *(lido por mim no MCP, 27/08)*
+
+`divergentes = 0` · `ainda_como_Total = 0` · base 1.978 pedidos.
+Distribuição: **Produto 1.230 · Serviço 728 · Misto 1 · NULL 19**.
+
+#### 🔴 Os dois casos individuais — contagem agregada não prova regra
+
+**O Misto GENUÍNO: `0004016`** (MILCA JOSE DOS REIS, 22/05) — `valor_mercadoria` R$ 2.433,20 +
+`valor_servico` R$ 2.160,00 = R$ 4.593,20. Estava como **`Total`**, virou **`Misto`**. E o Alvo
+**continua devolvendo `"Tipo": "Total"`** — é a prova direta de que a coluna parou de espelhar o
+eixo de entrega e passou a carregar a natureza. É o análogo do 0004564 no card de moeda.
+
+**Os falsos Misto → NULL:** `0003210`, `0003399`, `0003409`, `0003968` conferidos
+nominalmente — todos `null`, todos com ambos os valores zerados. **`0003210` tem 4 itens**, o
+que confirma que a leitura certa é "sem valor lançado", não "misto". Os outros 5 seguem por
+construção: havia 9 `Misto`, todos falsos; hoje há 1 (o genuíno, que antes era `Total`); e
+`divergentes = 0` força o restante a NULL.
+
+**Lição registrada:** a regra antiga varria ambos-zero para `Misto`. O defeito de fundo
+(eixo errado) escondia um segundo defeito (categoria poluída) que só apareceu ao medir para
+decidir a convenção — não ao ler o código.
 
 ### 14.2 🔴 CARD 2 — 6 requisições rebaixadas sem auditoria · **ESCRITA NÃO RASTREADA**
 
