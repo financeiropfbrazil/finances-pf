@@ -367,7 +367,10 @@ export default function ComprasPedidosCompra() {
   const tipoBadge = (t: string | null) => {
     if (t === "Produto") return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Produto</Badge>;
     if (t === "Serviço") return <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100">Serviço</Badge>;
-    return <Badge variant="outline">{t || "Misto"}</Badge>;
+    // `null` = pedido sem valor lançado, natureza indeterminável. Antes caía no
+    // fallback "Misto", que era falso: dos 9 pedidos rotulados Misto, 9 tinham
+    // ambos os valores zerados e só 1 pedido da base é Misto de verdade.
+    return <Badge variant="outline">{t || "—"}</Badge>;
   };
 
   const aprovBadge = (a: string | null) => {

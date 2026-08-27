@@ -408,6 +408,31 @@ async function callErpProxy(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// NATUREZA da compra (Produto / Serviço / Misto) — derivada dos valores
+// ─────────────────────────────────────────────────────────────────────
+//
+// O Alvo NÃO tem esse dado: o campo `Tipo` dele é o tipo de ENTREGA
+// ("Total"/"Programado"). A natureza sai de ValorMercadoria × ValorServico.
+//
+// `null` = pedido sem valor lançado — natureza indeterminável. NÃO é "Misto":
+// a tela exibe "—" nesse caso (ComprasPedidosCompra.tsx). Misto é só quando os
+// DOIS valores são positivos, o que hoje ocorre em 1 pedido de 1.977.
+//
+// ⚠️ REGRA DUPLICADA DE PROPÓSITO — gêmeo em `mapPedido` de
+// `src/services/alvoPedCompService.ts`. Ver comentário no call site.
+function derivarNaturezaPedido(
+  valorMercadoria: unknown,
+  valorServico: unknown,
+): string | null {
+  const merc = Number(valorMercadoria) || 0;
+  const serv = Number(valorServico) || 0;
+  if (merc > 0 && serv > 0) return "Misto";
+  if (merc > 0) return "Produto";
+  if (serv > 0) return "Serviço";
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Mapper: ReqComp do Alvo → status Hub
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1287,7 +1312,17 @@ async function syncDescobrirPedidos(
           aprovado: ped.Aprovado,
           status_aprovacao: ped.StatusAprovacao,
           comprado: ped.Comprado,
-          tipo: ped.Tipo,
+          // 🔴 NÃO usar `ped.Tipo` aqui. O `Tipo` do Alvo é o tipo de ENTREGA
+          // ("Total" em 4.746 leituras, "Programado" em 2) — nunca a NATUREZA da
+          // compra. Copiá-lo gravou 916 pedidos como "Total" e zerou o filtro de
+          // natureza da tela de jun/jul/ago de 2026 (0 de 661). A natureza se
+          // DERIVA dos valores, que já vêm no list e são gravados logo abaixo.
+          // ⚠️ REGRA DUPLICADA DE PROPÓSITO — o gêmeo é `mapPedido` em
+          // `src/services/alvoPedCompService.ts`. Frontend e Edge Function têm
+          // caminhos de deploy diferentes (Lovable × supabase functions deploy);
+          // compartilhar código aqui dessincronizaria em silêncio. Se mudar aqui,
+          // mude lá — e vice-versa.
+          tipo: derivarNaturezaPedido(ped.ValorMercadoria, ped.ValorServico),
           data_pedido: dateOnly(ped.DataPedido),
           data_cadastro: dateOnly(ped.DataCadastro),
           data_entrega: dateOnly(ped.DataEntrega),

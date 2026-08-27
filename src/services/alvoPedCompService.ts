@@ -239,6 +239,22 @@ async function resolveEntidadesCnpj(
   return { cache, usedToken: currentToken };
 }
 
+/**
+ * NATUREZA da compra (Produto / Serviço / Misto), derivada dos valores.
+ * `null` quando não há valor lançado — natureza indeterminável, não "Misto".
+ * Gêmea de `derivarNaturezaPedido` em
+ * `supabase/functions/sync-compras-status-cron/index.ts` — ver o comentário no
+ * call site sobre por que a regra é duplicada em vez de compartilhada.
+ */
+function derivarNaturezaPedido(valorMercadoria: unknown, valorServico: unknown): string | null {
+  const merc = Number(valorMercadoria) || 0;
+  const serv = Number(valorServico) || 0;
+  if (merc > 0 && serv > 0) return "Misto";
+  if (merc > 0) return "Produto";
+  if (serv > 0) return "Serviço";
+  return null;
+}
+
 // ⚠️ ANTI-WIPE (MOEDA-PEDIDOS): este mapeamento vem do LIST leve, que NÃO
 // traz moeda — medido em 26/08/2026, zero das 605 auditorias
 // `descoberto_alvo` têm `CodigoIndEconomico` ou `ValorCambio`. Por isso
@@ -254,12 +270,16 @@ function mapPedido(pedido: any, entidade: { cnpj: string | null; nome: string | 
     aprovado: pedido.Aprovado,
     status_aprovacao: pedido.StatusAprovacao,
     comprado: pedido.Comprado,
-    tipo:
-      pedido.ValorServico > 0 && (pedido.ValorMercadoria || 0) === 0
-        ? "Serviço"
-        : (pedido.ValorMercadoria || 0) > 0 && (pedido.ValorServico || 0) === 0
-          ? "Produto"
-          : "Misto",
+    // NATUREZA da compra, derivada dos valores. O `Tipo` do Alvo NÃO serve: ele é
+    // o tipo de ENTREGA ("Total"/"Programado"), nunca Produto/Serviço/Misto.
+    // `null` = pedido sem valor lançado, natureza indeterminável — a tela mostra
+    // "—". Misto é só com os DOIS valores positivos (1 pedido em 1.977 hoje);
+    // antes, ambos-zero caía aqui e produzia 9 "Misto" falsos.
+    // ⚠️ REGRA DUPLICADA DE PROPÓSITO — o gêmeo é `derivarNaturezaPedido` em
+    // `supabase/functions/sync-compras-status-cron/index.ts`. Frontend e Edge
+    // Function têm deploys distintos (Lovable × supabase functions deploy);
+    // compartilhar código dessincronizaria em silêncio. Mudou aqui, mude lá.
+    tipo: derivarNaturezaPedido(pedido.ValorMercadoria, pedido.ValorServico),
     data_pedido: pedido.DataPedido ? pedido.DataPedido.split("T")[0] : null,
     data_cadastro: pedido.DataCadastro ? pedido.DataCadastro.split("T")[0] : null,
     data_entrega: pedido.DataEntrega ? pedido.DataEntrega.split("T")[0] : null,
