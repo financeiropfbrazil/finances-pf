@@ -378,6 +378,30 @@ ainda não começou.
     ~2235). Não é erro de valor, mas confunde na revisão do wizard — justamente na tela em que
     a pessoa deveria perceber que repetiu o CC. Registrado em 27/08 a partir do 0004797.
 
+28. 🔴 **CARD PRÓPRIO — `enviarPedidoParaAprovacao` grava sucesso em ação que não aconteceu.**
+    **Prioridade acima da 29.** Em 2 de 2 pedidos examinados, o **primeiro** evento
+    `enviado_aprovacao` foi gravado com `sucesso=true` e **o estado no Alvo não mudou**; só o
+    segundo envio surtiu efeito:
+    · 0004495 — evento 23/07 14:07 (`sucesso=true`); Alvo ainda `Não/Não` em 24/07 17:00.
+    · 0004725 — evento 21/08 18:57 (`sucesso=true`); Alvo ainda `Não/Não` em 24/08 16:13.
+    **Por que é grave:** é o Hub afirmando um fato que o ERP não confirma — mesma família da
+    "flag de completude que mente". E o sinal de aprovação é justamente o que o sistema
+    externo da Riosoft consome, então um falso "enviado" contamina a visão dele.
+    ⚠️ **São 2 amostras. O card COMEÇA medindo a prevalência em todos os 111 eventos
+    `enviado_aprovacao`, não concluindo.** Complicador já medido: as colunas de delta do
+    evento nunca são preenchidas (0 de 111 têm `proximo_aprovador_novo`), então a resposta
+    imediata do Alvo ao `/ped-comp/update` não fica registrada — a medição terá de cruzar com
+    as leituras do cron. Aberto em 27/08.
+
+29. **Rateio do módulo PROJETOS repete a forma pré-D4** (pendência, não agora).
+    `alvoProjetoPedidoService.ts:151-172` (item) e `:204-221` (cabeçalho) fazem `rateio.map()`
+    1:1, sem agrupar (classe, CC) — exatamente o que derrubou o 0004781 com
+    `Friendly_Message_UQ_PK`. Hoje **latente**: zero duplicatas medidas em
+    `projeto_requisicoes.classe_rateio` *(27/08/2026)*.
+    ✅ **O reuso é barato: `consolidarRateioDoItem` já é `export` e é função pura** — basta
+    `import` + chamada, **não precisa tocar em `pedidosService.ts`** e não é refactor. Os 11
+    testes do D4 cobrem a função e continuam valendo. Próximo card.
+
 ---
 
 ## 8. Regras que se mostraram valiosas
@@ -641,6 +665,161 @@ Quando não há o que consolidar — **133 dos 134 pedidos históricos** — a f
 linhas idênticas às de antes: peso 1 e sem re-arredondamento, verificado por teste. `tsc`
 limpo, `bun run build` limpo, lint **110 erros = exatamente a baseline do HEAD** (zero novos).
 `src/test/sidebar-ordem.test.tsx` falha 7/7 **também no HEAD** — pré-existente, não é do D4.
+
+---
+
+## 13. PROJETOS — pedido nascia enviado para aprovação (27/08/2026)
+
+> 🚨 **AVISO OPERACIONAL — NÃO ENVIAR PEDIDO PELO MÓDULO PROJETOS ATÉ O FIX ESTAR
+> PUBLICADO.** Há **21 rascunhos** em `projeto_requisicoes` e **cada envio reproduz o
+> defeito**: o pedido chega ao ERP já com a cadeia de aprovação disparada. O fix está
+> commitado (`65fa83e`) mas o Publish do Lovable é manual — enquanto não publicar, o
+> comportamento antigo continua em produção.
+
+### 13.1 🚨 INCIDENTE DE CONTROLE INTERNO — pedido 0004664
+
+**R$ 110.000,00 completaram a cadeia de aprovação do ERP em 26/08/2026 sem nenhum comando
+humano de autorização no Hub.**
+
+| | |
+|---|---|
+| Pedido | **0004664** — "Congresso Rio Valves | Req #24" |
+| Valor | **R$ 110.000,00** |
+| Criado | 13/08/2026 14:34 UTC, por **ana.sanches@pfbrazil.com** |
+| Aprovado no Alvo | **26/08/2026 12:25 UTC** — `aprovado='Total'`, `status_aprovacao='Finalizada'` |
+| Aprovador designado | FLAVIO.DIAS |
+| Comando de envio no Hub | **NENHUM** — não existe evento de autorização |
+| Estado hoje | Cancelado |
+
+🔴 **Isto é achado de controle interno, não nota técnica.** A cadeia de aprovação existe
+para registrar que alguém *decidiu* mandar o pedido adiante. Aqui a decisão nunca foi
+tomada por uma pessoa: o payload de criação já continha a ordem. **Uma aprovação sem evento
+de autorização não é uma aprovação — é um registro que parece uma.** Um sistema de aprovação
+externo (Riosoft) construído sobre esse sinal recebeu, deste pedido, um consentimento que
+ninguém deu.
+
+**Encaminhamento (não é correção de dado — o Hub não tem como "desenviar"):** comunicar
+FLAVIO.DIAS e ana.sanches@pfbrazil.com que a aprovação chegou sem comando humano, para
+confirmar se a aprovação em si foi consciente. **Decisão de controladoria, não de código.**
+
+### 13.2 A causa (medido)
+
+`src/services/alvoProjetoPedidoService.ts` mandava, **hardcoded no INSERT**:
+
+```js
+PedCompUserFieldsObject: { UserEnviarAprovacao: "Sim", UserEnviouAprovacao: "Sim" }
+```
+
+`UserEnviarAprovacao: "Sim"` é o **comando** que dispara a cadeia — é exatamente o que
+`enviarPedidoParaAprovacao` escreve no passo manual do Suprimentos (`pedidosService.ts:2689`
++ `POST /ped-comp/update`). O Suprimentos manda `PedCompUserFieldsObject: {}` na criação
+(`pedidosService.ts:1256`) e reserva o comando para o botão.
+
+🔴 **LIVRO × ESPELHO pela quarta vez:** `UserEnviarAprovacao` é o **comando** (o Hub
+escreve); `UserEnviouAprovacao` é o **fato** (o ERP deriva, o Hub só lê em 9 pontos). O
+único escritor do campo-fato em todo o repositório era a linha removida. Projetos não só
+dava a ordem — carimbava o espelho com o fato consumado.
+
+**Não é regressão de 07/08.** `git blame` põe o bloco no commit inicial `61246ec`
+(30/03/2026), nunca tocado. 07/08 mudou a **visibilidade** (open-load L7-A passou a espelhar
+`enviou_aprovacao`), não o comportamento.
+
+**Correção:** `65fa83e` — 1 arquivo, exclusivo do Projetos. `pedidosService.ts` intocado.
+
+### 13.3 Universo afetado — **8 conhecidos**, e por que não digo "exatamente oito"
+
+Três fontes cruzadas *(medido 27/08/2026 17:0x UTC)*:
+
+| Fonte | Capturou | Comentário |
+|---|---|---|
+| `compras_pedidos.texto` (fingerprint `Projeto: … \| Req #`) | **8 de 8** | única fonte completa |
+| `projeto_requisicoes.numero_pedido_alvo` (livro do módulo) | **2 de 8** | só grava desde o L1; os 6 antigos são anteriores |
+| `projeto_eventos` (`pedido_enviado_alvo`) | **1 de 8** | tabela criada em 07/08 |
+
+🔴 **O cruzamento NÃO fechou a contagem — mas mostrou outra coisa: as duas fontes ditas
+"melhores" são subconjuntos estritos do fingerprint.** Nenhuma delas achou um pedido que o
+fingerprint tivesse perdido. Isso é evidência a favor de 8, não prova.
+
+**Por que não afirmo "exatamente oito":** o fingerprint depende do campo `texto`, editável
+dentro do ERP. Procurei uma assinatura imune e **não existe**: `codigo_usuario` não
+discrimina (PEDRO.SCRIGNOLI aparece em 27 pedidos fora do grupo) e `compras_pedidos` não
+espelha `CodigoComprador` (que seria a assinatura boa — Projetos manda `0000013` fixo,
+Suprimentos manda `null`). **A janela residual é estreita e nomeável: pedido criado pelo
+Projetos ANTES de 07/08/2026 cujo `texto` tenha sido editado no ERP.** Foi exatamente isso
+que tornou o **0004626** (citado em `PLANO-PROJETOS.md:727`) irrecuperável — ele não existe
+em nenhuma tabela hoje.
+
+Para registro de incidente: **8 pedidos identificados, R$ 157.119,80**, com a ressalva acima
+declarada em vez de escondida.
+
+| Pedido | Valor | Data | Estado | `enviou_aprovacao` |
+|---|---|---|---|---|
+| **0004664** | **R$ 110.000** | 13/08 | Cancelado — **aprovado='Total'/Finalizada** | Sim |
+| 0003780 | R$ 18.000 | 14/04 | **Aberto — único vivo e travado** (ALEXANDRE.RIBEIRO) | Sim |
+| 0003946 | R$ 10.000 | 11/05 | Cancelado | Sim |
+| 0004238 | R$ 1.000 | 18/06 | excluído do Alvo | Sim |
+| 0003628/29/38/39 | R$ 38.019,80 | 25–26/03 | Encerrados | NULL — nunca capturado, **ambíguo** |
+
+### 13.4 🔴 A evidência é de CÓDIGO, não de observação — e isso importa
+
+O diagnóstico rodou com 12 agentes. **Três conclusões deles não sobreviveram à conferência**,
+e ficam registradas para ninguém reconstruí-las:
+
+1. **"Eco de payload" é falso.** A síntese afirmou que o `resposta_alvo` do evento
+   `descoberto_alvo` é eco do que o Hub mandou. **607 de 607 desses eventos têm
+   `payload_enviado` NULL** — é estado lido do ERP, não eco.
+2. **O "experimento natural" (0004495/0004725) é leitura seletiva.** A série completa mostra
+   o campo **oscilando**: `Sim → Não → Sim → Não → Sim`. O "Não" usado como estado virgem era
+   **reversão** (provável `Reavaliar`, que reseta o flag no ERP).
+3. **A observação não discrimina.** Entre pedidos do **Suprimentos** que nunca tiveram evento
+   `enviado_aprovacao`, **14 leem `Sim/Sim` no ERP** (contra 5 em `Não`). Marcar à mão dentro
+   do Alvo é prática corrente — logo "pedidos de Projetos aparecem enviados" **não prova** a
+   causa sozinho.
+
+**O que sustenta o diagnóstico é o código:** o Hub literalmente escrevia o campo-comando no
+insert. Isso é fato sobre o que o Hub manda, não inferência sobre o que o ERP faz.
+
+**H3 (chamada encadeada): refutada** — um único `fetch(` no arquivo, zero referências a
+`/ped-comp/update` no módulo. **H2 (a rota `SavePartial?action=Insert` dispara sozinha):
+enfraquecida, não eliminada** — `/ped-comp/insert` e `/ped-comp/update` batem no **mesmo
+endpoint do Alvo**, diferindo só no `action`, e no `/update` o disparo é comandado pelo
+campo. Mas **nenhum caso natural separa rota de payload**, então H2 não está provada inerte.
+**O teste de aceite desempata de graça.**
+
+### 13.5 Teste de aceite (pós-Publish)
+
+Criar 1 pedido pelo módulo Projetos, esperar o Job 3, e ler o objeto do **ERP**:
+
+```sql
+select cp.numero, a.created_at, a.resposta_alvo->'PedCompUserFieldsObject' as ufo
+from public.compras_pedidos_auditoria a
+join public.compras_pedidos cp on cp.id = a.pedido_id
+where a.evento in ('descoberto_alvo','sync_status') and cp.numero = '<novo>'
+order by a.created_at limit 1;
+```
+
+**Esperado:** `UserEnviarAprovacao='Não'`, `UserEnviouAprovacao='Não'`, `UserProximoAprovador=null`.
+**Se voltar `Sim` com payload vazio: H2 ressuscita** e a correção passa a ser de rota — card novo.
+
+- ✅ **Pré-requisito conferido:** os 3 projetos (`Congresso Caipira Rio Preto`, `teste`,
+  `Congresso Rio Valves`) estão em `fase_atual='actual'` + `status='aprovado'`, e
+  `ana.sanches` tem `alvo_usuario='ANA.SANCHES'`. Os gates de
+  `alvoProjetoPedidoService.ts:334-335` e `:350-356` **não vão matar o teste**.
+- ⚠️ **Não usar `proximo_aprovador` nem `status_aprovacao` como critério** — o Alvo preenche
+  `proximo_aprovador` na criação inclusive nos pedidos corretos. E `enviou_aprovacao = NULL`
+  no Hub significa "não capturado", não "não enviado". O marcador válido é o objeto do ERP.
+
+### 13.6 Consequência operacional — a decisão é sua
+
+Depois do fix o pedido de projeto fica em "Aguardando envio p/ aprovação" e **o módulo
+Projetos não tem botão de envio** (zero referências a `/ped-comp/update` no módulo; a única
+"aprovação" daquela tela é a de **budget**, sentido 1, outro assunto).
+
+🔴 **A saída "usar a tela do Suprimentos" NÃO funciona para quem usa o módulo.** Medido:
+`ana.sanches@pfbrazil.com` tem `is_admin = false` e **zero linhas em `user_permissions`** —
+não tem `compras.pedidos.access`, que é o gate da rota `/suprimentos/pedidos/:id`
+(`App.tsx:314`). Ela **não alcança** `SuprimentosPedidoDetalhe`. A opção (a) está fora sem
+uma mudança de permissão.
 
 ---
 
