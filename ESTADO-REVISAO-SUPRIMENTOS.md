@@ -33,6 +33,7 @@
 | **MOEDA A3** | Backfill a partir do audit `sync_status` (append-only do B4), **sem uma chamada ao Alvo** | 847 pedidos provados; **0** ainda sem moeda na tabela *(medido 27/08/2026 12:42 UTC)* |
 | **MOEDA A4** | Exibição na moeda original (card, lista, KPIs e os 3 e-mails) com helper único R$/US$/€; KPIs com escopo de moeda declarado | `d1d3d02`, `57b4243`, `7181846`, `a9e7979` |
 | **MOEDA — anti-wipe** | `docs/TESTE-ANTIWIPE-MOEDA.sql` rodado sobre ciclo válido | **W1=W2=W3=0** sobre 847 provados *(27/08/2026 12:31–12:45 UTC)* — ver §11 |
+| **D4** | `consolidarRateioDoItem` — o caminho do ITEM passa a consolidar (classe, CC) como o do cabeçalho já fazia; aviso na UI quando colapsa | 11 testes em `src/test/rateio-consolidacao-d4.test.ts`, incluindo a forma exata do 0004781. Ver §12 |
 
 **Frente de sync encerrada em 20/08 e reaberta em 24/08** pela missão de orçamento por
 centro de custo — ver `PLANO-RATEIO-CC-REQUISICOES.md`. Cards **R1.1, R1.2, C3.3 e SEC-1**
@@ -357,6 +358,9 @@ ainda não começou.
     Ver §11.5.
 23. **Parcelas sem moeda** — parcela em dólar ainda exibida como real; estender o helper do
     A4 às parcelas. Ver §11.5.
+24. **Rateio do ITEM não tem ajuste residual** (o do cabeçalho tem) — com percentuais
+    quebrados sobra centavo entre a soma das linhas e o valor da classe. Anterior ao D4 e não
+    tocado por ele. Só vale mexer se o Alvo passar a validar a soma no nível do item. Ver §12.
 
 ---
 
@@ -471,8 +475,14 @@ que estava escrito e o que vale como regra geral.
 
 Dos 1.121 pedidos sem moeda, **78 têm `valor_cambio` preenchido, todos exatamente `1`**. E há
 **310** auditorias em que o Alvo devolveu `CodigoIndEconomico` como **JSON `null`** com
-`ValorCambio: "1"` *(27/08/2026 12:38 UTC)*. **"Sem moeda + câmbio 1" é como o Alvo escreve
-"real"** — não é dado faltando.
+`ValorCambio: "1"` *(27/08/2026 12:38 UTC)*. **"Sem moeda + câmbio 1" é o dialeto do Alvo para
+real** — não é dado faltando: o ERP não omite, ele afirma câmbio 1.
+
+Dá **lastro documental ao bucket presumido dos KPIs** (deixa de ser convenção do Hub). **Não
+muda a decisão INDICADOR** — o indicador segue `codigo_ind_economico`, e `valor_cambio`
+continua referência de registro, fora do cálculo do símbolo. ⚠️ E não vale invertido: câmbio 1
+sozinho não prova BRL (pedido estrangeiro com câmbio mal preenchido também teria 1) — o que
+sustenta é o **par** moeda-null + câmbio 1.
 
 - ⚠️ **CLEVERBRIDGE GMBH (0004743)** — fornecedor alemão, nome que puxa para o euro, **segue
   DENTRO do bucket sem-moeda**, presumido BRL com o precedente acima. **Não é exceção nem
@@ -522,6 +532,50 @@ O teste pegou o dia de maior reescrita da semana (26/08 mudava 2 a 12 por ciclo)
    no Hub.
 2. **Parcelas sem moeda** — herda a lacuna; parcela em dólar ainda exibida como real. Estender
    o helper às parcelas (report §29.10 item 1).
+
+---
+
+## 12. D4 — rateio duplicado (`Friendly_Message_UQ_PK`), 27/08/2026
+
+Evidência do episódio: `docs/D4-EVIDENCIA-UQ-PK.md`. Plano e medições:
+`docs/D4-PLANO-CORRECAO.md`.
+
+**A causa era uma assimetria dentro do próprio `pedidosService.ts`.** Dois caminhos consomem o
+mesmo `input.itens[].rateio`: o do **cabeçalho** (`rateioAgregado`, ~1030) usa
+`Map<classe, Map<CC,…>>` e **já consolidava desde sempre**; o do **item** (~951) eram dois
+`map` 1:1, **sem agrupar nada**. Mesmo input → cabeçalho com 1 linha a 100%, item com 2 linhas
+de 50%. O Alvo tem UNIQUE em (filial, número, produto, sequência, classe, CC) e recusava.
+
+**A correção portou o padrão do cabeçalho para o item** (`consolidarRateioDoItem`), somando os
+`Valor` já calculados. Aviso na UI (`SuprimentosPedidoNovo.tsx`, `handleSalvarItem`) quando há
+colapso — **a consolidação acontece independentemente do aviso**.
+
+### Achados que mudaram o escopo
+
+1. 🔴 **Prevalência real: 1 pedido em 134** (~0,75%) — só o 0004781, com 6 envios falhos.
+   O valor do card está no **custo quando acontece** (6 números queimados no sequencer +
+   31 min), não na frequência.
+2. 🔴 **`Sequencia: 0` NÃO colide — não mexer nela.** Uma varredura pela tupla que o Alvo
+   declara no erro acusa 4 pedidos, mas 0004598, 0004617 e 0004719 **passaram de primeira, em
+   ~8s**. Neles a repetição é entre **itens distintos** com mesmo produto. Que tenham passado
+   prova que **o Alvo atribui a sequência real no save**. Uma "correção" que numerasse a
+   sequência no envio mexeria em 134 pedidos de caminho feliz para resolver 1.
+3. **A origem não é a requisição.** 0004781 veio da requisição 0001274, mas
+   `compras_requisicoes_rateio_classes`/`_cc` têm 2 classes e 4 linhas no total, **zero
+   duplicatas** *(27/08/2026 12:52 UTC)*. Nasceu no wizard — provavelmente "adicionar CC" duas
+   vezes + `dividirCcsIgualmente`, que com 2 linhas gera exatamente o 50/50 do caso.
+4. **O caminho do item não tem ajuste residual — e isso é anterior ao D4.** Com percentuais
+   quebrados (33,33/33,33/33,34 de R$ 1.199,98) as linhas somam R$ 1.199,97 contra R$ 1.199,98
+   da classe. O comportamento é idêntico antes e depois da consolidação; quem tem ajuste
+   residual é o caminho do **cabeçalho**, que é onde o Alvo valida a soma. **Não foi tocado**
+   (fora do escopo aprovado). Ver pendência §7.24.
+
+### Garantia de não-regressão
+
+Quando não há o que consolidar — **133 dos 134 pedidos históricos** — a função devolve as
+linhas idênticas às de antes: peso 1 e sem re-arredondamento, verificado por teste. `tsc`
+limpo, `bun run build` limpo, lint **110 erros = exatamente a baseline do HEAD** (zero novos).
+`src/test/sidebar-ordem.test.tsx` falha 7/7 **também no HEAD** — pré-existente, não é do D4.
 
 ---
 

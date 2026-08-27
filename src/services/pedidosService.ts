@@ -915,6 +915,146 @@ interface MontarPayloadParams {
   codigo_usuario_alvo: string;
 }
 
+/** D4 — uma repetição que foi colapsada. `codigo_centro_ctrl` null = classe repetida. */
+export interface ConsolidacaoRateio {
+  codigo_classe_rec_desp: string;
+  codigo_centro_ctrl: string | null;
+  linhas_originais: number;
+}
+
+/** Linha de rateio de CC dentro de uma classe, no payload do item. */
+export interface LinhaRateioCcPayload {
+  CodigoEmpresaFilial: string;
+  NumeroPedComp: string;
+  CodigoProduto: string;
+  SequenciaItemPedComp: number;
+  CodigoClasseRecDesp: string;
+  CodigoCentroCtrl: string;
+  Valor: number;
+  Percentual: number;
+}
+
+/** Classe de rateio no payload do item (`ItemPedCompClasseRecdespChildList`). */
+export interface ClasseRateioItemPayload extends Omit<LinhaRateioCcPayload, "CodigoCentroCtrl"> {
+  RateioItemPedCompChildList: LinhaRateioCcPayload[];
+}
+
+/**
+ * Consolida o rateio de UM item antes do envio ao Alvo (card D4).
+ *
+ * 🔴 POR QUE EXISTE. O Alvo tem UNIQUE em
+ * (filial, número, produto, sequência, classe, CC). Duas linhas com o mesmo CC
+ * dentro da mesma classe derrubam o save inteiro com `Friendly_Message_UQ_PK`, e
+ * CADA tentativa queima um número do sequencer — no pedido 0004781 foram 6
+ * números e 31 minutos. A validação de rateio acima NÃO pegava: ela confere soma
+ * exata de 100%, e 50 + 50 = 100 passa.
+ *
+ * O caminho do CABEÇALHO (`rateioAgregado`, mais abaixo neste arquivo) já
+ * consolidava por (classe, CC) desde sempre. Este caminho, não — era essa
+ * assimetria que fazia o MESMO input sair com cabeçalho de 1 linha a 100% e item
+ * com 2 linhas de 50%.
+ *
+ * ⚠️ `Valor` é SOMADO a partir dos valores já calculados, nunca recalculado a
+ * partir de um percentual somado: cada linha é `round2` do seu próprio pedaço, e
+ * é a soma delas que fecha contra o valor da classe. O Alvo valida
+ * "soma das classes == ValorTotal" (report §29.6).
+ *
+ * ⚠️ `SequenciaItemPedComp` continua 0. O Alvo atribui a sequência real no save —
+ * provado pelos pedidos 0004598, 0004617 e 0004719, que repetem produto+classe+CC
+ * ENTRE itens e passaram de primeira.
+ *
+ * Quando não há o que consolidar, as linhas saem IDÊNTICAS às de antes (peso 1 e
+ * sem re-arredondamento) — era o caso de 133 dos 134 pedidos já criados no Hub.
+ */
+export function consolidarRateioDoItem(
+  rateio: RateioClasseInput[],
+  valorTotalItem: number,
+): { classes: ClasseRateioItemPayload[]; consolidacoes: ConsolidacaoRateio[] } {
+  const consolidacoes: ConsolidacaoRateio[] = [];
+
+  // Agrupa as entradas por código de classe, preservando a ordem de primeira
+  // aparição (Map mantém ordem de inserção).
+  const grupos = new Map<string, RateioClasseInput[]>();
+  for (const cls of rateio) {
+    const atual = grupos.get(cls.codigo_classe_rec_desp);
+    if (atual) atual.push(cls);
+    else grupos.set(cls.codigo_classe_rec_desp, [cls]);
+  }
+
+  const classes = Array.from(grupos.entries()).map(([codigoClasse, entradas]) => {
+    const unica = entradas.length === 1;
+
+    // Valor de cada entrada, calculado exatamente como antes.
+    const valores = entradas.map((cls) => round2((valorTotalItem * cls.percentual) / 100));
+    const valorClasse = unica ? valores[0] : round2(valores.reduce((s, v) => s + v, 0));
+    const percentualClasse = unica
+      ? entradas[0].percentual
+      : round2(entradas.reduce((s, cls) => s + cls.percentual, 0));
+
+    if (!unica) {
+      consolidacoes.push({
+        codigo_classe_rec_desp: codigoClasse,
+        codigo_centro_ctrl: null,
+        linhas_originais: entradas.length,
+      });
+    }
+
+    // Acumula os CCs de todas as entradas da classe, na ordem original.
+    // O percentual de um CC é relativo à SUA entrada; ao fundir entradas, cada
+    // contribuição entra ponderada pela fatia que aquela entrada representa na
+    // classe consolidada. Com entrada única o peso é 1 — soma pura, exata.
+    const porCc = new Map<string, { valor: number; percentual: number; linhas: number }>();
+    entradas.forEach((cls, i) => {
+      const peso = unica ? 1 : cls.percentual / percentualClasse;
+      for (const cc of cls.ccs) {
+        const valorCC = round2((valores[i] * cc.percentual) / 100);
+        const pctCC = cc.percentual * peso;
+        const atual = porCc.get(cc.codigo_centro_ctrl);
+        if (atual) {
+          atual.valor = round2(atual.valor + valorCC);
+          atual.percentual = round2(atual.percentual + pctCC);
+          atual.linhas += 1;
+        } else {
+          porCc.set(cc.codigo_centro_ctrl, { valor: valorCC, percentual: pctCC, linhas: 1 });
+        }
+      }
+    });
+
+    const linhasCC = Array.from(porCc.entries()).map(([codigoCC, acc]) => {
+      if (acc.linhas > 1) {
+        consolidacoes.push({
+          codigo_classe_rec_desp: codigoClasse,
+          codigo_centro_ctrl: codigoCC,
+          linhas_originais: acc.linhas,
+        });
+      }
+      return {
+        CodigoEmpresaFilial: "-1",
+        NumeroPedComp: "-1",
+        CodigoProduto: "-1",
+        SequenciaItemPedComp: 0,
+        CodigoClasseRecDesp: "-1",
+        CodigoCentroCtrl: codigoCC,
+        Valor: acc.valor,
+        Percentual: acc.percentual,
+      };
+    });
+
+    return {
+      CodigoEmpresaFilial: "-1",
+      NumeroPedComp: "-1",
+      CodigoProduto: "-1",
+      SequenciaItemPedComp: 0,
+      CodigoClasseRecDesp: codigoClasse,
+      Valor: valorClasse,
+      Percentual: percentualClasse,
+      RateioItemPedCompChildList: linhasCC,
+    };
+  });
+
+  return { classes, consolidacoes };
+}
+
 function montarPayloadPedComp(p: MontarPayloadParams): any {
   const {
     input,
@@ -948,34 +1088,9 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     const baseICMS = enriq.PercentualICMS > 0 ? valorTotalItem : 0;
     const valorICMS = round2((baseICMS * enriq.PercentualICMS) / 100);
 
-    const classesPayload = item.rateio.map((cls) => {
-      const valorClasse = round2((valorTotalItem * cls.percentual) / 100);
-
-      const rateiosCC = cls.ccs.map((cc) => {
-        const valorCC = round2((valorClasse * cc.percentual) / 100);
-        return {
-          CodigoEmpresaFilial: "-1",
-          NumeroPedComp: "-1",
-          CodigoProduto: "-1",
-          SequenciaItemPedComp: 0,
-          CodigoClasseRecDesp: "-1",
-          CodigoCentroCtrl: cc.codigo_centro_ctrl,
-          Valor: valorCC,
-          Percentual: cc.percentual,
-        };
-      });
-
-      return {
-        CodigoEmpresaFilial: "-1",
-        NumeroPedComp: "-1",
-        CodigoProduto: "-1",
-        SequenciaItemPedComp: 0,
-        CodigoClasseRecDesp: cls.codigo_classe_rec_desp,
-        Valor: valorClasse,
-        Percentual: cls.percentual,
-        RateioItemPedCompChildList: rateiosCC,
-      };
-    });
+    // D4: consolida (classe, CC) repetidos antes de montar o payload — o Alvo
+    // tem UNIQUE nessa tupla. Ver `consolidarRateioDoItem`.
+    const { classes: classesPayload } = consolidarRateioDoItem(item.rateio, valorTotalItem);
 
     return {
       CodigoEmpresaFilial: "",

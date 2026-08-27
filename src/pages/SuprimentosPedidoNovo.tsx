@@ -7,6 +7,7 @@ import {
   clonarDeRequisicao,
   calcularParcelas,
   carregarPedidoParaEdicao,
+  consolidarRateioDoItem,
   type NovoPedidoInput,
   type ParcelaInput,
   type ArquivoInput,
@@ -839,6 +840,22 @@ export default function SuprimentosPedidoNovo() {
 
     const qtdNum = parseDecimal(itemQtd);
     const valorNum = parseDecimal(itemValorUnit);
+
+    // D4: o envio consolida linhas repetidas de (classe, CC) — o Alvo tem UNIQUE
+    // nessa tupla. A consolidação acontece de qualquer forma; o aviso existe para
+    // a pessoa entender por que o rateio que ela digitou sai com menos linhas.
+    const { consolidacoes } = consolidarRateioDoItem(itemRateio, round2(qtdNum * valorNum));
+    if (consolidacoes.length > 0) {
+      const detalhes = consolidacoes.map((c) =>
+        c.codigo_centro_ctrl
+          ? `classe ${c.codigo_classe_rec_desp}, CC ${c.codigo_centro_ctrl} (${c.linhas_originais} linhas)`
+          : `classe ${c.codigo_classe_rec_desp} (${c.linhas_originais} entradas)`,
+      );
+      toast({
+        title: "Linhas repetidas do rateio foram somadas",
+        description: `${detalhes.join(" · ")}. O valor do item não muda — o Alvo não aceita a mesma combinação de classe e centro de custo repetida no item.`,
+      });
+    }
 
     const novoItem: ItemWizard = {
       tempId: editingItemId || `tmp-${Date.now()}-${Math.random()}`,
