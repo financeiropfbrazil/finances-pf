@@ -1,5 +1,5 @@
 # ESTADO-REVISAO-SUPRIMENTOS
-### Estado vivo da missão · última atualização: 24/08/2026, após R1.2, C3.3 e SEC-1
+### Estado vivo da missão · última atualização: 27/08/2026, após MOEDA-PEDIDOS (A2/A3/A4) e o teste anti-wipe
 
 > **Leia este arquivo ANTES de qualquer coisa nesta missão.** Ele registra o que foi
 > executado, o que foi medido e — principalmente — **onde a documentação está errada**.
@@ -29,6 +29,10 @@
 | **R1.2** | Cron passa a espelhar rateio de CC e CC de item das requisições vindas do Alvo (`04aa5bf`, deployado) | Itens no Hub: **330 → 439**; requisições sem itens: **94 → 40** *(medido 24/08/2026 19:17 UTC)* |
 | **C3.3** | Normalização de rateio: `null` deixa de virar `0`; tolerância ±0,01 com residual; reconstrução de percentual por valor (`d767457` + RPC substituída) | 0004371, 0004471 e 0004691 destravados, com soma fechando exata *(medido 24/08/2026 19:18 UTC)* |
 | **SEC-1** | `suprimentos_requisicoes_para` dividida em wrapper + `_impl`; `anon` revogado das 14 RPCs públicas `*_para` e da `_impl` | `anon_pode=false` nas 15 assinaturas; `authenticated` preservado nas 14 públicas e `_impl` restrita a `service_role` *(medido 24/08/2026 19:19 UTC)* |
+| **MOEDA A2** | Colunas `codigo_ind_economico` + `valor_cambio`; leitura de `CodigoIndEconomico`/`ValorCambio` nos **6** pontos de escrita (4 gravam, 2 omitem de propósito) | Ver §11 |
+| **MOEDA A3** | Backfill a partir do audit `sync_status` (append-only do B4), **sem uma chamada ao Alvo** | 847 pedidos provados; **0** ainda sem moeda na tabela *(medido 27/08/2026 12:42 UTC)* |
+| **MOEDA A4** | Exibição na moeda original (card, lista, KPIs e os 3 e-mails) com helper único R$/US$/€; KPIs com escopo de moeda declarado | `d1d3d02`, `57b4243`, `7181846`, `a9e7979` |
+| **MOEDA — anti-wipe** | `docs/TESTE-ANTIWIPE-MOEDA.sql` rodado sobre ciclo válido | **W1=W2=W3=0** sobre 847 provados *(27/08/2026 12:31–12:45 UTC)* — ver §11 |
 
 **Frente de sync encerrada em 20/08 e reaberta em 24/08** pela missão de orçamento por
 centro de custo — ver `PLANO-RATEIO-CC-REQUISICOES.md`. Cards **R1.1, R1.2, C3.3 e SEC-1**
@@ -348,6 +352,11 @@ ainda não começou.
 21. **6 pedidos e 38 requisições sem detalhe utilizável em nenhuma fonte local** — sem
     itens relacionais e sem itens aproveitáveis nos jsonb/audits correspondentes
     *(medido 24/08/2026 19:20 UTC)*.
+22. **Hub não declara moeda ao criar pedido** — `pedidosService.ts` manda
+    `CodigoIndEconomico: null` (~625 e ~675); pedido nascido no Hub é implicitamente BRL.
+    Ver §11.5.
+23. **Parcelas sem moeda** — parcela em dólar ainda exibida como real; estender o helper do
+    A4 às parcelas. Ver §11.5.
 
 ---
 
@@ -427,6 +436,92 @@ linha do **A1**, §1.
 `PROMPTS-DISCOVERY-RATEIO-REQ.md` · `PROMPTS-VARREDURA-RATEIO.md` ·
 `AJUSTE-RS-C3.3.md` (as 7 regras de normalização, com evidência e contraexemplo) ·
 `SQL-R1.1-RATEIO-REQUISICOES.md`.
+
+---
+
+## 11. MOEDA-PEDIDOS (26–27/08/2026) — o que o report não tinha
+
+Detalhe completo no `Requisicoes_e_Compras.md` §27.3 a §27.6. Aqui fica o que **corrige** o
+que estava escrito e o que vale como regra geral.
+
+### 11.1 Correções de fato (a documentação estava errada)
+
+1. 🔴 **São 6 pontos de escrita, não 3.** A §27.3 original listava **3, todos no frontend**.
+   Faltavam **os 3 do cron** — o caminho que roda ~10×/dia e reescreve pedido já detalhado.
+   Corrigir só o frontend teria deixado o cron apagando a moeda de hora em hora.
+   **4 gravam:** Load individual, Load em lote, Job 2 (gate `moedaMudou`) e
+   `completarCamposAusentes`. **2 omitem de propósito:** `mapPedido` e Job 1 (descoberta) —
+   ambos vêm do LIST leve. Outros 3 pontos são neutros (anexos, flags de filhos, ramo `!mudou`).
+2. 🔴 **A chave tem que ficar AUSENTE, não valer `null`.** Nos 2 pontos list-based, incluir
+   `codigo_ind_economico: null` apagaria o que o Load gravou. Omitir ≠ zerar. É a §20.1 de novo.
+3. 🔴 **O LIST leve não traz moeda — medido.** Das **606** auditorias `descoberto_alvo`,
+   **zero** têm `CodigoIndEconomico`/`ValorCambio`; das **3.879** `sync_status` (Load),
+   **3.879** têm a chave e **2.525** têm valor *(27/08/2026 12:40 UTC)*.
+4. 🔴 **São 49 pedidos em moeda estrangeira, não 2.** O sintoma foi levantado com 2 cobaias
+   (QOSINA). A população: **39 USD + 10 EUR** *(27/08/2026 12:35 UTC)*.
+5. 🔴 **EUR existe em produção** — 10 pedidos em `0000003`. O de-para previa o código, mas
+   ninguém tinha confirmado uso real. Um `else → R$` teria exibido dez pedidos em euro como
+   reais. O helper precisa dos **três** símbolos.
+6. 🔴 **Não existe PDF de pedido de compra neste repo.** A versão anterior da §27.4 listava
+   PDF entre os pontos a corrigir. O único gerador é `danfseGeneratorService.ts` (DANFS-e de
+   nota de serviço), que não toca `compras_pedidos`. O PDF do pedido, se existe, é do próprio
+   Alvo e está fora do alcance do Hub. **Corrigido na §27.4 do report.**
+
+### 11.2 O bucket sem-moeda é presumido BRL — e o precedente é do ERP
+
+Dos 1.121 pedidos sem moeda, **78 têm `valor_cambio` preenchido, todos exatamente `1`**. E há
+**310** auditorias em que o Alvo devolveu `CodigoIndEconomico` como **JSON `null`** com
+`ValorCambio: "1"` *(27/08/2026 12:38 UTC)*. **"Sem moeda + câmbio 1" é como o Alvo escreve
+"real"** — não é dado faltando.
+
+- ⚠️ **CLEVERBRIDGE GMBH (0004743)** — fornecedor alemão, nome que puxa para o euro, **segue
+  DENTRO do bucket sem-moeda**, presumido BRL com o precedente acima. **Não é exceção nem
+  exclusão.** Registrado porque é o caso que convida ao chute.
+
+### 11.3 Regras novas que valem além desta missão
+
+- **O audit é fonte de backfill — antes de pedir dado ao ERP, ver se a auditoria já o tem.**
+  `compras_pedidos_auditoria` é append-only desde o **B4**, e `sync_status` guarda a resposta
+  do Load inteira. Deu **847 pedidos com moeda provada e zero chamadas novas ao Alvo**; o
+  backfill do A3 saiu daí e **já drenou 100%**. O B4 pagou uma dívida que ninguém tinha
+  cobrado ainda.
+- 🔴 **Ciclo que não rodou não prova nada — todo teste sobre o cron precisa de gate.** Em
+  **27/08 01:41 UTC** uma invocação `manual_admin` fora da janela registrou **150 consultados,
+  `total_mudaram` = 0, `total_erros` = 152** (Alvo devolvendo 404 HTML na autenticação) — e a
+  linha entrou em `sync_runs` normalmente. **O Alvo tem janela noturna; invocação manual fora
+  de 11h–20h UTC devolve lixo.** Por isso o Bloco 6 do teste anti-wipe roda **antes** do
+  Bloco 1: exige `total_erros` baixo **E** `total_mudaram > 0` antes de acreditar em `W = 0`.
+  Mesma família da armadilha "flag de completude que mente" (§39.2 item 9 do report).
+- 🔴 **Não editar em lote arquivo com não-ASCII.** Em 26/08, no A4, um `perl -0pi -e` nos três
+  `notify-pedido-*` transformou **todo `—` em `â`** — inclusive dentro de `return "—"` — e
+  **só pegou 1 dos 3 arquivos**. Teria ido para e-mail de produção lido por quem aprova
+  pedido. Arquivo com `—`, `€`, `US$`, `ç`, `ã` **se edita ponto a ponto**. Detalhe e regra de
+  conferência em `Requisicoes_e_Compras.md` §39.1 item 5.
+
+### 11.4 O veredito do anti-wipe (27/08/2026 12:31–12:45 UTC)
+
+| Sinal | Resultado |
+|---|---|
+| Pedidos com moeda provada no audit | **847** (840 em 26/08 — subiu) |
+| **W1** moeda perdida · **W2** divergente · **W3** câmbio perdido | **0 · 0 · 0** |
+| Ciclos válidos do dia (`pg_cron` 11:00 e 12:00 UTC) | 515/516 consultados, **49 e 46 mudaram**, **0 erros** |
+| Provados reescritos hoje (`synced_at` ≥ 11:00) | **118** — nenhum perdeu moeda ou câmbio |
+| Destes, com `updated_at` avançado (mudança real) | **19** — também sobreviveram |
+
+O teste pegou o dia de maior reescrita da semana (26/08 mudava 2 a 12 por ciclo). Cobaias
+0004564/0004568 tocados às 11:00 e 12:00, seguem `0000002` com câmbio 5.1211 e 5.0733.
+**Card fechado.**
+
+### 11.5 Residuais registrados (não bloqueiam o fechamento)
+
+1. **O Hub não declara moeda ao criar pedido.** As 134 auditorias `envio_sucesso` têm as
+   chaves `CodigoIndEconomico`/`ValorCambio` mas **nenhuma com valor** — `pedidosService.ts`
+   manda `CodigoIndEconomico: null` (~625 e ~675). Pedido nascido no Hub é sempre
+   implicitamente BRL. Não é regressão (sempre foi assim), mas o ciclo fecha pela metade: o
+   Hub lê moeda do Alvo e não escreve. Card próprio quando houver pedido estrangeiro criado
+   no Hub.
+2. **Parcelas sem moeda** — herda a lacuna; parcela em dólar ainda exibida como real. Estender
+   o helper às parcelas (report §29.10 item 1).
 
 ---
 
