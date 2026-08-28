@@ -1,7 +1,9 @@
 -- =====================================================================
 -- RLS de public.profiles — DIAGNÓSTICO E PROPOSTA
--- Preparado em 28/08/2026.  ⛔ **NÃO EXECUTAR AINDA** — o Pedro pediu para ver
--- a policy proposta ANTES de qualquer implementação. Este arquivo é a proposta.
+-- Preparado em 28/08/2026. Proposta para o Pedro aprovar e rodar.
+-- ✅ **As duas perguntas de bloqueio foram medidas e deram ZERO** (§2-A):
+--    nenhuma escalada e nenhum `alvo_usuario` alheio. ⇒ aplicar como MANUTENÇÃO,
+--    não como resposta a incidente.
 -- =====================================================================
 --
 -- ═══════════════════════════════════════════════════════════════════
@@ -66,7 +68,56 @@
 --    §14.4 na fila, como o Pedro decidiu.
 --
 -- ═══════════════════════════════════════════════════════════════════
--- 3. O QUE PRECISA CONTINUAR FUNCIONANDO (levantado no código, não presumido)
+-- 2-A. ALGUÉM JÁ EXPLOROU?  ✅ NENHUM SINAL — É MANUTENÇÃO, NÃO INCIDENTE
+--      (medido 28/08/2026 17:3x–17:41 UTC, leitura)
+-- ═══════════════════════════════════════════════════════════════════
+--
+-- (a) ESCALADA PARA ADMIN — nenhuma.
+--
+--   | Perfis com is_admin = true                     |                     **1** |
+--   | Quem                                           | pedro.scrignoli@pfbrazil.com |
+--   | `updated_at` desse perfil                      |  **24/03/2026** (5 meses) |
+--   | `created_at`                                   |            25/02/2026     |
+--
+--   É o perfil mais antigo da tabela e não é tocado desde março — anterior a toda a
+--   operação de Suprimentos deste ano. **Nenhum outro perfil é admin.**
+--
+-- (b) `alvo_usuario` DE PERFIL ALHEIO — nenhum. São **5** perfis com o campo, e os 5
+--     correspondem ao dono:
+--
+--   | e-mail                | alvo_usuario       | confere? |
+--   |-----------------------|--------------------|----------|
+--   | pedro.scrignoli@      | PEDRO.SCRIGNOLI    | ✅ |
+--   | ana.sanches@          | ANA.SANCHES        | ✅ |
+--   | mirlene.oliveira@     | MIRLENE.OLIVEIRA   | ✅ |
+--   | elisangela.silva@     | ELISANGELA.SILVA   | ✅ |
+--   | ryan.santos@          | **RYAN.PAGANOTTO** | ✅ — divergência **documentada**, não forjada: o `PLANO-PROJETOS` §A-9 registra exatamente este caso ("funcionário 0000063, nome ryan.santos, login RYAN.PAGANOTTO"), e o `funcionario_alvo_codigo` 0000063 bate |
+--
+--   Nenhum valor repetido entre pessoas. Nenhum perfil carregando login de outro.
+--
+-- (c) VERIFICAÇÃO DE **TRAJETÓRIA**, não só de estado — se alguém tivesse escalado,
+--     provavelmente teria FEITO algo com o privilégio:
+--
+--   | Sinal                                              | Medido |
+--   |----------------------------------------------------|--------|
+--   | `compras_lideres_cc.atribuido_por` (só admin atribui) | só **pedro.scrignoli** e null |
+--   | `user_permissions`                                  | **0 linhas** na tabela inteira |
+--   | Perfis com `updated_at` nos últimos 120 dias        | 56, todos `is_admin = false`, e as edições batem com cadastro de funcionário/nome |
+--
+-- 🔴 **O QUE NÃO DÁ PARA PROVAR, e é parte do próprio achado:**
+--    · `track_commit_timestamp` está **OFF** ⇒ não existe timestamp de commit por
+--      linha. Não há como datar a última alteração de forma independente.
+--    · **Não existe tabela de auditoria de `profiles`** (é o item 2 da Fase 2).
+--    · `updated_at` é reescrito por qualquer update — não diz QUAL coluna mudou.
+--    ⇒ Posso afirmar que **o estado de hoje está limpo e não há sinal em nenhuma das
+--      fontes disponíveis**. NÃO posso afirmar que ninguém escalou e reverteu: essa
+--      pergunta é **infalsificável com os dados que existem**, e é exatamente por
+--      isso que a auditoria da Fase 2 importa.
+--
+-- ⇒ **Encaminhamento: aplicar como MANUTENÇÃO.** Nada aqui caracteriza incidente.
+--
+-- ═══════════════════════════════════════════════════════════════════
+-- 2-B. O QUE PRECISA CONTINUAR FUNCIONANDO (levantado no código, não presumido)
 -- ═══════════════════════════════════════════════════════════════════
 --
 -- LEITURA — `authenticated` lê perfis de OUTRAS pessoas em 7 pontos, sempre para
@@ -110,7 +161,7 @@
 --    escrita do admin saísse da tabela e fosse para RPC (Fase 2).
 --
 -- ═══════════════════════════════════════════════════════════════════
--- 4. A PROPOSTA — FASE 1: fecha o furo HOJE, com ZERO mudança de código
+-- 3. A PROPOSTA — FASE 1: fecha o furo HOJE, com ZERO mudança de código
 -- ═══════════════════════════════════════════════════════════════════
 --
 -- Ideia: o usuário comum continua podendo escrever a PRÓPRIA linha, mas as colunas
@@ -206,8 +257,8 @@ revoke execute on function public._profile_self_congelado() from anon;
 -- 2.2 — Fora a policy única e permissiva.
 drop policy if exists "Allow all for authenticated on profiles" on public.profiles;
 
--- 2.3 — LEITURA: continua aberta a authenticated. Ver §3: 6 telas resolvem nome
---       por user_id. Fechar isto é outro card e não é o furo.
+-- 2.3 — LEITURA: continua aberta a authenticated. Ver §2-B: 6 telas resolvem nome
+--       por user_id (§2-B). Fechar isto é outro card e não é o furo.
 drop policy if exists profiles_select_authenticated on public.profiles;
 create policy profiles_select_authenticated
   on public.profiles for select to authenticated
@@ -322,7 +373,7 @@ rollback;
 
 
 -- ═══════════════════════════════════════════════════════════════════
--- 5. FASE 2 — o que a Fase 1 NÃO resolve (card próprio, exige código)
+-- 4. FASE 2 — o que a Fase 1 NÃO resolve (card próprio, exige código)
 -- ═══════════════════════════════════════════════════════════════════
 --
 -- A Fase 1 fecha a escalada e a identidade forjada sem tocar em código, mas deixa
@@ -345,7 +396,7 @@ rollback;
 --    nunca aparece para ele.
 --
 -- ═══════════════════════════════════════════════════════════════════
--- 6. ROLLBACK — NÃO EXECUTAR. Só para guardar.
+-- 5. ROLLBACK — NÃO EXECUTAR. Só para guardar.
 -- ═══════════════════════════════════════════════════════════════════
 -- begin;
 -- drop policy if exists profiles_select_authenticated on public.profiles;

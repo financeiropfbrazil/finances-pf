@@ -585,6 +585,42 @@ ainda não começou.
 
 ---
 
+### 🔴 REGRA — RECORTE POR ESTADO ATUAL MISTURA POPULAÇÕES. EXIJA A TRAJETÓRIA.
+
+*Registrada em 28/08/2026 pelo Pedro, depois de a mesma falha aparecer **três vezes em dois
+dias**, em três cards que não se conversam.*
+
+> **Um `WHERE` sobre o estado de hoje responde "quem está aqui", não "quem chegou aqui pelo
+> caminho que estou investigando". São perguntas diferentes, e a segunda é quase sempre a que
+> importa.** Toda contagem que vira achado precisa do filtro de **trajetória** — um `EXISTS`
+> sobre o histórico —, não só do filtro de estado.
+
+**As três ocorrências, para o padrão ficar reconhecível:**
+
+| Card | Recorte por ESTADO | Filtro de TRAJETÓRIA que faltava | Resultado |
+|---|---|---|---|
+| **§7.28-B (H)** | `Aberto` + flag "Não" + `Nenhum` → **25 pedidos, R$ 685.119,43** | "**leu 'Sim' alguma vez**" (`EXISTS` na auditoria) + "reverteu há mais de 7 dias" | **3 pedidos, R$ 1.170,00**. Os outros 15 nunca foram enviados — estado normal — e 7 estão dentro da janela em que 24/24 voltam sozinhas |
+| **§14.3 (G)** | "sem parcela local" → **902** | "**tem parcela no Load do Alvo**" + "não é terminal" | **237 acionáveis**. Os 665 terminais chegaram ao estado por não mudarem mais, não por falha de espelhamento |
+| **§14.1 (tipo)** | `tipo = 'Misto'` → **9** | "**tem os dois valores > 0**" | **1 genuíno**. Os 8 falsos eram ambos-zero varridos para Misto pela regra antiga |
+
+**O que os três têm em comum:** o estado final é o mesmo para causas diferentes. "Está em Não"
+serve tanto para *revertido* quanto para *nunca enviado*; "sem parcela" serve tanto para
+*congelado* quanto para *encerrado*; "Misto" serve tanto para *tem os dois* quanto para *não tem
+nenhum*. **Quem lê a contagem assume a causa que está investigando — e é aí que o número infla.**
+
+**Como aplicar, na prática:**
+1. Antes de citar uma contagem como achado, escreva a frase inteira: *"N documentos que
+   **chegaram** a este estado **por causa de** X"*. Se o `WHERE` não tem uma cláusula que
+   corresponda ao "por causa de", o N está inflado.
+2. Prefira `EXISTS (select 1 from <auditoria> ...)` a `<coluna> = <valor>`. O histórico é o que
+   distingue trajetória; o estado, não.
+3. Estado transiente exige **corte de tempo**. Se o fenômeno se reverte sozinho (mediana de 18h,
+   no caso do H), "está em X agora" inclui quem vai sair de X hoje à tarde.
+4. **Isto é a mesma disciplina de "normalizar por exposição", aplicada ao numerador em vez do
+   denominador** — e por isso as duas andam juntas.
+
+---
+
 ## 9. Frente ativa de orçamento por CC e saldo do plano v1.1
 
 `PLANO-RATEIO-CC-REQUISICOES.md` é a frente ativa. As decisões R1–R10 estão na §0 daquele
@@ -1236,7 +1272,43 @@ O insert do ramo de **INSERT** do Job 4 usa `evento: "descoberta_alvo"`, **tamb�
 
 ⇒ **Toda requisição nova vinda do Alvo entra no Hub sem linha de origem, e o ciclo conta como
 sucesso.** Não é "armadilha adormecida" como o §14.2-A descrevia o caso do Job 1: **está disparando
-desde maio**, em 100% das descobertas.
+desde 26/05/2026 — três meses**, em 100% das descobertas.
+
+#### A consequência é de AUDITORIA, não de dado — medido, com três ressalvas
+
+**O dado das 69 está íntegro.** O `INSERT` em `compras_requisicoes` **funcionou**; só a linha de
+auditoria seguinte foi rejeitada. Conferido em 28/08/2026:
+
+| Das 69 requisições sem nenhuma auditoria | |
+|---|---:|
+| com `numero_alvo` | **69 / 69** |
+| com `codigo_centro_ctrl` | **69 / 69** |
+| com `codigo_funcionario` | **69 / 69** |
+| com itens relacionais | 60 / 69 |
+| status presentes | `sincronizada`, `convertida_pedido`, `cancelada` — todos coerentes |
+| janela | 25/05/2026 a 24/08/2026 |
+
+*(`total_itens` está preenchido em só 2 de 69, mas essa coluna vem do wizard do Hub e requisição
+descoberta no Alvo nunca passa por ele — não é perda causada por este defeito.)*
+
+**E nada funcional lê a tabela.** Único leitor em todo o repositório:
+`SuprimentosRequisicaoDetalhe.tsx:227` — a aba de histórico da tela. Zero RPCs, zero crons, zero
+lógica de negócio. `grep` conferido.
+
+**As três ressalvas, porque "só auditoria" não é "sem consequência":**
+1. **A tela mente por omissão.** Para essas 69, a aba de histórico aparece **vazia** — e uma
+   requisição sem nenhum evento parece uma requisição que nunca foi tocada.
+2. **`sync_runs.total_mudaram` contou sucesso.** A métrica do ciclo está inflada desde maio em
+   todas as descobertas. Não é dado de requisição; é a métrica com que se julga a saúde do cron.
+3. 🔴 **A pior consequência já se materializou, e foi aqui.** Foi exatamente essa cegueira que fez
+   a investigação do §14.2 durar dois dias e fechar com **três suspeitos errados** — escrita
+   manual no SQL Editor, outro cliente com `service_role`, caminho de código removido. **A
+   auditoria é o instrumento com que se investiga; perdê-la não corrompe o dado, corrompe a
+   capacidade de explicar o dado.** E o `resposta_alvo` daquele momento — o único registro do que
+   o Alvo dizia na descoberta — não existe mais e não é recuperável.
+
+⇒ **Encaminhamento: rodar o SQL da defesa (a) impede a 70ª. As 69 ficam sem histórico, e isso é
+aceito** — reconstruir exigiria uma resposta do ERP que ninguém guardou.
 
 🔴 **O contraste que fecha o diagnóstico:** `compras_pedidos_auditoria` **não tem CHECK nenhum**, e
 por isso o `descoberto_alvo` do lado dos **pedidos** tem centenas de linhas gravadas. O defeito é

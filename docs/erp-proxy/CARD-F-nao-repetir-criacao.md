@@ -155,6 +155,24 @@ outros três** e, sozinho, **não muda comportamento nenhum**.
 
 **Se for aplicar um só:** aplique **0 + 1**. É a maior superfície e a que o card original não via.
 
+### ⛔ LIMITAÇÃO CONHECIDA DOS QUATRO PATCHES — leia antes de dar o card por fechado
+
+**`ReqMat/SaveReqMat` NÃO é coberto por nenhum dos patches, e continua sendo repetido em
+401/403/409 depois de todos eles aplicados.** Não é esquecimento: a `action` desse endpoint vai
+**no BODY** (`{Action:"Insert"|"Update"}`), então `endpoint.split("?")[0]` devolve
+`ReqMat/SaveReqMat` para os dois casos e **não há chave que os separe**.
+
+Consequências práticas, para ninguém achar que está coberto:
+- Depois dos patches, **criar Ordem de Produção continua com retry**. O que o Hub documenta sobre
+  isso (`src/services/alvoReqMatSaveService.ts`): *"Quando o Insert passa e o Update falha, a RM
+  existe no ERP e está morta — e o reflexo do operador ('não funcionou, vou de novo') DUPLICARIA
+  a RM."*
+- A verificação de log do §10 **não detecta**: como a action não está na query, ele nunca apareceu
+  como `action=Insert`. Um log limpo de `action=Insert` **não significa** que o `SaveReqMat` parou
+  de repetir.
+- Fechar exige uma decisão (§8) e, na opção mais completa, uma mudança maior no `alvo-client`
+  (levar a `action` do body para a chave). **Card próprio.**
+
 ---
 
 ## 4. PATCH 0 — pré-requisito · `naoRepetir()` nas duas funções
