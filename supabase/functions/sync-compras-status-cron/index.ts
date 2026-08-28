@@ -655,7 +655,18 @@ async function syncDescobrirRequisicoes(
               ? "cancelada_alvo"
               : "sync_status";
 
-        await supabase.from("compras_requisicoes_auditoria").insert({
+        // 🔴 ESTE é o ramo que já disparou — não o do Job 1. `sync_status` NÃO está
+        // no CHECK `compras_requisicoes_auditoria_evento_check` (15 valores,
+        // conferido em 28/08/2026), e aqui ele é ALCANÇÁVEL: `reaberturaConfirmada`
+        // libera o rebaixamento `convertida_pedido` → `sincronizada`, o UPDATE acima
+        // grava o status E zera `numero_pedido_compra_alvo`, e sem esta checagem o
+        // insert era rejeitado em silêncio (o supabase-js devolve `{data, error}`)
+        // com o `total_mudaram++` reportando sucesso por cima.
+        // É a assinatura exata das 6 requisições do §14.2 — 5 sem vínculo (zerado
+        // aqui) e a 0001215 com vínculo, porque o Job 2 e o Job 3 re-vinculam quando
+        // o campo está null. A tabela "Escritores eliminados" daquele card olhou só o
+        // filtro do Job 1 (`:995`) e nunca examinou este job.
+        const { error: errAudit } = await supabase.from("compras_requisicoes_auditoria").insert({
           requisicao_id: existing.id,
           evento: eventoAudit,
           user_id: null,
@@ -663,6 +674,27 @@ async function syncDescobrirRequisicoes(
           sucesso: true,
           resposta_alvo: req,
         });
+
+        if (errAudit) {
+          result.total_erros++;
+          result.detalhes.push({
+            tipo: "req",
+            id: existing.id,
+            numero_alvo: req.Numero,
+            erro:
+              `auditoria NÃO gravada (evento '${eventoAudit}'): ${errAudit.message}. ` +
+              `O status já foi gravado como '${statusLocal}' (era '${existing.status}')` +
+              `${reaberturaConfirmada ? " e o vínculo com o pedido foi zerado" : ""} — ` +
+              `escrita sem rastro. Este ciclo NÃO conta como mudança.`,
+          });
+          console.error(
+            `[descobrir-req] ${req.Numero}: status ${existing.status} → ${statusLocal} gravado, ` +
+              `mas a auditoria '${eventoAudit}' foi rejeitada:`,
+            errAudit,
+          );
+          if (req.Numero > maiorNumeroVisto) maiorNumeroVisto = req.Numero;
+          continue;
+        }
 
         result.total_mudaram++;
         result.detalhes.push({
@@ -715,7 +747,16 @@ async function syncDescobrirRequisicoes(
         .single();
 
       if (reqRow?.id) {
-        await supabase.from("compras_requisicoes_auditoria").insert({
+        // 🔴 `descoberta_alvo` também NÃO está no CHECK — este insert falha em
+        // 100% das vezes desde que nasceu (26/05/2026, `0081425`). Medido em
+        // 28/08/2026: ZERO linhas com esse evento, e 69 requisições sem NENHUMA
+        // auditoria, todas com `requisitante_user_id` null, isto é, todas nascidas
+        // aqui. Toda requisição nova descoberta no Alvo entrava no Hub sem linha de
+        // origem, e o ciclo contava como sucesso.
+        // ⚠️ Ao contrário do ramo de UPDATE acima, aqui o `total_mudaram++` É
+        // mantido: a linha nova em `compras_requisicoes` é, ela própria, o rastro da
+        // descoberta. O que se perde é a resposta do Alvo, não o fato.
+        const { error: errAuditIns } = await supabase.from("compras_requisicoes_auditoria").insert({
           requisicao_id: reqRow.id,
           evento: "descoberta_alvo",
           user_id: null,
@@ -723,6 +764,19 @@ async function syncDescobrirRequisicoes(
           sucesso: true,
           resposta_alvo: req,
         });
+
+        if (errAuditIns) {
+          result.total_erros++;
+          result.detalhes.push({
+            tipo: "req",
+            id: reqRow.id,
+            numero_alvo: req.Numero,
+            erro:
+              `auditoria de descoberta NÃO gravada (evento 'descoberta_alvo'): ${errAuditIns.message}. ` +
+              `A requisição FOI criada no Hub; o que se perdeu foi a resposta do Alvo.`,
+          });
+          console.error(`[descobrir-req] ${req.Numero}: auditoria 'descoberta_alvo' rejeitada:`, errAuditIns);
+        }
       }
 
       if (req.Numero > maiorNumeroVisto) {
@@ -1118,20 +1172,31 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
 
       // 🔴 O `error` DEVE ser conferido: o supabase-js devolve `{data, error}` em vez
       // de lançar, então um insert rejeitado passa despercebido. E o status já foi
-      // gravado logo acima (`:1085`) — descartar a rejeição aqui produz exatamente o
-      // padrão do §14.2: mudança de status SEM linha de auditoria, com o
+      // gravado no `upsert` logo acima — descartar a rejeição aqui produz exatamente
+      // o padrão do §14.2: mudança de status SEM linha de auditoria, com o
       // `total_mudaram++` da linha seguinte reportando sucesso ao `sync_runs`.
       //
-      // A armadilha é concreta e tem nome: `eventoAudit` vale `"sync_status"` no ramo
+      // A armadilha tem nome: `eventoAudit` vale `"sync_status"` no ramo
       // `sincronizada`, e `sync_status` NÃO está no CHECK
       // `compras_requisicoes_auditoria_evento_check` (15 valores, nenhum é esse —
-      // conferido em 28/08/2026). Hoje o ramo é inalcançável porque a fila só traz
-      // requisições já em `sincronizada` (`:970`) e o mapper devolve `sincronizada`,
-      // caindo no `if (novoStatus === req.status)` acima. Mudar o filtro da fila
-      // acorda o defeito. Esta é a defesa (b) do §14.2-A; a defesa (a) — alinhar o
-      // CHECK ao código — é DDL e vive fora daqui. Elas são complementares: (a)
-      // conserta este valor, (b) conserta a CLASSE (qualquer evento futuro fora do
-      // CHECK).
+      // conferido em 28/08/2026).
+      //
+      // ⚠️ NESTE job (Job 1) o ramo é inalcançável: a fila é
+      // `.eq("status", "sincronizada")` e o mapper (`mapReqAlvoToHub`) só devolve
+      // `convertida_pedido`, `cancelada` ou `sincronizada` — a última cai no
+      // `if (novoStatus === req.status)` acima, e as outras duas SÃO válidas no
+      // CHECK. Aqui a checagem só dispara por falha de infra (RLS, rede, FK).
+      // 🔴 **O gêmeo que JÁ disparou está no Job 4** (`syncDescobrirRequisicoes`,
+      // ramo de reabertura), e é ele que explica as 6 requisições do §14.2. Se
+      // mexer nesta checagem, mexa lá também.
+      //
+      // Esta é a defesa (b) do §14.2-A; a defesa (a) — pôr `sync_status` e
+      // `descoberta_alvo` no CHECK — é DDL e vive em
+      // `docs/SQL-14.2A-check-sync-status.sql`. São complementares.
+      //
+      // ⚠️ O `continue` abaixo tira a requisição do ciclo, mas o status já gravado
+      // NÃO satisfaz mais o filtro da fila — ela não volta sozinha. A auditoria
+      // perdida só se recupera à mão.
       const { error: errAudit } = await supabase.from("compras_requisicoes_auditoria").insert({
         requisicao_id: req.id,
         evento: eventoAudit,
@@ -1150,7 +1215,8 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
           erro:
             `auditoria NÃO gravada (evento '${eventoAudit}'): ${errAudit.message}. ` +
             `O status já foi gravado como '${novoStatus}' (era '${req.status}') — ` +
-            `escrita sem rastro. Este ciclo NÃO conta como mudança.`,
+            `escrita sem rastro. Este ciclo NÃO conta como mudança, e a requisição ` +
+            `sai da fila deste job — a auditoria perdida NÃO volta sozinha.`,
         });
         console.error(
           `[sync-req] ${req.numero_alvo}: status ${req.status} → ${novoStatus} gravado, ` +
@@ -2476,7 +2542,7 @@ async function syncPedidos(
 // Marcador de versão — anti deploy-fantasma. Aparece no log de CADA
 // invocação. Se após o deploy o log não mostrar esta string, a versão
 // nova NÃO está no ar (o deploy silenciosamente não subiu).
-const BUILD_TAG = "REQ-AUDITORIA-CHECA-ERRO (2026-08-28)";
+const BUILD_TAG = "REQ-AUDITORIA-CHECA-ERRO-v2-JOB4 (2026-08-28)";
 
 Deno.serve(async (req: Request) => {
   const startTime = Date.now();
