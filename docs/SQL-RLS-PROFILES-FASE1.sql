@@ -63,39 +63,44 @@
 --    O Pedro tem bypass e erro de permissão nunca aparece para ele.
 --
 -- =====================================================================
--- ORDEM DE EXECUÇÃO:  0 → 1 → 2 → 3 → 4 → 6 → 7 → 8 → 9 → **5** → 10
--- Um comando por bloco. Confira a saída de cada um antes do seguinte.
+-- COMO EXECUTAR — SEIS PASTES
 --
--- 🔴 O DROP DA POLICY PERMISSIVA (BLOCO 5) É O PENÚLTIMO, NÃO O TERCEIRO.
---    Correção do Pedro em 28/08/2026, e ela evita uma INDISPONIBILIDADE que a
---    primeira versão deste arquivo teria causado:
+-- ORDEM:  PASTE 1 → PASTE 2 → **PASTE 6 (controle)** → PASTE 3 → PASTE 4 →
+--         PASTE 5 → **PASTE 6 (aceite)**
 --
---    Dropar a permissiva ANTES de criar as novas deixa `profiles` com **RLS ligado e
---    ZERO policies** para `authenticated`. RLS sem policy **nega tudo** — inclusive o
---    SELECT que o `AuthContext` faz no primeiro render. Entre um bloco e o seguinte,
---    executados à mão, essa janela é de segundos a minutos, e nela **o Hub inteiro
---    para para todo mundo**.
+-- 🔴 O PASTE 6 RODA DUAS VEZES, e é o que separa "a policy funciona" de "o teste
+--    não testa nada":
+--      · ANTES do PASTE 3  → (i) e (ii) TÊM de afetar **1 linha** cada. É o
+--        CONTROLE: prova que o teste tem dentes. Se já der 0 aqui, o teste está
+--        medindo outra coisa e o resultado de depois não vale.
+--      · DEPOIS do PASTE 3 → (i) e (ii) TÊM de afetar **0 linhas**.
+--    Tudo em BEGIN/ROLLBACK, então rodar duas vezes não custa nada.
 --
---    Criando as novas PRIMEIRO não há janela: policies permissivas são **OR-adas**,
---    então durante a sobreposição vale `true OR (as novas)` = `true`, isto é, o
---    comportamento de hoje, sem alteração nenhuma.
---
---    ⇒ **A mudança inteira é INERTE até o BLOCO 5.** Ele é a chave, e é atômico (um
---      único DDL). Parar antes dele deixa o banco exatamente na postura de hoje; o
---      rollback, nesse ponto, é só não continuar. Depois dele, é o R5.
+-- 🔴 O DROP DA POLICY PERMISSIVA É O PASTE 3, NÃO O PRIMEIRO PASSO.
+--    Correção do Pedro em 28/08/2026, e evita uma indisponibilidade que a primeira
+--    versão deste arquivo teria causado: dropar a permissiva ANTES de criar as novas
+--    deixa `profiles` com RLS ligado e ZERO policies para `authenticated`. RLS sem
+--    policy NEGA TUDO — inclusive o SELECT que o `AuthContext` faz no primeiro
+--    render. Entre um paste e o seguinte, isso é o Hub parado para todo mundo.
+--    Criando as novas primeiro não há janela: policies permissivas são OR-adas, e
+--    durante a sobreposição vale `true OR (as novas)` = `true`.
+--    ⇒ **A mudança é INERTE até o PASTE 3.** Ele é a chave, e é atômico.
+--       Parar antes dele deixa o banco na postura de hoje.
 -- =====================================================================
 
 
--- ██ BLOCO 0 — PRÉ-VOO ████████████████████████████████████████████████
+-- ═══════════════════════════════════════════════════════════════════════
+-- ██ PASTE 1 — PRÉ-VOO E ESTADO ATUAL (blocos 0, 1, 2) · SÓ LEITURA
+-- Guarde as saídas de 1.2 e 1.3: são o rollback.
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- 1.1 — pré-voo
 select current_database()                                   as db,
        (select count(*) from public.compras_pedidos)         as fp_pedidos,
        (select count(*) from public.profiles)                as fp_profiles,
        (select count(*) from public.profiles where is_admin) as fp_admins;
--- Esperado: fp_profiles = 57, fp_admins = 1.
--- 🔴 fp_admins > 1 ⇒ PARE. Alguém pode ter escalado entre a medição e agora.
 
-
--- ██ BLOCO 1 — ESTADO ATUAL: policies. GUARDE A SAÍDA (é o rollback) █████
+-- 1.2 — policies de hoje  ⟵ GUARDE
 select pol.polname,
        case pol.polcmd when 'r' then 'SELECT' when 'a' then 'INSERT' when 'w' then 'UPDATE'
             when 'd' then 'DELETE' when '*' then 'ALL' end as cmd,
@@ -104,27 +109,36 @@ select pol.polname,
        pg_get_expr(pol.polwithcheck, pol.polrelid) as check_expr
 from pg_policy pol
 where pol.polrelid = 'public.profiles'::regclass;
--- Esperado: 1 linha — "Allow all for authenticated on profiles", ALL, true, true.
 
-
--- ██ BLOCO 2 — ESTADO ATUAL: grants. GUARDE A SAÍDA ██████████████████████
+-- 1.3 — grants de hoje  ⟵ GUARDE
 select grantee, string_agg(privilege_type, ',' order by privilege_type) as privs
 from information_schema.role_table_grants
 where table_schema = 'public' and table_name = 'profiles'
 group by grantee
 order by grantee;
--- Esperado: anon e authenticated com SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER;
--- service_role idem; klaus_readonly só SELECT.
+
+-- 1.4 — RLS está mesmo ligado, e NÃO é forçado para o owner
+select c.relrowsecurity as rls_ligado, c.relforcerowsecurity as rls_forcado
+from pg_class c where c.oid = 'public.profiles'::regclass;
 
 
--- ██ BLOCO 3 — APPLY · a função que congela as colunas sensíveis ████████
--- Compara a linha PROPOSTA com a linha ATUAL de auth.uid(), coluna a coluna.
--- SECURITY DEFINER para não recursar no RLS de `profiles` — mesmo padrão do
--- `_is_admin()`, que já faz isso e está em produção.
+-- ═══════════════════════════════════════════════════════════════════════
+-- ██ PASTE 2 — OS INERTES (blocos 3, 4, 6, 7, 8, 9)
+-- Nada muda de comportamento: a policy permissiva antiga continua no lugar e
+-- policies permissivas são OR-adas, então vale `true OR (as novas)` = `true`.
+--
+-- 🔴 EM TRANSAÇÃO ÚNICA de propósito. O CLAUDE.md registra que lote colado no SQL
+--    Editor já falhou em SILÊNCIO neste projeto (14 revokes, zero efeito, sem
+--    mensagem). Com begin/commit é tudo-ou-nada, e o SELECT final delata: se não
+--    vierem 4 policies e a função, NÃO siga para o PASTE 3.
+-- Idempotente: pode rodar de novo sem efeito diferente.
+-- ═══════════════════════════════════════════════════════════════════════
+begin;
+
+-- 3 — a função que congela as colunas sensíveis.
 -- STABLE de propósito: num UPDATE, função STABLE enxerga o snapshot do início do
--- comando, ou seja, a linha ANTIGA. É disso que a comparação depende.
--- ⚠️ Regra 7 do PLANO-PROJETOS: `create or replace` NÃO preserva SECURITY DEFINER
---    nem search_path — os dois estão redeclarados.
+-- comando (a linha ANTIGA). SECURITY DEFINER para não recursar no RLS, mesmo
+-- padrão do _is_admin(). `create or replace` NÃO preserva os dois — redeclarados.
 create or replace function public._profile_self_intacto(
   p_user_id                 uuid,
   p_id                      uuid,
@@ -153,38 +167,27 @@ as $$
   );
 $$;
 
+-- 4 — função nova em public nasce com EXECUTE concedido NOMINALMENTE a anon
+-- (ALTER DEFAULT PRIVILEGES do Supabase). Revogar de PUBLIC não alcança.
+revoke execute on function
+  public._profile_self_intacto(uuid, uuid, boolean, boolean, text, text, text)
+  from anon;
 
--- ██ BLOCO 4 — APPLY · fechar a função para anon ████████████████████████
--- 🔴 Toda função nova em `public` nasce com EXECUTE concedido NOMINALMENTE a `anon`
---    (ALTER DEFAULT PRIVILEGES do Supabase). Revogar de PUBLIC não alcança grant
---    nominal — CLAUDE.md. Exige a assinatura completa.
-revoke execute on function public._profile_self_intacto(uuid, uuid, boolean, boolean, text, text, text) from anon;
-
-
--- ██ BLOCO 5 — APPLY · remover a policy permissiva ██████████████████████
--- 🔴 **RODE ESTE POR ÚLTIMO, DEPOIS DO BLOCO 9.** É a chave que liga a mudança:
---    até aqui o `true/true` da policy antiga é OR-ado com as novas e nada mudou.
---    Rodar antes das novas deixaria `profiles` com RLS ligado e zero policies —
---    nega tudo, derruba o Hub para todos. Ver o cabeçalho de ORDEM DE EXECUÇÃO.
-drop policy if exists "Allow all for authenticated on profiles" on public.profiles;
-
-
--- ██ BLOCO 6 — APPLY · LEITURA (segue aberta a authenticated) ████████████
--- É o que mantém as 6 telas que resolvem nome por user_id funcionando.
+-- 6 — LEITURA: é o que mantém as 6 telas que resolvem nome por user_id
+drop policy if exists profiles_select_authenticated on public.profiles;
 create policy profiles_select_authenticated
   on public.profiles for select to authenticated
   using (true);
 
-
--- ██ BLOCO 7 — APPLY · ESCRITA DO ADMIN (sem restrição) █████████████████
--- Cobre as duas telas de settings/Users e o DELETE. Rede de segurança do Pedro.
+-- 7 — ESCRITA DO ADMIN: sem restrição. Cobre settings/Users e o DELETE.
+drop policy if exists profiles_escrita_admin on public.profiles;
 create policy profiles_escrita_admin
   on public.profiles for all to authenticated
   using (public._is_admin())
   with check (public._is_admin());
 
-
--- ██ BLOCO 8 — APPLY · AUTOSSERVIÇO: UPDATE da própria linha ████████████
+-- 8 — AUTOSSERVIÇO: UPDATE da própria linha, colunas sensíveis congeladas
+drop policy if exists profiles_self_update on public.profiles;
 create policy profiles_self_update
   on public.profiles for update to authenticated
   using (user_id = auth.uid())
@@ -193,13 +196,11 @@ create policy profiles_self_update
                                  funcionario_alvo_codigo, alvo_usuario)
   );
 
-
--- ██ BLOCO 9 — APPLY · AUTOSSERVIÇO: INSERT (existe por causa do .upsert) █
--- 🔴 `.upsert()` avalia SEMPRE a WITH CHECK do INSERT, mesmo virando UPDATE — é o
---    bug 42501 documentado no PLANO-PROJETOS §7. Sem esta policy, os 3 pontos de
---    escrita do frontend quebram.
---    Linha nova por usuário comum continua bloqueada: com o perfil inexistente a
---    função devolve FALSE (verificado: "zero linhas → false").
+-- 9 — AUTOSSERVIÇO: INSERT. Existe porque .upsert() avalia SEMPRE a WITH CHECK do
+-- INSERT, mesmo virando UPDATE (bug 42501, PLANO-PROJETOS §7). Sem ela os 3 pontos
+-- de escrita do frontend quebram. Linha nova por usuário comum segue bloqueada:
+-- com perfil inexistente a função devolve FALSE (verificado: zero linhas → false).
+drop policy if exists profiles_self_insert on public.profiles;
 create policy profiles_self_insert
   on public.profiles for insert to authenticated
   with check (
@@ -207,34 +208,40 @@ create policy profiles_self_insert
                                  funcionario_alvo_codigo, alvo_usuario)
   );
 
+commit;
 
--- ██ BLOCO 10 — APPLY · recarregar o schema cache ███████████████████████
+-- Delator do lote silencioso — TEM de vir 5 / true / false / 1
+select (select count(*) from pg_policy where polrelid='public.profiles'::regclass)      as policies_agora,
+       (select p.prosecdef from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+         where n.nspname='public' and p.proname='_profile_self_intacto')                as func_security_definer,
+       (select has_function_privilege('anon', p.oid, 'EXECUTE') from pg_proc p
+         join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='_profile_self_intacto')                 as func_anon_pode,
+       (select count(*) from pg_policy where polrelid='public.profiles'::regclass
+          and polname = 'Allow all for authenticated on profiles')                      as permissiva_ainda_no_lugar;
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ██ PASTE 3 — O PONTO DE NÃO-RETORNO (bloco 5), sozinho
+-- Até aqui NADA mudou. Este DDL é a chave, e é atômico.
+-- Se algo der errado depois: R5 do rollback recria a permissiva na hora.
+-- ═══════════════════════════════════════════════════════════════════════
+drop policy if exists "Allow all for authenticated on profiles" on public.profiles;
+
+-- TEM de vir 4 / 0
+select count(*)                                                              as policies_agora,
+       count(*) filter (where polname = 'Allow all for authenticated on profiles') as permissiva_restante
+from pg_policy where polrelid = 'public.profiles'::regclass;
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ██ PASTE 4 — bloco 10 + V1 + V2
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- 10 — recarregar o schema cache do PostgREST
 notify pgrst, 'reload schema';
 
-
--- =====================================================================
--- ██ BLOCO A — SEPARADO, para conferir isolado: REVOKE do anon ██████████
--- =====================================================================
--- Independente dos blocos de policy. Pode rodar antes, depois, ou nunca — nada
--- acima depende dele.
---
--- HOJE o RLS já barra o `anon` (não há policy para esse role), então este REVOKE
--- **não muda comportamento nenhum**. Ele existe para os dois controles pararem de
--- ficar empilhados na mesma peça: com o grant no lugar, desligar o RLS por engano
--- devolve escrita ao `anon`.
---
--- ⚠️ CONFIRA ANTES (deve listar `anon` com privilégios de escrita):
---    → é a saída do BLOCO 2.
---
--- ⚠️ NÃO revoga de `authenticated` nem de `service_role`. Só do `anon`.
-revoke all on public.profiles from anon;
-
-
--- =====================================================================
--- ██ VERIFY — remedindo na hora. O "Success" não é evidência. ███████████
--- =====================================================================
-
--- ██ V1 — as 4 policies existem e nenhuma é `true/true` ██████████████████
+-- V1 — as 4 policies, e nenhuma com true/true
 select pol.polname,
        case pol.polcmd when 'r' then 'SELECT' when 'a' then 'INSERT' when 'w' then 'UPDATE'
             when 'd' then 'DELETE' when '*' then 'ALL' end as cmd,
@@ -243,164 +250,135 @@ select pol.polname,
 from pg_policy pol
 where pol.polrelid = 'public.profiles'::regclass
 order by 2, 1;
--- Esperado: 4 linhas — ALL(admin), INSERT(self), SELECT(true), UPDATE(self).
--- 🔴 NENHUMA com cmd='ALL' e check_expr='true'.
 
-
--- ██ V2 — a função nasceu SECURITY DEFINER, com search_path, fechada p/ anon █
+-- V2 — a função nasceu SECURITY DEFINER, STABLE, com search_path, fechada p/ anon
 select p.proname,
-       p.prosecdef                                   as security_definer,
-       p.provolatile                                 as volatilidade,
+       p.prosecdef                                      as security_definer,
+       p.provolatile                                    as volatilidade,
        p.proconfig,
        has_function_privilege('anon', p.oid, 'EXECUTE') as anon_pode
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public' and p.proname = '_profile_self_intacto';
--- Esperado: security_definer = true, volatilidade = 's' (STABLE),
---           proconfig com search_path, anon_pode = FALSE.
 
 
--- ██ V3 — `anon` sem grants na tabela (só se rodou o BLOCO A) ███████████
+-- ═══════════════════════════════════════════════════════════════════════
+-- ██ PASTE 5 — BLOCO A + V3 · o REVOKE do anon, isolado
+-- Independente de tudo acima. Hoje o RLS já barra o anon (não há policy para
+-- esse role), então isto NÃO muda comportamento — existe para grant e policy
+-- pararem de ficar empilhados na mesma peça: com o grant no lugar, desligar o
+-- RLS por engano devolve escrita ao anon.
+-- NÃO revoga de authenticated nem de service_role.
+-- ═══════════════════════════════════════════════════════════════════════
+revoke all on public.profiles from anon;
+
+-- V3 — anon não pode mais aparecer
 select grantee, string_agg(privilege_type, ',' order by privilege_type) as privs
 from information_schema.role_table_grants
 where table_schema = 'public' and table_name = 'profiles'
 group by grantee
 order by grantee;
--- Esperado: `anon` NÃO aparece.
 
 
--- ██ V4 — PROVA FUNCIONAL. Em BEGIN/ROLLBACK: nada é gravado. ██████████
+-- ═══════════════════════════════════════════════════════════════════════
+-- ██ PASTE 6 — V4 · PROVA FUNCIONAL. Tudo em BEGIN/ROLLBACK: nada é gravado.
 --
--- 🔴 (i) E (ii) SÃO O CRITÉRIO DE ACEITE DO **DESENHO**, NÃO SÓ DA POLICY.
+-- 🔴 RODE DUAS VEZES — é o que separa "a policy funciona" de "o teste não testa":
+--    · ANTES do PASTE 3  → (i) e (ii) TÊM de afetar **1 linha** cada.
+--      É o controle: prova que o teste tem dentes. Se já der 0 aqui, o teste está
+--      medindo outra coisa e o resultado de depois não vale nada.
+--    · DEPOIS do PASTE 3 → (i) e (ii) TÊM de afetar **0 linhas**.
 --
---    A policy depende de uma premissa que **NÃO foi testada dentro de um UPDATE
---    real**: que a função `_profile_self_intacto`, sendo STABLE, enxergue a linha
---    **ANTIGA** quando chamada de dentro do `WITH CHECK`.
+-- 🔴 (i) e (ii) são o CRITÉRIO DE ACEITE DO DESENHO, não só da policy. A premissa
+--    não testada é que a função STABLE, dentro do WITH CHECK de um UPDATE, leia a
+--    linha ANTIGA. Se ler a NOVA, a comparação vira nova-contra-nova, é sempre
+--    verdadeira, e a policy não protege nada — parecendo instalada. V1 e V2
+--    passariam igual. Só (i) e (ii) distinguem.
+--    Se falhar: R5 imediato, e a saída é trocar o WITH CHECK por um trigger
+--    BEFORE UPDATE, que recebe OLD e NEW e não depende de visibilidade MVCC.
 --
---    O que EU verifiquei, e como: a semântica de `EXISTS` + `IS NOT DISTINCT FROM`
---    (igual→true, diferente→false, zero linhas→false, null vs null→true), por SELECT
---    puro. Isso prova a COMPARAÇÃO, não a VISIBILIDADE.
+-- ⚠️ O `set local role authenticated` é ESSENCIAL: `relforcerowsecurity` é false,
+--    então o owner (postgres, que é quem o SQL Editor usa) BYPASSA o RLS. Sem
+--    trocar de role, tudo passa e o teste não vale nada.
 --
---    O que eu NÃO verifiquei: se, durante o UPDATE, a função lê a linha antiga ou a
---    nova. O raciocínio é que uma função STABLE usa o snapshot do comando, e uma
---    tupla escrita pelo próprio comando não é visível a ele (regras de cmin/cmax),
---    sem `CommandCounterIncrement`. É o mesmo padrão do `_is_admin()`, que está em
---    produção — mas `_is_admin()` nunca lê a linha que está sendo alterada.
---
---    🔴 **SE A FUNÇÃO ENXERGAR A LINHA NOVA, a comparação vira nova-contra-nova, é
---    sempre verdadeira, e a policy NÃO PROTEGE NADA — parecendo instalada.** V1 e V2
---    passariam do mesmo jeito. **Só (i) e (ii) distinguem os dois mundos.**
---
---    · (i) e (ii) com **0 linhas** ⇒ o desenho está certo, empiricamente.
---    · (i) ou (ii) com **1 linha** ⇒ o desenho está errado. **Rode o R5 na hora**
---      (recriar a policy permissiva) e me chame: a saída é trocar o `WITH CHECK` por
---      um **trigger BEFORE UPDATE**, que recebe `OLD` e `NEW` explicitamente e não
---      depende de visibilidade MVCC nenhuma. É estritamente mais robusto; só não é a
---      primeira opção porque é mais peça em produção.
---
--- Os dois UUIDs abaixo são reais, ambos NÃO-admin e ativos:
---   A = 9583eeeb-269e-4f46-9f2c-493761288d3c  ryan.santos@pfbrazil.com
---       Escolhido de propósito: é o ÚNICO não-admin com `alvo_usuario` PREENCHIDO
---       (`RYAN.PAGANOTTO`), então (ii) testa proteger uma identidade que EXISTE, não
---       preencher uma vazia. E tem `must_change_password = true`, o que faz (vi)
---       exercitar o caminho real do `/reset-password`.
---   B = 1cc3de88-0351-401b-86bb-fd519a5e2dd9  agente.compras@pfbrazil.com
---       Conta de serviço, usada só como ALVO ALHEIO em (iii) e (iv) — raio de UMA
---       linha em vez de 56, como o Pedro pediu. Nada é gravado de qualquer forma,
---       mas 1 linha não trava a tabela inteira nem dispara trigger em massa.
+-- A = 9583eeeb-269e-4f46-9f2c-493761288d3c  ryan.santos@pfbrazil.com
+--     único não-admin com alvo_usuario preenchido (RYAN.PAGANOTTO) — (ii) testa
+--     PROTEGER identidade existente. must_change_password = true, então (vi)
+--     exercita o caminho real do /reset-password.
+-- B = 1cc3de88-0351-401b-86bb-fd519a5e2dd9  agente.compras@pfbrazil.com
+--     conta de serviço, só como alvo alheio em (iii) e (iv) — raio de 1 linha.
+-- ═══════════════════════════════════════════════════════════════════════
 begin;
-  set local role authenticated;
-  select set_config('request.jwt.claims',
-                    json_build_object('sub','9583eeeb-269e-4f46-9f2c-493761288d3c',
-                                      'role','authenticated')::text,
-                    true);
 
-  -- (i) ESCALADA no próprio perfil — TEM de afetar 0 linhas
-  update public.profiles set is_admin = true
-   where user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c';
+-- `auth.uid()` tenta PRIMEIRO a setting legada `request.jwt.claim.sub` (singular).
+-- Limpar antes evita que um resíduo de outra sessão do editor decida quem é você.
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claims',
+                  json_build_object('sub','9583eeeb-269e-4f46-9f2c-493761288d3c',
+                                    'role','authenticated')::text,
+                  true);
+set local role authenticated;
 
-  -- (ii) IDENTIDADE FORJADA no próprio perfil — TEM de afetar 0
-  --      (Ryan hoje tem RYAN.PAGANOTTO; isto tentaria trocar por outro login real)
-  update public.profiles set alvo_usuario = 'ANA.SANCHES'
-   where user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c';
+-- confirma que o Postgres está mesmo enxergando o Ryan
+select auth.uid() as quem_sou_eu;
 
-  -- (iii) PERFIL ALHEIO — TEM de afetar 0
-  update public.profiles set full_name = 'invadido'
-   where user_id = '1cc3de88-0351-401b-86bb-fd519a5e2dd9';
+-- (i) ESCALADA no próprio perfil
+update public.profiles set is_admin = true
+ where user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c';
 
-  -- (iv) DELETE ALHEIO — TEM de afetar 0
-  delete from public.profiles
-   where user_id = '1cc3de88-0351-401b-86bb-fd519a5e2dd9';
+-- (ii) IDENTIDADE FORJADA no próprio perfil
+update public.profiles set alvo_usuario = 'ANA.SANCHES'
+ where user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c';
 
-  -- (v) AUTOSSERVIÇO LEGÍTIMO — TEM de afetar 1
-  update public.profiles
-     set full_name = full_name, must_change_password = must_change_password, updated_at = now()
-   where user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c';
+-- (iii) PERFIL ALHEIO
+update public.profiles set full_name = 'invadido'
+ where user_id = '1cc3de88-0351-401b-86bb-fd519a5e2dd9';
 
-  -- (vi) O UPSERT REAL do ResetPassword — TEM de passar sem erro
-  insert into public.profiles (user_id, email, full_name, is_admin, is_active, must_change_password, updated_at)
-  select p.user_id, p.email, p.full_name, p.is_admin, p.is_active, false, now()
-    from public.profiles p
-   where p.user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c'
-  on conflict (user_id) do update
-     set must_change_password = excluded.must_change_password,
-         updated_at           = excluded.updated_at;
+-- (iv) DELETE ALHEIO
+delete from public.profiles
+ where user_id = '1cc3de88-0351-401b-86bb-fd519a5e2dd9';
 
-  -- Fotografia antes de desfazer. `is_admin` e `alvo_usuario` TÊM de estar intactos:
-  select user_id, is_admin, is_active, alvo_usuario, must_change_password
-    from public.profiles
-   where user_id in ('9583eeeb-269e-4f46-9f2c-493761288d3c',
-                     '1cc3de88-0351-401b-86bb-fd519a5e2dd9');
+-- (v) AUTOSSERVIÇO LEGÍTIMO
+update public.profiles
+   set full_name = full_name, must_change_password = must_change_password, updated_at = now()
+ where user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c';
+
+-- (vi) O UPSERT REAL do ResetPassword
+insert into public.profiles (user_id, email, full_name, is_admin, is_active, must_change_password, updated_at)
+select p.user_id, p.email, p.full_name, p.is_admin, p.is_active, false, now()
+  from public.profiles p
+ where p.user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c'
+on conflict (user_id) do update
+   set must_change_password = excluded.must_change_password,
+       updated_at           = excluded.updated_at;
+
+-- Fotografia antes de desfazer
+select user_id, is_admin, is_active, alvo_usuario, full_name, must_change_password
+  from public.profiles
+ where user_id in ('9583eeeb-269e-4f46-9f2c-493761288d3c',
+                   '1cc3de88-0351-401b-86bb-fd519a5e2dd9')
+ order by user_id;
+
 rollback;
---
--- 🟢 PASSOU: (i)–(iv) com 0 linhas, (v) com 1, (vi) sem erro, e a fotografia com
---    `is_admin = false` e `alvo_usuario = RYAN.PAGANOTTO`.
--- 🔴 (i) ou (ii) com 1 linha ⇒ **DESENHO ERRADO** — R5 imediato, ver acima.
--- 🔴 (v) ou (vi) com erro de policy ⇒ a Fase 1 QUEBRA o autosserviço — R5 e me chame.
 
 
--- ██ V5 — depois do Publish: teste com gente de verdade ██████████████████
-select email, must_change_password
-from public.profiles
-where must_change_password
-order by email;
--- São 7 pessoas. É por elas que passa o único caminho de escrita de não-admin
--- (`/reset-password`). **Um caminho feliz que nunca rodou não é caminho validado.**
-
-
--- =====================================================================
--- ██ ROLLBACK — NÃO EXECUTAR. Guardado à parte. ████████████████████████
--- Devolve exatamente o estado do BLOCO 1 + BLOCO 2.
--- =====================================================================
--- -- R1
--- drop policy if exists profiles_select_authenticated on public.profiles;
--- -- R2
--- drop policy if exists profiles_escrita_admin on public.profiles;
--- -- R3
--- drop policy if exists profiles_self_update on public.profiles;
--- -- R4
--- drop policy if exists profiles_self_insert on public.profiles;
--- -- R5  ⚠️ restaura o estado INSEGURO. Só se algo quebrar feio.
+-- ═══════════════════════════════════════════════════════════════════════
+-- ██ ROLLBACK — NÃO EXECUTAR. Guardado à parte.
+-- ═══════════════════════════════════════════════════════════════════════
+-- -- R5 — a chave de volta. Recria a permissiva; desfaz o PASTE 3 sozinho.
 -- create policy "Allow all for authenticated on profiles"
 --   on public.profiles for all to authenticated using (true) with check (true);
--- -- R6  (só se tiver rodado o BLOCO A)
+--
+-- -- R1..R4 — desfaz o PASTE 2 (só depois do R5, senão fica sem policy nenhuma)
+-- drop policy if exists profiles_select_authenticated on public.profiles;
+-- drop policy if exists profiles_escrita_admin        on public.profiles;
+-- drop policy if exists profiles_self_update          on public.profiles;
+-- drop policy if exists profiles_self_insert          on public.profiles;
+--
+-- -- R6 — desfaz o PASTE 5
 -- grant select, insert, update, delete, truncate, references, trigger
 --   on public.profiles to anon;
--- -- R7  (opcional — a função sozinha é inerte)
--- drop function if exists public._profile_self_intacto(uuid, uuid, boolean, boolean, text, text, text);
-
-
--- =====================================================================
--- FASE 2 — o que a Fase 1 NÃO resolve (card próprio, exige código)
--- =====================================================================
--- 1. **A escrita do admin continua indo direto na tabela.** O padrão do Hub (D-4 do
---    PLANO-PROJETOS) é RPC SECURITY DEFINER com gate de permissão, e
---    `settings/Users.tsx` usa `.upsert()`. Migrar para `hub_admin_update_profile(...)`
---    permitiria fechar INSERT/UPDATE/DELETE de `authenticated` por completo — e só
---    então GRANT por coluna passa a ser utilizável (hoje não é: grant e policy são
---    AND, e `authenticated` é o mesmo role do admin).
--- 2. **Não há auditoria de mudança de `is_admin`/`alvo_usuario`.** É o que torna
---    "ninguém escalou e reverteu" infalsificável. Uma `profiles_auditoria`
---    append-only (molde do card B4) é o complemento natural.
--- 3. **`klaus_readonly` tem SELECT** na tabela — leitor externo, enxerga e-mail de 57
---    pessoas. Não muda com esta proposta; fica registrado.
+--
+-- -- R7 — opcional; a função sozinha é inerte
+-- drop function if exists
+--   public._profile_self_intacto(uuid, uuid, boolean, boolean, text, text, text);
