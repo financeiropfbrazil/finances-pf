@@ -942,21 +942,38 @@ export interface LinhaRateioBanco {
  * (`SuprimentosPedidoDetalhe.tsx`, `valorTotalItem * cls.percentual / 100`).
  * Medido em 27/08/2026: 0004691 (4 classes) aparecia como R$ 189.378,20 em vez de
  * R$ 47.344,55, e 0004667 (2 classes) dobrado — R$ 191.230,91 de valor fantasma.
- * Só se manifesta em item MULTI-CLASSE: em classe única as duas convenções
- * coincidem, e é por isso que 596 dos 598 itens do espelho estavam certos.
+ * Só se manifesta em item MULTI-CLASSE: são 2 itens em 600, e os outros 598
+ * (classe única) sempre exibiram 100%.
  *
  * 🔴 DEPENDÊNCIA IMPLÍCITA — leia antes de mexer aqui:
  * a RPC **NÃO guarda `percentual_classe` em coluna nenhuma**. A fatia da classe
  * só sobrevive dentro de `valor`. Por isso, para linha do espelho, a fatia é
- * derivada de `soma(valor da classe) / valor do item`. Se alguém trocar essa
- * derivação por uma soma de `percentual`, o defeito volta inteiro.
+ * derivada dos VALORES. Se alguém trocar essa derivação por uma soma de
+ * `percentual`, o defeito volta inteiro.
  *
- * O discriminador é `valor`: medido em 27/08/2026, **zero itens misturam origens**
- * (598 itens só-espelho, 126 itens só-cru).
+ * 🔴 E O DENOMINADOR É A SOMA DOS VALORES DO PRÓPRIO ITEM — não
+ * `quantidade × valor_unitario`. Esta função já errou isso uma vez, e o erro foi
+ * medido: **o rateio do Alvo nem sempre é contra `quantidade × valor_unitario`.**
+ * No 0004640 o rateio soma R$ 69.353,42 contra R$ 60.307,32 de
+ * `quantidade × unitário` — a diferença é o **IPI**. Dividir por
+ * `quantidade × valor_unitario` daria **115,00%** para uma classe única que sempre
+ * exibiu 100%. Medido em 28/08/2026: **27 dos 598 itens monoclasse** divergiriam
+ * assim, de **0,10%** a **115,01%** — a "correção" quebraria 27 para consertar 2.
+ * Normalizar pela soma do próprio item é o que faz as fatias somarem 100 seja qual
+ * for a base que o ERP usou, e devolve exatamente 100% para classe única.
+ *
+ * O discriminador é `valor`: medido em 28/08/2026, **zero itens misturam origens**
+ * (600 itens só-espelho, 126 itens só-cru). ⚠️ `valor = 0` conta como preenchido, e
+ * isso está certo — a RPC insere `coalesce(valor_alvo, 0)`, então linha de espelho
+ * nunca é null. Se um item vier com TODOS os valores zerados, cai no ramo cru.
+ *
+ * ⚠️ O que a tela exibe continua sendo `valorTotalItem × percentual / 100`, então
+ * um rateio contra base com IPI aparece rateando o valor SEM IPI. As proporções
+ * entre classes ficam certas e somam 100%; o valor absoluto de cada fatia não é o
+ * `valor` do ERP. Corrigir isso exige a tela ler `valor` direto — outro card.
  */
 export function montarRateioDoItem(
   linhas: LinhaRateioBanco[],
-  valorTotalItem: number,
 ): Array<{
   codigo_classe_rec_desp: string;
   classe_rec_desp_label: string | null;
@@ -1001,11 +1018,18 @@ export function montarRateioDoItem(
     });
   }
 
-  return Array.from(porClasse.values()).map((cls) => {
+  // Denominador da fatia: a soma dos valores do PRÓPRIO item. Ver o bloco 🔴 do
+  // cabeçalho — usar `quantidade × valor_unitario` quebra os 27 itens em que o
+  // rateio do Alvo é contra uma base com IPI.
+  const somaValorItem = round2(
+    Array.from(porClasse.values()).reduce((acc, c) => acc + c.somaValor, 0),
+  );
+
+  const classes = Array.from(porClasse.values()).map((cls) => {
     // Fatia da classe no item.
     const percentualClasse =
-      ehEspelho && valorTotalItem > 0
-        ? round2((cls.somaValor / valorTotalItem) * 100) // derivada do valor
+      ehEspelho && somaValorItem > 0
+        ? round2((cls.somaValor / somaValorItem) * 100) // derivada do valor
         : cls.somaPercentual; // soma dos absolutos (caminho cru)
 
     // Percentual do CC DENTRO da classe.
@@ -1035,6 +1059,20 @@ export function montarRateioDoItem(
       ccs,
     };
   });
+
+  // Resíduo no nível da CLASSE, espelhando o que já se fazia no nível do CC: com
+  // percentuais quebrados a soma das fatias pode fechar em 99,99 ou 100,01, e a
+  // tela multiplica cada uma por `valorTotalItem`. Sem isto, o total exibido do
+  // item não fecha com o cabeçalho dele.
+  if (ehEspelho && classes.length > 0) {
+    const somaClasses = classes.reduce((s2, c) => s2 + c.percentual, 0);
+    const diff = round2(100 - somaClasses);
+    if (Math.abs(diff) > 0.001 && Math.abs(diff) <= 0.02) {
+      classes[classes.length - 1].percentual = round2(classes[classes.length - 1].percentual + diff);
+    }
+  }
+
+  return classes;
 }
 
 /** D4 — uma repetição que foi colapsada. `codigo_centro_ctrl` null = classe repetida. */
@@ -2304,10 +2342,7 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
         .select("*")
         .eq("item_id", itemRow.id);
 
-      const rateioFinal = montarRateioDoItem(
-        rateiosRows || [],
-        round2(Number(itemRow.quantidade) * Number(itemRow.valor_unitario)),
-      );
+      const rateioFinal = montarRateioDoItem(rateiosRows || []);
 
       itens.push({
         item_servico: itemRow.item_servico,

@@ -129,13 +129,13 @@ describe("montarRateioDoItem — dupla convenção do percentual", () => {
     ];
 
     it("cada classe recebe ~25%, não 100%", () => {
-      const r = montarRateioDoItem(linhas, VALOR_ITEM);
+      const r = montarRateioDoItem(linhas);
       expect(r).toHaveLength(4);
       r.forEach((c) => expect(c.percentual).toBeCloseTo(25, 1));
     });
 
     it("a soma das classes é 100%, não 400% — era o defeito", () => {
-      const r = montarRateioDoItem(linhas, VALOR_ITEM);
+      const r = montarRateioDoItem(linhas);
       const soma = r.reduce((s, c) => s + c.percentual, 0);
       expect(soma).toBeCloseTo(100, 1);
       expect(soma).not.toBeCloseTo(400, 0);
@@ -143,15 +143,20 @@ describe("montarRateioDoItem — dupla convenção do percentual", () => {
 
     it("o valor exibido pela tela volta a ser o valor do item", () => {
       // A tela faz: valorTotalItem * cls.percentual / 100, somado nas classes.
-      const r = montarRateioDoItem(linhas, VALOR_ITEM);
+      const r = montarRateioDoItem(linhas);
       const exibido = r.reduce((s, c) => s + (VALOR_ITEM * c.percentual) / 100, 0);
       expect(exibido).toBeCloseTo(VALOR_ITEM, 0);
       // Antes exibia ~4× isso (R$ 189.378,20).
       expect(exibido).toBeLessThan(VALOR_ITEM * 1.01);
     });
 
+    it("as 4 fatias somam exatamente 100 — o resíduo de classe fecha a conta", () => {
+      const r = montarRateioDoItem(linhas);
+      expect(r.reduce((s, c) => s + c.percentual, 0)).toBe(100);
+    });
+
     it("o CC dentro da classe continua 100% (a coluna já é relativa no espelho)", () => {
-      const r = montarRateioDoItem(linhas, VALOR_ITEM);
+      const r = montarRateioDoItem(linhas);
       r.forEach((c) => {
         expect(c.ccs).toHaveLength(1);
         expect(c.ccs[0].percentual).toBe(100);
@@ -161,7 +166,7 @@ describe("montarRateioDoItem — dupla convenção do percentual", () => {
 
   describe("classe única — as duas convenções coincidem (596 dos 598 itens)", () => {
     it("espelho com 1 classe e 2 CCs dá 100% na classe e 60/40 nos CCs", () => {
-      const r = montarRateioDoItem([espelho("A", "CC1", 60, 600), espelho("A", "CC2", 40, 400)], 1000);
+      const r = montarRateioDoItem([espelho("A", "CC1", 60, 600), espelho("A", "CC2", 40, 400)]);
       expect(r).toHaveLength(1);
       expect(r[0].percentual).toBeCloseTo(100, 1);
       expect(r[0].ccs.map((c) => c.percentual)).toEqual([60, 40]);
@@ -171,7 +176,7 @@ describe("montarRateioDoItem — dupla convenção do percentual", () => {
   describe("linhas CRUS do frontend (valor null) — comportamento antigo preservado", () => {
     it("percentual absoluto vira fatia da classe e CC normalizado", () => {
       // Item com 2 classes: A 60% (CC1 100%), B 40% (CC2 50% + CC3 50%).
-      const r = montarRateioDoItem([cru("A", "CC1", 60), cru("B", "CC2", 20), cru("B", "CC3", 20)], 1000);
+      const r = montarRateioDoItem([cru("A", "CC1", 60), cru("B", "CC2", 20), cru("B", "CC3", 20)]);
       expect(r).toHaveLength(2);
       expect(r[0].percentual).toBe(60);
       expect(r[0].ccs[0].percentual).toBe(100);
@@ -180,26 +185,48 @@ describe("montarRateioDoItem — dupla convenção do percentual", () => {
     });
 
     it("a soma das classes continua 100%", () => {
-      const r = montarRateioDoItem([cru("A", "CC1", 60), cru("B", "CC2", 40)], 1000);
+      const r = montarRateioDoItem([cru("A", "CC1", 60), cru("B", "CC2", 40)]);
       expect(r.reduce((s, c) => s + c.percentual, 0)).toBeCloseTo(100, 2);
     });
   });
 
   describe("bordas", () => {
     it("lista vazia devolve []", () => {
-      expect(montarRateioDoItem([], 1000)).toEqual([]);
+      expect(montarRateioDoItem([])).toEqual([]);
     });
 
     it("uma linha sem valor faz o conjunto ser tratado como CRU (conservador)", () => {
       // Mistura não deve acontecer (medido: zero itens misturam origens), mas se
       // acontecer o caminho antigo é o comportamento seguro.
-      const r = montarRateioDoItem([espelho("A", "CC1", 60, 600), cru("A", "CC2", 40)], 1000);
+      const r = montarRateioDoItem([espelho("A", "CC1", 60, 600), cru("A", "CC2", 40)]);
       expect(r[0].percentual).toBe(100); // soma dos "absolutos" 60+40
     });
 
-    it("valorTotalItem zero não divide por zero", () => {
-      const r = montarRateioDoItem([espelho("A", "CC1", 100, 0)], 0);
+    it("item com TODOS os valores zerados não divide por zero", () => {
+      const r = montarRateioDoItem([espelho("A", "CC1", 100, 0)]);
       expect(Number.isFinite(r[0].percentual)).toBe(true);
+      // somaValorItem = 0 ⇒ cai no caminho conservador (soma dos absolutos).
+      expect(r[0].percentual).toBe(100);
+    });
+
+    it("🔴 a base é a soma do PRÓPRIO item, não quantidade × valor_unitario", () => {
+      // O 0004640: rateio de R$ 69.353,42 num item cuja quantidade × unitário é
+      // R$ 60.307,32 — a diferença é o IPI. Dividir pela segunda base daria 115%
+      // numa classe única que sempre exibiu 100%. Medido em 28/08/2026: 27 dos
+      // 598 itens monoclasse do espelho quebrariam assim.
+      const r = montarRateioDoItem([espelho("19.02", "CC1", 100, 69353.42)]);
+      expect(r).toHaveLength(1);
+      expect(r[0].percentual).toBe(100);
+    });
+
+    it("as fatias de classe somam exatamente 100 mesmo com percentual quebrado", () => {
+      // 3 classes de 1/3 de R$ 100,01 — sem o resíduo de classe fecharia 99,99.
+      const r = montarRateioDoItem([
+        espelho("A", "CC1", 100, 33.34),
+        espelho("B", "CC2", 100, 33.34),
+        espelho("C", "CC3", 100, 33.33),
+      ]);
+      expect(r.reduce((s2, c) => s2 + c.percentual, 0)).toBe(100);
     });
   });
 });
