@@ -1345,6 +1345,29 @@ maior que o enunciado do card**, e passa à frente do que sobrou da fila.
 tipos/status **devem** ter parcelas espelhadas. Sem ele, o número dimensiona o alcance do portão,
 não a dívida. **Medir isso é o passo que decide entre "corrigir o portão" e "backfill em massa".**
 
+🔬 **Desdobrado em 28/08/2026 17:31 UTC** — e o desdobramento muda a conversa:
+
+| Recorte | Pedidos |
+|---|---:|
+| Sem parcela local, **com** parcelas no último Load do Alvo | **902** |
+| └ em status **TERMINAL** (documento que não muda mais) | **665** |
+| └ **VIVOS** | **237** |
+
+⇒ **O passivo acionável é da ordem de 237, não 902.** Os 665 terminais são decisão de negócio:
+espelhar histórico encerrado tem valor de relatório, não de operação. A pergunta que fecha a
+conta: **alguma tela, relatório ou RPC lê `compras_pedidos_parcelas` de pedido terminal?** Se não
+lê, os 665 saem.
+
+📋 **Passo de validação preparado, sem tocar em código:**
+`docs/SQL-14.3-G-validar-portao-parcelas.sql` — snapshot das **duas** tabelas que a RPC apaga
+(parcelas **e** rateio) → `detalhes_carregados = false` + `synced_at = null` nos divergentes →
+esperar 1–2 ciclos válidos → remedir. Se convergirem, o portão é a causa; **se não convergirem, a
+hipótese cai e nenhum arquivo foi tocado.**
+⛔ **0003872 fica de fora**: nele o próprio Alvo está incoerente (R$ 13.900 de `ValorTotal` contra
+R$ 17.514 de soma de parcelas no Load). É correção no ERP, não espelhamento.
+ℹ️ Números remedidos no mesmo instante: **368** com parcelas locais, **28** divergentes
+(R$ 241.024,08), **10** deles terminais — o card entrou com 365/26/R$ 240.747,29 meio dia antes.
+
 🔬 **DIAGNÓSTICO FECHADO em 28/08/2026 — `docs/TRILHA2-DIAGNOSTICO-2026-08-28.md` §1.**
 **Nada implementado**, como combinado. A causa é uma **assimetria de sincronização**: `valor_total`
 é regravado pelo Job 2 a cada ciclo em que o Alvo muda (`index.ts:2299`), enquanto a única rotina
