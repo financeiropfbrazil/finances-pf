@@ -1,4 +1,17 @@
 -- =====================================================================
+-- ⛔ ARQUIVO SUPERADO — NÃO EXECUTAR. Use `docs/SQL-RLS-PROFILES-FASE1.sql`.
+--
+-- O BLOCO 2 deste arquivo usa
+--     (a, b, c) IS NOT DISTINCT FROM (SELECT x, y, z FROM f())
+-- e essa sintaxe **NÃO COMPILA** no Postgres — testado em 28/08/2026:
+--     ERROR 42601: subquery must return only one column
+-- A versão FASE1 troca por uma função booleana com EXISTS e comparação coluna a
+-- coluna, com a semântica verificada por SELECT antes de ir ao arquivo.
+--
+-- O DIAGNÓSTICO abaixo (§1, §2, §2-A, §2-B) continua válido e foi copiado para lá.
+-- =====================================================================
+
+-- =====================================================================
 -- RLS de public.profiles — DIAGNÓSTICO E PROPOSTA
 -- Preparado em 28/08/2026. Proposta para o Pedro aprovar e rodar.
 -- ✅ **As duas perguntas de bloqueio foram medidas e deram ZERO** (§2-A):
