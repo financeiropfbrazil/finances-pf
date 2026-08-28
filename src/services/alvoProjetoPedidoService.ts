@@ -49,6 +49,71 @@ async function fetchCondPag(codigo: string) {
   return data;
 }
 
+/**
+ * Uma linha do rateio deste módulo: classe + centro de custo + a fatia do valor
+ * TOTAL do pedido. Estrutura PLANA — diferente do rateio hierárquico do
+ * Suprimentos (classe → CCs). Os códigos são opcionais de propósito: a linha
+ * nasce em branco quando a pessoa clica em "Adicionar Classe", e é exatamente
+ * essa linha que `validarLinhasRateio` existe para recusar.
+ */
+export interface LinhaRateioProjeto {
+  classe_codigo?: string | null;
+  centro_custo_codigo?: string | null;
+  percentual?: number;
+}
+
+/**
+ * Valida as LINHAS do rateio (preenchimento e unicidade). Devolve a mensagem do
+ * primeiro problema encontrado, ou `null` se estiver tudo certo.
+ *
+ * 🔴 POR QUE EXISTE. O Alvo tem UNIQUE em
+ * (filial, número, produto, sequência, classe, CC). Até 27/08/2026 as TRÊS
+ * camadas de validação do módulo — esta, a UI (`ProjetoRequisicoes.tsx`) e a RPC
+ * `projeto_pedido_salvar` — checavam **apenas a soma dar 100%**. Consequência:
+ * com o rateio já em 100%, dois cliques em "Adicionar Classe" criam duas linhas
+ * com `percentual: 0` e classe/CC VAZIOS (`ProjetoRequisicoes.tsx:1635`); a soma
+ * continua 100, passa nas três, e o payload sai com dois nós idênticos de
+ * `CodigoClasseRecDesp: ''` + `CodigoCentroCtrl: ''` — tupla repetida.
+ * No Suprimentos, a mesma forma queimou 6 números do sequencer e 31 minutos no
+ * pedido 0004781.
+ *
+ * ⚠️ REJEITA, não consolida. Linha em branco a 0% é sobra de clique, não
+ * intenção de rateio — consolidar mascararia. (Consolidar o rateio do módulo é
+ * outro card, fora deste escopo.)
+ *
+ * ⚠️ A mensagem nomeia a LINHA e o PROBLEMA. No 0004781 o custo não foi o erro,
+ * foi a pessoa não saber o que consertar: o Alvo devolvia `Friendly_Message_UQ_PK`
+ * cru e ela tentou de novo sete vezes.
+ */
+export function validarLinhasRateio(rateio: readonly LinhaRateioProjeto[]): string | null {
+  const vistos = new Map<string, number>();
+
+  for (let i = 0; i < rateio.length; i++) {
+    const linha = i + 1;
+    const classe = String(rateio[i]?.classe_codigo ?? "").trim();
+    const cc = String(rateio[i]?.centro_custo_codigo ?? "").trim();
+
+    if (!classe && !cc) {
+      return `Linha ${linha} do rateio está em branco (sem classe e sem centro de custo). Preencha ou remova a linha.`;
+    }
+    if (!classe) {
+      return `Linha ${linha} do rateio: classe não preenchida.`;
+    }
+    if (!cc) {
+      return `Linha ${linha} do rateio: centro de custo não preenchido (classe ${classe}).`;
+    }
+
+    const chave = `${classe}|${cc}`;
+    const anterior = vistos.get(chave);
+    if (anterior !== undefined) {
+      return `Linhas ${anterior} e ${linha} do rateio repetem a mesma combinação (classe ${classe}, centro de custo ${cc}). O ERP não aceita a repetição — junte as duas numa linha só.`;
+    }
+    vistos.set(chave, linha);
+  }
+
+  return null;
+}
+
 function validar(req: any) {
   if (!req.fornecedor_codigo) throw new Error("Fornecedor não informado");
   if (!req.cond_pagamento_codigo) throw new Error("Condição de pagamento não informada");
@@ -63,6 +128,10 @@ function validar(req: any) {
 
   const rateio = req.classe_rateio as any[];
   if (!rateio?.length) throw new Error("Rateio de classe/centro de custo não informado");
+
+  const problema = validarLinhasRateio(rateio);
+  if (problema) throw new Error(problema);
+
   const soma = rateio.reduce((s: number, r: any) => s + (r.percentual || 0), 0);
   if (Math.abs(soma - 100) > 0.01) throw new Error(`Rateio soma ${soma.toFixed(2)}% (deve ser 100%)`);
 }

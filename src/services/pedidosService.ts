@@ -915,6 +915,128 @@ interface MontarPayloadParams {
   codigo_usuario_alvo: string;
 }
 
+/** Linha crua de `compras_pedidos_itens_rateio`, como vem do banco. */
+export interface LinhaRateioBanco {
+  codigo_classe_rec_desp: string;
+  classe_rec_desp_label: string | null;
+  codigo_centro_ctrl: string;
+  centro_ctrl_label: string | null;
+  percentual: number | string;
+  valor: number | string | null;
+}
+
+/**
+ * Reconstrói o rateio hierárquico (classe → CCs) de UM item a partir das linhas
+ * planas de `compras_pedidos_itens_rateio`.
+ *
+ * 🔴 A COLUNA `percentual` TEM DUAS CONVENÇÕES, conforme quem escreveu a linha:
+ *
+ * | Escritor | `percentual` guarda | `valor` |
+ * |---|---|---|
+ * | Frontend (`enviarPedido`, ~:1657) | **ABSOLUTO** — fatia do ITEM (`classe% × cc% / 100`); soma 100 por item | **null** |
+ * | RPC `sync_replace_filhos_pedido` (espelho do Alvo) | **RELATIVO À CLASSE** — soma 100 por classe | preenchido |
+ *
+ * O leitor antigo assumia sempre ABSOLUTO: somava as linhas por classe para achar
+ * a fatia da classe. Em linha do espelho isso dá 100 para CADA classe, então um
+ * item com N classes era exibido com N × 100% — e a tela multiplica
+ * (`SuprimentosPedidoDetalhe.tsx`, `valorTotalItem * cls.percentual / 100`).
+ * Medido em 27/08/2026: 0004691 (4 classes) aparecia como R$ 189.378,20 em vez de
+ * R$ 47.344,55, e 0004667 (2 classes) dobrado — R$ 191.230,91 de valor fantasma.
+ * Só se manifesta em item MULTI-CLASSE: em classe única as duas convenções
+ * coincidem, e é por isso que 596 dos 598 itens do espelho estavam certos.
+ *
+ * 🔴 DEPENDÊNCIA IMPLÍCITA — leia antes de mexer aqui:
+ * a RPC **NÃO guarda `percentual_classe` em coluna nenhuma**. A fatia da classe
+ * só sobrevive dentro de `valor`. Por isso, para linha do espelho, a fatia é
+ * derivada de `soma(valor da classe) / valor do item`. Se alguém trocar essa
+ * derivação por uma soma de `percentual`, o defeito volta inteiro.
+ *
+ * O discriminador é `valor`: medido em 27/08/2026, **zero itens misturam origens**
+ * (598 itens só-espelho, 126 itens só-cru).
+ */
+export function montarRateioDoItem(
+  linhas: LinhaRateioBanco[],
+  valorTotalItem: number,
+): Array<{
+  codigo_classe_rec_desp: string;
+  classe_rec_desp_label: string | null;
+  percentual: number;
+  ccs: Array<{ codigo_centro_ctrl: string; centro_ctrl_label: string | null; percentual: number }>;
+}> {
+  if (!linhas.length) return [];
+
+  // Espelho = toda linha tem `valor`. Uma linha sem valor basta para tratar o
+  // conjunto como cru (o caminho antigo), que é o comportamento conservador.
+  const ehEspelho = linhas.every((r) => r.valor !== null && r.valor !== undefined);
+
+  const porClasse = new Map<
+    string,
+    {
+      codigo_classe_rec_desp: string;
+      classe_rec_desp_label: string | null;
+      somaPercentual: number;
+      somaValor: number;
+      ccs: Array<{ codigo_centro_ctrl: string; centro_ctrl_label: string | null; percentual: number }>;
+    }
+  >();
+
+  for (const r of linhas) {
+    const key = r.codigo_classe_rec_desp;
+    if (!porClasse.has(key)) {
+      porClasse.set(key, {
+        codigo_classe_rec_desp: r.codigo_classe_rec_desp,
+        classe_rec_desp_label: r.classe_rec_desp_label,
+        somaPercentual: 0,
+        somaValor: 0,
+        ccs: [],
+      });
+    }
+    const cls = porClasse.get(key)!;
+    cls.somaPercentual = round2(cls.somaPercentual + Number(r.percentual));
+    cls.somaValor = round2(cls.somaValor + Number(r.valor ?? 0));
+    cls.ccs.push({
+      codigo_centro_ctrl: r.codigo_centro_ctrl,
+      centro_ctrl_label: r.centro_ctrl_label,
+      percentual: Number(r.percentual),
+    });
+  }
+
+  return Array.from(porClasse.values()).map((cls) => {
+    // Fatia da classe no item.
+    const percentualClasse =
+      ehEspelho && valorTotalItem > 0
+        ? round2((cls.somaValor / valorTotalItem) * 100) // derivada do valor
+        : cls.somaPercentual; // soma dos absolutos (caminho cru)
+
+    // Percentual do CC DENTRO da classe.
+    // No espelho a coluna já é relativa à classe — usar como está. No cru é
+    // absoluta, então normaliza pela fatia da classe.
+    const ccs = cls.ccs.map((cc) => ({
+      ...cc,
+      percentual: ehEspelho
+        ? round2(cc.percentual)
+        : cls.somaPercentual > 0
+          ? round2((cc.percentual / cls.somaPercentual) * 100)
+          : 0,
+    }));
+
+    if (ccs.length > 0) {
+      const somaCcs = ccs.reduce((s, c) => s + c.percentual, 0);
+      const diff = round2(100 - somaCcs);
+      if (Math.abs(diff) > 0.001 && Math.abs(diff) <= 0.02) {
+        ccs[ccs.length - 1].percentual = round2(ccs[ccs.length - 1].percentual + diff);
+      }
+    }
+
+    return {
+      codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
+      classe_rec_desp_label: cls.classe_rec_desp_label,
+      percentual: percentualClasse,
+      ccs,
+    };
+  });
+}
+
 /** D4 — uma repetição que foi colapsada. `codigo_centro_ctrl` null = classe repetida. */
 export interface ConsolidacaoRateio {
   codigo_classe_rec_desp: string;
@@ -2182,58 +2304,10 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
         .select("*")
         .eq("item_id", itemRow.id);
 
-      const porClasse = new Map<
-        string,
-        {
-          codigo_classe_rec_desp: string;
-          classe_rec_desp_label: string | null;
-          percentual: number;
-          ccs: Array<{
-            codigo_centro_ctrl: string;
-            centro_ctrl_label: string | null;
-            percentual: number;
-          }>;
-        }
-      >();
-
-      for (const r of rateiosRows || []) {
-        const key = r.codigo_classe_rec_desp;
-        if (!porClasse.has(key)) {
-          porClasse.set(key, {
-            codigo_classe_rec_desp: r.codigo_classe_rec_desp,
-            classe_rec_desp_label: r.classe_rec_desp_label,
-            percentual: 0,
-            ccs: [],
-          });
-        }
-        const cls = porClasse.get(key)!;
-        cls.percentual = round2(cls.percentual + Number(r.percentual));
-        cls.ccs.push({
-          codigo_centro_ctrl: r.codigo_centro_ctrl,
-          centro_ctrl_label: r.centro_ctrl_label,
-          percentual: Number(r.percentual),
-        });
-      }
-
-      const rateioFinal = Array.from(porClasse.values()).map((cls) => {
-        const ccs = cls.ccs.map((cc) => ({
-          ...cc,
-          percentual: cls.percentual > 0 ? round2((cc.percentual / cls.percentual) * 100) : 0,
-        }));
-        if (ccs.length > 0) {
-          const somaCcs = ccs.reduce((s, c) => s + c.percentual, 0);
-          const diff = round2(100 - somaCcs);
-          if (Math.abs(diff) > 0.001 && Math.abs(diff) <= 0.02) {
-            ccs[ccs.length - 1].percentual = round2(ccs[ccs.length - 1].percentual + diff);
-          }
-        }
-        return {
-          codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
-          classe_rec_desp_label: cls.classe_rec_desp_label,
-          percentual: cls.percentual,
-          ccs,
-        };
-      });
+      const rateioFinal = montarRateioDoItem(
+        rateiosRows || [],
+        round2(Number(itemRow.quantidade) * Number(itemRow.valor_unitario)),
+      );
 
       itens.push({
         item_servico: itemRow.item_servico,

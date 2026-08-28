@@ -49,7 +49,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { ProductCombobox } from "@/components/ProductCombobox";
-import { enviarRequisicaoAlvo } from "@/services/alvoProjetoPedidoService";
+import { enviarRequisicaoAlvo, validarLinhasRateio } from "@/services/alvoProjetoPedidoService";
 import {
   salvarPedido,
   excluirPedido,
@@ -425,6 +425,17 @@ export default function ProjetoRequisicoes() {
     if (validItens.length === 0) {
       toast({ title: "Adicione pelo menos 1 item", variant: "destructive" });
       return;
+    }
+    // Preenchimento e unicidade ANTES da soma: uma linha em branco a 0% mantém a
+    // soma em 100 e passaria despercebida até o ERP recusar com
+    // `Friendly_Message_UQ_PK`. Mesma função usada pelo último portão em
+    // `alvoProjetoPedidoService.validar()` — uma regra, dois consumidores.
+    if (classeRateio.length > 0) {
+      const problemaRateio = validarLinhasRateio(classeRateio);
+      if (problemaRateio) {
+        toast({ title: "Rateio inválido", description: problemaRateio, variant: "destructive" });
+        return;
+      }
     }
     if (classeRateio.length > 0 && Math.abs(totalRateio - 100) > 0.01) {
       toast({ title: "Rateio deve somar 100%", variant: "destructive" });
