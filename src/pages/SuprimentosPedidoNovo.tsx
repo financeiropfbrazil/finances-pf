@@ -164,6 +164,23 @@ function round2(n: number): number {
 }
 
 /**
+ * Rótulo do chip de rateio: quantos CENTROS DE CUSTO DISTINTOS a classe tem.
+ *
+ * 🔴 Contava LINHAS. Duas linhas do MESMO CC (a forma que derrubou o 0004781 com
+ * `Friendly_Message_UQ_PK`) exibiam "2 CCs" — e o envio manda **um** CC, porque
+ * `consolidarRateioDoItem` colapsa a repetição. O chip dizia o contrário do que
+ * o ERP ia receber, justamente na tela de revisão em que a pessoa deveria
+ * perceber que repetiu o centro de custo. Pendência §7.27.
+ *
+ * Singular/plural sai daqui, num lugar só: os dois pontos de uso repetiam a
+ * condição `!== 1` e teriam de ser corrigidos em dobro.
+ */
+function rotuloCcsDistintos(ccs: ReadonlyArray<{ codigo_centro_ctrl: string }>): string {
+  const distintos = new Set(ccs.map((cc) => cc.codigo_centro_ctrl)).size;
+  return `${distintos} CC${distintos === 1 ? "" : "s"}`;
+}
+
+/**
  * Data de hoje normalizada para 00:00 no fuso local.
  * Usada como Data do Pedido, que é carimbada pelo sistema e NÃO é editável pelo
  * usuário (ver Etapa 3). Chamada de novo no envio para cobrir a virada de meia-noite
@@ -1521,8 +1538,7 @@ export default function SuprimentosPedidoNovo() {
                             <div className="flex flex-wrap gap-1 mt-1.5">
                               {item.rateio.map((cls) => (
                                 <Badge key={cls.tempClasseId} variant="secondary" className="text-[10px] font-normal">
-                                  {cls.codigo_classe_rec_desp} ({cls.percentual}%) — {cls.ccs.length} CC
-                                  {cls.ccs.length !== 1 ? "s" : ""}
+                                  {cls.codigo_classe_rec_desp} ({cls.percentual}%) — {rotuloCcsDistintos(cls.ccs)}
                                 </Badge>
                               ))}
                             </div>
@@ -2249,8 +2265,7 @@ export default function SuprimentosPedidoNovo() {
                     <div className="flex flex-wrap gap-1 mt-2">
                       {it.rateio.map((c) => (
                         <Badge key={c.tempClasseId} variant="secondary" className="text-[10px]">
-                          {c.codigo_classe_rec_desp} ({c.percentual.toFixed(2)}%) — {c.ccs.length} CC
-                          {c.ccs.length !== 1 ? "s" : ""}
+                          {c.codigo_classe_rec_desp} ({c.percentual.toFixed(2)}%) — {rotuloCcsDistintos(c.ccs)}
                         </Badge>
                       ))}
                     </div>
