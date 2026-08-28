@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { marcarEnviado, descricaoErro, falhou } from "./projetosService";
-import { resolverUsuarioAlvoOuNull, consolidarRateioDoItem, type ConsolidacaoRateio } from "./pedidosService";
+import { resolverUsuarioAlvoOuNull, type ConsolidacaoRateio } from "./pedidosService";
 
 /**
  * L7-B — o envio passa pelo erp-proxy, não mais direto ao Alvo.
@@ -114,104 +114,129 @@ export function validarLinhasRateio(rateio: readonly LinhaRateioProjeto[]): stri
   return null;
 }
 
-/** Uma linha do rateio já consolidada, com o valor que vai ao payload. */
+/** Uma linha do rateio já consolidada por (classe, CC). */
 export interface LinhaRateioProjetoConsolidada {
   classe_codigo: string;
   centro_custo_codigo: string;
-  /** Fatia do valor de referência (item ou pedido), em %. Soma dos originais colapsados. */
+  /** Fatia do valor de referência, em %. Soma EXATA dos percentuais colapsados. */
   percentual: number;
-  /** Valor da linha, em reais. SOMADO dos valores já calculados — nunca recalculado. */
-  valor: number;
+  /**
+   * Os percentuais das linhas ORIGINAIS que formaram esta linha — um só elemento
+   * quando nada colapsou. Quem monta o payload calcula o `Valor` somando o
+   * arredondamento de CADA parte, nunca recalculando a partir do percentual
+   * somado: é a regra do D4 (`docs/D4-PLANO-CORRECAO.md` §2), e é o que faz a
+   * saída ficar byte a byte igual à de antes quando não há repetição.
+   */
+  partes: number[];
 }
 
 /**
- * Consolida o rateio deste módulo por (classe, CC), reusando
- * `consolidarRateioDoItem` — a MESMA função que fechou o D4 no Suprimentos.
+ * Consolida o rateio deste módulo por (classe, CC) — a mesma regra que fechou o
+ * D4 no Suprimentos, aplicada à estrutura PLANA daqui.
  *
  * 🔴 POR QUE EXISTE (pendência §7.29 / §13.7 do `PLANO-PROJETOS`). Este módulo
  * montava o rateio com `rateio.map()` 1:1, sem agrupar (classe, CC) — a forma
- * exata que derrubou o pedido 0004781 do Suprimentos com `Friendly_Message_UQ_PK`,
- * queimando 6 números do sequencer. O Alvo tem UNIQUE em
- * (filial, número, produto, sequência, classe, CC).
+ * exata que derrubou o pedido 0004781 do Suprimentos com
+ * `Friendly_Message_UQ_PK`, queimando 6 números do sequencer. O Alvo tem UNIQUE
+ * em (filial, número, produto, sequência, classe, CC).
  *
- * ⚠️ DEFESA EM PROFUNDIDADE, não o portão principal. Desde o card do wizard,
- * `validarLinhasRateio` **recusa** o par (classe, CC) repetido nos dois portões
- * (UI e `validar()`), então pelo caminho normal esta consolidação não tem o que
- * colapsar. Ela existe para o dia em que a validação for relaxada ou o input
- * chegar por outro caminho — e por isso registra em `console.warn` quando age:
- * se alguém vir esse aviso, uma validação foi contornada.
+ * ⚠️ POR QUE NÃO CHAMA `consolidarRateioDoItem` — decisão revista em 28/08/2026.
+ * A primeira versão reusava a função do Suprimentos, como o card pedia. Ela é a
+ * autoridade sobre (classe, CC), mas trabalha numa estrutura HIERÁRQUICA e
+ * **funde também no nível da CLASSE**, o que é certo lá e errado aqui: duas
+ * linhas da MESMA classe com CCs DIFERENTES são válidas, não violam o UNIQUE, e
+ * este módulo não deve fundi-las. O efeito colateral era concreto — a função
+ * devolvia uma `consolidacao` de classe para esse caso perfeitamente normal, e o
+ * aviso de "unicidade contornada" disparava num rateio que não tinha repetição
+ * nenhuma. Um tripwire que grita no caso banal deixa de servir para o caso raro.
+ * Some-se que a saída daqui passaria a depender de detalhes internos daquela
+ * função — uma mudança no Suprimentos alteraria em silêncio o payload de criação
+ * do Projetos. **A regra é a mesma e está citada; o acoplamento é que saiu.**
  *
- * ⚠️ ESCOPO DELIBERADAMENTE ESTREITO — colapsa só o que o UNIQUE do ERP proíbe.
- * A saída continua PLANA (um nó de classe por linha), como este módulo sempre
- * mandou, em vez de virar hierárquica como no Suprimentos. Duas linhas da MESMA
- * classe com CCs DIFERENTES não violam o UNIQUE (ele inclui o CC), e fundi-las
- * num nó só mudaria a convenção do `Percentual` do CC — de fatia do total
- * (o que este módulo manda hoje) para fatia da classe (o que o Suprimentos
- * manda). Com **exposição zero medida** em `projeto_requisicoes.classe_rateio`,
- * não se arrisca o caminho de criação, que acabou de ser validado pelo A/B
- * 0004798 × 0004799. Unificar as duas convenções é card próprio.
+ * ⚠️ ESCOPO ESTREITO — colapsa só o que o UNIQUE do ERP proíbe. A saída continua
+ * PLANA (um nó de classe por linha), como este módulo sempre mandou.
  *
- * ⚠️ `valor` vem SOMADO das linhas colapsadas, nunca recalculado a partir do
- * percentual somado — regra do D4 (`docs/D4-PLANO-CORRECAO.md` §2). Cada parcela
- * é `round2` do seu próprio pedaço; é a soma delas que fecha contra o total.
- * `percentual` vem da soma EXATA dos originais, não derivado do percentual
- * relativo que a função devolve: derivar reintroduziria um arredondamento a 2
- * casas que a linha original não tinha.
+ * ⚠️ DEFESA EM PROFUNDIDADE, não o portão principal: `validarLinhasRateio`
+ * **recusa** o par repetido nos dois portões (UI e `validar()`), então pelo
+ * caminho normal não há o que colapsar. Por isso o chamador avisa em
+ * `console.warn` quando isto age — ver esse aviso significa que uma validação foi
+ * contornada.
  *
- * ℹ️ A ordem passa a ser por classe (primeira aparição), depois por CC. Sem
- * repetição, o conteúdo de cada linha é idêntico ao de antes — com UMA exceção
- * medida, abaixo.
- *
- * ⚠️ A EXCEÇÃO: EMPATE DE MEIO CENTAVO NO CABEÇALHO. O caminho do cabeçalho
- * usava `Number(x.toFixed(2))`; agora usa o `round2` (`Math.round(x*100)/100`)
- * de `consolidarRateioDoItem`. As duas funções divergem em 1 centavo quando o
- * produto cai exatamente no meio centavo: com total 9,77 e 50%, `toFixed` dá
- * **4,88** e `round2` dá **4,89**. Escolhi `round2` porque é o que o Suprimentos
- * já usa no item E no cabeçalho, em produção — uma aritmética só no Hub.
- * **Exposição medida em 28/08/2026, série completa:** `projeto_requisicoes` tem
- * **8 linhas de rateio, todas a 100%, zero percentuais com decimal e zero
- * empates**; com 100% as duas fórmulas devolvem exatamente `valor_total`. O caso
- * é **inalcançável com os dados de hoje**, mas o campo de percentual é livre.
- * 🔴 E no empate NENHUMA das duas fecha: 4,88+4,88 = 9,76 e 4,89+4,89 = 9,78,
- * contra `ValorTotal` 9,77. Este caminho **não tem ajuste residual** (o cabeçalho
- * do Suprimentos tem) — é a mesma lacuna da pendência §7.24, agora nomeada aqui.
- * **Anterior a esta mudança**, e fora do escopo dela.
+ * A chave é um Map aninhado (classe → CC), sem separador concatenado: não há
+ * como dois pares distintos colidirem. E os códigos entram com `trim()`, a mesma
+ * normalização que `validarLinhasRateio` usa — as duas funções precisam ter a
+ * MESMA definição de "mesmo par", senão a defesa em profundidade tem um furo
+ * exatamente onde diz cobrir.
  */
-export function consolidarRateioProjeto(
-  rateio: readonly LinhaRateioProjeto[],
-  valorReferencia: number,
-): { linhas: LinhaRateioProjetoConsolidada[]; consolidacoes: ConsolidacaoRateio[] } {
-  // Cada linha plana vira uma "classe com um único CC a 100%" — a forma que
-  // `consolidarRateioDoItem` consome.
-  const hierarquico = rateio.map((r) => ({
-    codigo_classe_rec_desp: String(r.classe_codigo ?? ""),
-    // Obrigatório no tipo do Suprimentos e ignorado por `consolidarRateioDoItem`:
-    // o rótulo não volta na saída e não entra no payload deste módulo.
-    classe_rec_desp_label: "",
-    percentual: Number(r.percentual) || 0,
-    ccs: [{ codigo_centro_ctrl: String(r.centro_custo_codigo ?? ""), percentual: 100 }],
-  }));
+export function consolidarRateioProjeto(rateio: readonly LinhaRateioProjeto[]): {
+  linhas: LinhaRateioProjetoConsolidada[];
+  consolidacoes: ConsolidacaoRateio[];
+} {
+  const porClasse = new Map<string, Map<string, number[]>>();
 
-  const { classes, consolidacoes } = consolidarRateioDoItem(hierarquico, valorReferencia);
-
-  // Soma exata dos percentuais originais por (classe, CC).
-  const pctPorPar = new Map<string, number>();
   for (const r of rateio) {
-    const chave = `${String(r.classe_codigo ?? "")}|${String(r.centro_custo_codigo ?? "")}`;
-    pctPorPar.set(chave, (pctPorPar.get(chave) ?? 0) + (Number(r.percentual) || 0));
+    const classe = String(r.classe_codigo ?? "").trim();
+    const cc = String(r.centro_custo_codigo ?? "").trim();
+    const pct = Number(r.percentual) || 0;
+
+    let porCc = porClasse.get(classe);
+    if (!porCc) {
+      porCc = new Map<string, number[]>();
+      porClasse.set(classe, porCc);
+    }
+    const partes = porCc.get(cc);
+    if (partes) partes.push(pct);
+    else porCc.set(cc, [pct]);
   }
 
-  const linhas = classes.flatMap((cls) =>
-    cls.RateioItemPedCompChildList.map((cc) => ({
-      classe_codigo: cls.CodigoClasseRecDesp,
-      centro_custo_codigo: cc.CodigoCentroCtrl,
-      percentual: pctPorPar.get(`${cls.CodigoClasseRecDesp}|${cc.CodigoCentroCtrl}`) ?? 0,
-      valor: cc.Valor,
-    })),
-  );
+  const linhas: LinhaRateioProjetoConsolidada[] = [];
+  const consolidacoes: ConsolidacaoRateio[] = [];
+
+  for (const [classe, porCc] of porClasse) {
+    for (const [cc, partes] of porCc) {
+      if (partes.length > 1) {
+        consolidacoes.push({
+          codigo_classe_rec_desp: classe,
+          codigo_centro_ctrl: cc,
+          linhas_originais: partes.length,
+        });
+      }
+      linhas.push({
+        classe_codigo: classe,
+        centro_custo_codigo: cc,
+        // Soma EXATA dos originais — não derivada, para não introduzir um
+        // arredondamento que a linha original não tinha.
+        percentual: partes.reduce((s, p) => s + p, 0),
+        partes,
+      });
+    }
+  }
 
   return { linhas, consolidacoes };
 }
+
+/**
+ * `Valor` de uma linha consolidada: soma o arredondamento de CADA parte, com a
+ * fórmula que aquele nível do payload já usava.
+ *
+ * 🔴 As duas fórmulas abaixo NÃO são intercambiáveis, e a diferença é de 1
+ * centavo em ~2% dos valores. O item sempre usou
+ * `Math.round(((base * p) / 100) * 100) / 100`; o cabeçalho sempre usou
+ * `Number((base * (p / 100)).toFixed(2))`. Trocar uma pela outra "por simetria"
+ * mudaria o payload de CRIAÇÃO num caminho que nunca teve o defeito do UQ_PK —
+ * e mediu-se que a troca faz a soma das classes deixar de fechar contra
+ * `ValorTotal` em ~1,4% dos casos a mais, que é justamente o que o Alvo valida.
+ * **Cada nível guarda a sua.**
+ */
+export function somarFatias(partes: readonly number[], base: number, arredondar: (p: number) => number): number {
+  const soma = partes.reduce((s, p) => s + arredondar(p), 0);
+  // `round2` só limpa ruído de ponto flutuante da soma; com uma parte só ele é
+  // identidade, porque a parte já vem arredondada a 2 casas.
+  return Math.round(soma * 100) / 100;
+}
+
+export const arredondamentoItem = (base: number) => (p: number) => Math.round(((base * p) / 100) * 100) / 100;
+export const arredondamentoCabecalho = (base: number) => (p: number) => Number((base * (p / 100)).toFixed(2));
 
 function validar(req: any) {
   if (!req.fornecedor_codigo) throw new Error("Fornecedor não informado");
@@ -316,13 +341,13 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
       ImpostoZerado: "Sim",
       IndicadorNomeProduto: "Principal",
       ...(servico ? {} : { CodigoSitTributaria: "000", CodigoTributB: "00" }),
-      ItemPedCompClasseRecdespChildList: consolidarRateioProjeto(rateio, total).linhas.map((r) => ({
+      ItemPedCompClasseRecdespChildList: consolidarRateioProjeto(rateio).linhas.map((r) => ({
         CodigoEmpresaFilial: "",
         NumeroPedComp: "",
         CodigoProduto: item.codigoProduto,
         SequenciaItemPedComp: 0,
         CodigoClasseRecDesp: r.classe_codigo,
-        Valor: r.valor,
+        Valor: somarFatias(r.partes, total, arredondamentoItem(total)),
         Percentual: r.percentual,
         ExcluiCentroControleValorZero: "Sim",
         RateioItemPedCompChildList: [
@@ -333,7 +358,7 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
             SequenciaItemPedComp: 0,
             CodigoClasseRecDesp: r.classe_codigo,
             CodigoCentroCtrl: r.centro_custo_codigo,
-            Valor: r.valor,
+            Valor: somarFatias(r.partes, total, arredondamentoItem(total)),
             Percentual: r.percentual,
           },
         ],
@@ -375,11 +400,13 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
   // números de linhas diferentes para o mesmo input, que é justamente a
   // assimetria que o D4 existiu para matar (lá era o inverso: cabeçalho
   // consolidava, item não).
-  const { linhas: rateioCabecalho, consolidacoes } = consolidarRateioProjeto(rateio, valorTotal);
+  const { linhas: rateioCabecalho, consolidacoes } = consolidarRateioProjeto(rateio);
 
   if (consolidacoes.length > 0) {
     // Chegar aqui significa que `validarLinhasRateio` foi contornada: ela recusa
-    // o par (classe, CC) repetido antes do envio, nos dois portões.
+    // o par (classe, CC) repetido antes do envio, nos dois portões. O aviso só
+    // dispara em repetição REAL de (classe, CC) — nunca em duas linhas da mesma
+    // classe com CCs diferentes, que são válidas e não são fundidas.
     console.warn(
       "[PedComp] rateio com (classe, CC) repetido chegou ao payload e foi consolidado — " +
         "a validação de unicidade foi contornada:",
@@ -391,7 +418,7 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
     CodigoEmpresaFilial: "-1",
     NumeroPedComp: "-1",
     CodigoClasseRecDesp: r.classe_codigo,
-    Valor: r.valor,
+    Valor: somarFatias(r.partes, valorTotal, arredondamentoCabecalho(valorTotal)),
     Percentual: r.percentual,
     ExcluiCentroControleValorZero: "Sim",
     RateioPedCompChildList: [
@@ -400,7 +427,7 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
         NumeroPedComp: "-1",
         CodigoClasseRecDesp: r.classe_codigo,
         CodigoCentroCtrl: r.centro_custo_codigo,
-        Valor: r.valor,
+        Valor: somarFatias(r.partes, valorTotal, arredondamentoCabecalho(valorTotal)),
         Percentual: r.percentual,
       },
     ],

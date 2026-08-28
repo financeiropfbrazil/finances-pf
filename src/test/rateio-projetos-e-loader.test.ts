@@ -5,7 +5,13 @@ import { describe, it, expect, vi } from "vitest";
 // de env nem de rede.
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 
-import { validarLinhasRateio, consolidarRateioProjeto } from "@/services/alvoProjetoPedidoService";
+import {
+  validarLinhasRateio,
+  consolidarRateioProjeto,
+  somarFatias,
+  arredondamentoItem,
+  arredondamentoCabecalho,
+} from "@/services/alvoProjetoPedidoService";
 import { montarRateioDoItem, type LinhaRateioBanco } from "@/services/pedidosService";
 
 // =====================================================================
@@ -239,10 +245,12 @@ function round(n: number): number {
 // METADE C — consolidação de (classe, CC) no módulo Projetos (§7.29)
 // =====================================================================
 //
-// O módulo montava o rateio com `map()` 1:1, a mesma forma que derrubou o 0004781
-// do Suprimentos com `Friendly_Message_UQ_PK`. `consolidarRateioProjeto` reusa
-// `consolidarRateioDoItem` (a função do D4) e mantém a saída PLANA: colapsa só o
-// par (classe, CC) repetido, que é o que o UNIQUE do Alvo proíbe.
+// O módulo montava o rateio com map() 1:1, a mesma forma que derrubou o 0004781
+// do Suprimentos com `Friendly_Message_UQ_PK`. A consolidação colapsa APENAS o par
+// (classe, CC) repetido, que é o que o UNIQUE do Alvo proíbe.
+//
+// 🔴 Estes testes existem para FALHAR contra uma implementação map() 1:1 — a
+// revisão adversarial mostrou que a bateria anterior passava inteira com ela.
 describe("consolidarRateioProjeto (Projetos)", () => {
   const l = (classe: string, cc: string, percentual: number) => ({
     classe_codigo: classe,
@@ -250,133 +258,152 @@ describe("consolidarRateioProjeto (Projetos)", () => {
     percentual,
   });
 
-  describe("sem repetição — o payload NÃO pode mudar", () => {
-    it("preserva linha, ordem, percentual e valor de uma linha só", () => {
-      const { linhas, consolidacoes } = consolidarRateioProjeto([l("18.05", "CC1", 60)], 1000);
-      expect(consolidacoes).toHaveLength(0);
-      expect(linhas).toEqual([{ classe_codigo: "18.05", centro_custo_codigo: "CC1", percentual: 60, valor: 600 }]);
-    });
-
-    it("classes distintas: o valor de cada linha é o mesmo que o cálculo antigo", () => {
-      const rateio = [l("18.05", "CC1", 60), l("11.01", "CC2", 40)];
-      const { linhas, consolidacoes } = consolidarRateioProjeto(rateio, 1199.98);
-      expect(consolidacoes).toHaveLength(0);
-      // Cálculo antigo, linha a linha: Math.round(((total * pct) / 100) * 100) / 100
-      const antigo = rateio.map((r) => Math.round(((1199.98 * r.percentual) / 100) * 100) / 100);
-      expect(linhas.map((x) => x.valor)).toEqual(antigo);
-      expect(linhas.map((x) => x.percentual)).toEqual([60, 40]);
-    });
-
-    it("percentual com casas decimais NÃO é rearredondado", () => {
-      const { linhas } = consolidarRateioProjeto(
-        [l("A", "CC1", 33.333), l("B", "CC2", 33.333), l("C", "CC3", 33.334)],
-        1000,
-      );
-      expect(linhas.map((x) => x.percentual)).toEqual([33.333, 33.333, 33.334]);
-      expect(linhas.reduce((s2, x) => s2 + x.percentual, 0)).toBe(100);
-    });
-  });
-
   describe("o par (classe, CC) repetido — a forma do 0004781", () => {
-    it("duas linhas 50/50 no MESMO CC viram uma linha de 100%", () => {
-      const { linhas, consolidacoes } = consolidarRateioProjeto(
-        [l("18.05", "00010.00004.00003", 50), l("18.05", "00010.00004.00003", 50)],
-        1199.98,
-      );
+    it("duas linhas 50/50 no MESMO CC viram uma linha, com as duas partes guardadas", () => {
+      const { linhas, consolidacoes } = consolidarRateioProjeto([
+        l("18.05", "00010.00004.00003", 50),
+        l("18.05", "00010.00004.00003", 50),
+      ]);
       expect(linhas).toHaveLength(1);
       expect(linhas[0].percentual).toBe(100);
-      expect(linhas[0].valor).toBe(1199.98);
-      expect(consolidacoes.length).toBeGreaterThan(0);
+      expect(linhas[0].partes).toEqual([50, 50]);
+      expect(consolidacoes).toEqual([
+        { codigo_classe_rec_desp: "18.05", codigo_centro_ctrl: "00010.00004.00003", linhas_originais: 2 },
+      ]);
     });
 
-    it("o valor é SOMADO das linhas, não recalculado do percentual somado", () => {
-      // 3 × 33,33% de 100,01 → round2 de cada pedaço soma 33,33+33,33+33,33=99,99;
-      // recalcular 99,99% de 100,01 daria 100,00. A regra do D4 é somar.
-      const { linhas } = consolidarRateioProjeto(
-        [l("A", "CC1", 33.33), l("A", "CC1", 33.33), l("A", "CC1", 33.33)],
-        100.01,
-      );
-      expect(linhas).toHaveLength(1);
-      const somaDasPartes = 3 * (Math.round(((100.01 * 33.33) / 100) * 100) / 100);
-      expect(linhas[0].valor).toBeCloseTo(somaDasPartes, 2);
-    });
-
-    it("a consolidação nomeia a classe e o CC colapsados", () => {
-      const { consolidacoes } = consolidarRateioProjeto([l("18.05", "CC1", 50), l("18.05", "CC1", 50)], 1000);
-      const doCc = consolidacoes.find((c) => c.codigo_centro_ctrl === "CC1");
-      expect(doCc).toBeTruthy();
-      expect(doCc!.codigo_classe_rec_desp).toBe("18.05");
-      expect(doCc!.linhas_originais).toBe(2);
+    it("o Valor é SOMADO das partes, não recalculado do percentual somado", () => {
+      // 3 x 33,33% de 100,01: somar as partes dá 99,99; recalcular 99,99% de
+      // 100,01 daria 100,00. A regra do D4 é somar.
+      const { linhas } = consolidarRateioProjeto([
+        l("A", "CC1", 33.33),
+        l("A", "CC1", 33.33),
+        l("A", "CC1", 33.33),
+      ]);
+      const somado = somarFatias(linhas[0].partes, 100.01, arredondamentoItem(100.01));
+      const recalculado = arredondamentoItem(100.01)(linhas[0].percentual);
+      expect(somado).toBe(99.99);
+      expect(recalculado).toBe(100);
+      expect(somado).not.toBe(recalculado);
     });
   });
 
-  describe("escopo estreito — o que NÃO deve ser fundido", () => {
-    it("mesma classe com CCs DIFERENTES continua em duas linhas", () => {
-      // Não viola o UNIQUE do Alvo (que inclui o CC). Fundir mudaria a convenção
-      // do Percentual do CC — decisão fora deste card.
-      const { linhas, consolidacoes } = consolidarRateioProjeto([l("A", "CC1", 30), l("A", "CC2", 30)], 1000);
+  describe("🔴 o que NÃO pode ser tratado como repetição", () => {
+    it("mesma classe com CCs DIFERENTES: duas linhas e consolidacoes VAZIO", () => {
+      // Caso banal de uma classe rateada entre dois centros de custo.
+      // `validarLinhasRateio` aprova e nada deve ser fundido. Se `consolidacoes`
+      // não vier vazio, o console.warn do buildPayload acusa "validação
+      // contornada" num rateio válido — e o tripwire vira ruído.
+      const rateio = [l("18.05", "CC1", 30), l("18.05", "CC2", 70)];
+      expect(validarLinhasRateio(rateio)).toBeNull();
+
+      const { linhas, consolidacoes } = consolidarRateioProjeto(rateio);
       expect(linhas).toHaveLength(2);
-      expect(linhas.map((x) => x.percentual)).toEqual([30, 30]);
-      expect(linhas.map((x) => x.valor)).toEqual([300, 300]);
-      expect(consolidacoes.filter((c) => c.codigo_centro_ctrl !== null)).toHaveLength(0);
+      expect(consolidacoes).toEqual([]);
+      expect(linhas.map((x) => x.percentual)).toEqual([30, 70]);
     });
 
-    it("mesmo CC em classes DIFERENTES continua em duas linhas", () => {
-      const { linhas } = consolidarRateioProjeto([l("A", "CC1", 50), l("B", "CC1", 50)], 1000);
+    it("mesmo CC em classes DIFERENTES: duas linhas e consolidacoes VAZIO", () => {
+      const { linhas, consolidacoes } = consolidarRateioProjeto([l("A", "CC1", 50), l("B", "CC1", 50)]);
       expect(linhas).toHaveLength(2);
-      expect(linhas.map((x) => x.classe_codigo)).toEqual(["A", "B"]);
+      expect(consolidacoes).toEqual([]);
+    });
+
+    it("rateio comum de 2 classes: consolidacoes VAZIO", () => {
+      const { consolidacoes } = consolidarRateioProjeto([l("18.05", "CC1", 60), l("11.01", "CC2", 40)]);
+      expect(consolidacoes).toEqual([]);
     });
   });
 
-  describe("empate de meio centavo — a UNICA divergencia contra o codigo antigo", () => {
-    // O cabecalho usava Number(x.toFixed(2)); agora usa round2 = Math.round(x*100)/100.
-    // As duas divergem em 1 centavo quando o produto cai exatamente no meio centavo.
-    // Fixado aqui para ninguem descobrir isso em producao.
-    const antigoCabecalho = (total: number, pct: number) => Number((total * (pct / 100)).toFixed(2));
+  describe("🔴 o payload NÃO pode mudar quando não há repetição", () => {
+    // As duas fórmulas do payload, como estavam ANTES da consolidação.
+    const itemAntigo = (base: number, p: number) => Math.round(((base * p) / 100) * 100) / 100;
+    const cabecalhoAntigo = (base: number, p: number) => Number((base * (p / 100)).toFixed(2));
 
-    it("9,77 a 50% dá 4,89 (round2) onde o antigo dava 4,88 (toFixed)", () => {
-      const { linhas } = consolidarRateioProjeto([l("A", "CC1", 50)], 9.77);
-      expect(antigoCabecalho(9.77, 50)).toBe(4.88);
-      expect(linhas[0].valor).toBe(4.89);
+    it("as duas fórmulas divergem entre si — por isso cada nível guarda a sua", () => {
+      // Caso encontrado pela revisão: com 1000,14 e 25%, item e cabeçalho dariam
+      // valores diferentes se usassem a mesma função.
+      expect(cabecalhoAntigo(1000.14, 25)).toBe(250.03);
+      expect(itemAntigo(1000.14, 25)).toBe(250.04);
     });
 
-    it("no empate NENHUMA das duas fecha contra o total — lacuna anterior à mudança", () => {
-      // Duas classes, 50/50 de 9,77. Nem 4,88+4,88=9,76 nem 4,89+4,89=9,78 dão 9,77.
-      // Este caminho não tem ajuste residual (o do Suprimentos tem) — pendência §7.24.
-      const { linhas } = consolidarRateioProjeto([l("A", "CC1", 50), l("B", "CC2", 50)], 9.77);
-      const somaNova = linhas.reduce((s2, x) => s2 + x.valor, 0);
-      const somaAntiga = 2 * antigoCabecalho(9.77, 50);
-      expect(somaNova).toBeCloseTo(9.78, 2);
-      expect(somaAntiga).toBeCloseTo(9.76, 2);
-      expect(somaNova).not.toBe(9.77);
-      expect(somaAntiga).not.toBe(9.77);
+    it("cabeçalho: valor idêntico ao antigo no 25/75 de 1000,14, e a soma fecha", () => {
+      const rateio = [l("A", "CC1", 25), l("B", "CC2", 75)];
+      const { linhas, consolidacoes } = consolidarRateioProjeto(rateio);
+      expect(consolidacoes).toEqual([]);
+
+      const novos = linhas.map((r) => somarFatias(r.partes, 1000.14, arredondamentoCabecalho(1000.14)));
+      const antigos = rateio.map((r) => cabecalhoAntigo(1000.14, r.percentual));
+      expect(novos).toEqual(antigos);
+      // Fecha contra o ValorTotal, que é o que o Alvo valida.
+      expect(novos.reduce((s, v) => s + v, 0)).toBeCloseTo(1000.14, 2);
     });
 
-    it("a 100% — o unico percentual que o modulo usou ate hoje — as duas coincidem", () => {
-      // Serie completa medida em 28/08/2026: 8 linhas de rateio, todas a 100%.
-      for (const total of [100, 110000, 18000, 1199.98, 9.77]) {
-        const { linhas } = consolidarRateioProjeto([l("A", "CC1", 100)], total);
-        expect(linhas[0].valor).toBe(total);
-        expect(antigoCabecalho(total, 100)).toBe(total);
+    it("item: valor idêntico ao antigo, varrendo bases e percentuais", () => {
+      const bases = [100, 1199.98, 47344.55, 110000, 1000.14, 9.77, 52921.33];
+      const splits = [[100], [60, 40], [25, 75], [33.33, 33.33, 33.34], [12.5, 87.5], [7.7, 92.3]];
+      for (const base of bases) {
+        for (const split of splits) {
+          const rateio = split.map((p, i) => l("C" + i, "CC" + i, p));
+          const { linhas } = consolidarRateioProjeto(rateio);
+          const novos = linhas.map((r) => somarFatias(r.partes, base, arredondamentoItem(base)));
+          expect(novos).toEqual(split.map((p) => itemAntigo(base, p)));
+        }
       }
+    });
+
+    it("cabeçalho: valor idêntico ao antigo, na mesma varredura", () => {
+      const bases = [100, 1199.98, 47344.55, 110000, 1000.14, 9.775, 1002.1, 1000.63];
+      const splits = [[100], [60, 40], [25, 75], [45, 55], [20, 30, 50], [12.5, 87.5]];
+      for (const base of bases) {
+        for (const split of splits) {
+          const rateio = split.map((p, i) => l("C" + i, "CC" + i, p));
+          const { linhas } = consolidarRateioProjeto(rateio);
+          const novos = linhas.map((r) => somarFatias(r.partes, base, arredondamentoCabecalho(base)));
+          expect(novos).toEqual(split.map((p) => cabecalhoAntigo(base, p)));
+        }
+      }
+    });
+  });
+
+  describe("chave do agrupamento", () => {
+    it("Map aninhado: código com barra vertical não colide com outro par", () => {
+      // Com chave concatenada classe + "|" + cc, ("A|B","C") e ("A","B|C")
+      // colidiriam e as duas linhas sairiam com o percentual somado.
+      const { linhas } = consolidarRateioProjeto([l("A|B", "C", 50), l("A", "B|C", 50)]);
+      expect(linhas).toHaveLength(2);
+      expect(linhas.map((x) => x.percentual)).toEqual([50, 50]);
+    });
+
+    it("usa a MESMA normalização de validarLinhasRateio (trim nos dois lados)", () => {
+      const rateio = [l(" 18.05", "CC1", 50), l("18.05", "CC1 ", 50)];
+      // O validador vê um par repetido...
+      expect(validarLinhasRateio(rateio)).toContain("Linhas 1 e 2");
+      // ...e a consolidação tem de ver o mesmo, senão a defesa em profundidade
+      // tem um furo exatamente onde diz cobrir.
+      const { linhas, consolidacoes } = consolidarRateioProjeto(rateio);
+      expect(linhas).toHaveLength(1);
+      expect(consolidacoes).toHaveLength(1);
     });
   });
 
   describe("bordas", () => {
     it("rateio vazio devolve vazio", () => {
-      expect(consolidarRateioProjeto([], 1000).linhas).toEqual([]);
-    });
-
-    it("ordena por classe (primeira aparição) e depois por CC", () => {
-      const { linhas } = consolidarRateioProjeto([l("A", "CC1", 25), l("B", "CC2", 50), l("A", "CC3", 25)], 1000);
-      expect(linhas.map((x) => `${x.classe_codigo}/${x.centro_custo_codigo}`)).toEqual(["A/CC1", "A/CC3", "B/CC2"]);
+      expect(consolidarRateioProjeto([]).linhas).toEqual([]);
+      expect(consolidarRateioProjeto([]).consolidacoes).toEqual([]);
     });
 
     it("percentual/código ausentes não quebram", () => {
-      const { linhas } = consolidarRateioProjeto([{ percentual: 100 }], 1000);
+      const { linhas } = consolidarRateioProjeto([{ percentual: 100 }]);
       expect(linhas).toHaveLength(1);
       expect(linhas[0].classe_codigo).toBe("");
       expect(linhas[0].centro_custo_codigo).toBe("");
+      expect(linhas[0].percentual).toBe(100);
+    });
+
+    it("preserva a ordem de primeira aparição (classe, depois CC)", () => {
+      const { linhas } = consolidarRateioProjeto([l("A", "CC1", 25), l("B", "CC2", 50), l("A", "CC3", 25)]);
+      expect(linhas.map((x) => x.classe_codigo + "/" + x.centro_custo_codigo)).toEqual(["A/CC1", "A/CC3", "B/CC2"]);
     });
   });
 });
