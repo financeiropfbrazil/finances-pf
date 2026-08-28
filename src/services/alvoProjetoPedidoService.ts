@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { marcarEnviado, descricaoErro, falhou } from "./projetosService";
-import { resolverUsuarioAlvoOuNull } from "./pedidosService";
+import { resolverUsuarioAlvoOuNull, consolidarRateioDoItem, type ConsolidacaoRateio } from "./pedidosService";
 
 /**
  * L7-B — o envio passa pelo erp-proxy, não mais direto ao Alvo.
@@ -114,6 +114,89 @@ export function validarLinhasRateio(rateio: readonly LinhaRateioProjeto[]): stri
   return null;
 }
 
+/** Uma linha do rateio já consolidada, com o valor que vai ao payload. */
+export interface LinhaRateioProjetoConsolidada {
+  classe_codigo: string;
+  centro_custo_codigo: string;
+  /** Fatia do valor de referência (item ou pedido), em %. Soma dos originais colapsados. */
+  percentual: number;
+  /** Valor da linha, em reais. SOMADO dos valores já calculados — nunca recalculado. */
+  valor: number;
+}
+
+/**
+ * Consolida o rateio deste módulo por (classe, CC), reusando
+ * `consolidarRateioDoItem` — a MESMA função que fechou o D4 no Suprimentos.
+ *
+ * 🔴 POR QUE EXISTE (pendência §7.29 / §13.7 do `PLANO-PROJETOS`). Este módulo
+ * montava o rateio com `rateio.map()` 1:1, sem agrupar (classe, CC) — a forma
+ * exata que derrubou o pedido 0004781 do Suprimentos com `Friendly_Message_UQ_PK`,
+ * queimando 6 números do sequencer. O Alvo tem UNIQUE em
+ * (filial, número, produto, sequência, classe, CC).
+ *
+ * ⚠️ DEFESA EM PROFUNDIDADE, não o portão principal. Desde o card do wizard,
+ * `validarLinhasRateio` **recusa** o par (classe, CC) repetido nos dois portões
+ * (UI e `validar()`), então pelo caminho normal esta consolidação não tem o que
+ * colapsar. Ela existe para o dia em que a validação for relaxada ou o input
+ * chegar por outro caminho — e por isso registra em `console.warn` quando age:
+ * se alguém vir esse aviso, uma validação foi contornada.
+ *
+ * ⚠️ ESCOPO DELIBERADAMENTE ESTREITO — colapsa só o que o UNIQUE do ERP proíbe.
+ * A saída continua PLANA (um nó de classe por linha), como este módulo sempre
+ * mandou, em vez de virar hierárquica como no Suprimentos. Duas linhas da MESMA
+ * classe com CCs DIFERENTES não violam o UNIQUE (ele inclui o CC), e fundi-las
+ * num nó só mudaria a convenção do `Percentual` do CC — de fatia do total
+ * (o que este módulo manda hoje) para fatia da classe (o que o Suprimentos
+ * manda). Com **exposição zero medida** em `projeto_requisicoes.classe_rateio`,
+ * não se arrisca o caminho de criação, que acabou de ser validado pelo A/B
+ * 0004798 × 0004799. Unificar as duas convenções é card próprio.
+ *
+ * ⚠️ `valor` vem SOMADO das linhas colapsadas, nunca recalculado a partir do
+ * percentual somado — regra do D4 (`docs/D4-PLANO-CORRECAO.md` §2). Cada parcela
+ * é `round2` do seu próprio pedaço; é a soma delas que fecha contra o total.
+ * `percentual` vem da soma EXATA dos originais, não derivado do percentual
+ * relativo que a função devolve: derivar reintroduziria um arredondamento a 2
+ * casas que a linha original não tinha.
+ *
+ * ℹ️ A ordem passa a ser por classe (primeira aparição), depois por CC. Sem
+ * repetição, o conteúdo de cada linha é idêntico ao de antes.
+ */
+export function consolidarRateioProjeto(
+  rateio: readonly LinhaRateioProjeto[],
+  valorReferencia: number,
+): { linhas: LinhaRateioProjetoConsolidada[]; consolidacoes: ConsolidacaoRateio[] } {
+  // Cada linha plana vira uma "classe com um único CC a 100%" — a forma que
+  // `consolidarRateioDoItem` consome.
+  const hierarquico = rateio.map((r) => ({
+    codigo_classe_rec_desp: String(r.classe_codigo ?? ""),
+    // Obrigatório no tipo do Suprimentos e ignorado por `consolidarRateioDoItem`:
+    // o rótulo não volta na saída e não entra no payload deste módulo.
+    classe_rec_desp_label: "",
+    percentual: Number(r.percentual) || 0,
+    ccs: [{ codigo_centro_ctrl: String(r.centro_custo_codigo ?? ""), percentual: 100 }],
+  }));
+
+  const { classes, consolidacoes } = consolidarRateioDoItem(hierarquico, valorReferencia);
+
+  // Soma exata dos percentuais originais por (classe, CC).
+  const pctPorPar = new Map<string, number>();
+  for (const r of rateio) {
+    const chave = `${String(r.classe_codigo ?? "")}|${String(r.centro_custo_codigo ?? "")}`;
+    pctPorPar.set(chave, (pctPorPar.get(chave) ?? 0) + (Number(r.percentual) || 0));
+  }
+
+  const linhas = classes.flatMap((cls) =>
+    cls.RateioItemPedCompChildList.map((cc) => ({
+      classe_codigo: cls.CodigoClasseRecDesp,
+      centro_custo_codigo: cc.CodigoCentroCtrl,
+      percentual: pctPorPar.get(`${cls.CodigoClasseRecDesp}|${cc.CodigoCentroCtrl}`) ?? 0,
+      valor: cc.Valor,
+    })),
+  );
+
+  return { linhas, consolidacoes };
+}
+
 function validar(req: any) {
   if (!req.fornecedor_codigo) throw new Error("Fornecedor não informado");
   if (!req.cond_pagamento_codigo) throw new Error("Condição de pagamento não informada");
@@ -217,13 +300,13 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
       ImpostoZerado: "Sim",
       IndicadorNomeProduto: "Principal",
       ...(servico ? {} : { CodigoSitTributaria: "000", CodigoTributB: "00" }),
-      ItemPedCompClasseRecdespChildList: rateio.map((r: any) => ({
+      ItemPedCompClasseRecdespChildList: consolidarRateioProjeto(rateio, total).linhas.map((r) => ({
         CodigoEmpresaFilial: "",
         NumeroPedComp: "",
         CodigoProduto: item.codigoProduto,
         SequenciaItemPedComp: 0,
         CodigoClasseRecDesp: r.classe_codigo,
-        Valor: Math.round(((total * r.percentual) / 100) * 100) / 100,
+        Valor: r.valor,
         Percentual: r.percentual,
         ExcluiCentroControleValorZero: "Sim",
         RateioItemPedCompChildList: [
@@ -234,7 +317,7 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
             SequenciaItemPedComp: 0,
             CodigoClasseRecDesp: r.classe_codigo,
             CodigoCentroCtrl: r.centro_custo_codigo,
-            Valor: Math.round(((total * r.percentual) / 100) * 100) / 100,
+            Valor: r.valor,
             Percentual: r.percentual,
           },
         ],
@@ -270,11 +353,29 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
   }
 
   // ── Classe header-level ──
-  const classeHeader = rateio.map((r: any) => ({
+  // Mesma consolidação do item, agora sobre o valor do PEDIDO. O cabeçalho não
+  // tinha o defeito do UQ_PK (o UNIQUE do Alvo é no item), mas montava o rateio
+  // pelo mesmo `map()` 1:1 — deixá-lo fora produziria cabeçalho e item com
+  // números de linhas diferentes para o mesmo input, que é justamente a
+  // assimetria que o D4 existiu para matar (lá era o inverso: cabeçalho
+  // consolidava, item não).
+  const { linhas: rateioCabecalho, consolidacoes } = consolidarRateioProjeto(rateio, valorTotal);
+
+  if (consolidacoes.length > 0) {
+    // Chegar aqui significa que `validarLinhasRateio` foi contornada: ela recusa
+    // o par (classe, CC) repetido antes do envio, nos dois portões.
+    console.warn(
+      "[PedComp] rateio com (classe, CC) repetido chegou ao payload e foi consolidado — " +
+        "a validação de unicidade foi contornada:",
+      consolidacoes,
+    );
+  }
+
+  const classeHeader = rateioCabecalho.map((r) => ({
     CodigoEmpresaFilial: "-1",
     NumeroPedComp: "-1",
     CodigoClasseRecDesp: r.classe_codigo,
-    Valor: Number((valorTotal * (r.percentual / 100)).toFixed(2)),
+    Valor: r.valor,
     Percentual: r.percentual,
     ExcluiCentroControleValorZero: "Sim",
     RateioPedCompChildList: [
@@ -283,7 +384,7 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
         NumeroPedComp: "-1",
         CodigoClasseRecDesp: r.classe_codigo,
         CodigoCentroCtrl: r.centro_custo_codigo,
-        Valor: Number((valorTotal * (r.percentual / 100)).toFixed(2)),
+        Valor: r.valor,
         Percentual: r.percentual,
       },
     ],
