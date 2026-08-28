@@ -463,6 +463,15 @@ ainda não começou.
     **Escopo estreito, começa MEDINDO se há padrão:** mesmos aprovadores? mesma faixa de valor?
     mesmo horário? correlação com ciclos do cron? Só depois investigar causa. Aberto em 27/08.
 
+    ### ✅ ENUNCIADO INVERTIDO — registro oficial (Pedro, 28/08/2026)
+
+    > **As 26 `Aberto→Aberto` NÃO são um fenômeno separado das 61/63 `Aberto→Reavaliar`.
+    > São o MESMO evento: o ERP zera o bloco de aprovação inteiro** — `StatusAprovacao`
+    > 'Em Andamento'→'Nenhum', `UserProximoAprovador`→null, `UserEnviarAprovacao`→'Não' —,
+    > e o que distingue os dois grupos é apenas se a mudança de `Status` foi **observada**
+    > entre duas leituras. O título original deste card ("26 reversões sem causa
+    > identificada") está **superado**: a causa é conhecida e é a mesma das outras.
+
     🔬 **MEDIDO em 28/08/2026 — `docs/TRILHA2-DIAGNOSTICO-2026-08-28.md` §2. Nada implementado.**
     🔴 **As 26 NÃO são um fenômeno à parte: são o MESMO evento das 63.** Em **22 das 26**, a
     **mesma leitura** que registra o flag `Sim→Não` registra o **bloco inteiro de aprovação sendo
@@ -478,9 +487,30 @@ ainda não começou.
     cópia do comando `UserEnviarAprovacao` (concordam em **4.311/4.313 = 99,95%**), e **24 de 24**
     das que tiveram leitura posterior voltaram a "Sim" sozinhas (22/24 sem nenhuma ação do Hub).
     **0 de 89** tiveram evento do Hub dentro da janela da reversão — o card 28 continua refutado.
-    ⚠️ **Consequência VIVA, e é de negócio:** **21** pedidos hoje em `Aberto` + flag "Não" +
-    `Nenhum`, com ninguém pendente. O pior é o **0004467**, revertido em 24/07 15:00 UTC e **parado
-    há 35 dias**. A fila de aprovação da UI não pode depender só desse campo.
+    ⚠️ **Consequência VIVA — mas o número do relatório estava INFLADO. Remedido em 28/08/2026
+    17:19 UTC, com o denominador certo:**
+
+    | Recorte | Pedidos | Valor |
+    |---|---:|---:|
+    | `Aberto` + flag "Não" + `Nenhum` (o número que o relatório citou como 21) | **25** | R$ 685.119,43 |
+    | └ destes, **nunca leram "Sim"** — nunca foram enviados, não é o fenômeno | **15** | — |
+    | └ destes, **leram "Sim" e reverteram** — é o fenômeno | **10** | R$ 26.163,55 |
+    | &nbsp;&nbsp;&nbsp;└ reverteram há **menos de 7 dias** (dentro da janela de retorno) | 7 | — |
+    | &nbsp;&nbsp;&nbsp;└ **TRAVADOS de verdade** (reverteram há mais de 7 dias e não voltaram) | **3** | **R$ 1.170,00** |
+
+    🔴 **A consequência viva são 3 pedidos e R$ 1.170,00 — não 21 e R$ 685 mil.** Os travados são
+    **0004464** (R$ 1.000, desde 21/07), **0004465** (R$ 20, desde 21/07) e **0004467** (R$ 150,
+    desde 24/07). O relatório misturou duas populações num filtro só: "está em Não" inclui **todo
+    pedido que ninguém nunca mandou aprovar**, que é o estado normal de 15 deles. E o corte de 7
+    dias importa porque **24 de 24** das que tiveram leitura posterior voltaram sozinhas, com
+    mediana de 18h — os 7 recentes provavelmente voltam antes de alguém notar.
+
+    ⚠️ Mesmo assim a conclusão de produto **não muda**: a fila de aprovação da UI não pode depender
+    só desse campo, porque durante a janela o pedido some da fila. O que muda é o **tamanho**, e
+    portanto a urgência: é card de produto, não incidente.
+
+    ℹ️ Erro de método registrado: **"está no estado X" não é o mesmo que "chegou ao estado X pelo
+    caminho que investigo"**. O filtro precisava do histórico, não só do estado atual.
     ⚠️ **Objeção que anda junto (única que pegou, parcialmente):** o grupo `Aberto→Aberto` pode ser
     o grupo `Aberto→Reavaliar` visto com gap maior — `Reavaliar` é efêmero (70 de 83 somem na
     leitura seguinte) e as 26 têm gaps maiores (mediana 25h × 18h). **Quantificada:** a taxa base
@@ -1153,13 +1183,13 @@ como carimbo de mudança.
 
 | Escritor | Motivo da eliminação |
 |---|---|
-| **Cron (job de requisições)** | A fila é `.eq("status", "sincronizada")` (`index.ts:970`) — **nunca seleciona** uma requisição em `convertida_pedido`. E `git log -S` mostra o filtro nascendo junto com o arquivo em **`f6d795e` (24/05/2026)**, anterior a **todas** as 6 conversões (11/06 a 19/08). **Nunca houve janela.** Eliminado **por código, não por horário.** |
+| ~~**Cron (job de requisições)**~~ | ❌ **ELIMINAÇÃO ERRADA — corrigida em 28/08/2026. Era ele.** *Texto original preservado:* ~~A fila é `.eq("status", "sincronizada")` (`index.ts:970`) — **nunca seleciona** uma requisição em `convertida_pedido`. E `git log -S` mostra o filtro nascendo junto com o arquivo em **`f6d795e` (24/05/2026)**, anterior a **todas** as 6 conversões (11/06 a 19/08). **Nunca houve janela.** Eliminado **por código, não por horário.**~~ 🔴 O argumento é verdadeiro **sobre o Job 1** e falso sobre o componente: o **Job 4** (`syncDescobrirRequisicoes`) **não trabalha por fila** — varre o *list* do Alvo e alcança qualquer requisição, em qualquer status. A frase "o cron nunca seleciona" generalizou um job para o cron inteiro. |
 | **RPCs (9 que escrevem na tabela)** | **Nenhuma seta `status`.** Consulta por `update … compras_requisicoes` + `status =` retorna **zero**. |
 | **`desvincular_pedido_requisicao`** | Dois motivos independentes: **não toca `status`** (só limpa `numero_pedido_compra_alvo`) e **audita sempre** (`desvinculado_pedido`). As 6 têm `tem_desvinculo = 0`. |
 | **Triggers** | Só existem `set_..._updated_at` e `fn_req_protege_aprovacao`; este **apenas lança exceção**, nunca modifica linha. |
 | **Frontend** | Só dois pontos setam `sincronizada` — `requisicoesService.ts:629` e `:1003` —, ambos no caminho de envio, e **ambos auditam** (`envio_tentado` antes, `envio_sucesso`/`envio_falha` depois). As 6 têm **zero** auditorias após a conversão. |
 
-**Nenhum caminho de código do repositório explica o rebaixamento.**
+~~**Nenhum caminho de código do repositório explica o rebaixamento.**~~ ❌ **FALSO.** Explicava: o Job 4. A conclusão era consequência direta da eliminação errada acima.
 
 #### Suspeitos que sobram — investigação ABERTA, não forçada a conclusão
 
@@ -1192,11 +1222,28 @@ Alvo.
 porque o Job 2 e o Job 3 **re-vinculam** quando o campo está null. Isso explica também a "anomalia
 dentro da anomalia" que ficou registrada como sem explicação.
 
-🔴 **E há um segundo, pior, que a investigação original não procurava:** o insert do ramo de
-**INSERT** do Job 4 usa `evento: "descoberta_alvo"`, **também fora do CHECK**, desde 26/05/2026.
-Medido em 28/08/2026: **0 linhas** desse evento na tabela, e **69 requisições sem NENHUMA linha de
-auditoria** — todas com `requisitante_user_id` null, isto é, **todas nascidas no Job 4** (que já
-descobriu 125). Toda requisição nova vinda do Alvo entra no Hub sem linha de origem.
+### 🔴 O IRMÃO — `descoberta_alvo`, e este falha há três meses, não é armadilha adormecida
+
+O insert do ramo de **INSERT** do Job 4 usa `evento: "descoberta_alvo"`, **também fora do CHECK**.
+
+| | |
+|---|---|
+| Nasceu em | **`0081425`, 26/05/2026** — *"Job 4 substitui UPSERT por SELECT+UPDATE/INSERT seletivo"* |
+| Linhas com esse evento na tabela | **0** *(medido 28/08/2026)* |
+| Requisições **sem nenhuma** linha de auditoria | **69** |
+| Dessas, com `requisitante_user_id` null (= nascidas no Job 4) | **69 de 69** |
+| Total já descoberto pelo Job 4 | **125** |
+
+⇒ **Toda requisição nova vinda do Alvo entra no Hub sem linha de origem, e o ciclo conta como
+sucesso.** Não é "armadilha adormecida" como o §14.2-A descrevia o caso do Job 1: **está disparando
+desde maio**, em 100% das descobertas.
+
+🔴 **O contraste que fecha o diagnóstico:** `compras_pedidos_auditoria` **não tem CHECK nenhum**, e
+por isso o `descoberto_alvo` do lado dos **pedidos** tem centenas de linhas gravadas. O defeito é
+exclusivo do lado **requisição**, e a causa é a constraint — não o código do insert.
+
+⚠️ **O SQL da defesa (a) não recupera as 69.** A resposta do Alvo daquele momento não existe mais.
+Ele só impede a 70ª.
 
 **Corrigido em `3c33735`** (exige deploy da Edge Function) + `docs/SQL-14.2A-check-sync-status.sql`,
 que passou a incluir os **dois** eventos. ⚠️ O SQL **não recupera as 69** — a resposta do Alvo
@@ -1207,6 +1254,29 @@ rotação de fila e a linha de auditoria foi justamente a que o CHECK rejeitou. 
 é por **evidência estrutural convergente** — é o único caminho do repositório que zera
 `numero_pedido_compra_alvo` junto com uma escrita de status, e o bloco existe desde 22/06/2026,
 anterior a todas as 6 conversões —, **não por carimbo temporal**.
+
+### 🔴 LIÇÃO DE MÉTODO — eliminação de componente exige eliminação JOB A JOB
+
+**Este erro já tinha nome e já tinha acontecido.** É o mesmo do §11.1 item 1 (o card MOEDA):
+*"São 6 pontos de escrita, não 3. A §27.3 original listava 3, todos no frontend. Faltavam os 3 do
+cron."* Lá, o inventário de pontos de escrita parou onde a busca era confortável. Aqui, o
+inventário de **escritores suspeitos** parou no primeiro job do componente.
+
+> **REGRA: um componente multi-job não se elimina como um bloco.** `sync-compras-status-cron`
+> tem **quatro** jobs, com **estratégias de seleção diferentes** — Job 1 e Job 2 trabalham por
+> **fila** (`.eq(status, …)`, corte de 180 dias, `BATCH_SIZE`), Job 3 e Job 4 **varrem o list do
+> Alvo** e alcançam qualquer linha, em qualquer status. Um argumento sobre a fila **não fala pelos
+> jobs que não usam fila**. Eliminar exige percorrer **cada job** e dizer, de cada um, por que
+> não pode ter escrito.
+
+**Como isso se aplica na prática, daqui para frente:**
+1. Ao escrever "o componente X não pode ter feito Y", **liste os pontos de entrada de X** antes de
+   concluir. Se forem N, o argumento precisa de N linhas, não de uma.
+2. `git log -S` só alcança **o que se sabe procurar**. Aqui ele achou o filtro do Job 1 (que
+   existia) e confirmou uma janela que era irrelevante, porque o caminho real não passava por
+   filtro nenhum.
+3. **Uma tabela de "escritores eliminados" com uma linha por componente é uma tabela mal
+   dimensionada.** A granularidade certa é o ponto de escrita, não o arquivo nem o processo.
 
 #### 🔴 Destaque: 0001215 é o caso anômalo dentro da anomalia
 
@@ -1263,6 +1333,17 @@ São complementares.
 **Causa medida:** no envio o payload estava **perfeito** (`dif_no_envio = R$ 0,00`); o cron
 atualizou o `valor_total` depois e **as parcelas ficaram congeladas**. **Zero casos na faixa
 R$ 0,01–R$ 0,10** — não é arredondamento; a menor divergência é R$ 8,50.
+
+### 🔴 PRIORIDADE ELEVADA (Pedro, 28/08/2026): com 902 pedidos, este é o MAIOR PASSIVO ABERTO
+
+O card entrou como "26 pedidos, R$ 240.747,29". A medição do diagnóstico mostrou que os 26 são a
+**ponta visível**: o mesmo portão de presença impede que **902 pedidos** — que **têm** parcelas no
+último Load do Alvo — recebam qualquer linha em `compras_pedidos_parcelas`. **O passivo é ~35×
+maior que o enunciado do card**, e passa à frente do que sobrou da fila.
+
+⚠️ **902 é elegibilidade técnica, não passivo confirmado.** Falta o critério de negócio: quais
+tipos/status **devem** ter parcelas espelhadas. Sem ele, o número dimensiona o alcance do portão,
+não a dívida. **Medir isso é o passo que decide entre "corrigir o portão" e "backfill em massa".**
 
 🔬 **DIAGNÓSTICO FECHADO em 28/08/2026 — `docs/TRILHA2-DIAGNOSTICO-2026-08-28.md` §1.**
 **Nada implementado**, como combinado. A causa é uma **assimetria de sincronização**: `valor_total`
