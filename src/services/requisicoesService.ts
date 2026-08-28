@@ -1,8 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolverUsuarioAlvoOuNull } from "./pedidosService";
 
 const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 const EMPRESA_FILIAL = "1.01";
-const USUARIO_LOGADO = "PEDRO.SCRIGNOLI";
 const STORAGE_BUCKET = "compras-requisicoes";
 
 export interface RateioInput {
@@ -79,6 +79,60 @@ async function getSupabaseJWT(): Promise<string> {
     throw new Error("Sessão do Supabase inválida. Faça login novamente.");
   }
   return session.access_token;
+}
+
+/**
+ * Login do ERP Alvo de QUEM ESTÁ OPERANDO. Sem ele, o envio PARA.
+ *
+ * 🔴 POR QUE ISTO EXISTE. Até 28/08/2026 o payload da requisição mandava
+ * `CodigoUsuario`/`UsuarioLogado` com a constante literal `"PEDRO.SCRIGNOLI"`.
+ * Medido na série completa (`compras_requisicoes_auditoria`, evento
+ * `envio_tentado`, 28/08/2026 10:5x UTC): **226 payloads, 32 pessoas distintas do
+ * Hub, 1 único `CodigoUsuario`** — todos os 225 que trazem a chave dizem
+ * PEDRO.SCRIGNOLI (o 226º, de 10/04/2026, é anterior ao campo). Entre eles, 3
+ * requisições da `ana.sanches`, que **tinha login próprio disponível** e foi
+ * descartado.
+ *
+ * É a TERCEIRA ocorrência do mesmo padrão, em três módulos e por três campos
+ * diferentes: A-8 (Projetos, `alvo_usuario`) · A-10 (Suprimentos,
+ * `funcionario_alvo_codigo` — `nfe@` e `pedro.scrignoli@` ainda compartilham o
+ * `0000149`, conferido hoje) · e este (requisições, `CodigoUsuario`).
+ *
+ * A regra é a D-17 do `PLANO-PROJETOS`, já decidida e já em produção no módulo de
+ * Projetos: **sem identidade própria, falha com mensagem clara — nunca cai para a
+ * identidade de outra pessoa.** Pedido no ERP com autor errado é pior do que
+ * pedido não enviado: o Hub e o ERP passam a contar histórias diferentes sobre o
+ * mesmo documento, e isso é rastreabilidade falsa no sistema contábil.
+ *
+ * ℹ️ A identidade vem da SESSÃO, não do `opts.userId`: quem opera é quem está
+ * logado. É a mesma resolução usada pelo módulo de Projetos
+ * (`alvoProjetoPedidoService`), pela MESMA função — a lógica de busca vive em
+ * `pedidosService.resolverUsuarioAlvoOuNull` e não é copiada.
+ *
+ * ⚠️ Isto NÃO é o único eixo de identidade do payload: `CodigoFuncionario`
+ * continua sendo o do requisitante, e ele **já distingue as pessoas** — 34 códigos
+ * distintos nos mesmos 226 envios. O que estava emprestado era o login do
+ * operador, não o requisitante.
+ */
+async function resolverCodigoUsuarioAlvo(): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user?.id) {
+    throw new Error("Sessão expirada — faça login novamente antes de enviar ao ERP.");
+  }
+
+  const login = await resolverUsuarioAlvoOuNull(session.user.id, session.user.email);
+  if (!login) {
+    throw new Error(
+      "Seu usuário não tem login do ERP Alvo configurado (campo `alvo_usuario` do perfil) — " +
+        "peça ao administrador para cadastrá-lo. A requisição NÃO foi enviada ao ERP: o Hub não " +
+        "lança documento no ERP com a identidade de outra pessoa.",
+    );
+  }
+
+  return login;
 }
 
 async function callGatewayReqComp(path: string, method: "GET" | "POST", body?: unknown): Promise<any> {
@@ -169,6 +223,12 @@ function montarTexto(input: NovaRequisicaoInput): string {
  * quanto por reenviarRequisicao (formato já persistido no Supabase).
  */
 interface PayloadReqCompParams {
+  /**
+   * Login do ERP Alvo de quem está operando. OBRIGATÓRIO e sem default de
+   * propósito: um valor opcional aqui reabriria a porta para a identidade
+   * emprestada que este parâmetro veio fechar (ver `resolverCodigoUsuarioAlvo`).
+   */
+  codigo_usuario: string;
   codigo_centro_ctrl: string;
   codigo_finalidade_compra: string;
   codigo_funcionario: string;
@@ -192,7 +252,7 @@ function montarPayloadReqComp(params: PayloadReqCompParams): any {
   const payload: any = {
     CodigoEmpresaFilial: EMPRESA_FILIAL,
     CodigoEmpresaFilialOrigem: EMPRESA_FILIAL,
-    CodigoUsuario: USUARIO_LOGADO,
+    CodigoUsuario: params.codigo_usuario,
     Numero: "",
     CodigoCentroCtrl: params.codigo_centro_ctrl,
     CodigoFinalidadeCompra: params.codigo_finalidade_compra,
@@ -219,7 +279,7 @@ function montarPayloadReqComp(params: PayloadReqCompParams): any {
     TextoHistoricoNovo: null,
     TipoFormulario: "Normal",
     UploadIdentify: "",
-    UsuarioLogado: USUARIO_LOGADO,
+    UsuarioLogado: params.codigo_usuario,
   };
 
   // Se houver arquivos, adiciona ReqCompDocChildList e filesToUpload
@@ -344,6 +404,59 @@ async function registrarDesfechoViaRpc(
   const retorno = String(data ?? "");
   const esperado = numeroAlvo !== null ? "SINCRONIZADA" : "ERRO_REGISTRADO";
   return retorno === esperado ? null : `retorno inesperado "${retorno}"`;
+}
+
+/**
+ * Desfecho local de um envio que NÃO chegou ao ERP, no modo de persistência legado:
+ * volta a requisição para `rascunho` com a mensagem, e audita `envio_falha`.
+ *
+ * Extraído porque agora há TRÊS caminhos que precisam dele — a falha do ERP em
+ * `enviarRequisicaoAlvo`, a falha do ERP em `reenviarRequisicao`, e a recusa por
+ * falta de identidade, que acontece ANTES de qualquer chamada. Duplicar o bloco
+ * deixaria os desfechos divergirem com o tempo.
+ */
+interface RequisicaoParaDesfecho {
+  requisitante_user_id: string | null;
+  codigo_empresa_filial: string | null;
+  codigo_funcionario: string | null;
+  codigo_centro_ctrl: string | null;
+  codigo_finalidade_compra: string | null;
+  data_necessidade: string | null;
+  total_itens: number | null;
+}
+
+async function registrarFalhaEnvioLegado(
+  requisicaoId: string,
+  req: RequisicaoParaDesfecho,
+  userId: string,
+  userName: string,
+  msgErro: string,
+): Promise<void> {
+  await (supabase as any).from("compras_requisicoes").upsert(
+    {
+      id: requisicaoId,
+      requisitante_user_id: req.requisitante_user_id,
+      status: "rascunho",
+      erro_ultimo_envio: msgErro,
+      tentativa_envio_em: new Date().toISOString(),
+      codigo_empresa_filial: req.codigo_empresa_filial,
+      codigo_funcionario: req.codigo_funcionario,
+      codigo_centro_ctrl: req.codigo_centro_ctrl,
+      codigo_finalidade_compra: req.codigo_finalidade_compra,
+      data_necessidade: req.data_necessidade,
+      total_itens: req.total_itens,
+    },
+    { onConflict: "id" },
+  );
+
+  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+    requisicao_id: requisicaoId,
+    evento: "envio_falha",
+    user_id: userId,
+    user_nome: userName,
+    sucesso: false,
+    mensagem_erro: msgErro,
+  });
 }
 
 /**
@@ -542,7 +655,30 @@ export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvo
     ? arquivos.map((a: any) => a.upload_identify_guid as string)
     : undefined;
 
+  // ── D-17: identidade do operador no ERP, ANTES de montar o payload e ANTES de
+  // qualquer escrita. Falhando aqui, nada foi ao ERP e nada de enganoso fica
+  // gravado: não há `envio_tentado` com um payload que nunca existiu.
+  let codigoUsuarioAlvo: string;
+  try {
+    codigoUsuarioAlvo = await resolverCodigoUsuarioAlvo();
+  } catch (errIdentidade) {
+    const msgErro = errIdentidade instanceof Error ? errIdentidade.message : String(errIdentidade);
+
+    if (opts.persistencia === "rpc") {
+      const problema = await registrarDesfechoViaRpc(requisicaoId, null, msgErro);
+      return {
+        sucesso: false,
+        requisicao_id: requisicaoId,
+        erro: problema ? `${msgErro} (o Hub também não conseguiu registrar o erro: ${problema})` : msgErro,
+      };
+    }
+
+    await registrarFalhaEnvioLegado(requisicaoId, req, opts.userId, opts.userName, msgErro);
+    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+  }
+
   const payload = montarPayloadReqComp({
+    codigo_usuario: codigoUsuarioAlvo,
     codigo_centro_ctrl: req.codigo_centro_ctrl,
     codigo_finalidade_compra: req.codigo_finalidade_compra,
     codigo_funcionario: req.codigo_funcionario,
@@ -673,31 +809,7 @@ export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvo
       msgErro = `${msgErro} (o Hub também não conseguiu registrar o erro: ${problema})`;
     }
   } else {
-    await (supabase as any).from("compras_requisicoes").upsert(
-      {
-        id: requisicaoId,
-        requisitante_user_id: req.requisitante_user_id,
-        status: "rascunho",
-        erro_ultimo_envio: msgErro,
-        tentativa_envio_em: new Date().toISOString(),
-        codigo_empresa_filial: req.codigo_empresa_filial,
-        codigo_funcionario: req.codigo_funcionario,
-        codigo_centro_ctrl: req.codigo_centro_ctrl,
-        codigo_finalidade_compra: req.codigo_finalidade_compra,
-        data_necessidade: req.data_necessidade,
-        total_itens: req.total_itens,
-      },
-      { onConflict: "id" },
-    );
-
-    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-      requisicao_id: requisicaoId,
-      evento: "envio_falha",
-      user_id: opts.userId,
-      user_nome: opts.userName,
-      sucesso: false,
-      mensagem_erro: msgErro,
-    });
+    await registrarFalhaEnvioLegado(requisicaoId, req, opts.userId, opts.userName, msgErro);
   }
 
   return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
@@ -934,7 +1046,19 @@ export async function reenviarRequisicao(
 
   const guids = temArquivos ? arquivos.map((a: any) => a.upload_identify_guid) : undefined;
 
+  // ── D-17: mesma regra do envio. Este caminho só trata `pendente_envio` (o
+  // 'rascunho' foi re-roteado acima), e a persistência aqui é sempre a legada.
+  let codigoUsuarioAlvo: string;
+  try {
+    codigoUsuarioAlvo = await resolverCodigoUsuarioAlvo();
+  } catch (errIdentidade) {
+    const msgErro = errIdentidade instanceof Error ? errIdentidade.message : String(errIdentidade);
+    await registrarFalhaEnvioLegado(requisicaoId, req, userId, userName, msgErro);
+    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro, rota: null };
+  }
+
   const payload = montarPayloadReqComp({
+    codigo_usuario: codigoUsuarioAlvo,
     codigo_centro_ctrl: req.codigo_centro_ctrl,
     codigo_finalidade_compra: req.codigo_finalidade_compra,
     codigo_funcionario: req.codigo_funcionario,
@@ -1039,33 +1163,7 @@ export async function reenviarRequisicao(
     return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo, rota: null };
   } catch (err: any) {
     const msgErro = err?.message || String(err);
-
-    await (supabase as any).from("compras_requisicoes").upsert(
-      {
-        id: requisicaoId,
-        requisitante_user_id: req.requisitante_user_id,
-        status: "rascunho",
-        erro_ultimo_envio: msgErro,
-        tentativa_envio_em: new Date().toISOString(),
-        codigo_empresa_filial: req.codigo_empresa_filial,
-        codigo_funcionario: req.codigo_funcionario,
-        codigo_centro_ctrl: req.codigo_centro_ctrl,
-        codigo_finalidade_compra: req.codigo_finalidade_compra,
-        data_necessidade: req.data_necessidade,
-        total_itens: req.total_itens,
-      },
-      { onConflict: "id" },
-    );
-
-    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-      requisicao_id: requisicaoId,
-      evento: "envio_falha",
-      user_id: userId,
-      user_nome: userName,
-      sucesso: false,
-      mensagem_erro: msgErro,
-    });
-
+    await registrarFalhaEnvioLegado(requisicaoId, req, userId, userName, msgErro);
     return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro, rota: null };
   }
 }
