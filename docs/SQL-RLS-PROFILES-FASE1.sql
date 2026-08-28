@@ -63,8 +63,26 @@
 --    O Pedro tem bypass e erro de permissão nunca aparece para ele.
 --
 -- =====================================================================
--- ORDEM DE EXECUÇÃO: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
+-- ORDEM DE EXECUÇÃO:  0 → 1 → 2 → 3 → 4 → 6 → 7 → 8 → 9 → **5** → 10
 -- Um comando por bloco. Confira a saída de cada um antes do seguinte.
+--
+-- 🔴 O DROP DA POLICY PERMISSIVA (BLOCO 5) É O PENÚLTIMO, NÃO O TERCEIRO.
+--    Correção do Pedro em 28/08/2026, e ela evita uma INDISPONIBILIDADE que a
+--    primeira versão deste arquivo teria causado:
+--
+--    Dropar a permissiva ANTES de criar as novas deixa `profiles` com **RLS ligado e
+--    ZERO policies** para `authenticated`. RLS sem policy **nega tudo** — inclusive o
+--    SELECT que o `AuthContext` faz no primeiro render. Entre um bloco e o seguinte,
+--    executados à mão, essa janela é de segundos a minutos, e nela **o Hub inteiro
+--    para para todo mundo**.
+--
+--    Criando as novas PRIMEIRO não há janela: policies permissivas são **OR-adas**,
+--    então durante a sobreposição vale `true OR (as novas)` = `true`, isto é, o
+--    comportamento de hoje, sem alteração nenhuma.
+--
+--    ⇒ **A mudança inteira é INERTE até o BLOCO 5.** Ele é a chave, e é atômico (um
+--      único DDL). Parar antes dele deixa o banco exatamente na postura de hoje; o
+--      rollback, nesse ponto, é só não continuar. Depois dele, é o R5.
 -- =====================================================================
 
 
@@ -144,6 +162,10 @@ revoke execute on function public._profile_self_intacto(uuid, uuid, boolean, boo
 
 
 -- ██ BLOCO 5 — APPLY · remover a policy permissiva ██████████████████████
+-- 🔴 **RODE ESTE POR ÚLTIMO, DEPOIS DO BLOCO 9.** É a chave que liga a mudança:
+--    até aqui o `true/true` da policy antiga é OR-ado com as novas e nada mudou.
+--    Rodar antes das novas deixaria `profiles` com RLS ligado e zero policies —
+--    nega tudo, derruba o Hub para todos. Ver o cabeçalho de ORDEM DE EXECUÇÃO.
 drop policy if exists "Allow all for authenticated on profiles" on public.profiles;
 
 
@@ -247,49 +269,94 @@ order by grantee;
 -- Esperado: `anon` NÃO aparece.
 
 
--- ██ V4 — PROVA FUNCIONAL. Roda em BEGIN/ROLLBACK: nada é gravado. ██████
--- 🔴 Troque <UUID-NAO-ADMIN> por um usuário real SEM `is_admin`. Testar com o Pedro
---    NÃO prova nada — ele tem bypass e erro de permissão nunca aparece para ele
---    (Regra 8 do PLANO-PROJETOS). Para pegar um:
---       select user_id, email from public.profiles where not is_admin limit 5;
+-- ██ V4 — PROVA FUNCIONAL. Em BEGIN/ROLLBACK: nada é gravado. ██████████
+--
+-- 🔴 (i) E (ii) SÃO O CRITÉRIO DE ACEITE DO **DESENHO**, NÃO SÓ DA POLICY.
+--
+--    A policy depende de uma premissa que **NÃO foi testada dentro de um UPDATE
+--    real**: que a função `_profile_self_intacto`, sendo STABLE, enxergue a linha
+--    **ANTIGA** quando chamada de dentro do `WITH CHECK`.
+--
+--    O que EU verifiquei, e como: a semântica de `EXISTS` + `IS NOT DISTINCT FROM`
+--    (igual→true, diferente→false, zero linhas→false, null vs null→true), por SELECT
+--    puro. Isso prova a COMPARAÇÃO, não a VISIBILIDADE.
+--
+--    O que eu NÃO verifiquei: se, durante o UPDATE, a função lê a linha antiga ou a
+--    nova. O raciocínio é que uma função STABLE usa o snapshot do comando, e uma
+--    tupla escrita pelo próprio comando não é visível a ele (regras de cmin/cmax),
+--    sem `CommandCounterIncrement`. É o mesmo padrão do `_is_admin()`, que está em
+--    produção — mas `_is_admin()` nunca lê a linha que está sendo alterada.
+--
+--    🔴 **SE A FUNÇÃO ENXERGAR A LINHA NOVA, a comparação vira nova-contra-nova, é
+--    sempre verdadeira, e a policy NÃO PROTEGE NADA — parecendo instalada.** V1 e V2
+--    passariam do mesmo jeito. **Só (i) e (ii) distinguem os dois mundos.**
+--
+--    · (i) e (ii) com **0 linhas** ⇒ o desenho está certo, empiricamente.
+--    · (i) ou (ii) com **1 linha** ⇒ o desenho está errado. **Rode o R5 na hora**
+--      (recriar a policy permissiva) e me chame: a saída é trocar o `WITH CHECK` por
+--      um **trigger BEFORE UPDATE**, que recebe `OLD` e `NEW` explicitamente e não
+--      depende de visibilidade MVCC nenhuma. É estritamente mais robusto; só não é a
+--      primeira opção porque é mais peça em produção.
+--
+-- Os dois UUIDs abaixo são reais, ambos NÃO-admin e ativos:
+--   A = 9583eeeb-269e-4f46-9f2c-493761288d3c  ryan.santos@pfbrazil.com
+--       Escolhido de propósito: é o ÚNICO não-admin com `alvo_usuario` PREENCHIDO
+--       (`RYAN.PAGANOTTO`), então (ii) testa proteger uma identidade que EXISTE, não
+--       preencher uma vazia. E tem `must_change_password = true`, o que faz (vi)
+--       exercitar o caminho real do `/reset-password`.
+--   B = 1cc3de88-0351-401b-86bb-fd519a5e2dd9  agente.compras@pfbrazil.com
+--       Conta de serviço, usada só como ALVO ALHEIO em (iii) e (iv) — raio de UMA
+--       linha em vez de 56, como o Pedro pediu. Nada é gravado de qualquer forma,
+--       mas 1 linha não trava a tabela inteira nem dispara trigger em massa.
 begin;
   set local role authenticated;
   select set_config('request.jwt.claims',
-                    json_build_object('sub','<UUID-NAO-ADMIN>','role','authenticated')::text,
+                    json_build_object('sub','9583eeeb-269e-4f46-9f2c-493761288d3c',
+                                      'role','authenticated')::text,
                     true);
 
-  -- (i) ESCALADA — tem de afetar 0 linhas
-  update public.profiles set is_admin = true where user_id = '<UUID-NAO-ADMIN>';
+  -- (i) ESCALADA no próprio perfil — TEM de afetar 0 linhas
+  update public.profiles set is_admin = true
+   where user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c';
 
-  -- (ii) IDENTIDADE FORJADA — tem de afetar 0
-  update public.profiles set alvo_usuario = 'ANA.SANCHES' where user_id = '<UUID-NAO-ADMIN>';
+  -- (ii) IDENTIDADE FORJADA no próprio perfil — TEM de afetar 0
+  --      (Ryan hoje tem RYAN.PAGANOTTO; isto tentaria trocar por outro login real)
+  update public.profiles set alvo_usuario = 'ANA.SANCHES'
+   where user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c';
 
-  -- (iii) PERFIL ALHEIO — tem de afetar 0
-  update public.profiles set full_name = 'invadido' where user_id <> '<UUID-NAO-ADMIN>';
+  -- (iii) PERFIL ALHEIO — TEM de afetar 0
+  update public.profiles set full_name = 'invadido'
+   where user_id = '1cc3de88-0351-401b-86bb-fd519a5e2dd9';
 
-  -- (iv) DELETE ALHEIO — tem de afetar 0
-  delete from public.profiles where user_id <> '<UUID-NAO-ADMIN>';
+  -- (iv) DELETE ALHEIO — TEM de afetar 0
+  delete from public.profiles
+   where user_id = '1cc3de88-0351-401b-86bb-fd519a5e2dd9';
 
-  -- (v) AUTOSSERVIÇO LEGÍTIMO — tem de afetar 1
+  -- (v) AUTOSSERVIÇO LEGÍTIMO — TEM de afetar 1
   update public.profiles
      set full_name = full_name, must_change_password = must_change_password, updated_at = now()
-   where user_id = '<UUID-NAO-ADMIN>';
+   where user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c';
 
-  -- (vi) O UPSERT DO ResetPassword — o caminho real. Tem de passar.
+  -- (vi) O UPSERT REAL do ResetPassword — TEM de passar sem erro
   insert into public.profiles (user_id, email, full_name, is_admin, is_active, must_change_password, updated_at)
   select p.user_id, p.email, p.full_name, p.is_admin, p.is_active, false, now()
-    from public.profiles p where p.user_id = '<UUID-NAO-ADMIN>'
+    from public.profiles p
+   where p.user_id = '9583eeeb-269e-4f46-9f2c-493761288d3c'
   on conflict (user_id) do update
-     set must_change_password = excluded.must_change_password, updated_at = excluded.updated_at;
+     set must_change_password = excluded.must_change_password,
+         updated_at           = excluded.updated_at;
 
-  -- Fotografia final antes de desfazer:
+  -- Fotografia antes de desfazer. `is_admin` e `alvo_usuario` TÊM de estar intactos:
   select user_id, is_admin, is_active, alvo_usuario, must_change_password
-    from public.profiles where user_id = '<UUID-NAO-ADMIN>';
+    from public.profiles
+   where user_id in ('9583eeeb-269e-4f46-9f2c-493761288d3c',
+                     '1cc3de88-0351-401b-86bb-fd519a5e2dd9');
 rollback;
 --
--- 🟢 PASSOU: (i)–(iv) com 0 linhas, (v) com 1, e (vi) sem erro.
--- 🔴 FALHOU: se (v) ou (vi) der erro de policy, a Fase 1 QUEBRA o autosserviço —
---    NÃO publique e me chame. Se (i) ou (ii) afetar linha, a policy não fechou.
+-- 🟢 PASSOU: (i)–(iv) com 0 linhas, (v) com 1, (vi) sem erro, e a fotografia com
+--    `is_admin = false` e `alvo_usuario = RYAN.PAGANOTTO`.
+-- 🔴 (i) ou (ii) com 1 linha ⇒ **DESENHO ERRADO** — R5 imediato, ver acima.
+-- 🔴 (v) ou (vi) com erro de policy ⇒ a Fase 1 QUEBRA o autosserviço — R5 e me chame.
 
 
 -- ██ V5 — depois do Publish: teste com gente de verdade ██████████████████
