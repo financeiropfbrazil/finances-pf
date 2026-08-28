@@ -123,12 +123,25 @@ async function resolverCodigoUsuarioAlvo(): Promise<string> {
     throw new Error("Sessão expirada — faça login novamente antes de enviar ao ERP.");
   }
 
-  const login = await resolverUsuarioAlvoOuNull(session.user.id, session.user.email);
+  const login = (await resolverUsuarioAlvoOuNull(session.user.id, session.user.email))?.trim();
   if (!login) {
     throw new Error(
-      "Seu usuário não tem login do ERP Alvo configurado (campo `alvo_usuario` do perfil) — " +
-        "peça ao administrador para cadastrá-lo. A requisição NÃO foi enviada ao ERP: o Hub não " +
-        "lança documento no ERP com a identidade de outra pessoa.",
+      "Seu usuário não tem login do ERP Alvo configurado — peça ao administrador para cadastrá-lo " +
+        "no seu perfil. A requisição NÃO foi enviada ao ERP: o Hub não lança documento no ERP com " +
+        "a identidade de outra pessoa.",
+    );
+  }
+
+  // ⚠️ `profiles.alvo_usuario` é TEXTO LIVRE preenchido à mão, e o desbloqueio deste
+  // card prevê cadastrar 30 logins de uma vez. Um espaço sobrando ou uma letra
+  // minúscula só apareceria como recusa do Alvo — DEPOIS de o `envio_tentado` já ter
+  // sido gravado, o que faz a auditoria registrar uma tentativa com um payload que o
+  // ERP nunca teve chance de aceitar. Barrar aqui é barato e a mensagem diz o que é.
+  if (!/^[A-Z0-9][A-Z0-9._-]*$/.test(login)) {
+    throw new Error(
+      `O login do ERP Alvo cadastrado no seu perfil ("${login}") não tem o formato que o ERP usa ` +
+        "(maiúsculas, sem espaços — por exemplo ANA.SANCHES). Peça ao administrador para corrigir. " +
+        "A requisição NÃO foi enviada ao ERP.",
     );
   }
 
@@ -432,7 +445,7 @@ async function registrarFalhaEnvioLegado(
   userName: string,
   msgErro: string,
 ): Promise<void> {
-  await (supabase as any).from("compras_requisicoes").upsert(
+  const { error: errStatus } = await (supabase as any).from("compras_requisicoes").upsert(
     {
       id: requisicaoId,
       requisitante_user_id: req.requisitante_user_id,
@@ -449,7 +462,7 @@ async function registrarFalhaEnvioLegado(
     { onConflict: "id" },
   );
 
-  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+  const { error: errAudit } = await (supabase as any).from("compras_requisicoes_auditoria").upsert({
     requisicao_id: requisicaoId,
     evento: "envio_falha",
     user_id: userId,
@@ -457,6 +470,20 @@ async function registrarFalhaEnvioLegado(
     sucesso: false,
     mensagem_erro: msgErro,
   });
+
+  // 🔴 O supabase-js devolve `{data, error}` em vez de lançar, então sem esta
+  // conferência uma escrita rejeitada some. Isto importa mais aqui do que nos blocos
+  // de onde a função foi extraída: este passou a ser o ÚNICO desfecho do caminho novo
+  // de recusa por identidade — o que ~30 pessoas percorrem no primeiro clique depois
+  // do Publish. Se falhar em silêncio, a tela diz "salvo como rascunho com o erro
+  // registrado" e nada foi gravado.
+  // Não lança: o que vale para a pessoa é a mensagem do fluxo, que nunca é silenciosa.
+  if (errStatus) {
+    console.error(`[requisicoes] desfecho de falha NÃO gravado em ${requisicaoId}: ${errStatus.message}`);
+  }
+  if (errAudit) {
+    console.error(`[requisicoes] auditoria 'envio_falha' NÃO gravada em ${requisicaoId}: ${errAudit.message}`);
+  }
 }
 
 /**

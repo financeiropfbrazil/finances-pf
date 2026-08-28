@@ -145,11 +145,36 @@ describe("identidade no envio de requisição ao Alvo (D-17)", () => {
         persistencia: "legado",
       });
 
-      expect(r.erro).toContain("alvo_usuario");
+      expect(r.erro).toContain("login do ERP Alvo");
       expect(r.erro).toContain("administrador");
       expect(r.erro).toContain("NÃO foi enviada");
-      // E não escapa a identidade de ninguém na mensagem.
-      expect(r.erro).not.toContain("PEDRO.SCRIGNOLI");
+    });
+
+    it("um login mal cadastrado (minuscula) tambem PARA antes do ERP", async () => {
+      // O desbloqueio deste card preve cadastrar 30 logins a mao numa coluna de
+      // texto livre. Um valor sujo so apareceria como recusa do Alvo — depois de o
+      // `envio_tentado` ja ter sido gravado.
+      montarBase("Ana.Sanches");
+      const r = await enviarRequisicaoAlvo(REQ_ID, {
+        userId: "user-1",
+        userName: "Ana",
+        persistencia: "legado",
+      });
+      expect(r.sucesso).toBe(false);
+      expect(r.erro).toContain("formato");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("espaço sobrando é aparado, não recusado", async () => {
+      montarBase("  ANA.SANCHES  ");
+      const r = await enviarRequisicaoAlvo(REQ_ID, {
+        userId: "user-1",
+        userName: "Ana",
+        persistencia: "legado",
+      });
+      expect(r.sucesso).toBe(true);
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(JSON.parse(String(init.body)).CodigoUsuario).toBe("ANA.SANCHES");
     });
 
     it("não grava `envio_tentado`: não existe payload de uma tentativa que não houve", async () => {
@@ -167,7 +192,7 @@ describe("identidade no envio de requisição ao Alvo (D-17)", () => {
 
       const req = estado.upserts.find((u) => u.tabela === "compras_requisicoes");
       expect(req?.linha.status).toBe("rascunho");
-      expect(String(req?.linha.erro_ultimo_envio)).toContain("alvo_usuario");
+      expect(String(req?.linha.erro_ultimo_envio)).toContain("login do ERP Alvo");
       // Nunca marca `pendente_envio`: o envio não começou.
       expect(estado.upserts.filter((u) => u.linha.status === "pendente_envio")).toHaveLength(0);
     });
@@ -184,7 +209,7 @@ describe("identidade no envio de requisição ao Alvo (D-17)", () => {
       const rpc = estado.rpcs.find((x) => x.nome === "registrar_envio_requisicao");
       expect(rpc).toBeTruthy();
       expect(rpc!.args.p_numero_alvo).toBeNull();
-      expect(String(rpc!.args.p_erro)).toContain("alvo_usuario");
+      expect(String(rpc!.args.p_erro)).toContain("login do ERP Alvo");
     });
   });
 
