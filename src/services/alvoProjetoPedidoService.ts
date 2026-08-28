@@ -159,7 +159,23 @@ export interface LinhaRateioProjetoConsolidada {
  * casas que a linha original não tinha.
  *
  * ℹ️ A ordem passa a ser por classe (primeira aparição), depois por CC. Sem
- * repetição, o conteúdo de cada linha é idêntico ao de antes.
+ * repetição, o conteúdo de cada linha é idêntico ao de antes — com UMA exceção
+ * medida, abaixo.
+ *
+ * ⚠️ A EXCEÇÃO: EMPATE DE MEIO CENTAVO NO CABEÇALHO. O caminho do cabeçalho
+ * usava `Number(x.toFixed(2))`; agora usa o `round2` (`Math.round(x*100)/100`)
+ * de `consolidarRateioDoItem`. As duas funções divergem em 1 centavo quando o
+ * produto cai exatamente no meio centavo: com total 9,77 e 50%, `toFixed` dá
+ * **4,88** e `round2` dá **4,89**. Escolhi `round2` porque é o que o Suprimentos
+ * já usa no item E no cabeçalho, em produção — uma aritmética só no Hub.
+ * **Exposição medida em 28/08/2026, série completa:** `projeto_requisicoes` tem
+ * **8 linhas de rateio, todas a 100%, zero percentuais com decimal e zero
+ * empates**; com 100% as duas fórmulas devolvem exatamente `valor_total`. O caso
+ * é **inalcançável com os dados de hoje**, mas o campo de percentual é livre.
+ * 🔴 E no empate NENHUMA das duas fecha: 4,88+4,88 = 9,76 e 4,89+4,89 = 9,78,
+ * contra `ValorTotal` 9,77. Este caminho **não tem ajuste residual** (o cabeçalho
+ * do Suprimentos tem) — é a mesma lacuna da pendência §7.24, agora nomeada aqui.
+ * **Anterior a esta mudança**, e fora do escopo dela.
  */
 export function consolidarRateioProjeto(
   rateio: readonly LinhaRateioProjeto[],

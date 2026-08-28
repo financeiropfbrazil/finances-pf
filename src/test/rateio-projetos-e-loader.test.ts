@@ -301,6 +301,40 @@ describe("consolidarRateioProjeto (Projetos)", () => {
     });
   });
 
+  describe("empate de meio centavo — a UNICA divergencia contra o codigo antigo", () => {
+    // O cabecalho usava Number(x.toFixed(2)); agora usa round2 = Math.round(x*100)/100.
+    // As duas divergem em 1 centavo quando o produto cai exatamente no meio centavo.
+    // Fixado aqui para ninguem descobrir isso em producao.
+    const antigoCabecalho = (total: number, pct: number) => Number((total * (pct / 100)).toFixed(2));
+
+    it("9,77 a 50% dá 4,89 (round2) onde o antigo dava 4,88 (toFixed)", () => {
+      const { linhas } = consolidarRateioProjeto([l("A", "CC1", 50)], 9.77);
+      expect(antigoCabecalho(9.77, 50)).toBe(4.88);
+      expect(linhas[0].valor).toBe(4.89);
+    });
+
+    it("no empate NENHUMA das duas fecha contra o total — lacuna anterior à mudança", () => {
+      // Duas classes, 50/50 de 9,77. Nem 4,88+4,88=9,76 nem 4,89+4,89=9,78 dão 9,77.
+      // Este caminho não tem ajuste residual (o do Suprimentos tem) — pendência §7.24.
+      const { linhas } = consolidarRateioProjeto([l("A", "CC1", 50), l("B", "CC2", 50)], 9.77);
+      const somaNova = linhas.reduce((s2, x) => s2 + x.valor, 0);
+      const somaAntiga = 2 * antigoCabecalho(9.77, 50);
+      expect(somaNova).toBeCloseTo(9.78, 2);
+      expect(somaAntiga).toBeCloseTo(9.76, 2);
+      expect(somaNova).not.toBe(9.77);
+      expect(somaAntiga).not.toBe(9.77);
+    });
+
+    it("a 100% — o unico percentual que o modulo usou ate hoje — as duas coincidem", () => {
+      // Serie completa medida em 28/08/2026: 8 linhas de rateio, todas a 100%.
+      for (const total of [100, 110000, 18000, 1199.98, 9.77]) {
+        const { linhas } = consolidarRateioProjeto([l("A", "CC1", 100)], total);
+        expect(linhas[0].valor).toBe(total);
+        expect(antigoCabecalho(total, 100)).toBe(total);
+      }
+    });
+  });
+
   describe("bordas", () => {
     it("rateio vazio devolve vazio", () => {
       expect(consolidarRateioProjeto([], 1000).linhas).toEqual([]);
