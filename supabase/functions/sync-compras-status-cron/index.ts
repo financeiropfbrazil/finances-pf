@@ -1116,7 +1116,23 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
             ? "cancelada_alvo"
             : "sync_status";
 
-      await supabase.from("compras_requisicoes_auditoria").insert({
+      // 🔴 O `error` DEVE ser conferido: o supabase-js devolve `{data, error}` em vez
+      // de lançar, então um insert rejeitado passa despercebido. E o status já foi
+      // gravado logo acima (`:1085`) — descartar a rejeição aqui produz exatamente o
+      // padrão do §14.2: mudança de status SEM linha de auditoria, com o
+      // `total_mudaram++` da linha seguinte reportando sucesso ao `sync_runs`.
+      //
+      // A armadilha é concreta e tem nome: `eventoAudit` vale `"sync_status"` no ramo
+      // `sincronizada`, e `sync_status` NÃO está no CHECK
+      // `compras_requisicoes_auditoria_evento_check` (15 valores, nenhum é esse —
+      // conferido em 28/08/2026). Hoje o ramo é inalcançável porque a fila só traz
+      // requisições já em `sincronizada` (`:970`) e o mapper devolve `sincronizada`,
+      // caindo no `if (novoStatus === req.status)` acima. Mudar o filtro da fila
+      // acorda o defeito. Esta é a defesa (b) do §14.2-A; a defesa (a) — alinhar o
+      // CHECK ao código — é DDL e vive fora daqui. Elas são complementares: (a)
+      // conserta este valor, (b) conserta a CLASSE (qualquer evento futuro fora do
+      // CHECK).
+      const { error: errAudit } = await supabase.from("compras_requisicoes_auditoria").insert({
         requisicao_id: req.id,
         evento: eventoAudit,
         user_id: null,
@@ -1124,6 +1140,27 @@ async function syncRequisicoes(supabase: SupabaseClient, erpUrl: string, systemS
         sucesso: true,
         resposta_alvo: notFound ? { not_found: true } : resp.data,
       });
+
+      if (errAudit) {
+        result.total_erros++;
+        result.detalhes.push({
+          tipo: "req",
+          id: req.id,
+          numero_alvo: req.numero_alvo,
+          erro:
+            `auditoria NÃO gravada (evento '${eventoAudit}'): ${errAudit.message}. ` +
+            `O status já foi gravado como '${novoStatus}' (era '${req.status}') — ` +
+            `escrita sem rastro. Este ciclo NÃO conta como mudança.`,
+        });
+        console.error(
+          `[sync-req] ${req.numero_alvo}: status ${req.status} → ${novoStatus} gravado, ` +
+            `mas a auditoria '${eventoAudit}' foi rejeitada:`,
+          errAudit,
+        );
+        // Não incrementa `total_mudaram`: o ciclo não pode reportar sucesso numa
+        // transição que ficou sem rastro.
+        return;
+      }
 
       result.total_mudaram++;
       result.detalhes.push({
@@ -2439,7 +2476,7 @@ async function syncPedidos(
 // Marcador de versão — anti deploy-fantasma. Aparece no log de CADA
 // invocação. Se após o deploy o log não mostrar esta string, a versão
 // nova NÃO está no ar (o deploy silenciosamente não subiu).
-const BUILD_TAG = "MOEDA-PEDIDOS-A2 (2026-08-26)";
+const BUILD_TAG = "REQ-AUDITORIA-CHECA-ERRO (2026-08-28)";
 
 Deno.serve(async (req: Request) => {
   const startTime = Date.now();
