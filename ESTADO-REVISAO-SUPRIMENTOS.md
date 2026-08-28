@@ -1,5 +1,5 @@
 # ESTADO-REVISAO-SUPRIMENTOS
-### Estado vivo da missão · última atualização: 27/08/2026, após MOEDA-PEDIDOS (A2/A3/A4) e o teste anti-wipe
+### Estado vivo da missão · última atualização: 28/08/2026, após a sessão de execução Trilha 1 + Trilha 2 (§15)
 
 > **Leia este arquivo ANTES de qualquer coisa nesta missão.** Ele registra o que foi
 > executado, o que foi medido e — principalmente — **onde a documentação está errada**.
@@ -395,7 +395,9 @@ ainda não começou.
     *Enunciado original preservado:* ~~O card D4 original era "normalizar parcelas
     **e** rateio no payload". Só o **rateio** foi entregue e validado em 27/08 (§12). A
     normalização de parcelas (última parcela = total − anteriores) segue pendente.~~
-27. **Rótulo do chip de rateio conta LINHAS, não CCs distintos** (cosmético). Na tela do
+27. ✅ ~~**Rótulo do chip de rateio conta LINHAS, não CCs distintos**~~ — **FECHADO em 28/08/2026**
+    (`d1c6439`, §15). `rotuloCcsDistintos` conta por `Set` de `codigo_centro_ctrl` e resolve
+    singular/plural num lugar só. *Enunciado original preservado:* (cosmético). Na tela do
     wizard o chip diz `11.01 (100%) — 2 CCs` para duas linhas do **mesmo** CC; depois da
     consolidação é 1 CC. Vem de `cls.ccs.length` em `SuprimentosPedidoNovo.tsx` (~1507 e
     ~2235). Não é erro de valor, mas confunde na revisão do wizard — justamente na tela em que
@@ -461,13 +463,47 @@ ainda não começou.
     **Escopo estreito, começa MEDINDO se há padrão:** mesmos aprovadores? mesma faixa de valor?
     mesmo horário? correlação com ciclos do cron? Só depois investigar causa. Aberto em 27/08.
 
+    🔬 **MEDIDO em 28/08/2026 — `docs/TRILHA2-DIAGNOSTICO-2026-08-28.md` §2. Nada implementado.**
+    🔴 **As 26 NÃO são um fenômeno à parte: são o MESMO evento das 63.** Em **22 das 26**, a
+    **mesma leitura** que registra o flag `Sim→Não` registra o **bloco inteiro de aprovação sendo
+    zerado** — `StatusAprovacao` 'Em Andamento'→'Nenhum', `UserProximoAprovador`→null,
+    `UserEnviarAprovacao`→'Não'. Não é um flag caindo sozinho: é o **workflow do ERP resetando**,
+    **sem mudança de status _observada_**. Contraste: 22/44 = 50,0% no grupo contra 4/1.932 = 0,21%
+    nas outras 9 transições; normalizado por pedido-hora, **590×**. E **63/63** das
+    `Aberto→Reavaliar` terminam em `StatusAprovacao='Nenhum'` — mesma assinatura.
+    Série remedida: **89** reversões (63 + 26), destinos possíveis **exatamente 2**.
+    **Reproduzido ao vivo durante a medição:** 0004786 e 0004785 reverteram às 11:00:36 UTC com
+    assinatura idêntica.
+    🔴 **Segundo achado — o flag é TRANSIENTE, não livro-razão.** `UserEnviouAprovacao` é na prática
+    cópia do comando `UserEnviarAprovacao` (concordam em **4.311/4.313 = 99,95%**), e **24 de 24**
+    das que tiveram leitura posterior voltaram a "Sim" sozinhas (22/24 sem nenhuma ação do Hub).
+    **0 de 89** tiveram evento do Hub dentro da janela da reversão — o card 28 continua refutado.
+    ⚠️ **Consequência VIVA, e é de negócio:** **21** pedidos hoje em `Aberto` + flag "Não" +
+    `Nenhum`, com ninguém pendente. O pior é o **0004467**, revertido em 24/07 15:00 UTC e **parado
+    há 35 dias**. A fila de aprovação da UI não pode depender só desse campo.
+    ⚠️ **Objeção que anda junto (única que pegou, parcialmente):** o grupo `Aberto→Aberto` pode ser
+    o grupo `Aberto→Reavaliar` visto com gap maior — `Reavaliar` é efêmero (70 de 83 somem na
+    leitura seguinte) e as 26 têm gaps maiores (mediana 25h × 18h). **Quantificada:** a taxa base
+    de entrada em Reavaliar prevê **0,37** ocorrências nas 1.476 pedido-hora das 26; explicar a
+    maioria exigiria fator ~50×. E 17 dos 23 pedidos nunca mostram `Reavaliar` na série inteira.
+    **Mesmo se fosse verdade, tornaria os dois grupos o mesmo evento — que é a tese.**
+    Hipóteses **refutadas** (não reconstruir): aprovadores específicos (o zero de FLAVIO.DIAS é
+    artefato de exposição — seus 376 pares nunca tiveram cadeia ativa), horário/dia da semana,
+    concentração em ciclo do cron, e o Hub como gatilho.
+    🔴 **Bomba armada, achado colateral:** `sameStr` (`index.ts:2237-2241`) **não normaliza acento**.
+    Hoje só chega "Não" com til (4.145 "Sim" / 182 "Não" / 445 NULL, zero variantes). Se o Alvo
+    passar a devolver "Nao" sem til, **cada ciclo gravaria uma mudança fantasma**.
+
     ⚠️ **Dois limites estruturais que valem para qualquer medição futura aqui:**
     (i) `sync_status` é **log de mudança, não amostragem** — o cron só grava quando `mudou=true`;
     mediana de ~18h entre leituras. Um ciclo `Sim → reset` inteiro cabe na janela sem rastro.
     (ii) O ramo `jaEnviou` (`:2658-2684`) sai antes **sem gravar auditoria** — **111 é piso de
     tentativas, não teto.**
 
-29. **Rateio do módulo PROJETOS repete a forma pré-D4** (pendência, não agora).
+29. ✅ ~~**Rateio do módulo PROJETOS repete a forma pré-D4**~~ — **FECHADO em 28/08/2026**
+    (`8635ae0`, §15), com escopo estreito: colapsa só (classe, CC), mantém a saída PLANA e a
+    convenção de `Percentual` deste módulo, para não mexer no payload de criação recém-validado
+    pelo A/B 0004798 × 0004799. *Enunciado original preservado:* (pendência, não agora).
     `alvoProjetoPedidoService.ts:151-172` (item) e `:204-221` (cabeçalho) fazem `rateio.map()`
     1:1, sem agrupar (classe, CC) — exatamente o que derrubou o 0004781 com
     `Friendly_Message_UQ_PK`. Hoje **latente**: zero duplicatas medidas em
@@ -1169,8 +1205,12 @@ do §14.2, só que causado pelo próprio código.
 
 **Duas defesas independentes — registrar as duas, implementar depois:**
 - **(a) Alinhar CHECK e código** — incluir `sync_status` na constraint **ou** remover o ramo.
+  ✅ **SQL ENTREGUE em 28/08/2026:** `docs/SQL-14.2A-check-sync-status.sql` (PREVIEW → APPLY
+  idempotente → VERIFY remedindo, com prova funcional em BEGIN/ROLLBACK). **Aguarda o Pedro rodar.**
 - **(b) Checar o `error` do insert de auditoria** e **não** contar `total_mudaram++` quando ele
   falhar. Sem (b), qualquer valor futuro fora do CHECK reproduz o problema.
+  ✅ **IMPLEMENTADO em 28/08/2026** (`9171141`, §15). ⚠️ **Exige deploy da Edge Function** — não
+  entra por push. Marcador anti-deploy-fantasma: `BUILD_TAG = "REQ-AUDITORIA-CHECA-ERRO (2026-08-28)"`.
 
 ⚠️ **(a) sozinha não basta:** ela conserta este valor, não a classe. **(b) sozinha não basta:**
 o ciclo passaria a acusar erro em vez de mentir, mas o status continuaria gravado sem auditoria.
@@ -1188,6 +1228,27 @@ São complementares.
 atualizou o `valor_total` depois e **as parcelas ficaram congeladas**. **Zero casos na faixa
 R$ 0,01–R$ 0,10** — não é arredondamento; a menor divergência é R$ 8,50.
 
+🔬 **DIAGNÓSTICO FECHADO em 28/08/2026 — `docs/TRILHA2-DIAGNOSTICO-2026-08-28.md` §1.**
+**Nada implementado**, como combinado. A causa é uma **assimetria de sincronização**: `valor_total`
+é regravado pelo Job 2 a cada ciclo em que o Alvo muda (`index.ts:2299`), enquanto a única rotina
+que reescreve `compras_pedidos_parcelas` (`persistirItensPedido` → `sync_replace_filhos_pedido`)
+está atrás de um portão de **PRESENÇA**, não de coerência (`index.ts:2138-2140`;
+`filhosAusentes` = jsonb nulo ou vazio, `:1504-1508`). Com `detalhes_carregados = true` em
+**365 de 365**, o portão está fechado em 100% do universo. Direção causal provada: nos 13
+divergentes que têm Load anterior à escrita das parcelas, **13/13** batiam exatamente na época —
+não foi gravação errada, foi o Alvo mover depois.
+🔴 **O passivo é ~35× maior que os 26:** 902 pedidos têm parcelas no último Load do Alvo e
+**nenhuma** linha local, e o mesmo portão impede que recebam *(medido 28/08/2026 11:17 UTC,
+denominador 1.979)*. Remedido por mim às 11:30 UTC: 365 / 26 / R$ 240.747,29 conferem.
+🔴 **Achado colateral — escritor SEM RASTRO:** `alvoPedCompLoadService.ts:407-461` (open-load,
+roda a **cada abertura** de card) grava `valor_total`, o jsonb `parcelas` e
+`detalhes_carregados: true`, **nunca toca a tabela de parcelas** e **não grava auditoria**. É ele
+que fecha o portão do cron. Caso associado: 0004756.
+▶️ **Próximo passo proposto (não executado):** snapshot de `compras_pedidos_parcelas` **e**
+`compras_pedidos_itens_rateio` dos 26 → `detalhes_carregados = false` nos 25 (exceto 0003872, que
+é incoerência do próprio ERP) → esperar 1–2 ciclos válidos. Valida o diagnóstico **sem alterar um
+arquivo**. ⚠️ 10 dos 26 estão em status terminal e o patch do portão sozinho **não os alcança**.
+
 ### 14.4 CARD 4 — identidade da requisição: 230/230 vão ao ERP como PEDRO.SCRIGNOLI
 
 **230 de 230** requisições efetivamente enviadas foram ao Alvo com `CodigoUsuario` literal
@@ -1201,6 +1262,29 @@ espelho e nunca passaram pelo payload do Hub.)*
 módulo de **requisições** e por outro campo. Grupo de controle no mesmo repo: o caminho de
 **pedido** acerta 120 de 134 (89,6%); o de **requisição**, 0 de 230.
 
+✅ **IMPLEMENTADO em 28/08/2026** (`c6984e1`, §15): regra D-17 — sem `profiles.alvo_usuario` o envio
+PARA, com mensagem clara; nunca cai para a identidade de outra pessoa. `USUARIO_LOGADO` deixou de
+existir no arquivo. Gate nos dois caminhos que chegam ao ERP, antes do payload e antes de qualquer
+escrita. 8 testes com duplo do Supabase e `fetch` espionado.
+
+🔴 **Remedição de 28/08/2026 10:5x UTC — o denominador muda o enunciado em dois pontos:**
+- São **226** payloads de `envio_tentado`, não 230; **225** dizem `PEDRO.SCRIGNOLI` e o 226º
+  (10/04/2026) é anterior ao campo. **32** pessoas distintas do Hub, **1** único `CodigoUsuario`.
+- Ana Sanches: **3** requisições (0001250, 0001261, 0001270), como já constava aqui.
+- 🔴 **NORMALIZAÇÃO QUE MUDA A LEITURA:** `CodigoFuncionario` tem **34 códigos DISTINTOS** nos
+  mesmos 226 envios. **O ERP sempre soube QUEM pediu** — o que estava emprestado era o login do
+  **operador**, não o requisitante. O achado é real, e é menor do que "identidade emprestada" sem
+  qualificação.
+
+⛔ **BLOQUEIO DE PUBLISH, MEDIDO:** das 32 pessoas que já enviaram requisição, **apenas 2** têm
+`alvo_usuario` (pedro.scrignoli e ana.sanches). As outras **30** respondem por **197 dos 226 envios
+(87%)** e todas estão ativas nos últimos 90 dias. **Publicar sem preencher os logins para o módulo
+de requisições para 30 pessoas.** Lista e SQL em `docs/SQL-14.4-alvo-usuario-requisicoes.sql`, com
+a saída alternativa (B) de um login de serviço único — que **não** contraria a D-17, já que ela
+proíbe emprestar a identidade de uma **pessoa**.
+ℹ️ A colisão do **A-10** segue viva e é outro campo: `nfe@` e `pedro.scrignoli@` continuam
+compartilhando `funcionario_alvo_codigo = 0000149` *(conferido 28/08/2026)*.
+
 ### 14.5 🔴 CARD 5 — caminho ATIVO para o `UQ_PK` no wizard de Projetos
 
 **Separado do §7.29 de propósito:** aquele é latente com exposição zero; **este é ativo**.
@@ -1213,6 +1297,11 @@ com **dois nós idênticos** de `CodigoClasseRecDesp: ''` + `CodigoCentroCtrl: '
 
 **Tratar junto com o item do percentual (5º da ordem).**
 *Hipótese não testada:* se o Alvo rejeita por classe inválida **antes** de bater no UNIQUE.
+
+✅ **FECHADO em 28/08/2026** (`56be472`, §15). `validarLinhasRateio` **recusa** — não consolida —
+linha em branco e par (classe, CC) repetido, nos **dois** portões (UI `handleSave` e `validar()` do
+service), com mensagem que nomeia a **linha** e o **problema**. A hipótese acima continua não
+testada e agora é **irrelevante para o caminho normal**: a linha em branco nem sai do Hub.
 
 ### 14.6 Moeda no envio — decisão registrada (Pedro, 27/08)
 
@@ -1348,6 +1437,36 @@ mesmo fornecedor, mesmo valor, dentro do mesmo minuto?
 - **Se NÃO houver:** risco **latente**, entra **depois do 4º** da ordem (§14.9).
 - **Se houver:** **sobe** na ordem.
 
+✅ **RESPONDIDO em 28/08/2026 — NÃO há caso histórico. Risco LATENTE; não sobe na ordem.**
+Diagnóstico e os dois diffs propostos em `docs/erp-proxy/CARD-F-nao-repetir-criacao.md` (`b2cc8f7`).
+**Método (série completa, não amostra):** o cabeçalho `[Hub] … | dd/mm/aaaa hh:mm | ID: xxxxxxxx`
+que o Hub carimba em `Texto` é gerado **uma vez por envio**; dois pedidos com o cabeçalho idêntico
+vieram do mesmo payload. Cobertura: **134 de 134** pedidos criados no Hub carregam o fingerprint.
+Resultado: **2** cabeçalhos repetidos em toda a base, e os **dois refutados** — em ambos o gêmeo tem
+`DataPedido` de **outro dia** e `CodigoUsuario` de **outra pessoa** do ERP, o que um retry (mesma
+requisição HTTP, mesmo payload) não produz. Assinatura de **cópia manual dentro do ERP**. Do lado
+das requisições, **zero**. Limite declarado: o gêmeo só aparece se o cron o descobrir — é
+"nenhum caso encontrado", não "nunca aconteceu".
+
+🔴 **O ACHADO É MAIOR QUE O CARD — e a parte maior não é a que ele aponta.**
+`callAlvoMultipart` **não consulta a `NAO_REPETIR` em momento nenhum** (`src/alvo-client.ts`), então
+acrescentar endpoints ao Set não alcança o lado multipart. São **6** caminhos de criação repetidos
+hoje, e o do card é o de **menor** exposição:
+
+| Rota | Endpoint do Alvo | Cliente | Por onde repete | Exposição |
+|---|---|---|---|---|
+| `/ped-comp/insert` | `PedComp/SavePartial?action=Insert` | Projetos | `callAlvo`, fora do Set | **4 envios** |
+| `/ped-comp/insert-multipart` | `pedComp/SaveMultiPart?action=Insert&…` | **Suprimentos** | `callAlvoMultipart`, **sem Set** | **134 pedidos** |
+| `/req-comp/insert` | `ReqComp/SavePartial?action=Insert` | Suprimentos | `callAlvo`, fora do Set | parte dos 226 |
+| `/req-comp/insert-multipart` | `ReqComp/SaveMultiPart?action=Insert` | Suprimentos | `callAlvoMultipart`, **sem Set** | idem |
+| `/mov-estq/save` | `MovEstq/SaveMovEstqMultPart?action=Insert` | Notas de serviço | `callAlvoMultipart`, **sem Set** | — |
+| `/cartao`, `/intercompany` ×3 | `DocFin/SavePartial?action=Insert` | Cartões, Intercompany | `callAlvo`, fora do Set | — |
+
+⚠️ `MovEstq/SaveMovEstqMultPart` é **literalmente o caso que o comentário do Set descreve**
+(baixa de estoque) e está do lado que não consulta o Set.
+⚠️ Grafia: `pedComp/SaveMultiPart` com **p minúsculo**, contra `PedComp/SavePartial`. `Set.has` é
+sensível a caixa.
+
 **Nota de execução:** a correção, se vier, é **uma linha no `erp-proxy`** (acrescentar
 `PedComp/SavePartial` ao Set) — e **o erp-proxy é editado exclusivamente pelo Pedro, via GitHub
 Web**. Diagnóstico e texto da mudança saem daqui; a edição não.
@@ -1356,6 +1475,86 @@ Web**. Diagnóstico e texto da mudança saem daqui; a edição não.
 `/ped-comp/update` (envio para aprovação) perderia o retry junto. Decidir se isso é desejado:
 no `Update` o retry é provavelmente inócuo (setar um flag duas vezes dá o mesmo resultado), e
 perdê-lo pode reintroduzir falhas de token que hoje se resolvem sozinhas.
+
+---
+
+## 15. Sessão de execução de 28/08/2026 — Trilha 1 (implementação) e Trilha 2 (medição)
+
+> **Trilha 1 implementada e commitada. Trilha 2 parou no diagnóstico, como combinado.**
+> Todo acesso ao banco nesta sessão foi **SELECT**. Nada foi escrito no banco.
+> Verificação adversarial por item: **quem produziu o achado não o validou**.
+
+### 15.1 Commits — um por card
+
+| Card | Commit | O que entrou | Precisa de |
+|---|---|---|---|
+| **A** — wizard de Projetos + loader | `56be472` | `validarLinhasRateio` recusa linha em branco e par (classe, CC) repetido nos dois portões · `montarRateioDoItem` resolve a dupla convenção do `percentual` · 20 testes | **Publish** |
+| **D** — chip do rateio (§7.27) | `d1c6439` | `rotuloCcsDistintos` conta CCs distintos, não linhas; singular/plural num lugar só | **Publish** |
+| **C** — auditoria do cron (§14.2-A defesa b) | `9171141` | insert de auditoria passa a checar `error` e **não** conta `total_mudaram++` quando falha · `BUILD_TAG` novo | ⚠️ **deploy da Edge Function** |
+| **E** — consolidação no Projetos (§7.29) | `8635ae0` | `consolidarRateioProjeto` reusa `consolidarRateioDoItem` (D4), escopo estreito · 11 testes | **Publish** |
+| **B** — identidade nas requisições (§14.4) | `c6984e1` | regra D-17: sem `alvo_usuario`, o envio PARA · `USUARIO_LOGADO` eliminado · 8 testes | ⛔ **Publish BLOQUEADO** — ver §14.4 |
+| **F** + SQLs | `b2cc8f7` | diff do erp-proxy (não aplicado) + `SQL-14.2A` + `SQL-14.4` | Pedro executa |
+| Trilha 2 | *(este commit)* | `docs/TRILHA2-DIAGNOSTICO-2026-08-28.md` | — |
+
+**Verificação a cada commit:** `tsc --noEmit -p tsconfig.app.json` limpo · `bun run build` limpo ·
+suite subiu de 32 para **51** testes passando. Os **7** que falham em `sidebar-ordem.test.tsx` são
+**pré-existentes e falham no HEAD**. Lint conferido contra a baseline do HEAD arquivo a arquivo:
+zero erros novos, e dois `any` a menos.
+
+### 15.2 ⛔ O que trava o Publish
+
+**O commit `c6984e1` não pode ser publicado sozinho.** Ele faz o envio de requisição falhar para
+quem não tem `profiles.alvo_usuario`, e **30 das 32 pessoas** que enviam requisição não têm — 197
+dos 226 envios (87%). Push só mexe no preview do Lovable; o app publicado só muda com o Publish
+manual, então o bloqueio está exatamente aí. Rode antes o `docs/SQL-14.4-alvo-usuario-requisicoes.sql`
+(ou decida pela saída B, o login de serviço único, que exige uma linha de código ainda não escrita).
+
+Os outros quatro commits de frontend (`56be472`, `d1c6439`, `8635ae0`, e este) **podem ser
+publicados sem depender do SQL**.
+
+### 15.3 Regra nova que esta sessão produziu
+
+🔴 **Antes de aplicar uma regra de identidade, meça quem a satisfaz hoje.** A D-17 custou zero no
+módulo de Projetos porque lá havia **2** responsáveis e o `alvo_usuario` da Ana já tinha sido
+preenchido pelo b5. Nas requisições há **32** pessoas e **2** com login — a mesma regra, no mesmo
+repo, com a mesma justificativa, é uma correção barata num módulo e uma parada de produção no
+outro. **A regra não muda; a ordem das operações, sim.**
+
+Segunda regra, do card F: 🔴 **quando o card aponta um Set, leia quem consulta o Set.** O
+`NAO_REPETIR` estava incompleto — mas o `callAlvoMultipart`, que cobre o caminho de criação **33×
+mais usado**, não consultava o Set em momento nenhum. Acrescentar entradas teria dado a sensação de
+correção sem tocar na parte maior.
+
+### 15.4 Trilha 2 — o que foi medido e onde parou
+
+Detalhe completo em `docs/TRILHA2-DIAGNOSTICO-2026-08-28.md`. Resumo:
+
+- **[G] parcelas congeladas** — **SUSTENTADO**. Assimetria de sincronização; o portão do cron é de
+  presença, não de coerência. Passivo real ~35× maior que os 26. Ver §14.3.
+- **[H] 26 reversões** — **SUSTENTADO**. São o mesmo evento das 63: reset do workflow de aprovação
+  no ERP. O flag é transiente, não livro-razão. Ver §7.28-B.
+- **[I] `enviado_aprovacao`** — **não houve envio novo.** `111` eventos, `0` com `resposta_alvo`,
+  último em **27/08 12:14 UTC** — anterior ao deploy da instrumentação (`6772052`, 27/08 20:06 UTC).
+  *(Conferido por mim às 28/08 11:30 UTC.)* **O `|| "Sim"` NÃO pode sair ainda.**
+  🔴 Mas a refutação achou evidência **indireta e forte**, que o card não tinha: nas **138** respostas
+  de `envio_sucesso` (a rota irmã `/ped-comp/insert`), `UserEnviouAprovacao` vem com JSON `null` em
+  **138/138**, e o resto do objeto vem **preenchido pelo servidor** — ou seja, resposta é estado, não
+  eco. Se o `/update` serializa igual, o `|| "Sim"` **dispara sempre**. Veredito correto:
+  **suspeita forte, sem prova direta** — não "indeterminado". Basta **um** par ANTES/DEPOIS.
+  ⚠️ Se o primeiro evento pós-deploy vier com `resposta_alvo` NULA, o suspeito é o **Publish do
+  Lovable não feito**, não a instrumentação.
+  📌 **Achado novo, série completa:** cruzando os **111** eventos com a primeira leitura posterior,
+  **5** leem "Não" (0004231, 0004228, 0004634, 0004647, 0004717) com o bloco de aprovação zerado.
+  **Piso de no-op silencioso: 5/111 = 4,50%** — piso, porque `sync_status` é log de mudança.
+
+### 15.5 🔴 Convergência das três medições: existe escritor de `compras_pedidos` sem rastro
+
+As três trilhas bateram no mesmo ponto por caminhos independentes. `alvoPedCompLoadService.ts`
+(open-load, roda a cada abertura de card) grava `valor_total`, o jsonb `parcelas` e
+`detalhes_carregados`, **sem auditoria nenhuma**. Casos associados: **0004756** (G) e **0004747**
+(H, mudança de bloco de aprovação sem `sync_status` correspondente).
+**Consequência que vale para tudo neste documento:** 89/63/26 (H), 26 divergentes (G) e 5/111 (I)
+são todos **PISO**. Enquanto houver escritor sem auditoria, nenhum desses números é total.
 
 ---
 

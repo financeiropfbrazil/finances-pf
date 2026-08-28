@@ -204,14 +204,43 @@ O candidato segue viável; falta apenas o A/B.
 Efeito colateral já medido: os 8 pedidos entram nos KPIs de Suprimentos sem filtro de origem
 (R$ 157.119,80 de R$ 19.998.185,98).
 
-### 13.7 Passivo latente: o rateio deste módulo repete a forma pré-D4
+### 13.7 ✅ Passivo latente do rateio — FECHADO em 28/08/2026
 
-`alvoProjetoPedidoService.ts:151-172` (item) e `:204-221` (cabeçalho) montam o rateio com
-`rateio.map()` 1:1, **sem agrupar (classe, CC)** — exatamente a forma que derrubou o pedido
-0004781 do Suprimentos com `Friendly_Message_UQ_PK`, queimando 6 números do sequencer.
-Hoje **latente**: zero duplicatas medidas em `projeto_requisicoes.classe_rateio` (27/08).
+*Enunciado original preservado:* `alvoProjetoPedidoService.ts:151-172` (item) e `:204-221`
+(cabeçalho) montam o rateio com `rateio.map()` 1:1, **sem agrupar (classe, CC)** — exatamente a
+forma que derrubou o pedido 0004781 do Suprimentos com `Friendly_Message_UQ_PK`, queimando 6
+números do sequencer. Hoje **latente**: zero duplicatas medidas em
+`projeto_requisicoes.classe_rateio` (27/08).
 ✅ O reuso é barato: **`consolidarRateioDoItem` já é `export` e é função pura** — `import` +
 chamada, sem tocar `pedidosService.ts`. Card próprio.
+
+**Entregue em duas partes, na sessão de 28/08/2026** (`ESTADO-REVISAO-SUPRIMENTOS.md` §15):
+
+1. **`56be472` — o portão, e ele é o que resolve de verdade.** `validarLinhasRateio` **recusa**
+   linha em branco e par (classe, CC) repetido, nos dois portões: a UI (`ProjetoRequisicoes.tsx`,
+   `handleSave`) e o `validar()` do service. Uma regra, dois consumidores. A mensagem nomeia a
+   **linha** e o **problema** — no 0004781 o custo não foi o erro, foi a pessoa receber
+   `Friendly_Message_UQ_PK` cru e tentar sete vezes.
+   🔴 Isto fecha o **caminho ATIVO** do §14.5 do `ESTADO-REVISAO-SUPRIMENTOS`: com o rateio já em
+   100%, dois cliques em "Adicionar Classe" criavam duas linhas com `percentual: 0` e classe/CC
+   **vazios** (`ProjetoRequisicoes.tsx:1645`); a soma continuava 100 e passava nas **três**
+   validações do módulo.
+
+2. **`8635ae0` — a consolidação, como defesa em profundidade.** `consolidarRateioProjeto` adapta a
+   linha PLANA deste módulo e chama `consolidarRateioDoItem`, importada, **sem tocar
+   `pedidosService.ts`**, no item **e** no cabeçalho.
+   ⚠️ **Escopo deliberadamente estreito.** Colapsa só o par (classe, CC), que é o que o UNIQUE do
+   Alvo proíbe. **Não** funde duas linhas da mesma classe com CCs diferentes: elas não violam o
+   UNIQUE, e fundi-las mudaria a convenção do `Percentual` do CC — de fatia do total (o que este
+   módulo manda) para fatia da classe (o que o Suprimentos manda). Com **exposição zero medida**,
+   não se arrisca o payload de criação, que acabou de ser validado pelo A/B da §13.3-A. Unificar as
+   duas convenções é card próprio.
+   ⚠️ **Ela é inalcançável pelo caminho normal**, porque o portão (1) recusa antes. Por isso grava
+   `console.warn` quando age: ver esse aviso significa que uma validação foi contornada.
+
+Testes: 31 em `src/test/rateio-projetos-e-loader.test.ts`, incluindo a garantia de que, sem
+repetição, o payload sai **byte a byte igual** ao de antes — com o valor conferido contra a fórmula
+antiga, linha a linha.
 
 ---
 
@@ -497,6 +526,7 @@ Roteiro na ordem, com print/console de cada passo:
 
 | Data | Item | Registro |
 |---|---|---|
+| 2026-08-28 | **§13.7 fechado + §12/A-8 ganha a terceira ocorrência** | Sessão de execução Trilha 1. **§13.7 (rateio pré-D4) FECHADO** em dois commits: `56be472` (portão — recusa linha em branco e par repetido, nos dois portões) e `8635ae0` (consolidação reusando `consolidarRateioDoItem`, escopo estreito, sem tocar `pedidosService.ts`). `tsc` limpo, build limpo, lint na baseline, 31 testes. **A regra D-17 deste plano foi portada para o módulo de requisições do Suprimentos** (`c6984e1`): sem `profiles.alvo_usuario`, o envio para. Com isso o padrão A-8/A-10 tem as três ocorrências fechadas por código — mas ⛔ **o Publish daquele commit está BLOQUEADO**: medido em 28/08, das 32 pessoas que enviam requisição só **2** têm `alvo_usuario`, e as outras 30 respondem por 87% dos envios. **Lição registrada: antes de aplicar uma regra de identidade, meça quem a satisfaz hoje** — a mesma regra custou zero aqui (2 responsáveis, `alvo_usuario` da Ana já preenchido pelo b5) e é uma parada de produção lá. |
 | 2026-08-07 | v2 criada | Plano de refatoração completo escrito a partir do diagnóstico das sessões 06–07/08 + levantamento de padrões do Hub. Decisões D-1..D-5 fechadas pelo Pedro. Nenhum lote executado. |
 | 2026-08-07 | **ENCERRAMENTO DA SESSÃO** | **Estado final medido no banco, não presumido.** ✅ **L1, L2, L3, L4, L5, L7-A, L7-B** aplicados e publicados. **L5:** as duas views existem com `security_invoker=on` (o R-3 pegou — sem ele, elas entregariam todos os projetos a qualquer autenticado). **b5:** `ana.sanches → ANA.SANCHES`, situação "pode enviar ao ERP". **L7-A validado no caminho 404 nos DOIS pedidos** (`0004238` e `0004626`): ambos carimbaram `alvo_nao_encontrado_em`, com aviso na tela, e **em nenhum caso `status_local` foi alterado** — a REGRA DURA se sustentou em produção; o `coalesce` preservou o primeiro avistamento do `0004626` numa releitura posterior. **20 eventos** em `projeto_eventos` (3 `pedido_criado`, 10 `pedido_editado`, 4 `pedido_enviado_alvo`, 1 `pedido_excluido`, 1 `budget_enviado_aprovacao`, 1 `budget_aprovado`). **PENDENTE DE VALIDAÇÃO, NÃO DE CÓDIGO:** o **caminho feliz** do open-load (Load 200 → grava `status_alvo`/`aprovado`/`comprado`) nunca foi exercitado, porque **os dois únicos pedidos que chegaram ao Alvo estão ambos excluídos de lá**. Só se prova quando houver pedido vivo no ERP — o que acontece no mesmo teste do envio da Ana. **L6 segue aberto:** falta L6.5 (envio real) e L6.6 (Fernando, bloqueado pela P-3). Achados sem lote registrados: **A-9** (modal — corrigido no commit `633e44b`) e **A-10** (novo, identidade emprestada em Suprimentos). |
 | 2026-08-07 | **L7-B b2/b3/b4 no `main`** | Rota `POST /ped-comp/insert` colada e no ar (Render verde). **Correções do Pedro ao b1, para o registro:** o `callAlvo` do gateway **não lança exceção** (devolve `{ok,status,data,error}`), `alvoMessage` é const inline no handler (não helper importado) e `requireSupabaseAuth` está no `index.ts` aplicado ao router inteiro — os três ajustados por ele antes de colar. A guarda anti-wipe ficou como proposto (alerta no log, sem 502). **b2:** envio via gateway com JWT; saem `authenticateAlvo`, `ERP_BASE_URL` e o retry de 409 (o gateway faz). **b3:** `CodigoComprador: null`. **b4:** `resolverUsuarioAlvoOuNull` **extraída e exportada** de `pedidosService` — o lookup segue num lugar só e Suprimentos mantém seu fallback; em Projetos, `alvo_usuario` nulo **bloqueia o envio**. **Bônus — causa da pendência do L7-A encontrada e não era o localStorage:** o SQL estava aplicado (9 colunas + RPC) e o gate passava; o que havia era falha minha — o erro da RPC de sync só ia ao console, então uma gravação que falhasse ficava invisível. `persistirSync` agora devolve a falha e a tela avisa. `tsc` limpo · build ok · lint **172 = HEAD**. |
