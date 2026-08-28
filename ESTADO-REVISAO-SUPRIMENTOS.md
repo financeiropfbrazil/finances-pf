@@ -1101,7 +1101,7 @@ construção: havia 9 `Misto`, todos falsos; hoje há 1 (o genuíno, que antes e
 (eixo errado) escondia um segundo defeito (categoria poluída) que só apareceu ao medir para
 decidir a convenção — não ao ler o código.
 
-### 14.2 🔴 CARD 2 — 6 requisições rebaixadas sem auditoria · **ESCRITA NÃO RASTREADA**
+### 14.2 ✅ CARD 2 — 6 requisições rebaixadas sem auditoria · **RESOLVIDO em 28/08/2026 — era o Job 4**
 
 Seis requisições passaram de `convertida_pedido` para `sincronizada` **sem uma única linha de
 auditoria**.
@@ -1171,6 +1171,42 @@ como carimbo de mudança.
 ⏳ **Pedro vai verificar se rodou `UPDATE` em `compras_requisicoes` entre junho e agosto.** Se
 lembrar, a investigação fecha. **Se não, ela permanece aberta com os 3 suspeitos — e é assim que
 deve ficar registrada.**
+
+### ✅ 28/08/2026 — A INVESTIGAÇÃO FECHA, E O CULPADO É O PRÓPRIO CÓDIGO
+
+🔴 **Nenhum dos 3 suspeitos. É o Job 4 do cron** (`syncDescobrirRequisicoes`), ramo de reabertura.
+A tabela "Escritores eliminados" acima examinou o filtro do **Job 1** (`.eq("status",
+"sincronizada")`) e concluiu "o cron nunca seleciona uma requisição em `convertida_pedido`". Isso é
+verdade para o Job 1 — e **o Job 4 nunca foi olhado**. Ele não trabalha por fila: varre o *list* do
+Alvo.
+
+**A cadeia, lida no código e conferida no banco:**
+1. `reaberturaConfirmada` = `GerouPedComp === "Não"` **E** `Status === "Aberto"` (bloco de 22/06/2026)
+   **libera** o rebaixamento `convertida_pedido` → `sincronizada`, que a guarda anti-rebaixamento
+   normalmente proíbe.
+2. O `UPDATE` grava o status **e zera `numero_pedido_compra_alvo`**.
+3. O insert de auditoria seguinte monta `evento: "sync_status"` — que **não está no CHECK** — e
+   **não conferia o `error`**. Rejeitado em silêncio; `total_mudaram++` na linha seguinte.
+
+⇒ É a assinatura exata das 6: **5 perderam o vínculo** (zerado no passo 2) e a **0001215 o manteve**
+porque o Job 2 e o Job 3 **re-vinculam** quando o campo está null. Isso explica também a "anomalia
+dentro da anomalia" que ficou registrada como sem explicação.
+
+🔴 **E há um segundo, pior, que a investigação original não procurava:** o insert do ramo de
+**INSERT** do Job 4 usa `evento: "descoberta_alvo"`, **também fora do CHECK**, desde 26/05/2026.
+Medido em 28/08/2026: **0 linhas** desse evento na tabela, e **69 requisições sem NENHUMA linha de
+auditoria** — todas com `requisitante_user_id` null, isto é, **todas nascidas no Job 4** (que já
+descobriu 125). Toda requisição nova vinda do Alvo entra no Hub sem linha de origem.
+
+**Corrigido em `3c33735`** (exige deploy da Edge Function) + `docs/SQL-14.2A-check-sync-status.sql`,
+que passou a incluir os **dois** eventos. ⚠️ O SQL **não recupera as 69** — a resposta do Alvo
+daquele momento não existe mais; ele só impede a 70ª.
+
+⚠️ **A data do rebaixamento das 6 continua desconhecida** e não é recuperável: `updated_at` é
+rotação de fila e a linha de auditoria foi justamente a que o CHECK rejeitou. A atribuição ao Job 4
+é por **evidência estrutural convergente** — é o único caminho do repositório que zera
+`numero_pedido_compra_alvo` junto com uma escrita de status, e o bloco existe desde 22/06/2026,
+anterior a todas as 6 conversões —, **não por carimbo temporal**.
 
 #### 🔴 Destaque: 0001215 é o caso anômalo dentro da anomalia
 
@@ -1277,11 +1313,37 @@ escrita. 8 testes com duplo do Supabase e `fetch` espionado.
   qualificação.
 
 ⛔ **BLOQUEIO DE PUBLISH, MEDIDO:** das 32 pessoas que já enviaram requisição, **apenas 2** têm
-`alvo_usuario` (pedro.scrignoli e ana.sanches). As outras **30** respondem por **197 dos 226 envios
-(87%)** e todas estão ativas nos últimos 90 dias. **Publicar sem preencher os logins para o módulo
-de requisições para 30 pessoas.** Lista e SQL em `docs/SQL-14.4-alvo-usuario-requisicoes.sql`, com
-a saída alternativa (B) de um login de serviço único — que **não** contraria a D-17, já que ela
-proíbe emprestar a identidade de uma **pessoa**.
+`alvo_usuario` (pedro.scrignoli e ana.sanches). As outras **30** respondem por **194 dos 226 envios
+(85,8%)**, e **29 das 30** tiveram login nos últimos 90 dias. **Publicar sem preencher os logins
+para o módulo de requisições para 30 pessoas.** Lista e SQL em
+`docs/SQL-14.4-alvo-usuario-requisicoes.sql`, com a saída alternativa (B) de um login de serviço
+único — que **não** contraria a D-17, já que ela proíbe emprestar a identidade de uma **pessoa**.
+
+> ⚠️ **Números corrigidos em 28/08/2026, na verificação adversarial.** A primeira redação dizia
+> "197 envios" e "todas ativas". **197 era `226 − 29`** — "todos menos o Pedro" —, e contava os 3
+> envios da ana.sanches como se ela não tivesse login, justamente os 3 que este card cita como
+> identidade própria descartada: a mesma pessoa nos dois lados da conta. E há **uma** inativa
+> (bianca.goncalves, 25 envios, último acesso 08/05/2026). O erro é do tipo que a §2 item 8 já
+> registra: número ajustado para fechar narrativa.
+
+🔴 **SEGUNDO DENOMINADOR, que a primeira medição não viu: os LÍDERES.** No fluxo com aprovação
+(rota `PENDENTE` → o líder aprova → `reenviarRequisicaoAprovada`), quem envia ao ERP é o **líder**,
+e o gate resolve a identidade pela sessão de quem clica. Medido em 28/08/2026: **3 líderes ativos,
+2 com login**. O único sem login é **guilherme.oliveira** — que é também o **maior emissor da série
+(37 dos 226 envios)**. O CC dele fica sem saída pelos dois eixos. **É o primeiro login a cadastrar.**
+
+🔴 **O que o card NÃO resolve, e vira pendência própria:**
+1. **`profiles` está aberta no RLS** — a única policy é `ALL / authenticated / true / true`:
+   qualquer um dos 57 usuários pode escrever `alvo_usuario` em **qualquer** perfil. A garantia "o
+   Hub não lança documento com a identidade de outra pessoa" é, no limite, **auto-declarada**.
+   Pré-existente (Projetos já dependia disso), mas é este card que faz a coluna carregar identidade
+   no módulo de maior volume.
+2. **O caminho de resgate reintroduz o defeito**: quando o admin reenvia a requisição travada de
+   outra pessoa, o gate lê a sessão DELE e o documento entra no ERP como PEDRO.SCRIGNOLI — por um
+   botão que a própria correção torna necessário. A tela não mostra em nome de quem o envio sai.
+3. **`pedidosService.ts` continua com o fallback.** `USUARIO_LOGADO` e `resolverUsuarioAlvo` seguem
+   vivos no envio de **pedido**: quem não tem login emite pedido como PEDRO.SCRIGNOLI, em silêncio.
+   **Quarta ocorrência do mesmo padrão**, agora nomeada.
 ℹ️ A colisão do **A-10** segue viva e é outro campo: `nfe@` e `pedro.scrignoli@` continuam
 compartilhando `funcionario_alvo_codigo = 0000149` *(conferido 28/08/2026)*.
 
@@ -1484,22 +1546,39 @@ perdê-lo pode reintroduzir falhas de token que hoje se resolvem sozinhas.
 > Todo acesso ao banco nesta sessão foi **SELECT**. Nada foi escrito no banco.
 > Verificação adversarial por item: **quem produziu o achado não o validou**.
 
-### 15.1 Commits — um por card
+### 15.1 Commits — um por card, mais a rodada de correção
 
-| Card | Commit | O que entrou | Precisa de |
+| Card | Commits | O que entrou | Precisa de |
 |---|---|---|---|
-| **A** — wizard de Projetos + loader | `56be472` | `validarLinhasRateio` recusa linha em branco e par (classe, CC) repetido nos dois portões · `montarRateioDoItem` resolve a dupla convenção do `percentual` · 20 testes | **Publish** |
+| **A** — wizard de Projetos + loader | `56be472` → **`6c21753`** | `validarLinhasRateio` recusa linha em branco e par (classe, CC) repetido nos dois portões · `montarRateioDoItem` resolve a dupla convenção do `percentual` | **Publish** |
 | **D** — chip do rateio (§7.27) | `d1c6439` | `rotuloCcsDistintos` conta CCs distintos, não linhas; singular/plural num lugar só | **Publish** |
-| **C** — auditoria do cron (§14.2-A defesa b) | `9171141` | insert de auditoria passa a checar `error` e **não** conta `total_mudaram++` quando falha · `BUILD_TAG` novo | ⚠️ **deploy da Edge Function** |
-| **E** — consolidação no Projetos (§7.29) | `8635ae0` | `consolidarRateioProjeto` reusa `consolidarRateioDoItem` (D4), escopo estreito · 11 testes | **Publish** |
-| **B** — identidade nas requisições (§14.4) | `c6984e1` | regra D-17: sem `alvo_usuario`, o envio PARA · `USUARIO_LOGADO` eliminado · 8 testes | ⛔ **Publish BLOQUEADO** — ver §14.4 |
-| **F** + SQLs | `b2cc8f7` | diff do erp-proxy (não aplicado) + `SQL-14.2A` + `SQL-14.4` | Pedro executa |
-| Trilha 2 | *(este commit)* | `docs/TRILHA2-DIAGNOSTICO-2026-08-28.md` | — |
+| **C** — auditoria do cron (§14.2-A defesa b) | `9171141` → **`3c33735`** | os **três** inserts de auditoria do cron passam a checar `error` · `BUILD_TAG` novo | ⚠️ **deploy da Edge Function** |
+| **E** — consolidação no Projetos (§7.29) | `8635ae0` → `3150959` → **`c3dd36c`** | `consolidarRateioProjeto`, escopo estreito, agrupamento local | **Publish** |
+| **B** — identidade nas requisições (§14.4) | `c6984e1` → **`9c957ff`** | regra D-17: sem `alvo_usuario`, o envio PARA; login normalizado e validado | ⛔ **Publish BLOQUEADO** — ver §14.4 |
+| **F** + SQLs | `b2cc8f7` → **`cc300f1`** | diff do erp-proxy (não aplicado) + `SQL-14.2A` + `SQL-14.4` | Pedro executa |
+| Trilha 2 | `cb62df9` | `docs/TRILHA2-DIAGNOSTICO-2026-08-28.md` | — |
 
 **Verificação a cada commit:** `tsc --noEmit -p tsconfig.app.json` limpo · `bun run build` limpo ·
-suite subiu de 32 para **51** testes passando. Os **7** que falham em `sidebar-ordem.test.tsx` são
+suite subiu de 32 para **59** testes passando. Os **7** que falham em `sidebar-ordem.test.tsx` são
 **pré-existentes e falham no HEAD**. Lint conferido contra a baseline do HEAD arquivo a arquivo:
-zero erros novos, e dois `any` a menos.
+zero erros novos.
+
+### 15.1-A 🔴 A rodada de correção — o que a verificação adversarial derrubou
+
+Cada card foi revisado por quem **não** o escreveu, com o prompt mandando derrubar. Quatro achados
+eram reais e foram conferidos por mim no MCP antes de qualquer conserto. **Vale mais registrar isto
+do que a entrega limpa:**
+
+| Card | O que estava errado | Como se sabe |
+|---|---|---|
+| **A** | A fatia da classe dividia por `quantidade × valor_unitario`. O rateio do Alvo **nem sempre é contra essa base** — no 0004640 é contra o valor COM IPI. **38 dos 598 itens monoclasse** sairiam de 100%, de 0,10% a 115,01%. **Consertava 2 e quebrava 38.** Denominador certo: a soma dos valores do próprio item — 0 quebrados, e os 2 multiclasse fecham em 100,00 | remedido no MCP, série completa, 600 itens de espelho |
+| **C** | Consertei o insert do **Job 1**, que é inalcançável, e deixei **dois irmãos no Job 4** — um deles ALCANÇÁVEL e que **explica as 6 requisições do §14.2**, o outro (`descoberta_alvo`) **falhando há três meses**: 0 linhas gravadas e **69 requisições sem nenhuma auditoria** | `git log -S`, leitura do Job 4 e contagem no MCP |
+| **E** | O `console.warn` de "validação contornada" disparava no caso **banal** de uma classe com dois CCs — `consolidarRateioDoItem` funde no nível da CLASSE, certo lá e errado aqui. E o cabeçalho trocou `toFixed` por `round2` sem necessidade, deixando a soma de fechar contra `ValorTotal` em ~1,4% dos casos a mais | reprodução direta + varredura numérica |
+| **F** | O predicado do fingerprint estava **ancorado** (`LIKE '[Hub]%'`) e perdeu **70 de 241** pedidos — eram 2 cabeçalhos repetidos, são 7. E os 4 pedidos da rota que o card denuncia **não têm o fingerprint `[Hub]`**: o teste tinha poder **zero** sobre ela | remedido no MCP; refeito com o fingerprint de Projetos (10 pedidos, 0 repetidos) |
+
+Em **todos os quatro**, a *conclusão* sobreviveu e o *método* não. E em todos, a revisão mostrou
+que **os testes não guardavam**: no card E, a bateria inteira (34 testes) passava contra uma
+implementação `map()` 1:1 — isto é, contra o código antigo reembalado.
 
 ### 15.2 ⛔ O que trava o Publish
 
@@ -1523,7 +1602,17 @@ outro. **A regra não muda; a ordem das operações, sim.**
 Segunda regra, do card F: 🔴 **quando o card aponta um Set, leia quem consulta o Set.** O
 `NAO_REPETIR` estava incompleto — mas o `callAlvoMultipart`, que cobre o caminho de criação **33×
 mais usado**, não consultava o Set em momento nenhum. Acrescentar entradas teria dado a sensação de
-correção sem tocar na parte maior.
+correção sem tocar na parte maior. **O mesmo padrão se repetiu no card C**, no mesmo dia: consertei
+o insert de auditoria do Job 1 e não olhei o Job 4, onde estava o gêmeo que já disparava.
+⇒ **Consertar a ocorrência que o card cita não é consertar a classe. Procure os irmãos ANTES de
+escrever "conserta a classe" no commit.**
+
+Terceira regra, e a mais cara desta sessão: 🔴 **um teste que passa contra o código antigo não é
+teste.** A bateria do card E — 34 testes, escrita por mim — passava inteira contra uma
+implementação `map()` 1:1. O teste que se apresentava como prova da identidade byte-a-byte comparava
+contra a fórmula do **item**, que não havia mudado, enquanto o defeito estava no **cabeçalho**.
+**Critério que passa a valer: para cada teste novo, pergunte se ele falha quando a mudança é
+revertida. Se não falha, ele documenta — não guarda.**
 
 ### 15.4 Trilha 2 — o que foi medido e onde parou
 

@@ -11,13 +11,27 @@
 -- outra pessoa. Push atualiza só o preview do Lovable; o app publicado só muda
 -- com o Publish manual. O bloqueio está exatamente aí.
 --
--- 🔴 EXPOSIÇÃO MEDIDA (MCP, 28/08/2026 10:5x UTC):
+-- 🔴 EXPOSIÇÃO MEDIDA (MCP, 28/08/2026, remedida às 12:0x UTC):
 --   · 32 pessoas já enviaram requisição ao ERP pelo Hub (226 payloads).
 --   · Apenas **2** têm `alvo_usuario`: pedro.scrignoli e ana.sanches.
---   · As outras **30** respondem por **197 dos 226 envios (87%)** e TODAS
---     tiveram envio nos últimos 90 dias.
+--   · As outras **30** respondem por **194 dos 226 envios (85,8%)**.
+--     ⚠️ Correção: a primeira versão dizia 197. Aquele número era `226 − 29`
+--     ("todos menos o Pedro") e contava os 3 envios da ana.sanches como se ela
+--     não tivesse login — justamente os 3 que o card cita como identidade
+--     própria descartada. A mesma pessoa entrava nos dois lados da conta.
+--   · **29 das 30** tiveram login nos últimos 90 dias (não todas: a exceção é
+--     bianca.goncalves, 25 envios, último acesso em 08/05/2026).
 --   ⇒ Publicar sem preencher os logins PARA o módulo de requisições para 30
 --     pessoas. Não é hipótese: é a lista do BLOCO 1.
+--
+-- 🔴 SEGUNDO DENOMINADOR, QUE A PRIMEIRA VERSÃO NÃO MEDIU: os LÍDERES.
+-- No fluxo com aprovação (rota PENDENTE → o líder aprova → `reenviarRequisicaoAprovada`)
+-- quem envia ao ERP é o **líder**, não o requisitante — e o gate resolve a identidade
+-- pela sessão de quem clica. Medido em 28/08/2026: **3 líderes ativos, 2 com login**.
+-- O único sem login é **guilherme.oliveira**, líder do CC `00010.00002.00008` — e
+-- também o **MAIOR emissor da série (37 dos 226 envios)**.
+-- ⇒ O CC dele fica sem saída pelos DOIS eixos: ele não consegue submeter, e não
+--   consegue aprovar-e-enviar. **É o primeiro login a cadastrar.**
 --
 -- 🔴 NUNCA DEDUZIR O LOGIN. Não existe regra determinística ligando nome,
 --    e-mail ou `funcionario_alvo_codigo` ao login do Alvo: o Ryan tem
@@ -53,6 +67,25 @@
 --    `funcionario_alvo_codigo`. A colisão do A-10 (`nfe@` e `pedro.scrignoli@`
 --    compartilhando `funcionario_alvo_codigo = 0000149`, conferida hoje) é OUTRO
 --    campo e OUTRO card — não mexer aqui.
+--
+-- 🔴 O QUE ESTE SQL NÃO CONSERTA, e que precisa de card próprio:
+--   1. **`profiles` está aberta no RLS.** A única policy é
+--      `cmd=ALL, roles={authenticated}, qual=true, with_check=true`: qualquer um dos
+--      57 usuários pode escrever `alvo_usuario` em QUALQUER perfil, inclusive no
+--      próprio. A garantia "o Hub não lança documento com a identidade de outra
+--      pessoa" é, no limite, **auto-declarada pelo usuário**. É pré-existente (o
+--      módulo de Projetos já dependia disso), mas é este card que faz a coluna
+--      carregar identidade no módulo de MAIOR volume.
+--   2. **O caminho de resgate reintroduz o defeito.** Quando o admin reenvia a
+--      requisição travada de outra pessoa (`SuprimentosRequisicaoDetalhe`, botão
+--      Reenviar), o gate lê a sessão DELE e o documento entra no ERP como
+--      PEDRO.SCRIGNOLI — exatamente o que o card existe para impedir, agora por um
+--      botão que a própria correção torna necessário. A tela não mostra em nome de
+--      quem o envio vai sair.
+--   3. **`pedidosService.ts` continua com o fallback.** `USUARIO_LOGADO` e o
+--      `resolverUsuarioAlvo` com fallback seguem vivos no envio de PEDIDO: quem não
+--      tem login emite pedido como PEDRO.SCRIGNOLI, em silêncio. Quarta ocorrência
+--      do mesmo padrão.
 -- =====================================================================
 
 
@@ -127,8 +160,8 @@ from envios e join public.profiles p on p.user_id = e.user_id;
 -- ---------------------------------------------------------------------
 -- begin;
 --
--- update public.profiles set alvo_usuario = '<CONFIRMAR NO ALVO>' where email = 'guilherme.oliveira@pfbrazil.com' and alvo_usuario is distinct from '<CONFIRMAR NO ALVO>';  -- 37 envios
--- update public.profiles set alvo_usuario = '<CONFIRMAR NO ALVO>' where email = 'bianca.goncalves@pfbrazil.com'   and alvo_usuario is distinct from '<CONFIRMAR NO ALVO>';  -- 25
+-- update public.profiles set alvo_usuario = '<CONFIRMAR NO ALVO>' where email = 'guilherme.oliveira@pfbrazil.com' and alvo_usuario is distinct from '<CONFIRMAR NO ALVO>';  -- 37 envios · 🔴 É TAMBÉM LÍDER do CC 00010.00002.00008 — sem ele o CC trava nos dois eixos. COMECE POR ESTE.
+-- update public.profiles set alvo_usuario = '<CONFIRMAR NO ALVO>' where email = 'bianca.goncalves@pfbrazil.com'   and alvo_usuario is distinct from '<CONFIRMAR NO ALVO>';  -- 25 · último acesso 08/05/2026 (a única inativa >90d)
 -- update public.profiles set alvo_usuario = '<CONFIRMAR NO ALVO>' where email = 'kemilly.araujo@pfbrazil.com'     and alvo_usuario is distinct from '<CONFIRMAR NO ALVO>';  -- 22
 -- update public.profiles set alvo_usuario = '<CONFIRMAR NO ALVO>' where email = 'diego.amancio@pfbrazil.com'      and alvo_usuario is distinct from '<CONFIRMAR NO ALVO>';  -- 17
 -- update public.profiles set alvo_usuario = '<CONFIRMAR NO ALVO>' where email = 'isabela.catanoze@pfbrazil.com'   and alvo_usuario is distinct from '<CONFIRMAR NO ALVO>';  -- 7
@@ -181,6 +214,14 @@ from envios e join public.profiles p on p.user_id = e.user_id
 where nullif(trim(p.alvo_usuario), '') is null
 order by e.envios desc;
 
+-- (3a-bis) Os LÍDERES ativos — o segundo denominador. Meta: 0 linhas.
+select p.email, p.full_name, count(*) as ccs_que_lidera, p.alvo_usuario
+from public.compras_lideres_cc l
+join public.profiles p on p.user_id = l.lider_user_id
+where l.ativo and nullif(trim(p.alvo_usuario), '') is null
+group by p.email, p.full_name, p.alvo_usuario
+order by 3 desc;
+
 -- (3b) Nenhum login pode estar repetido entre pessoas — repetir é o próprio
 --      defeito voltando por outra porta (é a forma do A-10, no outro campo).
 select alvo_usuario, count(*) as pessoas, string_agg(email, ', ' order by email) as emails
@@ -189,7 +230,10 @@ where nullif(trim(alvo_usuario),'') is not null
 group by 1 having count(*) > 1;
 -- Esperado: 0 linhas.
 
--- (3c) Nenhum login com espaço sobrando ou caixa estranha (o Alvo é sensível).
+-- (3c) Nenhum login com espaço sobrando ou caixa estranha. O código agora
+--      RECUSA o envio quando o valor não bate `^[A-Z0-9][A-Z0-9._-]*$` (depois do
+--      trim), então uma linha aqui é uma pessoa que ficará bloqueada com uma
+--      mensagem de formato — conserte antes do Publish.
 select email, alvo_usuario
 from public.profiles
 where nullif(trim(alvo_usuario),'') is not null
