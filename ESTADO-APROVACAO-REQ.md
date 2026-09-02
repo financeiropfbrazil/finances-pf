@@ -1014,16 +1014,19 @@ botões da fila.
 
 ## 16. AJUSTE 7.2 — escopo `view_cc` (02/09/2026, PROMPT 7.2)
 
-> **Nenhuma escrita no banco nesta sessão.** O SQL está pronto em `SQL-AJUSTE72.md` para o Pedro
-> executar. Leituras (medições abaixo) foram feitas por MCP, read-only.
-> ⚠️ **Ordem obrigatória: SQL → push → Publicar.** O frontend funciona sem as RPCs (cai no escopo de
-> hoje, avisando no console), mas o líder só enxerga o CC depois que os 14 blocos rodarem.
+> **PROMPT 7.2 (construção): nenhuma escrita no banco.** O SQL foi entregue pronto em
+> `SQL-AJUSTE72.md`; as medições abaixo são leituras por MCP.
+> ✅ **PROMPT 7.2-EXEC (02/09/2026): os 14 blocos JÁ RODARAM em produção** — execução, verificação
+> bloco a bloco e conferências C1–C8 no **§16.8**.
+> ⚠️ **Ordem obrigatória: SQL → push → Publicar.** O SQL está feito; **falta o push e o Publicar.** O
+> frontend funciona sem as RPCs (cai no escopo de hoje, avisando no console), mas o líder só enxerga
+> o CC depois de publicar.
 
 ### 16.1 Arquivos entregues (2 novos + 4 modificados + este)
 
 | Arquivo | Mudança |
 |---|---|
-| **`SQL-AJUSTE72.md`** 🆕 | 14 blocos (um statement cada) + 8 conferências + rollback. 2 permissões, 3 mapeamentos de papel, 2 RPCs com **tag nomeada** (`$q1$`, `$q2$`) e os **dois revokes** em cada. **PENDENTE — o Pedro executa** |
+| **`SQL-AJUSTE72.md`** 🆕 | 14 blocos (um statement cada) + 8 conferências + rollback. 2 permissões, 3 mapeamentos de papel, 2 RPCs com **tag nomeada** (`$q1$`, `$q2$`) e os **dois revokes** em cada. ✅ **EXECUTADO em 02/09/2026** (PROMPT 7.2-EXEC — §16.8) |
 | **`src/services/escopoComprasService.ts`** 🆕 | `carregarEscopoRequisicoes()`, `carregarEscopoPedidos()`, `consultarEscopoPedido(id)`, `listaParaFiltroOr()`. Distingue **RPC ausente** (`PGRST202`, esperado antes do SQL rodar → `console.warn`) de **falha real** (→ `console.error` + faixa na tela). Nunca lança: degrada para o escopo anterior |
 | `src/pages/SuprimentosRequisicoes.tsx` | Ramo de CC **aditivo** no `.or()` da listagem, filtro "Centro de custo", chip de origem da visibilidade (tabela e cards), faixa de erro de escopo |
 | `src/pages/SuprimentosPedidos.tsx` | Idem, com a união **rateio ∪ cabeçalho**; filtro de CC também na URL (`?cc=`); aviso de `truncado` |
@@ -1130,12 +1133,14 @@ em toda a base em 14/08 → 402 só em 2026 hoje): o wizard do Hub está sendo u
 | 3 | Líder vê requisições do CC + as próprias, sem rascunho alheio | ✅ ramo `and(codigo_centro_ctrl.in.(…),status.neq.rascunho)` somado aos ramos de dono/funcionário. Medido: Ana 57, Caio 12 |
 | 4 | Líder vê pedidos do CC **por rateio ou cabeçalho** | ✅ `centro_custo.in.(…)` (cabeçalho) ∪ `id.in.(…)` (rateio, ids da RPC) ∪ os próprios. Medido: Ana 49, Caio 12 |
 | 5 | Detalhe do pedido abre para o líder | ✅ `SuprimentosPedidoDetalhe.tsx:208-232` — `consultarEscopoPedido(id)` decide; fallback preserva o gate antigo |
-| 6 | Permissões órfãs do `admin` não incluem as novas | ✅ Bloco 4 do SQL + conferência **C3** (hoje são 0; têm de continuar 0) |
+| 6 | Permissões órfãs do `admin` não incluem as novas | ✅ Bloco 4 **executado** em 02/09 · conferência **C3 medida = 0 linhas** (§16.8-C) |
 | 7 | Commit com staging explícito, sem push | ✅ |
 
-⚠️ **O que o gate NÃO prova, e só a validação §7 fecha:** as RPCs **nunca rodaram** — não existem no
-banco. Build e tipos passam porque o acesso é `(supabase as any).rpc(...)`. É a mesma situação da
-Fase 6.1 (§12.6), e a lição do §12.7-C vale: **a primeira chamada real é a do Pedro**.
+⚠️ **O que o gate NÃO prova, e só a validação §7 fecha:** as RPCs ~~não existem no banco~~ **já
+existem desde 02/09 (§16.8), mas o corpo real nunca rodou** — a chamada sem sessão para no gate da
+1ª linha. Build e tipos passam porque o acesso é `(supabase as any).rpc(...)`. É a mesma situação da
+Fase 6.1 (§12.6), e a lição do §12.7-C vale: **a primeira chamada real é a do líder, depois do
+Publicar**.
 
 ### 16.5 O que contradisse a espec
 
@@ -1179,8 +1184,9 @@ estiver assim. Registrado como pendência **§7.13**.
 
 ### 16.7 Ordem de execução e validação
 
-1. **Pedro executa `SQL-AJUSTE72.md`** (14 blocos + C1–C8). Antes disso o código publicado se comporta
-   exatamente como hoje — e avisa no console, não em silêncio.
+1. ~~**Pedro executa `SQL-AJUSTE72.md`**~~ ✅ **FEITO em 02/09/2026** — os 14 blocos + C1–C8 rodaram
+   pelo agente (§16.8), sem erro e com verificação bloco a bloco. Até o Publicar, o código publicado
+   se comporta exatamente como hoje — e avisa no console, não em silêncio.
 2. Push + Publicar.
 3. Validação §7 do Ajuste, **obrigatoriamente com líder sem `is_admin`**:
    - **Caio** abre Requisições e encontra a `2ad811a6-…` que aprovou (0 → 12 documentos) e Pedidos
@@ -1190,3 +1196,107 @@ estiver assim. Registrado como pendência **§7.13**.
    - **Hugo** e **Diego**: números **idênticos** aos de hoje (12/5 e 38/19). É o teste que importa.
 4. Só então liberar `view_cc` a mais gente — a permissão sem mapeamento em `compras_lideres_cc` não
    amplia nada, mas o inverso (mapear alguém no mapa de líderes) agora **também** amplia o que ele vê.
+
+---
+
+### 16.8 EXECUÇÃO do `SQL-AJUSTE72.md` no banco (02/09/2026, PROMPT 7.2-EXEC)
+
+Executado pelo agente via **MCP do Supabase com escrita temporária**, autorizada pelo Pedro para esta
+sessão. Os **14 blocos rodaram verbatim, um por chamada, na ordem**, e cada bloco que cria ou altera
+objeto foi seguido de **consulta de verificação independente**: o modo de falha deste ambiente é
+"sucesso na tela, efeito ausente ou corpo corrompido", que só se detecta lendo o catálogo depois
+(lição do §12.7).
+
+Ferramenta: `execute_sql`, **não** `apply_migration` — o histórico de migrations diverge do banco
+(CLAUDE.md), e `apply_migration` gravaria linha em `supabase_migrations`.
+
+**Pré-voo do agente — idêntico ao do Pedro:** `db = postgres` · **0** transações com `xact_start` >
+2 min · `compras_pedidos = 2015` · `compras_requisicoes = 391` · líderes ativos = **15** ·
+`cost_centers = 186` · `hub_permissions = 67` · `view_cc` existentes = **0** · órfãs do `admin` =
+**0** · as 2 RPCs **não existiam**.
+
+#### A. Blocos — o que executou × o que a verificação confirmou
+
+| # | Bloco | Verificação independente |
+|---|---|---|
+| 1 | permissão `compras.requisicoes.view_cc` | 1 linha · `modulo = compras` · **acentuação íntegra** (`requisições`, `usuário`; `len_nome = 34`, `len_desc = 66`) |
+| 2 | permissão `compras.pedidos.view_cc` | 1 linha · acentuação íntegra · `hub_permissions` **67 → 69** |
+| 3 | papel `lider_departamento` | permissões do papel **4 → 7**: entraram `compras.pedidos.access`, `.pedidos.view_cc` e `.requisicoes.view_cc` — o papel **passou a ter `pedidos.access`**, que não tinha (§16.3-a) |
+| 4 | papel `admin` | `admin_tem_as_duas = 2` · **órfãs do `admin` = 0** |
+| 5 | `notify pgrst, 'reload schema'` | sem erro; sinal assíncrono, sem objeto a consultar — o efeito real se prova na **C7** |
+| 6 | `listar_requisicoes_escopo()` (tag `$q1$`) | `prosecdef = true` · `proconfig = {search_path=public}` · `plpgsql` · retorno `jsonb` · corpo real com gate `user_has_permission`, leitura de `compras_lideres_cc`, os **3 ramos** (`view_all`/`view_cc`/`view_own`) e `SEM_ACESSO_AO_MODULO` · acentos do comentário preservados · **`$$` anônimo ausente** |
+| 7 | `grant … to authenticated` | `authenticated=X` no `proacl` · `authenticated_pode = true` |
+| 8 | `revoke … from anon` | **`anon=X` sumiu** do ACL nominal — mas `anon_pode` **ainda `true`** |
+| 9 | `revoke … from public` | `=X/postgres` sumiu · **`anon_pode = false`** · `authenticated` e `service_role` preservados |
+| 10 | `listar_pedidos_escopo(uuid)` (tag `$q2$`) | assinatura `p_pedido_id uuid DEFAULT NULL::uuid` · definer + `search_path` · corpo com **MODO 1** e **MODO 2**, `compras_pedidos_itens_rateio` **e** `p.centro_custo = any(v_ccs)` (a união do §3), teto `800` · acentos (`PRÓPRIO`) preservados · **`$$` anônimo ausente** |
+| 11 / 12 / 13 | grant · revoke `anon` · revoke `public` | mesma progressão do 7/8/9 — ACL final `{postgres, authenticated, service_role}`, **`anon_pode = false`** |
+| 14 | `notify pgrst, 'reload schema'` | sem erro |
+
+**Nenhum bloco deu erro. Nenhum SQL fora dos 14 blocos + consultas de verificação foi executado** — o
+rollback do §5 do arquivo não foi tocado. **Zero `drop` / `delete` / `truncate` nesta execução.**
+
+#### B. ✅ A receita dos DOIS revokes — reproduzida pela 3ª vez no projeto
+
+ACL de `listar_requisicoes_escopo()` ao longo dos blocos 6 → 7 → 8 → 9 (idêntico em 10 → 13):
+
+| Depois do bloco | `proacl` | `anon` executa? |
+|---|---|---|
+| 6 (`create`) | `{=X/postgres, postgres=X, **anon=X**, authenticated=X, service_role=X}` | `true` |
+| 7 (`grant`) | idem | `true` |
+| 8 (`revoke from anon`) | `{**=X/postgres**, postgres=X, authenticated=X, service_role=X}` | `true` ⚠️ |
+| 9 (`revoke from public`) | `{postgres=X, authenticated=X, service_role=X}` | **`false`** ✅ |
+
+Confirma ponto a ponto o §14.3 e o §12.7-B: `from anon` tira o grant nominal do `ALTER DEFAULT
+PRIVILEGES` do Supabase, `from public` tira o default nativo do Postgres, **e nenhum dos dois sozinho
+fecha**. Também confirma o outro lado: a função **nasce** com `anon=X` — o passivo das 196 funções
+chamáveis por `anon` (CLAUDE.md §Supabase) não é teoria, é o comportamento padrão medido de novo hoje.
+
+#### C. Conferências C1–C8
+
+| # | Esperado | Obtido | Veredito |
+|---|---|---|---|
+| **C1** | 2 linhas · módulo `compras` · acentuação íntegra | idêntico | ✅ |
+| **C2** | 5 linhas | **6 linhas** | ⚠️ **divergência do documento, não do banco** — ver abaixo |
+| **C3** | **0 linhas** (órfãs do `admin`) | `0` | ✅ **gate §6.6 verde** |
+| **C4** | 2 linhas · definer `true` · `search_path=public` · authenticated `true` · **anon `false`** | idêntico nas duas | ✅ |
+| **C5** | `tem_gate` e `le_mapa` `true`, `tem_dollar_anonimo` `false` | idêntico nas duas | ✅ |
+| **C6** | `escopo="nenhum"` · `motivo="SEM_SESSAO"` nas duas | idêntico, **sem exceção** | ✅ |
+| **C7** | `2` | `2` | ✅ |
+| **C8** | ana `7 → 57` · caio `0 → 12` · Hugo `12 → 12` | idêntico | ✅ |
+
+**7 de 8 idênticas ao esperado; a 8ª (C2) diverge por erro de expectativa do arquivo.**
+
+🔴 **C2 — a 6ª linha é pré-existente, de 24/05/2026.** A consulta filtra por 3 códigos de permissão
+sem restringir o papel, e o `admin` **já tinha `compras.pedidos.access` desde 24/05/2026** — o que era
+dedutível do próprio pré-voo (`órfãs do admin = 0` significa que **toda** permissão já existente
+estava mapeada ao admin). Provado por `created_at`: os 3 vínculos do `lider_departamento` nasceram às
+`19:17:57` (Bloco 3) e os 2 do `admin` às `19:18:10` (Bloco 4) — **exatamente os 5 vínculos novos que
+o arquivo previa**. O `SQL-AJUSTE72.md` deveria ter esperado **6 linhas**, não 5. Nada a corrigir no
+banco.
+
+#### D. Pós-voo — nada além do RBAC foi tocado
+
+`compras_pedidos = 2015` · `compras_requisicoes = 391` · líderes ativos `15` · `cost_centers = 186` ·
+`pendente_aprovacao = 0` — **todos idênticos ao pré-voo**. Únicas mudanças: `hub_permissions`
+**67 → 69** e 5 vínculos novos em `hub_role_permissions` (total `179`) + as 2 funções.
+
+#### E. 🔴 O que esta execução NÃO prova
+
+A **C6 devolve `SEM_SESSAO` porque o gate barra na 1ª linha** — o SQL Editor/MCP roda sem
+autenticação, então `auth.uid()` é nulo e **nada do corpo real executou**: nem a leitura de
+`compras_lideres_cc`, nem os `any(v_ccs)`, nem o `jsonb_agg` do rateio, nem o MODO 1 do detalhe. É
+literalmente a armadilha do §12.7-C e do CLAUDE.md ("um caminho feliz que nunca rodou não é caminho
+validado"): erro de resolução de nome ou de tipo em plpgsql é de **tempo de execução** e passaria por
+tudo o que foi medido aqui.
+
+**A primeira chamada real é a do Caio/Ana depois do Publicar** — e, pelo mesmo motivo do §16.4, ela
+tem de ser feita por **líder sem `is_admin`**: o Pedro é o único `is_admin` de 57 e o bypass mascara
+todo erro de escopo.
+
+#### F. Rollback disponível, não executado
+
+O §5 do `SQL-AJUSTE72.md` (2 `drop function` + os 2 `delete` de RBAC + `notify`). **Não tocado.**
+Derrubar só as funções basta para a tela voltar ao comportamento de hoje: o frontend trata `PGRST202`
+como "escopo indisponível", cai no filtro `view_own`/`view_all` de sempre e **avisa no console**. Como
+o commit `8bd95e1` ainda não foi pushado nem publicado, o app publicado neste momento **não chama** as
+RPCs — o banco está à frente do código, que é a ordem correta (§16.7).
