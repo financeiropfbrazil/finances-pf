@@ -3,8 +3,8 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **02/09/2026** (PROMPT 7.1 — o bug do detalhe do líder **já estava corrigido e
-> publicado**; a sessão verificou, mediu e registrou, sem tocar em código: **§15**).
+> Última atualização: **02/09/2026** (PROMPT 7.2 — escopo `view_cc`: SQL pronto para executar e
+> frontend entregue, **§16**. Antes dele, PROMPT 7.1 — §15).
 
 ## 0. 🏁 MISSÃO CONCLUÍDA (11/08/2026)
 
@@ -50,6 +50,7 @@ melhoria de usabilidade, não pré-requisito de nada.
 | **PROMPT 6.2** | Seleção múltipla + atribuição em massa na tela do mapa | ✅ concluído em 11/08/2026 · commit `0eaf2a6` · **pushado e publicado**, validado com 12 CCs reais — conclusões no §13 |
 | **ENCERRAMENTO** | Estado final da missão | ✅ 11/08/2026 — §14 |
 | **AJUSTE 7.1 / PROMPT 7.1** | Líder abre o detalhe da requisição que aprova (bug A1.4) | ✅ **já estava corrigido** — commit `f40029c` (19/08, "card B1"), em `origin/main` **e no bundle publicado**. Sessão de 02/09 verificou e registrou, **zero código alterado** — §15 |
+| **AJUSTE 7.2 / PROMPT 7.2** | Escopo `view_cc` — líder enxerga requisições e pedidos dos CCs que lidera | ✅ código entregue · ⏳ **SQL pendente** (`SQL-AJUSTE72.md`, 14 blocos) · sem push — §16 |
 | PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado (melhoria de usabilidade, não bloqueia nada) |
 
 **Publicação (medido no git em 11/08/2026):** `main` e `origin/main` estão no mesmo commit —
@@ -188,6 +189,13 @@ resta não é código:
     líder**. Hoje é inofensivo (sem a visão ampliada, o líder não chega à lista de pedidos); vira bug
     no dia em que a frente **A2** entrar. **Não corrigido de propósito** — seria código sem caminho de
     uso. Prioridade: junto com a A2, não antes.
+    ✅ **FECHADO no Ajuste 7.2** (§16.1): o detalhe do pedido ganhou o ramo `view_cc`, lendo a mesma
+    RPC de escopo da listagem. Efeito real só depois do `SQL-AJUSTE72.md` rodar.
+13. **TESTES VERMELHOS NO `main`** (achado de 02/09, §16.6): `src/test/sidebar-ordem.test.tsx` falha
+    **7 de 7** — renderiza `AppSidebar` sem `QueryClientProvider`, e o sidebar usa
+    `useAprovacoesPendentes` (`useQuery`) desde a **Fase 3 desta missão**. Falha idêntica sem
+    nenhuma mudança no working tree. Enquanto estiver assim, `bun run test` não serve de gate.
+    Correção provável: envolver o render do teste em `QueryClientProvider`. Prioridade: média.
 
 ## 8. O que a Fase 3 vai encontrar
 
@@ -1001,3 +1009,184 @@ código **não** garante e que só aparecem com a Ana na tela:
 Requisição do teste: `7247431f-a21c-4eca-bfee-514276e7fd12` (Diego · `pendente_aprovacao` ·
 CC `00007.00001.00002`). **Sinal de sucesso:** ela lê itens e rateio e decide pelo documento, não pelos
 botões da fila.
+
+---
+
+## 16. AJUSTE 7.2 — escopo `view_cc` (02/09/2026, PROMPT 7.2)
+
+> **Nenhuma escrita no banco nesta sessão.** O SQL está pronto em `SQL-AJUSTE72.md` para o Pedro
+> executar. Leituras (medições abaixo) foram feitas por MCP, read-only.
+> ⚠️ **Ordem obrigatória: SQL → push → Publicar.** O frontend funciona sem as RPCs (cai no escopo de
+> hoje, avisando no console), mas o líder só enxerga o CC depois que os 14 blocos rodarem.
+
+### 16.1 Arquivos entregues (2 novos + 4 modificados + este)
+
+| Arquivo | Mudança |
+|---|---|
+| **`SQL-AJUSTE72.md`** 🆕 | 14 blocos (um statement cada) + 8 conferências + rollback. 2 permissões, 3 mapeamentos de papel, 2 RPCs com **tag nomeada** (`$q1$`, `$q2$`) e os **dois revokes** em cada. **PENDENTE — o Pedro executa** |
+| **`src/services/escopoComprasService.ts`** 🆕 | `carregarEscopoRequisicoes()`, `carregarEscopoPedidos()`, `consultarEscopoPedido(id)`, `listaParaFiltroOr()`. Distingue **RPC ausente** (`PGRST202`, esperado antes do SQL rodar → `console.warn`) de **falha real** (→ `console.error` + faixa na tela). Nunca lança: degrada para o escopo anterior |
+| `src/pages/SuprimentosRequisicoes.tsx` | Ramo de CC **aditivo** no `.or()` da listagem, filtro "Centro de custo", chip de origem da visibilidade (tabela e cards), faixa de erro de escopo |
+| `src/pages/SuprimentosPedidos.tsx` | Idem, com a união **rateio ∪ cabeçalho**; filtro de CC também na URL (`?cc=`); aviso de `truncado` |
+| `src/pages/SuprimentosPedidoDetalhe.tsx` | **Ramo `view_cc`** (§4.3): a mesma RPC da lista decide o detalhe. Sem ela, cai no gate anterior byte a byte |
+| `src/pages/SuprimentosRequisicaoDetalhe.tsx` | O ramo de líder do Ajuste 7.1 passa a ler a **RPC de escopo** em vez de `compras_lideres_cc` direto — fonte única de verdade. Fallback preserva o 7.1 enquanto a RPC não existir |
+| `src/constants/permissions.ts` | `COMPRAS_REQUISICOES_VIEW_CC` e `COMPRAS_PEDIDOS_VIEW_CC` |
+
+**Não tocados:** banco (zero escrita), crons/Edge Functions, `types.ts`, RLS, fila de Aprovações
+(`SuprimentosAprovacoes.tsx`), mapa de líderes, `requisicoesService.ts`, `pedidosService.ts`,
+`statusPedido.ts`, arquivos de outras missões no working tree.
+
+**Gate técnico:** `bun run build` ✅ exit 0 · `tsc --noEmit -p tsconfig.app.json` ✅ exit 0 ·
+ESLint nos 5 arquivos rastreados **54 → 56** (+2, medido com `git stash`), os dois
+`no-explicit-any` do padrão dominante; service novo **5**, mesma regra.
+
+### 16.2 🔴 A decisão de desenho que diverge do §4.2 — e por quê
+
+O Ajuste pede duas RPCs `listar_*_escopo(filtros…)` que devolvam **a página inteira**, com filtro,
+ordenação e paginação no servidor. **Entreguei RPCs que resolvem ESCOPO, não a listagem.**
+
+| | RPC devolve a página (§4.2 literal) | RPC devolve o escopo (entregue) |
+|---|---|---|
+| Onde filtra/pagina | PL/pgSQL novo | na query que a tela **já** usa (no banco) |
+| Precedência de status de pedido | **reescrita em SQL** — 3ª cópia de `statusPedido.ts:338-384` | **uma cópia só**, intocada |
+| Risco de não-regressão (gate §6.2) | qualquer detalhe divergente (NULL em `nullsFirst`, escape do `ilike`, 8 campos de busca) muda a lista de quem tem `view_own`/`view_all` | **estrutural**: sem `view_cc`, a expressão montada é byte a byte a de hoje |
+| O que é impossível no cliente | — | **é exatamente o que a RPC devolve**: o escopo (via `user_has_permission`) e os pedidos alcançados pelo **rateio** (tabela neta) |
+
+O argumento do Discovery §B4 para "RPC" é sobre **escopo** (CC em tabela neta + teto de 1000), não
+sobre filtros. Reescrever a precedência de status em SQL criaria o padrão **LIVRO × ESPELHO** que o
+`CLAUDE.md` marca como fonte de erro *silencioso e plausível* — e eu não teria como testar: as RPCs
+não existem no banco (sessão sem escrita) e a lição do §12.7-C é que plpgsql passa por todo gate
+estático e falha na primeira chamada real. Mantive o que o Ajuste exige de fato: escopo resolvido no
+servidor, gate por `user_has_permission`, hierarquia `all > cc > own`, nada trazido ao cliente para
+ser filtrado em memória.
+
+**O que isso NÃO muda:** o escopo continua sendo composto pelo cliente na URL do PostgREST — como já
+é hoje. Isso não é uma fronteira de segurança nova nem perdida: a RLS de `compras_requisicoes` e
+`compras_pedidos` é `ALL using(true)` (**DÍVIDA-RLS-COMPRAS-REQ**, §7.1), e fechá-la está fora do
+escopo por decisão do próprio Ajuste (§5).
+
+### 16.3 Medições pedidas pelo prompt (read-only, 02/09/2026)
+
+**Pré-voo/fingerprint:** `compras_pedidos = 2012` · `compras_requisicoes = 391` ·
+`compras_lideres_cc` ativos = **15** · `cost_centers = 186` · `hub_permissions = 67` ·
+`view_cc` existentes = **0** · órfãs do papel `admin` = **0**.
+
+**(a) `lider_departamento` tem `compras.pedidos.access`? — NÃO.** O papel tem hoje exatamente
+4 permissões: `compras.requisicoes.access`, `.aprovar`, `.create`, `.reenviar_own`. Por isso o
+Bloco 3 do SQL concede também `compras.pedidos.access`.
+⚠️ **Mas nenhum líder de hoje está sem o menu**: os 4 acumulam `requisitante`, que tem `pedidos.access`.
+
+| líder | papéis | `is_admin` | CCs ativos |
+|---|---|---|---|
+| ana.sanches | lider_departamento, requisitante, responsavel_projeto | não | 12 |
+| caio.santos | lider_departamento, requisitante | não | 1 |
+| guilherme.oliveira | lider_departamento, requisitante | não | 1 |
+| Pedro | admin + 4 outros | **sim** | 1 |
+
+**(b) Como o detalhe da requisição resolve o líder hoje** (commit `f40029c`, Ajuste 7.1):
+`SuprimentosRequisicaoDetalhe.tsx:175-189` consultava **`compras_lideres_cc` direto** dentro da
+`queryFn`, sem passar por permissão nenhuma — o mapeamento *era* a autorização. **Passou a ler a RPC
+de escopo** (`:180-195`), então "quem vê" é decidido por `compras.requisicoes.view_cc` + mapeamento,
+uma fonte só. ℹ️ O que **não** mudou de fonte, de propósito: `isLiderDoCC` (`:290`), que liga os
+botões **Aprovar/Rejeitar** — decisão é autoridade do servidor (`aprovar_requisicao` valida o
+mapeamento e devolve `FORA_DO_SEU_CC`), e amarrá-la a uma permissão de **leitura** esconderia o botão
+de um aprovador legítimo. **Escopo de leitura ≠ autoridade de decisão.**
+
+**(c) Pedidos de 2026 alcançados por rateio × por cabeçalho** (união dos 15 CCs mapeados):
+
+| | pedidos |
+|---|---:|
+| Pedidos com `data_pedido` em 2026 | **1.759** |
+| …com algum rateio (qualquer CC) | 402 |
+| …com `centro_custo` preenchido no cabeçalho | 1.392 |
+| **Alcançados por RATEIO (CCs mapeados)** | **65** |
+| **Alcançados por CABEÇALHO (CCs mapeados)** | **101** |
+| **União rateio ∪ cabeçalho — o que o Ajuste manda** | **107** |
+| (3ª fonte, fora do Ajuste: CC da requisição de origem) | 79 |
+| (união das TRÊS fontes) | 113 |
+
+Leitura: **o cabeçalho é a fonte dominante** (adiciona 42 pedidos que o rateio não vê); o rateio
+adiciona 6. Olhar só o rateio, como a espec original do 7.0 sugeria, deixaria a visão quase vazia —
+o §3 do Ajuste está certo em exigir a união. O rateio **cresceu muito** desde o Discovery (91 pedidos
+em toda a base em 14/08 → 402 só em 2026 hoje): o wizard do Hub está sendo usado.
+
+**Linha de base por pessoa — é contra estes números que a validação §7 se mede:**
+
+| usuário | requisições hoje → depois | pedidos hoje → depois | ids por rateio |
+|---|---|---|---:|
+| ana.sanches (12 CCs) | **7 → 57** | **3 → 49** | 25 |
+| caio.santos (1 CC) | **0 → 12** | **0 → 12** | 5 |
+| Hugo (não lidera) | 12 → **12** | 5 → **5** | 0 |
+| diego.amancio (não lidera) | 38 → **38** | 19 → **19** | 0 |
+
+🔴 **Caio tem ZERO requisições próprias.** A tela dele hoje é literalmente vazia — ele aprovou a
+`2ad811a6-…` e não tinha onde reencontrá-la. É o caso do §1 do Ajuste, medido.
+
+### 16.4 Gate de saída (§6) — item a item
+
+| # | Item | Veredito |
+|---|---|---|
+| 1 | build · tsc · ESLint | ✅ build e tsc exit 0; ESLint 54 → 56 (+2 `no-explicit-any`, padrão dominante) |
+| 2 | **Não-regressão** (`view_own` / `view_all` veem o mesmo) | ✅ **por construção**: sem `view_cc`, `ramos.length === 1` reproduz o `.eq()` de hoje e 2 ramos reproduzem o `.or()` de hoje, string por string; em Pedidos, o caminho sem `view_cc` mantém `.in("numero_req_comp", …)` e o retorno vazio antecipado. Testemunhas medidas: Hugo 12/5 e Diego 38/19 **inalterados** |
+| 3 | Líder vê requisições do CC + as próprias, sem rascunho alheio | ✅ ramo `and(codigo_centro_ctrl.in.(…),status.neq.rascunho)` somado aos ramos de dono/funcionário. Medido: Ana 57, Caio 12 |
+| 4 | Líder vê pedidos do CC **por rateio ou cabeçalho** | ✅ `centro_custo.in.(…)` (cabeçalho) ∪ `id.in.(…)` (rateio, ids da RPC) ∪ os próprios. Medido: Ana 49, Caio 12 |
+| 5 | Detalhe do pedido abre para o líder | ✅ `SuprimentosPedidoDetalhe.tsx:208-232` — `consultarEscopoPedido(id)` decide; fallback preserva o gate antigo |
+| 6 | Permissões órfãs do `admin` não incluem as novas | ✅ Bloco 4 do SQL + conferência **C3** (hoje são 0; têm de continuar 0) |
+| 7 | Commit com staging explícito, sem push | ✅ |
+
+⚠️ **O que o gate NÃO prova, e só a validação §7 fecha:** as RPCs **nunca rodaram** — não existem no
+banco. Build e tipos passam porque o acesso é `(supabase as any).rpc(...)`. É a mesma situação da
+Fase 6.1 (§12.6), e a lição do §12.7-C vale: **a primeira chamada real é a do Pedro**.
+
+### 16.5 O que contradisse a espec
+
+1. **As RPCs resolvem escopo, não a listagem** — §16.2 acima. É a divergência de peso desta sessão.
+2. **`Permissoes_e_Roles_v2.md` não existe no repo** (nem na máquina). O prompt manda lê-lo como
+   4º documento. Segui o modelo RBAC pelo que o próprio Ajuste 7.2 cita (§2, §4.1, §8.4, §8.7) e
+   pelo código (`user_has_permission`, `get_user_permissions`, `useHasPermission`). **Nada do
+   checklist §8 ficou por fazer** — permissão criada, mapeada aos papéis **inclusive admin**, gate de
+   UI, gate de backend com `user_has_permission`, hierarquia own/all respeitada —, mas o documento
+   não foi lido porque não há o que ler.
+3. **O piso do escopo é `own`, não "nada".** O §4.2 termina a escada com "nenhuma → nada". Hoje a tela
+   mostra os próprios documentos **sem checar `view_own`** (o filtro de dono é incondicional), então
+   "nada" seria **regressão** para quem tivesse `access` sem `view_own`. As RPCs **reportam**
+   `escopo: 'nenhum'` (fica diagnosticável), e a tela mantém o piso de hoje. Ninguém está nesse estado
+   hoje — medido: todo papel com `requisicoes.access` tem algum `view_*`, e `lider_departamento`
+   passa a ter `view_cc` pelo Bloco 3.
+4. **A união de pedidos tem DUAS fontes, não três.** O §3 do Ajuste manda rateio ∪ cabeçalho; a linha
+   de base do Discovery (§B5: "37 pedidos") somava também o **CC da requisição de origem**. Segui o
+   Ajuste. Custo medido: **6 pedidos de 2026** (107 vs 113) que só a 3ª fonte alcançaria. Os pedidos
+   derivados das requisições **do próprio líder** continuam visíveis pelo ramo "próprio".
+5. **Chip de CC em Pedidos aparece também quando o pedido é do próprio líder.** O §4.3 pede a marca
+   "quando o documento aparece por `view_cc` **e não é do usuário**"; em Pedidos, saber se é "do
+   usuário" exigiria a lista de números das requisições dele no escopo de renderização (outra query).
+   O texto do chip é factual nos dois casos ("CC ⟨código⟩" — o centro que ele lidera). Em Requisições
+   a regra do Ajuste está aplicada à risca (`requisitante_user_id !== user.id`).
+6. **Filtro de CC ativo tira os documentos próprios de fora daquele CC.** Não está na espec; é a
+   leitura natural de "filtrar por centro de custo" — a pergunta ali é "o que onera ESTE centro".
+7. **Teto de 800 ids no ramo do rateio**, com aviso na tela quando morder (`truncado`). A espec não
+   fala em teto; sem ele a URL do PostgREST cresceria sem limite. Hoje o maior conjunto é **25**.
+
+### 16.6 🔴 Achado fora do escopo — a suíte de testes está VERMELHA no `main`
+
+`bun run test`: **7 testes falhando em `src/test/sidebar-ordem.test.tsx`**, e o mesmo resultado no
+HEAD **sem** as minhas mudanças (medido com `git stash`). Causa: o teste renderiza `AppSidebar` sem
+`QueryClientProvider`, e o sidebar passou a usar `useAprovacoesPendentes` (→ `useQuery`) **na Fase 3
+desta missão** (`AppSidebar.tsx:191` → `useAprovacoesPendentes.ts:23`). Ninguém rodou a suíte desde
+então. Os outros 4 arquivos passam (59 testes).
+
+**Não corrigido** (fora do §4 do Ajuste), mas é dívida com dono: a suíte não serve de gate enquanto
+estiver assim. Registrado como pendência **§7.13**.
+
+### 16.7 Ordem de execução e validação
+
+1. **Pedro executa `SQL-AJUSTE72.md`** (14 blocos + C1–C8). Antes disso o código publicado se comporta
+   exatamente como hoje — e avisa no console, não em silêncio.
+2. Push + Publicar.
+3. Validação §7 do Ajuste, **obrigatoriamente com líder sem `is_admin`**:
+   - **Caio** abre Requisições e encontra a `2ad811a6-…` que aprovou (0 → 12 documentos) e Pedidos
+     (0 → 12);
+   - **Ana** (12 CCs): 7 → 57 requisições, 3 → 49 pedidos, e o filtro por CC funcionando;
+     ⚠️ último login em 11/05 — pedir `Ctrl+Shift+R`;
+   - **Hugo** e **Diego**: números **idênticos** aos de hoje (12/5 e 38/19). É o teste que importa.
+4. Só então liberar `view_cc` a mais gente — a permissão sem mapeamento em `compras_lideres_cc` não
+   amplia nada, mas o inverso (mapear alguém no mapa de líderes) agora **também** amplia o que ele vê.

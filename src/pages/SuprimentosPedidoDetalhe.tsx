@@ -47,6 +47,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
+import { consultarEscopoPedido } from "@/services/escopoComprasService";
 import { PERMISSIONS } from "@/constants/permissions";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -206,25 +207,41 @@ export default function SuprimentosPedidoDetalhe() {
       // Defesa em profundidade: se NÃO pode ver todos, valida que este pedido
       // é derivado de uma req criada pelo usuário atual.
       if (!podeVerTodos && user) {
-        const { data: pedMeta } = await (supabase as any)
-          .from("compras_pedidos")
-          .select("numero_req_comp, codigo_empresa_filial_req_comp")
-          .eq("id", id)
-          .single();
+        // ── AJUSTE 7.2 ────────────────────────────────────────────────────
+        // A MESMA regra da listagem responde aqui. Sem isto, o líder passaria a
+        // ver o pedido na lista e levaria "você não tem permissão" ao clicar —
+        // exatamente o defeito que o Ajuste 7.1 corrigiu em Requisições, repetido
+        // em Pedidos. A RPC cobre os três ramos: próprio, CC do cabeçalho e CC do
+        // rateio (tabela neta, que o cliente não consegue consultar).
+        const escopo = await consultarEscopoPedido(id);
 
-        if (!pedMeta?.numero_req_comp) {
-          throw new Error("Você não tem permissão para ver este pedido.");
-        }
+        if (!escopo.indisponivel) {
+          if (!escopo.permitido) {
+            throw new Error("Você não tem permissão para ver este pedido.");
+          }
+        } else {
+          // RPC ausente (SQL do 7.2 ainda não executado) ou falha: cai no gate
+          // anterior, byte a byte. Já avisado no console pelo serviço.
+          const { data: pedMeta } = await (supabase as any)
+            .from("compras_pedidos")
+            .select("numero_req_comp, codigo_empresa_filial_req_comp")
+            .eq("id", id)
+            .single();
 
-        const { data: req } = await (supabase as any)
-          .from("compras_requisicoes")
-          .select("requisitante_user_id")
-          .eq("numero_alvo", pedMeta.numero_req_comp)
-          .eq("codigo_empresa_filial", pedMeta.codigo_empresa_filial_req_comp)
-          .maybeSingle();
+          if (!pedMeta?.numero_req_comp) {
+            throw new Error("Você não tem permissão para ver este pedido.");
+          }
 
-        if (!req || req.requisitante_user_id !== user.id) {
-          throw new Error("Você não tem permissão para ver este pedido.");
+          const { data: req } = await (supabase as any)
+            .from("compras_requisicoes")
+            .select("requisitante_user_id")
+            .eq("numero_alvo", pedMeta.numero_req_comp)
+            .eq("codigo_empresa_filial", pedMeta.codigo_empresa_filial_req_comp)
+            .maybeSingle();
+
+          if (!req || req.requisitante_user_id !== user.id) {
+            throw new Error("Você não tem permissão para ver este pedido.");
+          }
         }
       }
 

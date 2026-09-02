@@ -34,6 +34,7 @@ import {
 import { format, subDays, startOfWeek, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { getStatusRequisicao } from "@/lib/statusRequisicao";
+import { carregarEscopoRequisicoes, listaParaFiltroOr } from "@/services/escopoComprasService";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // FASE 3 — o `STATUS_CONFIG` que vivia aqui foi REMOVIDO: era um segundo mapa de
@@ -92,6 +93,8 @@ export default function SuprimentosRequisicoes() {
   const [filtroDataFim, setFiltroDataFim] = useState<Date | undefined>(undefined);
   const [filtroFuncionario, setFiltroFuncionario] = useState("todos");
   const [filtroPreset, setFiltroPreset] = useState("todos");
+  // AJUSTE 7.2 — filtro por CC, só existe para quem tem escopo view_cc.
+  const [filtroCentroCusto, setFiltroCentroCusto] = useState("todos");
 
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "cards";
@@ -141,7 +144,23 @@ export default function SuprimentosRequisicoes() {
     enabled: podeVerTodas,
   });
 
-  const { data: requisicoesResult, isLoading } = useQuery({
+  // ── AJUSTE 7.2 — escopo resolvido no SERVIDOR ────────────────────────────
+  // Quem tem view_all não depende disto (o ramo 'all' da RPC diria o mesmo que o
+  // `podeVerTodas` já diz), então nem consulta: um round-trip a menos para eles.
+  const { data: escopo, isLoading: escopoCarregando } = useQuery({
+    queryKey: ["escopo_requisicoes", user?.id],
+    queryFn: carregarEscopoRequisicoes,
+    enabled: !!user && !podeVerTodas,
+    staleTime: 5 * 60_000,
+  });
+
+  // CCs liderados só valem quando a RPC respondeu E o escopo é 'cc'. Sem RPC
+  // (SQL do 7.2 ainda não executado) a lista é vazia e a query abaixo fica
+  // IDÊNTICA à de hoje — a não-regressão não depende de acerto de código.
+  const ccsLiderados = escopo && !escopo.indisponivel && escopo.escopo === "cc" ? escopo.ccs : [];
+  const temVisaoCc = ccsLiderados.length > 0;
+
+  const { data: requisicoesResult, isLoading: listaCarregando } = useQuery({
     queryKey: [
       "requisicoes_lista",
       user?.id,
@@ -155,6 +174,11 @@ export default function SuprimentosRequisicoes() {
       sortCol,
       sortDir,
       paginaAtual,
+      // AJUSTE 7.2 — o escopo faz parte da chave: se os CCs liderados mudarem
+      // (ou a RPC passar a existir), a lista refaz a consulta em vez de servir
+      // cache de um escopo antigo.
+      ccsLiderados.join("|"),
+      filtroCentroCusto,
     ],
     queryFn: async () => {
       const inicio = (paginaAtual - 1) * PAGE_SIZE;
@@ -173,10 +197,32 @@ export default function SuprimentosRequisicoes() {
 
       if (!podeVerTodas && user) {
         const funcionarioCodigo = (profile as any)?.funcionario_alvo_codigo;
-        if (funcionarioCodigo) {
-          query = query.or(`requisitante_user_id.eq.${user.id},codigo_funcionario.eq.${funcionarioCodigo}`);
-        } else {
+
+        // AJUSTE 7.2 — o ramo do CC é ADITIVO: entra ao lado dos que já existiam,
+        // nunca no lugar deles. Sem ele (ou sem CC liderado) a expressão montada
+        // é exatamente a de antes — é assim que o gate §6.2 (não-regressão) fica
+        // garantido por construção, e não por conferência.
+        const ramos: string[] = [`requisitante_user_id.eq.${user.id}`];
+        if (funcionarioCodigo) ramos.push(`codigo_funcionario.eq.${funcionarioCodigo}`);
+        if (temVisaoCc) {
+          // Rascunho ALHEIO fica de fora (§3 do Ajuste): é trabalho em andamento
+          // do requisitante, não documento submetido. O rascunho PRÓPRIO continua
+          // aparecendo pelo primeiro ramo.
+          ramos.push(
+            `and(codigo_centro_ctrl.in.(${listaParaFiltroOr(ccsLiderados)}),status.neq.rascunho)`,
+          );
+        }
+
+        if (ramos.length === 1) {
           query = query.eq("requisitante_user_id", user.id);
+        } else {
+          query = query.or(ramos.join(","));
+        }
+
+        // Filtro por centro de custo (só existe para quem tem view_cc): estreita o
+        // escopo ao CC escolhido, em AND com o `.or()` acima.
+        if (temVisaoCc && filtroCentroCusto !== "todos") {
+          query = query.eq("codigo_centro_ctrl", filtroCentroCusto);
         }
       }
 
@@ -220,8 +266,17 @@ export default function SuprimentosRequisicoes() {
       if (error) throw error;
       return { requisicoes: data || [], total: count || 0 };
     },
-    enabled: !!user,
+    // AJUSTE 7.2 — quem não tem view_all espera o escopo chegar antes da 1ª consulta.
+    // Sem isso a lista abriria com o escopo antigo e o líder veria as próprias
+    // requisições piscarem para 57 um instante depois.
+    enabled: !!user && (podeVerTodas || !escopoCarregando),
   });
+
+  // AJUSTE 7.2 — enquanto o escopo não chega, a lista fica DESABILITADA; nesse
+  // estado o React Query devolve isLoading=false com data undefined, o que
+  // renderizaria "nenhuma requisição" por um instante. O spinner tem de cobrir
+  // as duas esperas.
+  const isLoading = listaCarregando || (!podeVerTodas && escopoCarregando);
 
   const requisicoes = requisicoesResult?.requisicoes || [];
   const totalRequisicoes = requisicoesResult?.total || 0;
@@ -231,7 +286,16 @@ export default function SuprimentosRequisicoes() {
   // Uma nova busca, filtro ou ordenação sempre começa pela primeira página.
   useEffect(() => {
     setPaginaAtual(1);
-  }, [filtroStatus, filtroDataInicio, filtroDataFim, filtroFuncionario, buscaDebounced, sortCol, sortDir]);
+  }, [
+    filtroStatus,
+    filtroDataInicio,
+    filtroDataFim,
+    filtroFuncionario,
+    filtroCentroCusto,
+    buscaDebounced,
+    sortCol,
+    sortDir,
+  ]);
 
   const handlePresetData = (preset: string) => {
     setFiltroPreset(preset);
@@ -262,6 +326,7 @@ export default function SuprimentosRequisicoes() {
     setFiltroDataInicio(undefined);
     setFiltroDataFim(undefined);
     setFiltroFuncionario("todos");
+    setFiltroCentroCusto("todos");
     setFiltroPreset("todos");
     setBuscaInput("");
   };
@@ -269,9 +334,19 @@ export default function SuprimentosRequisicoes() {
   const temFiltroAtivo =
     filtroStatus !== "todos" ||
     filtroFuncionario !== "todos" ||
+    filtroCentroCusto !== "todos" ||
     !!filtroDataInicio ||
     !!filtroDataFim ||
     !!buscaDebounced;
+
+  // AJUSTE 7.2 — origem da visibilidade da linha. Devolve o CC quando a requisição
+  // aparece por LIDERANÇA (não é minha, e o CC dela é um dos que eu lidero). Sem
+  // essa marca o líder soma o que vê e supõe estar olhando a base inteira.
+  const ccQueLiberou = (req: any): string | null => {
+    if (!temVisaoCc || !user) return null;
+    if (req?.requisitante_user_id === user.id) return null;
+    return ccsLiderados.includes(req?.codigo_centro_ctrl) ? (req.codigo_centro_ctrl as string) : null;
+  };
 
   const firstName = profile?.full_name?.split(" ")[0] || "";
 
@@ -409,6 +484,27 @@ export default function SuprimentosRequisicoes() {
             </div>
           )}
 
+          {/* AJUSTE 7.2 — filtro por CC: só aparece para quem lidera algum centro.
+              Sem ele, a visão de um líder de 12 CCs vira uma pilha indistinta. */}
+          {temVisaoCc && (
+            <div className="min-w-[220px]">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Centro de custo</label>
+              <Select value={filtroCentroCusto} onValueChange={setFiltroCentroCusto}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os meus" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos (meus + os que lidero)</SelectItem>
+                  {ccsLiderados.map((cc) => (
+                    <SelectItem key={cc} value={cc}>
+                      {cc}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {temFiltroAtivo && (
             <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-muted-foreground">
               <X className="mr-1 h-3 w-3" /> Limpar filtros
@@ -416,6 +512,16 @@ export default function SuprimentosRequisicoes() {
           )}
         </CardContent>
       </Card>
+
+      {/* AJUSTE 7.2 — falha INESPERADA ao resolver o escopo. A tela continua
+          funcionando com o escopo anterior, mas nunca em silêncio: quem lidera um CC
+          precisa saber que está vendo menos do que deveria. A ausência da RPC (janela
+          antes do SQL rodar) NÃO cai aqui — vai só para o console. */}
+      {escopo?.motivoFalha === "erro" && escopo.erroMensagem && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+          {escopo.erroMensagem}
+        </div>
+      )}
 
       {/* Contagem */}
       {!isLoading && totalRequisicoes > 0 && (
@@ -505,6 +611,15 @@ export default function SuprimentosRequisicoes() {
                         </td>
                         <td className="px-4 py-3 max-w-[260px]">
                           <span className="line-clamp-1">{req.descricao || "—"}</span>
+                          {ccQueLiberou(req) && (
+                            <Badge
+                              variant="secondary"
+                              className="mt-1 flex w-fit items-center gap-1 font-mono text-[10px] font-normal"
+                            >
+                              <Building2 className="h-3 w-3" />
+                              CC {ccQueLiberou(req)}
+                            </Badge>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">{req.total_itens ?? 0}</td>
                         <td className="px-4 py-3 whitespace-nowrap">{req.funcionario_nome || "—"}</td>
@@ -582,6 +697,17 @@ export default function SuprimentosRequisicoes() {
                       </span>
                     )}
                   </div>
+
+                  {/* AJUSTE 7.2 — marca de onde veio a visibilidade (CC liderado) */}
+                  {ccQueLiberou(req) && (
+                    <Badge
+                      variant="secondary"
+                      className="flex w-fit items-center gap-1 font-mono text-[10px] font-normal"
+                    >
+                      <Building2 className="h-3 w-3" />
+                      Você lidera o CC {ccQueLiberou(req)}
+                    </Badge>
+                  )}
 
                   <p className="text-[11px] text-muted-foreground/60">
                     Atualizada em {format(new Date(req.updated_at || req.created_at), "dd/MM/yyyy", { locale: ptBR })}

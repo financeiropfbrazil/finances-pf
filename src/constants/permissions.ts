@@ -10,6 +10,10 @@
 export const PERMISSIONS = {
   // ─── Módulo Compras / Requisições ───────────────────────────────
   COMPRAS_REQUISICOES_VIEW_OWN: "compras.requisicoes.view_own",
+  // AJUSTE 7.2 — terceiro escopo, entre own e all: vê o que onera os CCs que lidera.
+  // Quem dá o alcance concreto é o mapeamento `compras_lideres_cc`; sem mapeamento,
+  // a permissão não amplia nada.
+  COMPRAS_REQUISICOES_VIEW_CC: "compras.requisicoes.view_cc",
   COMPRAS_REQUISICOES_VIEW_ALL: "compras.requisicoes.view_all",
   COMPRAS_REQUISICOES_CREATE: "compras.requisicoes.create",
   COMPRAS_REQUISICOES_DELETE_OWN: "compras.requisicoes.delete_own",
@@ -22,6 +26,9 @@ export const PERMISSIONS = {
   COMPRAS_PEDIDOS_CREATE: "compras.pedidos.create",
   COMPRAS_PEDIDOS_DELETE_DRAFT: "compras.pedidos.delete_draft",
   COMPRAS_PEDIDOS_VIEW_OWN: "compras.pedidos.view_own" as const,
+  // AJUSTE 7.2 — idem para pedidos. União de duas fontes de CC: o rateio
+  // (`compras_pedidos_itens_rateio`) e o cabeçalho (`compras_pedidos.centro_custo`).
+  COMPRAS_PEDIDOS_VIEW_CC: "compras.pedidos.view_cc",
   // ─── Administração global ───────────────────────────────────────
   ADMIN_USERS_MANAGE: "admin.users.manage",
 

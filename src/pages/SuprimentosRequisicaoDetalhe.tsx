@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
+import { carregarEscopoRequisicoes } from "@/services/escopoComprasService";
 import { PERMISSIONS } from "@/constants/permissions";
 import {
   reenviarRequisicao,
@@ -174,19 +175,37 @@ export default function SuprimentosRequisicaoDetalhe() {
         // do requisitante; dono e funcionário continuam vendo como antes.
         let isLiderDoCcDaReq = false;
         if (!isOwner && !isFuncionario && user?.id && data.codigo_centro_ctrl && data.status !== "rascunho") {
-          const { data: vinculo, error: errLider } = await (supabase as any)
-            .from("compras_lideres_cc")
-            .select("id")
-            .eq("codigo_centro_ctrl", data.codigo_centro_ctrl)
-            .eq("lider_user_id", user.id)
-            .eq("ativo", true)
-            .maybeSingle();
-          // Falha (rede/RLS) NUNCA libera: sem resposta, não é líder. Fica no console
-          // para o caso ser diagnosticável em vez de virar "sumiu do nada".
-          if (errLider) {
-            console.error("[requisicao_detalhe] falha ao verificar liderança do CC:", errLider);
+          // AJUSTE 7.2 — FONTE ÚNICA DE VERDADE do escopo. O ramo do 7.1 lia
+          // `compras_lideres_cc` direto daqui; agora quem responde é a mesma RPC
+          // que decide a listagem — então o acesso passa pelo gate de permissão
+          // (`compras.requisicoes.view_cc`), e não só pelo mapeamento. Cache
+          // compartilhado com a lista: `fetchQuery` na mesma chave.
+          const escopo = await queryClient.fetchQuery({
+            queryKey: ["escopo_requisicoes", user.id],
+            queryFn: carregarEscopoRequisicoes,
+            staleTime: 5 * 60_000,
+          });
+
+          if (!escopo.indisponivel) {
+            isLiderDoCcDaReq = escopo.escopo === "cc" && escopo.ccs.includes(data.codigo_centro_ctrl);
+          } else {
+            // RPC ainda não instalada (ou falhou): mantém EXATAMENTE o ramo do
+            // Ajuste 7.1 — o líder não pode perder o acesso que já tem hoje.
+            // O serviço já avisou no console; nada aqui é silencioso.
+            const { data: vinculo, error: errLider } = await (supabase as any)
+              .from("compras_lideres_cc")
+              .select("id")
+              .eq("codigo_centro_ctrl", data.codigo_centro_ctrl)
+              .eq("lider_user_id", user.id)
+              .eq("ativo", true)
+              .maybeSingle();
+            // Falha (rede/RLS) NUNCA libera: sem resposta, não é líder. Fica no console
+            // para o caso ser diagnosticável em vez de virar "sumiu do nada".
+            if (errLider) {
+              console.error("[requisicao_detalhe] falha ao verificar liderança do CC:", errLider);
+            }
+            isLiderDoCcDaReq = !!vinculo;
           }
-          isLiderDoCcDaReq = !!vinculo;
         }
 
         if (!isOwner && !isFuncionario && !isLiderDoCcDaReq) return null;

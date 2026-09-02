@@ -37,6 +37,7 @@ import {
   Search,
 } from "lucide-react";
 import { getStatusPedido, STATUS_PEDIDO_FILTER_OPTIONS, aplicarFiltroStatusPedido } from "@/lib/statusPedido";
+import { carregarEscopoPedidos, listaParaFiltroOr } from "@/services/escopoComprasService";
 import { formatarValorMoeda } from "@/services/moedaPedido";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Home } from "lucide-react";
@@ -226,6 +227,8 @@ export default function SuprimentosPedidos() {
   );
   const [filtroDataFim, setFiltroDataFim] = useState<Date | undefined>(() => paramToDate(searchParams.get("dataFim")));
   const [filtroComprador, setFiltroComprador] = useState(() => searchParams.get("comprador") || "todos");
+  // AJUSTE 7.2 — filtro por CC; só existe para quem tem escopo view_cc.
+  const [filtroCentroCusto, setFiltroCentroCusto] = useState(() => searchParams.get("cc") || "todos");
 
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "cards";
@@ -280,6 +283,7 @@ export default function SuprimentosPedidos() {
     if (filtroStatusLocal && filtroStatusLocal !== "todos") next.status = filtroStatusLocal;
     if (filtroOrigem && filtroOrigem !== "todos") next.origem = filtroOrigem;
     if (filtroComprador && filtroComprador !== "todos") next.comprador = filtroComprador;
+    if (filtroCentroCusto && filtroCentroCusto !== "todos") next.cc = filtroCentroCusto;
     const di = dateToParam(filtroDataInicio);
     const df = dateToParam(filtroDataFim);
     if (di) next.dataInicio = di;
@@ -297,6 +301,7 @@ export default function SuprimentosPedidos() {
     filtroStatusLocal,
     filtroOrigem,
     filtroComprador,
+    filtroCentroCusto,
     filtroDataInicio,
     filtroDataFim,
     orderBy,
@@ -317,7 +322,31 @@ export default function SuprimentosPedidos() {
     enabled: podeVerTodos,
   });
 
-  const { data: pedidosResult, isLoading } = useQuery({
+  // ── AJUSTE 7.2 — escopo resolvido no SERVIDOR ────────────────────────────
+  // A RPC devolve o escopo (via user_has_permission) e, quando ele é 'cc', os
+  // pedidos que o RATEIO alcança nos meus CCs — a única parte que o cliente não
+  // consegue expressar, porque o CC vive na tabela NETA `..._itens_rateio`.
+  // Cabeçalho (`centro_custo`) e "derivado das minhas requisições" continuam
+  // filtrando no banco, na query abaixo.
+  const { data: escopo, isLoading: escopoCarregando } = useQuery({
+    queryKey: ["escopo_pedidos", user?.id],
+    queryFn: carregarEscopoPedidos,
+    enabled: !!user && !podeVerTodos,
+    staleTime: 5 * 60_000,
+  });
+
+  const escopoCcValido = !!escopo && !escopo.indisponivel && escopo.escopo === "cc";
+  const ccsLiderados = escopoCcValido ? escopo!.ccs : [];
+  const pedidosPorRateio = escopoCcValido ? escopo!.pedidosPorRateio : [];
+  const temVisaoCc = ccsLiderados.length > 0;
+
+  // Ids alcançados pelo rateio, respeitando o filtro de CC quando ele está ativo.
+  const idsPorRateio =
+    temVisaoCc && filtroCentroCusto !== "todos"
+      ? pedidosPorRateio.filter((p) => p.ccs.includes(filtroCentroCusto)).map((p) => p.id)
+      : pedidosPorRateio.map((p) => p.id);
+
+  const { data: pedidosResult, isLoading: listaCarregando } = useQuery({
     queryKey: [
       "pedidos_lista",
       user?.id,
@@ -332,6 +361,11 @@ export default function SuprimentosPedidos() {
       orderBy?.field,
       orderBy?.dir,
       paginaAtual,
+      // AJUSTE 7.2 — escopo entra na chave: mudou o CC liderado (ou a RPC passou
+      // a existir), a lista refaz a consulta em vez de servir cache antigo.
+      ccsLiderados.join("|"),
+      idsPorRateio.length,
+      filtroCentroCusto,
     ],
     queryFn: async () => {
       const inicio = (paginaAtual - 1) * PAGE_SIZE;
@@ -359,11 +393,36 @@ export default function SuprimentosPedidos() {
 
         const numerosReqs = (minhasReqs || []).map((r: any) => r.numero_alvo).filter((n: string | null) => n !== null);
 
-        if (numerosReqs.length === 0) {
-          return { pedidos: [], total: 0 };
-        }
+        // ── AJUSTE 7.2 — escopo ADITIVO ────────────────────────────────────
+        // Sem view_cc, o caminho abaixo é byte a byte o de antes: `.in()` nos
+        // números das MINHAS requisições, ou lista vazia se não houver nenhuma.
+        // O ramo do CC (cabeçalho ∪ rateio) só entra quando a RPC disse 'cc'.
+        if (!temVisaoCc) {
+          if (numerosReqs.length === 0) {
+            return { pedidos: [], total: 0 };
+          }
+          query = query.in("numero_req_comp", numerosReqs);
+        } else {
+          const ramos: string[] = [];
 
-        query = query.in("numero_req_comp", numerosReqs);
+          // O que já era meu continua meu — view_cc nunca tira o que view_own dava.
+          // Com filtro de CC ativo o próprio sai de cena: ali a pergunta é "o que
+          // onera ESTE centro", não "o que é meu".
+          if (numerosReqs.length > 0 && filtroCentroCusto === "todos") {
+            ramos.push(`numero_req_comp.in.(${listaParaFiltroOr(numerosReqs)})`);
+          }
+
+          // Fonte 1 do CC: cabeçalho do pedido.
+          const ccsAlvo = filtroCentroCusto === "todos" ? ccsLiderados : [filtroCentroCusto];
+          ramos.push(`centro_custo.in.(${listaParaFiltroOr(ccsAlvo)})`);
+
+          // Fonte 2 do CC: rateio (tabela neta) — ids resolvidos pela RPC.
+          if (idsPorRateio.length > 0) {
+            ramos.push(`id.in.(${listaParaFiltroOr(idsPorRateio)})`);
+          }
+
+          query = query.or(ramos.join(","));
+        }
       }
 
       // ── Filtro de Status efetivo (L4) ─────────────────────────────────
@@ -418,8 +477,15 @@ export default function SuprimentosPedidos() {
       if (error) throw error;
       return { pedidos: data || [], total: count || 0 };
     },
-    enabled: !!user,
+    // AJUSTE 7.2 — quem não tem view_all espera o escopo antes da 1ª consulta,
+    // senão a lista abriria com o escopo antigo e mudaria de tamanho em seguida.
+    enabled: !!user && (podeVerTodos || !escopoCarregando),
   });
+
+  // AJUSTE 7.2 — mesma razão do arquivo de Requisições: lista desabilitada
+  // esperando o escopo devolve isLoading=false, e a tela mostraria "nenhum
+  // pedido" antes da primeira consulta acontecer.
+  const isLoading = listaCarregando || (!podeVerTodos && escopoCarregando);
 
   const pedidos = pedidosResult?.pedidos || [];
   const totalPedidos = pedidosResult?.total || 0;
@@ -430,7 +496,14 @@ export default function SuprimentosPedidos() {
   // Reset pra página 1 quando filtros, busca ou ordenação mudam
   useEffect(() => {
     setPaginaAtual(1);
-  }, [filtroStatusLocal, filtroOrigem, filtroDataInicio, filtroDataFim, filtroComprador, buscaDebounced, orderBy]);
+  }, [filtroStatusLocal,
+    filtroOrigem,
+    filtroDataInicio,
+    filtroDataFim,
+    filtroComprador,
+    filtroCentroCusto,
+    buscaDebounced,
+    orderBy]);
 
   const limparFiltros = () => {
     setFiltroStatusLocal("todos");
@@ -438,14 +511,26 @@ export default function SuprimentosPedidos() {
     setFiltroDataInicio(undefined);
     setFiltroDataFim(undefined);
     setFiltroComprador("todos");
+    setFiltroCentroCusto("todos");
     setBuscaInput("");
     setOrderBy(null);
+  };
+
+  // AJUSTE 7.2 — de onde veio a visibilidade deste pedido: o CC do cabeçalho, ou
+  // o CC do rateio que a RPC resolveu. Sem a marca, o líder soma o que vê e supõe
+  // estar olhando a base inteira.
+  const ccQueLiberou = (ped: any): string | null => {
+    if (!temVisaoCc) return null;
+    if (ped?.centro_custo && ccsLiderados.includes(ped.centro_custo)) return ped.centro_custo as string;
+    const porRateio = pedidosPorRateio.find((r) => r.id === ped?.id);
+    return porRateio?.ccs?.[0] ?? null;
   };
 
   const temFiltroAtivo =
     filtroStatusLocal !== "todos" ||
     filtroOrigem !== "todos" ||
     filtroComprador !== "todos" ||
+    filtroCentroCusto !== "todos" ||
     (!!filtroDataInicio && !!filtroDataFim) ||
     !!buscaDebounced ||
     !!orderBy;
@@ -649,6 +734,26 @@ export default function SuprimentosPedidos() {
             </div>
           )}
 
+          {/* AJUSTE 7.2 — filtro por CC: só para quem lidera algum centro. */}
+          {temVisaoCc && (
+            <div className="min-w-[220px]">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Centro de custo</label>
+              <Select value={filtroCentroCusto} onValueChange={setFiltroCentroCusto}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os meus" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos (meus + os que lidero)</SelectItem>
+                  {ccsLiderados.map((cc) => (
+                    <SelectItem key={cc} value={cc}>
+                      {cc}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {temFiltroAtivo && (
             <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-muted-foreground">
               <X className="mr-1 h-3 w-3" /> Limpar filtros
@@ -656,6 +761,22 @@ export default function SuprimentosPedidos() {
           )}
         </CardContent>
       </Card>
+
+      {/* AJUSTE 7.2 — falha INESPERADA ao resolver o escopo (a ausência da RPC,
+          esperada antes do SQL rodar, vai só para o console). */}
+      {escopo?.motivoFalha === "erro" && escopo.erroMensagem && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+          {escopo.erroMensagem}
+        </div>
+      )}
+
+      {/* Teto do conjunto por rateio: corta, mas NUNCA em silêncio. */}
+      {escopo?.truncado && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+          Você lidera centros de custo com mais pedidos rateados do que o teto da consulta (800). A lista
+          está mostrando os mais recentes — avise o Pedro para elevar o teto em `listar_pedidos_escopo`.
+        </div>
+      )}
 
       {/* Contagem */}
       {!isLoading && totalPedidos > 0 && (
@@ -754,6 +875,15 @@ export default function SuprimentosPedidos() {
                         </td>
                         <td className="px-4 py-3 max-w-[220px]">
                           <span className="line-clamp-1">{ped.nome_entidade || "—"}</span>
+                          {ccQueLiberou(ped) && (
+                            <Badge
+                              variant="secondary"
+                              className="mt-1 flex w-fit items-center gap-1 font-mono text-[10px] font-normal"
+                            >
+                              <Building2 className="h-3 w-3" />
+                              CC {ccQueLiberou(ped)}
+                            </Badge>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-emerald-600 whitespace-nowrap">
                           {formatValor(ped.valor_total, ped.codigo_ind_economico)}
@@ -852,6 +982,12 @@ export default function SuprimentosPedidos() {
                       <span className="flex items-center gap-1">
                         <FileText className="h-3 w-3" />
                         Req {ped.numero_req_comp}
+                      </span>
+                    )}
+                    {ccQueLiberou(ped) && (
+                      <span className="flex items-center gap-1 font-mono">
+                        <Building2 className="h-3 w-3" />
+                        CC {ccQueLiberou(ped)}
                       </span>
                     )}
                   </div>
