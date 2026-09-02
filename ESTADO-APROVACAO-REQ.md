@@ -3,7 +3,8 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **11/08/2026** (encerramento — missão concluída e validada em produção).
+> Última atualização: **02/09/2026** (PROMPT 7.1 — o bug do detalhe do líder **já estava corrigido e
+> publicado**; a sessão verificou, mediu e registrou, sem tocar em código: **§15**).
 
 ## 0. 🏁 MISSÃO CONCLUÍDA (11/08/2026)
 
@@ -48,6 +49,7 @@ melhoria de usabilidade, não pré-requisito de nada.
 | **AJUSTE 6.2** | Atribuição em massa (decisões H1–H4) | ✅ recebido (autoria do Pedro), incorporado |
 | **PROMPT 6.2** | Seleção múltipla + atribuição em massa na tela do mapa | ✅ concluído em 11/08/2026 · commit `0eaf2a6` · **pushado e publicado**, validado com 12 CCs reais — conclusões no §13 |
 | **ENCERRAMENTO** | Estado final da missão | ✅ 11/08/2026 — §14 |
+| **AJUSTE 7.1 / PROMPT 7.1** | Líder abre o detalhe da requisição que aprova (bug A1.4) | ✅ **já estava corrigido** — commit `f40029c` (19/08, "card B1"), em `origin/main` **e no bundle publicado**. Sessão de 02/09 verificou e registrou, **zero código alterado** — §15 |
 | PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado (melhoria de usabilidade, não bloqueia nada) |
 
 **Publicação (medido no git em 11/08/2026):** `main` e `origin/main` estão no mesmo commit —
@@ -63,6 +65,12 @@ Até 10/08 isso era inócuo (o único líder era o Pedro, `is_admin`, com bypass
 líder **sem a flag** (Ana Sanches, 13 CCs). Se ela também tiver o papel `requisitante` — que **tem** as
 duas permissões (§9.3) — nada quebra; é o caso provável. **Não foi medido nesta sessão.** Sintoma se
 faltar: ela aprova normalmente, mas não consegue criar nem reenviar requisição própria.
+
+> ✅ **RESOLVIDO — medido pelo `DISCOVERY-FASE7A.md` (A1.3, Evidência 5), não por esta sessão.** O papel
+> `lider_departamento` hoje tem os **4** códigos (`access`, `aprovar`, `create`, `reenviar_own`): o SQL do
+> §10.2 foi executado no banco em algum momento entre 11/08 e 14/08. A Ana ainda acumula o papel
+> `requisitante`, que já traria as duas permissões. **Não re-medido no PROMPT 7.1** — aquela sessão foi
+> proibida de tocar no banco, inclusive para leitura.
 
 ## 2. FASE 1 — o que está no ar (07/08/2026, gate verde)
 
@@ -174,6 +182,12 @@ resta não é código:
     fluxo, com outra tabela e outra rota no ERP — o gate de aprovação **não o alcança**, por
     construção. Levar o controle para lá é missão própria e começa por descobrir onde vive o centro
     de custo naquele fluxo. Prioridade: a definir pelo Pedro.
+12. **DÍVIDA-DETALHE-PEDIDO-SEM-RAMO-DE-LÍDER** (Ajuste 7.1 §2.2, verificada em 02/09 — §15.3):
+    `src/pages/SuprimentosPedidoDetalhe.tsx:208-227` tem o **mesmo padrão** que causou o bug do detalhe
+    da requisição — gate por `view_all` **ou** ser o requisitante da req de origem, **sem ramo de
+    líder**. Hoje é inofensivo (sem a visão ampliada, o líder não chega à lista de pedidos); vira bug
+    no dia em que a frente **A2** entrar. **Não corrigido de propósito** — seria código sem caminho de
+    uso. Prioridade: junto com a A2, não antes.
 
 ## 8. O que a Fase 3 vai encontrar
 
@@ -881,3 +895,109 @@ vive o centro de custo** naquele fluxo (ou se vive). Sem isso não há como rote
 | `DISCOVERY-APROVACAO-REQ.md` · `DISCOVERY-FASE6.md` · `ADENDO-ERP-PROXY-REQCOMP.md` | medições de campo |
 | `SQL-FASE1-APROVACAO.md` · `SQL-AJUSTE13.md` · `SQL-FASE61.md` | SQL executado, **com rollback em cada um** |
 | **este arquivo** | único mutável: estado, achados e diário |
+
+---
+
+## 15. AJUSTE 7.1 — o bug do detalhe do líder **já estava corrigido** (02/09/2026, PROMPT 7.1)
+
+### 15.1 Veredito em uma frase
+
+O §2.1 do `AJUSTE-7.1-DETALHE-LIDER.md` — o ramo do líder no escopo de visibilidade do detalhe da
+requisição — **foi implementado em 19/08/2026 pelo commit `f40029c`** ("fix(compras): detalhe da
+requisição visível para o líder do CC — card B1"), que está em `origin/main` **e no bundle publicado**.
+O Ajuste 7.1 foi escrito a partir do `DISCOVERY-FASE7A.md`, cujas medições são de **~14/08** — cinco
+dias **antes** da correção. **Nesta sessão nenhuma linha de código foi alterada:** o que restava era
+verificar, medir e registrar, mais o relatório preventivo do §2.2.
+
+### 15.2 Evidências (**zero SQL** — o prompt proibiu tocar no banco, inclusive leitura)
+
+| # | Afirmação | Evidência |
+|---|---|---|
+| E1 | O ramo do líder existe no HEAD | `src/pages/SuprimentosRequisicaoDetalhe.tsx:154-192` — dentro da `queryFn` do `useQuery(["requisicao_detalhe", id])`: `:175` `let isLiderDoCcDaReq = false`, `:178` leitura de `compras_lideres_cc` (`codigo_centro_ctrl` + `lider_user_id` + `ativo=true`), `:192` `if (!isOwner && !isFuncionario && !isLiderDoCcDaReq) return null` |
+| E2 | Está em `origin/main` | `git merge-base --is-ancestor f40029c origin/main` → verdadeiro. Commit de 19/08/2026 14:00 -03, **1 arquivo**, +34/−1 |
+| E3 | **Está publicado** (é o que a Ana roda hoje) | `https://finance-pf.lovable.app` serve `assets/index-DUr2s-DN.js` (5,53 MB) — o Discovery de 14/08 viu `index-CuCWHf63.js`, ou seja **houve Publicar depois**. O bundle contém o ramo minificado, com a leitura de `compras_lideres_cc`, o `.eq("ativo",!0)`, o `fe.status!=="rascunho"` e o `console.error("[requisicao_detalhe] falha ao verificar liderança do CC:"…)` |
+| E4 | Hooks: **nada** após return condicional | Todos os hooks do arquivo estão entre `:117` e `:332`; o 1º return condicional é `:361`. `npx eslint` nos dois detalhes: **0** violações de `react-hooks/rules-of-hooks` (o plugin está ativo — `eslint.config.js:17,21`, `reactHooks.configs.recommended`). O que o Ajuste 7.1 §2.1 pedia para "aproveitar e corrigir" **já fora fechado na Fase 3** (C5.1, §10.1) — a menção vinha do §9.4-4, escrito antes |
+| E5 | A premissa "não é RLS" segue de pé | O trabalho de RLS de 28/08 (`docs/SQL-RLS-PROFILES-FASE1.sql`) mexe **só em `public.profiles`**, e o SELECT lá continua `using (true)` (`:177-179`). Nada tocou `compras_requisicoes` |
+
+### 15.3 §2.2 — relatório sobre o detalhe do PEDIDO (verificar e **não** corrigir)
+
+**Sim, tem o mesmo padrão.** `src/pages/SuprimentosPedidoDetalhe.tsx`:
+
+| Linha | O que está lá |
+|---|---|
+| `:185` | `const podeVerTodos = useHasPermission(PERMISSIONS.COMPRAS_PEDIDOS_VIEW_ALL)` |
+| `:199` | `queryKey: ["pedido-detalhe", id, podeVerTodos, user?.id]` |
+| `:208` | `if (!podeVerTodos && user) {` — abre a "defesa em profundidade" |
+| `:211-216` | pedido **sem** `numero_req_comp` ⇒ `throw new Error("Você não tem permissão para ver este pedido.")` |
+| `:220-227` | resolve a requisição de origem e exige `req.requisitante_user_id === user.id`; senão o mesmo `throw` |
+
+`grep "compras_lideres_cc"` no arquivo: **0 ocorrências** — não há ramo de líder, nem de funcionário
+vinculado (é **mais** estrito que o detalhe da requisição, que ao menos tem `funcionario_alvo_codigo`).
+A rota é `PermissionRoute permKey="compras.pedidos.access"` (`src/App.tsx:312-317`), permissão que a Ana
+**tem** — então o erro apareceria **dentro** da tela, não como "Acesso Restrito". Confere com o
+`DISCOVERY-FASE7A.md` §B6, inclusive nos números de linha (o bloco começa em `:208`; o Discovery citou
+`:205-227`, contando as linhas de comentário acima).
+
+**Não corrigido, de propósito** (§2.2 manda): sem a visão ampliada (frente A2) o líder não chega à
+lista de pedidos, então o ramo seria código sem caminho de uso — e o critério de CC do pedido **não é
+trivial** (o CC vive na tabela neta `compras_pedidos_itens_rateio`, e o Discovery §B4 recomenda RPC
+`SECURITY DEFINER`, não filtro no cliente). Registrado como pendência **§7.12**.
+
+ℹ️ Hooks no detalhe do pedido: também limpos — último hook em `:303`, 1º return condicional em `:400`.
+
+### 15.4 Gate de saída (§4 do Ajuste) — item a item
+
+| # | Item | Veredito |
+|---|---|---|
+| 1 | `bun run build` · `tsc --noEmit -p tsconfig.app.json` · ESLint sem regressão | ✅ build **exit 0** (32,4 s) · tsc **exit 0** · ESLint nos 2 detalhes: **36 erros, todos `no-explicit-any`** pré-existentes — e **zero regressão por construção**, já que nenhum arquivo de código foi tocado |
+| 2 | Líder sem `is_admin` abre requisição de terceiro no CC que lidera | ✅ **no código**: `:192` deixa de recusar; com `req` carregada, `isLiderDoCC` (`:275-288`, cujo `enabled` cobre `pendente_aprovacao`) volta a rodar e `podeDecidir` (`:413` = `aguardandoDecisao && podeAprovar && (isAdmin ou isLiderDoCC)`) libera Aprovar/Rejeitar em `:652`. Itens (`:200`), auditoria (`:223`) e anexos (`:237`) só dependem de `!!req`. ⚠️ **Falta a prova de campo** — §15.6 |
+| 3 | O mesmo líder **não** abre requisição de CC que não lidera | ✅ o filtro é `.eq("codigo_centro_ctrl", data.codigo_centro_ctrl)` — CC exato, vínculo `ativo`; qualquer outro CC cai no `return null` de `:192` |
+| 4 | Usuário comum inalterado | ✅ o ramo só executa quando **não** é dono, **não** é funcionário vinculado e **não** tem `view_all`; dono e funcionário nem chegam a consultar |
+| 5 | Rascunho alheio inacessível, inclusive para o líder do CC | ✅ `data.status !== "rascunho"` na guarda de `:176` |
+| 6 | Nenhum hook após return condicional | ✅ E4 acima |
+| 7 | Relatório sobre o detalhe do pedido | ✅ §15.3 |
+| 8 | Commit com staging explícito, sem push | ✅ commit **só de documentação** (o código já estava commitado em `f40029c`) |
+
+### 15.5 O que contradisse a espec
+
+1. **O bug do §2.1 não existia mais.** O Ajuste 7.1 descreve como "em produção" um defeito corrigido
+   e publicado antes de ele ser escrito. A causa é de método, não de código: o Ajuste herdou o estado
+   do `DISCOVERY-FASE7A.md` (14/08) sem reconferir o `git log` do arquivo — e o commit `f40029c` entrou
+   por **outra** trilha ("card B1"), que não atualizou este ESTADO. **Lição:** documento de missão que
+   não é o único mutável envelhece calado; antes de executar um Ajuste, conferir
+   `git log -- <arquivo alvo>`.
+2. **"Resolver a liderança EM PARALELO ao carregamento da requisição"** — a implementação que está no
+   ar resolve **dentro da mesma `queryFn`**, em **sequência** (lê a requisição, depois o vínculo), que
+   é exatamente o que o `DISCOVERY-FASE7A.md` §A4.2 recomendou. Ela cumpre o que a instrução protege —
+   **não depender de `req` já existir** —, e de quebra evita o flash de "Requisição não encontrada" que
+   uma 2ª query paralela obrigaria a tratar. Custo: **uma ida extra ao banco, e só no caso raro**
+   (não-dono, não-funcionário, sem `view_all`). Um `Promise.all` literal cobraria essa consulta de
+   **todos** os 42 requisitantes em toda abertura de detalhe. **Não reescrevi** — o Ajuste manda
+   "escopo mínimo", e trocar código publicado e funcionando por outro equivalente é risco sem prêmio.
+3. **O hook fora de ordem não existia mais.** O §9.4-4 registrou o `useHasPermission` após returns
+   condicionais em 10/08; a **própria Fase 3** o consertou no mesmo dia (§10.1/C5.1) e o §7.5 já estava
+   marcado como fechado. O Ajuste 7.1 reciclou o texto antigo.
+4. **A pendência ⚠️ do §1** (papel `lider_departamento` sem `create`/`reenviar_own`) **também já estava
+   resolvida** no banco — medida pelo Discovery, não por esta sessão. Anotada no §1.
+5. **Nenhum SQL foi executado, nem de leitura.** O Ajuste §3.2 permite MCP read-only; o PROMPT 7.1 foi
+   além e proibiu SQL. Seguido o **mais restritivo**. Consequência declarada: toda afirmação sobre o
+   banco nesta seção é **derivada do Discovery ou do código**, não de medição nova.
+
+### 15.6 O que só a validação §5 fecha (e o que ela deve olhar além do óbvio)
+
+O caminho **nunca rodou com um líder sem `is_admin`** — a armadilha do `CLAUDE.md`. Duas coisas que o
+código **não** garante e que só aparecem com a Ana na tela:
+
+1. **Rateio e anexos.** O Discovery mediu policy `ALL using(true)` em `compras_requisicoes`,
+   `compras_requisicoes_itens`, `_auditoria` e `compras_lideres_cc` — mas **não** em
+   `compras_requisicoes_itens_classe_rec_desp` (o rateio da requisição) nem em
+   `compras_requisicoes_arquivos`, e **não** nas policies do bucket do Storage (o download passa por
+   `createSignedUrl`, `requisicoesService.ts:1516-1523`). Se alguma delas for escopada ao dono, o líder
+   abre a requisição e vê **rateio ou anexos vazios** — sem erro na tela. É o item do gate §4.2 que a
+   leitura de código não decide.
+2. **Bundle em cache.** O último login da Ana é de 11/05/2026 (Discovery A1.5): pedir `Ctrl+Shift+R`
+   **antes** de qualquer conclusão, senão um bundle velho responde pelo app novo.
+
+Requisição do teste: `7247431f-a21c-4eca-bfee-514276e7fd12` (Diego · `pendente_aprovacao` ·
+CC `00007.00001.00002`). **Sinal de sucesso:** ela lê itens e rateio e decide pelo documento, não pelos
+botões da fila.
