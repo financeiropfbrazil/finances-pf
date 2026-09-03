@@ -1643,6 +1643,71 @@ async function carregarCatalogosLabels(supabase: SupabaseClient): Promise<Catalo
   return { classes, centros };
 }
 
+/** CARD S1.1 — quais dos pedidos do lote já têm linha em
+ *  `compras_pedidos_itens_rateio`. É a metade "Hub" da evidência direta que
+ *  substituiu o proxy dos jsonb no gate de reprocesso (ver comentário no Job 2).
+ *
+ *  Duas leituras por CICLO, não por pedido, e em blocos: `.in()` viaja na URL,
+ *  e 100 uuids de uma vez passam de 3 KB.
+ *
+ *  ⚠️ NÃO usa embed do PostgREST (`!inner`) de propósito: o embed depende de
+ *  inferência de relacionamento, e uma falha de inferência aqui degradaria o
+ *  gate em produção sem que dê para testar antes. Duas queries planas não têm
+ *  esse risco.
+ *
+ *  ⚠️ FALLBACK CONSERVADOR (regra 10 — nunca silencioso): se qualquer leitura
+ *  falhar, devolve `ok:false` e o chamador trata TODOS como "já têm rateio".
+ *  O gate volta ao comportamento anterior (só o proxy dos jsonb) em vez de
+ *  concluir "ninguém tem" e mandar o lote inteiro para reprocesso — 100 RPCs
+ *  por ciclo por causa de uma leitura que falhou seria pior que o defeito. */
+async function carregarPedidosComRateio(
+  supabase: SupabaseClient,
+  pedidoIds: string[],
+): Promise<{ comRateio: Set<string>; ok: boolean }> {
+  const comRateio = new Set<string>();
+  if (pedidoIds.length === 0) return { comRateio, ok: true };
+
+  const emBlocos = <T>(arr: T[], n: number): T[][] => {
+    const out: T[][] = [];
+    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+    return out;
+  };
+
+  try {
+    // 1) itens do lote: item_id → pedido_id
+    const donoDoItem = new Map<string, string>();
+    for (const bloco of emBlocos(pedidoIds, 50)) {
+      const { data, error } = await supabase
+        .from("compras_pedidos_itens")
+        .select("id, pedido_id")
+        .in("pedido_id", bloco);
+      if (error) throw new Error(`itens: ${error.message}`);
+      for (const it of data || []) donoDoItem.set(String(it.id), String(it.pedido_id));
+    }
+    if (donoDoItem.size === 0) return { comRateio, ok: true };
+
+    // 2) quais desses itens têm rateio
+    for (const bloco of emBlocos([...donoDoItem.keys()], 100)) {
+      const { data, error } = await supabase
+        .from("compras_pedidos_itens_rateio")
+        .select("item_id")
+        .in("item_id", bloco);
+      if (error) throw new Error(`rateio: ${error.message}`);
+      for (const r of data || []) {
+        const dono = donoDoItem.get(String(r.item_id));
+        if (dono) comRateio.add(dono);
+      }
+    }
+    return { comRateio, ok: true };
+  } catch (e: any) {
+    console.error(
+      `[sync-ped][S1.1] leitura de rateio existente FALHOU (${e?.message || e}) — ` +
+        `gate degradado para o proxy dos jsonb neste ciclo; nenhum pedido será reprocessado por este critério`,
+    );
+    return { comRateio: new Set<string>(), ok: false };
+  }
+}
+
 /** Uma linha por (item, classe, CC) com o percentual DO PRÓPRIO NÍVEL (C3-C):
  *  o do CC dentro da classe, nunca o produto dos dois — o produto arredondado
  *  é a origem do 100,02% medido no 0003625.
@@ -2180,6 +2245,13 @@ async function syncPedidos(
   // nome de classe nem de centro de custo). Duas leituras, não duas por pedido.
   const catalogos = await carregarCatalogosLabels(supabase);
 
+  // CARD S1.1 — quem JÁ tem rateio relacional, lido uma vez para o lote inteiro.
+  // É a metade "Hub" da evidência direta que substitui o proxy dos jsonb.
+  const rateioExistente = await carregarPedidosComRateio(
+    supabase,
+    peds.map((p) => p.id),
+  );
+
   await processInChunks(peds, CHUNK_SIZE, SLEEP_BETWEEN_CHUNKS_MS, async (ped) => {
     try {
       const path = `/ped-comp/${encodeURIComponent(ped.codigo_empresa_filial)}/${encodeURIComponent(ped.numero)}`;
@@ -2240,8 +2312,45 @@ async function syncPedidos(
       // flag é falsa OU quando falta qualquer um dos jsonb da transição.
       // Falha aqui NÃO aborta o sync de status: loga, a flag fica como está
       // e o pedido volta no próximo ciclo.
+      //
+      // ── CARD S1.1 — o proxy dos jsonb é FALSO-POSITIVO na geração antiga ──
+      // Os três jsonb decidiam se os filhos RELACIONAIS estavam faltando. Só que
+      // o loader antigo (pré-24/05) populou os três jsonb numa época em que a
+      // tabela `compras_pedidos_itens_rateio` nem era destino do sync. Nesses
+      // pedidos o proxy diz "completo", `detalhes_carregados` é true, e o bloco
+      // abaixo NUNCA roda — para sempre.
+      // MEDIDO em 03/09/2026: **121 pedidos (R$ 1,81 M) elegíveis ao Job 2**,
+      // visitados ~2,4×/dia e pulados em todas as visitas. Não é fila represada
+      // (a fila está estável em ~421); é exclusão sistemática.
+      //
+      // A correção troca proxy por EVIDÊNCIA DIRETA dos dois lados:
+      //   • lado Alvo  — `extrairRateiosDoItem(alvo)` sobre o payload que já
+      //     está em mãos (o Load acontece acima, para TODO candidato): o ERP
+      //     tem rateio de item para este pedido?
+      //   • lado Hub   — `rateioExistente`: a tabela relacional tem linha?
+      // Reprocessa só quando o Alvo tem e o Hub não tem.
+      //
+      // ⚠️ Por que a condição é uma CONJUNÇÃO, e não `!temRateioNoHub` sozinho:
+      // pedido que legitimamente não tem rateio no ERP (existem) entraria em
+      // reprocesso a cada ciclo, todo dia, sem nunca poder ser satisfeito — o
+      // laço infinito que o C3.2 já produziu uma vez (4 pedidos, 20–24/08).
+      // Perguntando ao payload primeiro, "não tem rateio lá" encerra o assunto.
+      //
+      // ⚠️ Se o pedido tem rateio no Alvo e a RPC o recusa, ele volta todo ciclo.
+      // Isso é DESEJADO e barato: o Load já aconteceu de qualquer jeito, o custo
+      // extra é uma chamada de RPC, a falha é ALTA (`total_erros` + `detalhes`,
+      // foi assim que os 4 travados apareceram) e o pedido se cura sozinho no
+      // instante em que a RPC aprender a forma nova — foi o que o C3.3 provou.
+      // `rateioExistente.ok` é o primeiro termo de propósito: leitura falhada
+      // ⇒ critério desligado neste ciclo, nunca "ninguém tem rateio".
+      const rateioNoAlvo = extrairRateiosDoItem(alvo, catalogos).linhas.length > 0;
+      const rateioRelacionalAusente =
+        rateioExistente.ok && rateioNoAlvo && !rateioExistente.comRateio.has(ped.id);
       const filhosAusentes =
-        jsonbAusente(ped.classe_rateio) || jsonbAusente(ped.parcelas) || jsonbAusente(ped.itens);
+        jsonbAusente(ped.classe_rateio) ||
+        jsonbAusente(ped.parcelas) ||
+        jsonbAusente(ped.itens) ||
+        rateioRelacionalAusente;
       let filhosOk = true;
       if (ped.detalhes_carregados !== true || filhosAusentes) {
         try {
@@ -2542,7 +2651,7 @@ async function syncPedidos(
 // Marcador de versão — anti deploy-fantasma. Aparece no log de CADA
 // invocação. Se após o deploy o log não mostrar esta string, a versão
 // nova NÃO está no ar (o deploy silenciosamente não subiu).
-const BUILD_TAG = "REQ-AUDITORIA-CHECA-ERRO-v2-JOB4 (2026-08-28)";
+const BUILD_TAG = "S1.1-GATE-EVIDENCIA-DIRETA + ORFAS (2026-09-03)";
 
 Deno.serve(async (req: Request) => {
   const startTime = Date.now();
@@ -2638,6 +2747,49 @@ Deno.serve(async (req: Request) => {
   }
 
   const runId = runRow.id;
+
+  // ── CARD S1.1 — execução que morre no meio deixa de ser invisível ──────
+  // A linha de `sync_runs` é aberta aqui e fechada no fim. Se a função morre
+  // no meio (timeout do Deno, exceção fora do try), a linha fica com
+  // `finished_at` NULL, `total_erros` 0 e `observacao` NULL — ou seja, some de
+  // qualquer alarme que filtre por `total_erros > 0`. Falha silenciosa em sync
+  // é exatamente o padrão que originou esta missão.
+  // MEDIDO em 03/09/2026: 3 órfãs (19/06 15:00, 24/07 08:00, 02/09 17:00).
+  // Não dá para o próprio processo morto se carimbar — quem carimba é a
+  // execução seguinte.
+  //   • 30 min de corte: a execução mais lenta observada levou 115 s, e o cron
+  //     é horário. 30 min está longe do normal e longe do próximo disparo, então
+  //     não carimba execução legitimamente em curso (inclusive manual longa).
+  //   • `observacao is null` mantém idempotente: carimbada uma vez, não entra
+  //     de novo na varredura do ciclo seguinte.
+  //   • `finished_at` continua NULL de propósito — a execução não terminou, e
+  //     inventar um horário de término seria mentir sobre o fato. O que muda é
+  //     que agora ela CONTA como erro e diz por quê.
+  try {
+    const corteOrfas = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { data: orfas, error: errOrfas } = await supabase
+      .from("sync_runs")
+      .update({
+        total_erros: 1,
+        observacao:
+          "Execução não concluída: sem finished_at 30+ min após o início — a função foi encerrada " +
+          `no meio (timeout ou exceção não capturada). Carimbada pela execução ${runId}.`,
+      })
+      .eq("job_type", "bicephalous")
+      .is("finished_at", null)
+      .is("observacao", null)
+      .lt("started_at", corteOrfas)
+      .neq("id", runId)
+      .select("id");
+    if (errOrfas) {
+      console.error("[cron][S1.1] varredura de execuções órfãs falhou:", errOrfas);
+    } else if ((orfas?.length ?? 0) > 0) {
+      console.warn(`[cron][S1.1] ${orfas!.length} execução(ões) órfã(s) carimbada(s):`, orfas);
+    }
+  } catch (e: any) {
+    // Nunca derruba o ciclo por causa da instrumentação.
+    console.error("[cron][S1.1] varredura de execuções órfãs lançou:", e?.message || e);
+  }
 
   const erpUrl = Deno.env.get("ERP_PROXY_URL")!;
   const systemSecret = Deno.env.get("ERP_PROXY_SYSTEM_SECRET")!;
