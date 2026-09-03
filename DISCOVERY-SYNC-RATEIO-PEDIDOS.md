@@ -1,561 +1,748 @@
-# DISCOVERY-SYNC-RATEIO-PEDIDOS.md — Fase S0 da missão Sync de Pedidos
+# DISCOVERY-SYNC-RATEIO-PEDIDOS.md — Fase S0 · **revisão 2 (03/09/2026)**
 
-> Execução do **PROMPT S0** (`MISSAO-SYNC-PEDIDOS.md` §4) — Discovery, 100% leitura.
-> Sessão de **14/08/2026**. Nenhuma alteração de código, nenhum SQL de escrita, nenhum deploy,
-> nenhum push. Contexto do problema: `DISCOVERY-FASE7A.md` §C1.
+> Execução do **PROMPT S0** (`PROMPT-S0-SYNC-PEDIDOS.md` §4, que substitui a §4 da
+> `MISSAO-SYNC-PEDIDOS.md`). Discovery, **100% leitura**: nenhuma alteração de código, nenhum SQL de
+> escrita, nenhum deploy, nenhum push.
+>
+> ⚠️ **Este arquivo SUBSTITUI a versão de 14/08/2026**, commitada em `0dce7cb`. A anterior continua
+> recuperável na íntegra: `git show 0dce7cb:DISCOVERY-SYNC-RATEIO-PEDIDOS.md`. Substituí em vez de
+> criar um `-v2` porque o prompt pede este nome de arquivo; o histórico do git é o rollback.
+> **Quase tudo que a v1 mediu mudou** — o motivo está na §A.
 
 ## 0. Protocolo de início de sessão (CLAUDE.md)
 
 | Passo | Resultado |
 |---|---|
-| Prompt | **PROMPT S0 — Discovery da missão Sync de Pedidos** |
+| Prompt | **PROMPT S0 — Discovery da missão Sync de Pedidos** (rateio, cabeçalho, saúde do cron) |
 | `git remote -v` | `https://github.com/financeiropfbrazil/finances-pf.git` ✅ |
 | `git branch --show-current` | `main` |
-| `git log -1 --oneline` | `68bdac6 docs(suprimentos): discovery fase 7a -- visao do lider por CC` |
+| `git log -1 --oneline` | `c88bd2e docs(suprimentos): sql do ajuste 7.2 executado no banco` |
 | `git pull origin main` | **Already up to date** — zero commits do Lovable |
-| Projeto Supabase | `hbtggrbauguukewiknew` ✅ (`src/integrations/supabase/client.ts:5`) |
+| Projeto Supabase | `hbtggrbauguukewiknew` ✅ (MCP, confirmado por fingerprint) |
 
-**Fingerprint (pré-voo):** `db=postgres` · `compras_pedidos = 1863` · `compras_pedidos_itens = 2600` ·
-`compras_pedidos_itens_rateio = 139` · `compras_requisicoes = 323`.
+**Fingerprint (pré-voo, 03/09/2026 09h23 BRT):** `db=postgres` · `compras_pedidos = 2.017` ·
+`compras_pedidos_itens = 3.495` · `compras_pedidos_itens_rateio = 863` · `compras_requisicoes = 392` ·
+`intercompany_invoices_master_blocos = 210`.
 
-⚠️ **O banco se move durante a sessão:** `compras_pedidos_itens` foi lido como 2599 → 2600 → 2602 em
-~40 minutos. O cron está rodando. Toda contagem abaixo é um instantâneo de 14/08/2026.
+Comparativo com o fingerprint da v1 (14/08): pedidos 1.863 → 2.017 · itens 2.600 → 3.495 ·
+**rateio 139 → 863**. O salto do rateio é o primeiro sinal do achado da §A.
+
+---
+
+# §A · O achado que reordena a missão: **a FASE S1 já foi executada**
+
+O `PROMPT-S0-SYNC-PEDIDOS.md` é datado de 03/09/2026, mas descreve o mundo de **14/08**. Entre uma
+data e outra entraram **114 commits**, e quatro deles são exatamente a correção que a §5 do prompt
+pede como trabalho futuro:
+
+| Commit | Data | O que fez |
+|---|---|---|
+| `050e88f` | 20/08 | **feat(compras): cron grava rateio por item, parcelas e completa cabeçalho — card C3** (+366 linhas) |
+| `105e1fb` | 20/08 | fix: percentual de classe única ausente + gate de reprocesso — card C3.2 |
+| `d767457` | 24/08 | fix: normalização de rateio — null≠zero, tolerância e reconstrução por valor — card C3.3 |
+| `ff1dd86` / `7d7afb1` | 27–28/08 | consolidação de (classe, CC) repetido — card D4 |
+
+**Está em produção.** A Edge Function publicada contém `sync_replace_filhos_pedido`,
+`extrairRateiosDoItem`, `completarCamposAusentes` e `percentual_classe`. E o banco mostra o efeito:
+
+| | v1 (14/08) | hoje (03/09) |
+|---|---:|---:|
+| Linhas de rateio | 139 | **863** |
+| Linhas de rateio em pedido nascido no **Alvo** | 6 | **652** |
+| Pedidos nascidos no Alvo com rateio normalizado | 4 | **269** |
+
+O banco também ganhou o que a v1 pediu: **`compras_pedidos_itens_rateio.valor`** e
+**`valor_derivado`** (pergunta 3 da v1, respondida), e **`compras_pedidos_parcelas` ganhou
+`UNIQUE (pedido_id, sequencia)`**.
+
+> 🔴 **Consequência para o plano:** a §5 (FASE S1) do prompt está, no essencial, **concluída**. O que
+> resta não é "portar o mapeamento" — é (a) um **resíduo do D1 ainda vivo**, mensurável, que a
+> correção não alcança (§S0-5), e (b) o backfill (§S2), que ficou **muito mais barato** do que a
+> espec supõe (§S0-5.c). O S5 ("corrigir primeiro, backfill depois") já está satisfeito.
 
 ---
 
 # S0-1 · ⚠️ CRÍTICO — chave única de `compras_pedidos_itens_rateio`
 
-## 🔴 Veredito: a chave não está só faltando — **ela está errada**. O caminho é outro.
+## Veredito: **continua sem UNIQUE de negócio — e continua certo assim.** O caminho adotado foi outro.
 
-### S0-1.a A tabela não tem UNIQUE nenhum além da PK sintética
-
-```sql
-select indexname, indexdef from pg_indexes where tablename='compras_pedidos_itens_rateio';
-```
-| índice | definição |
-|---|---|
-| `compras_pedidos_itens_rateio_pkey` | `UNIQUE (id)` — `gen_random_uuid()`, sintética |
-| `idx_compras_pedidos_itens_rateio_item_id` | `btree (item_id)` — **não único** |
-
-`pg_constraint`: só `pkey` e a FK `item_id → compras_pedidos_itens(id) ON DELETE CASCADE`.
-**Nenhum UNIQUE de negócio. Confirmado: qualquer `upsert` hoje insere duplicata.**
-
-Para contraste, as irmãs **têm** chave de negócio:
-`compras_pedidos_itens` → `UNIQUE (pedido_id, sequencia)` · `compras_pedidos` → `UNIQUE (codigo_empresa_filial, numero)`.
-
-### S0-1.b Existe duplicata pré-existente — e ela **não é lixo**
+### S0-1.a O estado do schema, hoje
 
 ```sql
-select count(*) grupos, sum(n)-count(*) excedentes from (
-  select item_id, codigo_classe_rec_desp, codigo_centro_ctrl, count(*) n
-  from compras_pedidos_itens_rateio group by 1,2,3 having count(*)>1) t;
-```
-→ **1 grupo, 1 linha excedente.** O `CREATE UNIQUE INDEX` proposto pela espec **falharia hoje**.
-
-Mas o exame da linha muda a conclusão. Item `693d6db3…` (pedido `RASCUNHO-42c15eb8`,
-`criado_no_hub=true`, 24/05/2026) tem **três** linhas de rateio:
-
-| classe | centro de custo | percentual | `created_at` |
-|---|---|---:|---|
-| `03.02` | `00008.00002.00013` | 25 | 02:40:56.402 |
-| `03.02` | `00008.00002.00013` | 25 | 02:40:56.643 |
-| `25.07` | `00008.00002.000012` | 50 | 02:40:56.883 |
-
-**Somam exatamente 100.** Os intervalos regulares (~240 ms) são de um **laço sequencial**, não de um
-duplo clique. As duas linhas de 25% valem, juntas, 50% para aquele par classe+CC — **apagar uma
-levaria o rateio de 100% para 75%**. Não é duplicata a limpar: é o domínio permitindo repetição.
-
-### S0-1.c Por que a repetição é legítima — o Hub **achata** um percentual aninhado
-
-`src/services/pedidosService.ts:1287-1296`:
-
-```ts
-for (const cls of item.rateio) {          // classe → percentual
-  for (const cc of cls.ccs) {             // CC dentro da classe → percentual
-    const percFinal = round2((cls.percentual * cc.percentual) / 100);
-    await supabase.from("compras_pedidos_itens_rateio").insert({ …, percentual: percFinal });
+select 'index', indexname, indexdef from pg_indexes where tablename='compras_pedidos_itens_rateio'
+union all select 'constraint', conname, pg_get_constraintdef(oid)
+from pg_constraint where conrelid='public.compras_pedidos_itens_rateio'::regclass;
 ```
 
-O Alvo tem **duas camadas** (classe% × CC%); a tabela do Hub tem **uma**. Duas entradas da mesma
-classe com o mesmo CC colapsam no mesmo par — e continuam sendo duas linhas corretas.
-A tabela **não tem `sequencia`**, então não há como distingui-las por chave natural.
+| tipo | nome | definição |
+|---|---|---|
+| constraint | `compras_pedidos_itens_rateio_pkey` | `PRIMARY KEY (id)` — sintética |
+| constraint | `compras_pedidos_itens_rateio_item_id_fkey` | `FOREIGN KEY (item_id) → compras_pedidos_itens(id) ON DELETE CASCADE` |
+| index | `compras_pedidos_itens_rateio_pkey` | `UNIQUE (id)` |
+| index | `idx_compras_pedidos_itens_rateio_item_id` | `btree (item_id)` — **não único** |
 
-### S0-1.d O escritor que já existe **não usa upsert — usa delete-then-insert**
+**Nenhum UNIQUE de negócio.** Idêntico ao medido em 14/08.
 
-`src/services/pedidosService.ts:1129-1141` (`limparFilhosDoPedido`):
+### S0-1.b As duplicatas sumiram
 
-```ts
-const { data: itensIds } = await supabase.from("compras_pedidos_itens").select("id").eq("pedido_id", pedidoId);
-if (itensIds?.length) {
-  await supabase.from("compras_pedidos_itens_rateio").delete().in("item_id", itensIds.map(i => i.id));
-}
-await supabase.from("compras_pedidos_itens").delete().eq("pedido_id", pedidoId);
+```sql
+select item_id, codigo_classe_rec_desp, codigo_centro_ctrl, count(*) from … group by 1,2,3 having count(*)>1;
+```
+→ **0 grupos, 0 linhas excedentes** (em 14/08 havia 1 grupo / 1 excedente, no `RASCUNHO-42c15eb8`).
+Resolvido pelos cards `653fe8d` (o wizard recusa linha em branco/duplicada) e `ff1dd86`/`7d7afb1`
+(consolidação de (classe, CC) repetido).
+
+### S0-1.c O caminho que a implementação seguiu — e por que a chave continua sem sentido
+
+A RPC `sync_replace_filhos_pedido` (SECURITY DEFINER, `search_path=public`) faz
+**delete-then-insert por pedido** — exatamente a recomendação S0-1.e da v1:
+
+```sql
+delete from compras_pedidos_itens_rateio r
+using compras_pedidos_itens i
+where i.id = r.item_id and i.pedido_id = p_pedido_id;
 ```
 
-O padrão de coleção-filha do módulo já é **apagar tudo do pai e reinserir**. É idempotente **sem
-chave nenhuma**, tolera repetição legítima e não exige DDL.
+Idempotente sem chave nenhuma, tolera repetição legítima, zero DDL. **Não criar o índice.**
 
-### S0-1.e Recomendação — **não criar o índice; usar delete-then-insert por item**
-
-| Opção | Veredito |
-|---|---|
-| `UNIQUE (item_id, codigo_classe_rec_desp, codigo_centro_ctrl)` + upsert | ❌ **falha hoje** (1 duplicata) e, pior, **proíbe um estado válido**. Só passaria consolidando as duas linhas em uma de 50% — mudança de dado, não de schema |
-| Adicionar `sequencia` e usar `UNIQUE (item_id, sequencia)` | ⚠️ funciona, mas é DDL + mudança nos **dois** escritores (cron e wizard) + backfill da coluna nos 139 registros. Caro para o ganho |
-| **`delete … where item_id in (…)` + insert, por pedido** | ✅ **recomendado.** Zero DDL, idempotente, espelha `limparFilhosDoPedido`, tolera repetição legítima |
-
-⚠️ **Cuidado na implementação:** o delete tem de ser por **item do pedido em processamento**, nunca
-global; e o Job 2 só deve apagar quando **tiver payload válido para reinserir** — apagar e falhar no
-insert deixaria o pedido pior do que está (é o espírito da guarda anti-wipe L1.1).
-
-> **Isto contradiz a espec:** `MISSAO-SYNC-PEDIDOS.md` §4.1-S0-1 e §5-A pedem "upsert pela chave
-> única do S0-1". **A chave única não deve existir.** O S1 precisa ser reescrito nesse ponto.
+> **Isto confirma a v1 e continua contradizendo a espec:** `MISSAO-SYNC-PEDIDOS.md` §4.1-S0-1 e §5-A
+> pedem "upsert pela chave única do S0-1". A chave não existe, não deve existir, e a implementação
+> que foi ao ar não a usou.
 
 ---
 
-# S0-2 · Estrutura real das tabelas
+# S0-2 · Estrutura real das tabelas (o que mudou desde a v1)
 
-### `compras_pedidos_itens_rateio` (139 linhas · 125 itens)
+### `compras_pedidos_itens_rateio` — **863 linhas · 796 itens · 10 colunas** (eram 8)
 
-| # | coluna | tipo | nulo? |
-|---|---|---|---|
-| 1 | `id` | uuid (PK, `gen_random_uuid()`) | não |
-| 2 | `item_id` | uuid → **FK** `compras_pedidos_itens(id)` **ON DELETE CASCADE** | não |
-| 3 | `codigo_classe_rec_desp` | text | não |
-| 4 | `classe_rec_desp_label` | text | sim |
-| 5 | `codigo_centro_ctrl` | text | não |
-| 6 | `centro_ctrl_label` | text | sim |
-| 7 | `percentual` | numeric | não |
-| 8 | `created_at` | timestamptz `now()` | não |
+| # | coluna | tipo | nulo? | novidade |
+|---|---|---|---|---|
+| 1 | `id` | uuid PK `gen_random_uuid()` | não | |
+| 2 | `item_id` | uuid → FK CASCADE | não | |
+| 3 | `codigo_classe_rec_desp` | text | não | |
+| 4 | `classe_rec_desp_label` | text | sim | |
+| 5 | `codigo_centro_ctrl` | text | não | |
+| 6 | `centro_ctrl_label` | text | sim | |
+| 7 | `percentual` | numeric | não | 🔴 **duas convenções** — ver S0-3 |
+| 8 | `created_at` | timestamptz `now()` | não | |
+| 9 | **`valor`** | numeric | **sim** | 🆕 pergunta 3 da v1, respondida |
+| 10 | **`valor_derivado`** | boolean `false` | não | 🆕 marca valor calculado, não recebido |
 
-🔴 **Não existe coluna `valor`** — e o Alvo manda `Valor` em toda linha de rateio (medido no §4.3).
-🔴 **Não existe `sequencia`** (ver S0-1.c) nem **`updated_at`**.
+Preenchimento: **716 linhas com `valor`** · **57 com `valor_derivado=true`** · 147 com `valor` nulo
+(são as do wizard do Hub, que não grava valor).
+🔴 **Continua não existindo `percentual_classe`** — a fatia da classe **só sobrevive dentro de `valor`**.
+Continua não existindo `sequencia` nem `updated_at`.
 
-### `compras_pedidos_itens` (2.600 linhas)
-`id` (PK) · `pedido_id` (**FK** → `compras_pedidos`, CASCADE) · `sequencia` · `item_servico` ·
-`codigo_produto` · `codigo_alternativo_produto` · `codigo_prod_unid_med` · `produto_nome` ·
-`produto_unidade` · `quantidade` · `valor_unitario` · `valor_total_item` · `observacao` ·
-`created_at` · `updated_at`. **`UNIQUE (pedido_id, sequencia)`** ✅ — o upsert de itens do cron é seguro.
-**Sem coluna de centro de custo, classe, ou data/prazo de entrega do item.**
+### `compras_pedidos_itens` — 3.495 linhas, 15 colunas
+Inalterada. **`UNIQUE (pedido_id, sequencia)`** ✅ (o upsert de itens é seguro).
+Sem coluna de centro de custo, classe, ou prazo/entrega do item.
 
-### `compras_pedidos` (1.863 linhas · 61 colunas)
-PK `id` · **`UNIQUE (codigo_empresa_filial, numero)`** · FK `criado_por_user_id → auth.users`.
-**Uma única CHECK constraint em toda a família** (regra 4 do CLAUDE.md):
+### `compras_pedidos_parcelas` — 9 colunas
+🆕 **ganhou `UNIQUE (pedido_id, sequencia)`** — a v1 registrou a ausência como risco; foi fechado.
+A RPC usa `delete` + `insert … on conflict (pedido_id, sequencia) do nothing`.
+
+### `compras_pedidos` — 2.017 linhas · **63 colunas** (eram 61)
+PK `id` · `UNIQUE (codigo_empresa_filial, numero)` · FK `criado_por_user_id → auth.users`.
+**Uma única CHECK constraint em toda a família** (regra 4):
 
 ```sql
 compras_pedidos_vinculo_requisicao_check
   CHECK (vinculo_requisicao = ANY (ARRAY['com_vinculo','sem_vinculo','nao_verificado']))
 ```
 
-`status_local` é **enum** (`USER-DEFINED`) — valor novo exige `ALTER TYPE` antes do código.
-`status`, `aprovado`, `comprado`, `tipo`, `status_aprovacao` são `text` **sem CHECK** — domínio livre.
-
-### Tabelas-filhas vizinhas
-`compras_pedidos_parcelas` (201 linhas / 92 pedidos): `sequencia`, `numero_duplicata`,
-`dias_entre_parcelas`, `percentual_fracao`, `valor_parcela`, `data_vencimento`. **Sem UNIQUE de
-negócio** — mesmo problema do rateio, mesma solução.
-`compras_pedidos_arquivos` (54 linhas / 50 pedidos): tabela **do Hub** (`storage_path`,
-`upload_identify_guid`, `uploaded_by_user_id`) — ver §4.2 · Anexos.
+`status_local` é enum (`public.compras_pedido_status_local`) — valor novo exige `ALTER TYPE` antes.
+`status`, `aprovado`, `comprado`, `tipo`, `status_aprovacao` são `text` **sem CHECK**.
+Colunas novas desde a v1: `codigo_ind_economico`, `valor_cambio` (card MOEDA-PEDIDOS A2).
 
 ---
 
-# S0-3 · O rateio fecha 100%?
+# S0-3 · O rateio fecha 100%? · 🔴 **A invariante mudou de forma — e a coluna ganhou duas semânticas**
 
 ```sql
-select round(soma,4), count(*) from
- (select item_id, sum(percentual) soma from compras_pedidos_itens_rateio group by item_id) t
-group by 1;
+select round(sum(percentual),4), count(*) from (…) group by item_id;
 ```
-→ **linha única: `100.0000` · 125 itens.** ✅ Confirmado — **inclusive** o item com a repetição do
-S0-1.b (25 + 25 + 50 = 100). A invariante está intacta hoje.
-
-🔴 **Mas ela quebra se o achatamento for portado como está.** Simulei `round2(classe% × cc% / 100)`
-sobre o rateio real do pedido `0003625` (2 classes × 8 e 4 CCs = 12 linhas):
-
-| | |
-|---|---|
-| soma **sem** arredondar | `100.00000000000000000000` |
-| soma com `round2` por linha (o que o wizard faz) | **`100.02`** |
-| erro | **+0,02 p.p.** |
-
-Ou seja: portar o mapeamento do wizard para o cron **introduziria** a quebra da invariante
-exatamente no tipo de pedido que a missão quer recuperar (multi-CC, muitas linhas). Com 2 casas, 12
-linhas e percentuais de 4 casas no Alvo, o erro é estrutural, não acidental.
-
-**Consequência para o S1:** ou `percentual` passa a guardar mais casas, ou a última linha de cada
-item absorve o resíduo, ou o Hub guarda as **duas** camadas. **Decisão de projeto, não detalhe de
-implementação** — está nas perguntas do §7.
-
----
-
-# S0-4 · O D2: campos gravados uma vez e nunca revisitados
-
-`supabase/functions/sync-compras-status-cron/index.ts:980` — Job 1 (descoberta):
-
-```ts
-if (existingPed) { if (ped.Numero > maiorNumeroVisto) maiorNumeroVisto = ped.Numero; continue; }
-```
-
-Job 1 grava 27 campos (`:986-1035`). Job 2 (`:1491-1528`) revisita **21**. Diferença = **os campos
-congelados na primeira descoberta, para sempre**:
-
-| Campo congelado | Origem no Job 1 | Job 2 revisita? |
-|---|---|---|
-| `tipo` | `ped.Tipo` | ❌ |
-| `data_pedido` | `dateOnly(ped.DataPedido)` | ❌ |
-| `data_cadastro` | `dateOnly(ped.DataCadastro)` | ❌ |
-| `data_entrega` | `dateOnly(ped.DataEntrega)` | ❌ |
-| `data_validade` | `dateOnly(ped.DataValidade)` | ❌ |
-| `codigo_entidade` | `ped.CodigoEntidade` | ❌ |
-| **`nome_entidade`** | `ped.NomeEntidade` | ❌ ← caso `0004664` |
-| `codigo_cond_pag` | `ped.CondPagPedCompObject?.CodigoCondPag` | ❌ |
-| **`centro_custo`** | `ped.CodigoCentroCtrl` (do **list leve**) | ❌ ← o D1+D2 combinados |
-| `codigo_usuario` | `ped.CodigoUsuario` | ❌ |
-| `texto` | `ped.Texto` | ❌ |
-
-**11 campos.** A espec cita 2; são 11. Os 21 que o Job 2 revisita são status (7), datas do Alvo (2),
-valores (7) e vínculo (5) — esses estão saudáveis.
-
-Além disso, **9 campos nunca são escritos por nenhum dos dois jobs**: `cnpj_entidade`,
-`classe_rec_desp`, `classe_rateio`, `itens` (jsonb), `parcelas` (jsonb), `anexos` (jsonb),
-`nome_cond_pag`, `primeiro_vencimento`, `texto_historico`.
-
----
-
-# S0-5 · O filtro do Job 2 e quem o cron nunca mais visita
-
-`:1323` — a fila do Job 2:
-
-```ts
-.or('and(status.not.in.("Encerrado","Cancelado","Cancelado Parcial")),and(detalhes_carregados.is.false)')
-```
-
-Universo afetado (`criado_no_hub=false` **e** sem rateio no jsonb), recortado para **2026** (decisão S3):
 
 | | |
 |---|---:|
-| Afetados no total | **616** |
-| **Afetados em 2026** | **615** (só 1 é de 2025 — `data_pedido` 28/11/2025) |
-| **Valor 2026** | **R$ 6.640.908,54** |
-| Nunca mais visitados (encerrado/cancelado **e** `detalhes_carregados=true`) | **97** |
-| Fila de primeira carga (`detalhes_carregados` ≠ true) | **328** |
-| Ativos já carregados (o cron passa, mas não mapeia) | **190** |
-| `status_local = 'excluido_alvo'` (404 esperado) | **2** |
+| Itens com rateio | **796** |
+| Itens cuja soma de `percentual` = 100,0000 | **794** |
+| Itens que **não** fecham | **2** |
+| Soma máxima observada | **400,0000** |
 
-✅ Os 97 da espec **confirmam-se em 97**. E o recorte 2026 praticamente não reduz nada: **615 de 616**.
+Os dois casos:
 
-**Leitura:** corrigir o mapeamento (S1) resolve sozinho os 328 da fila de primeira carga e os 190
-ativos. Os **97 encerrados já carregados** ficam de fora **para sempre** sem backfill dirigido — são
-a justificativa dura do S2.
+| pedido | nascido no | data | classes no item | linhas | soma |
+|---|---|---|---:|---:|---:|
+| `0004691` | Alvo | 18/08/2026 | 4 | 11 | **400,0000** |
+| `0004667` | Alvo | 13/08/2026 | 2 | 13 | **200,0000** |
+
+**Não é corrupção — é convenção.** `extrairRateiosDoItem` (`index.ts:1651`) grava, por decisão
+explícita do card C3-C, *"uma linha por (item, classe, CC) com o percentual **do próprio nível** —
+nunca o produto dos dois, porque o produto arredondado é a origem do 100,02% medido no `0003625`"*.
+Ou seja: o defeito de arredondamento que a v1 previu foi evitado — trocando-se a invariante.
+
+## 🔴 A coluna `percentual` tem hoje DUAS convenções
+
+| Escritor | `percentual` guarda | soma por item | `valor` |
+|---|---|---|---|
+| Wizard do Hub (`pedidosService.ts`, `enviarPedido`) | **absoluto** — fatia do item (`classe% × cc% / 100`) | 100 | **null** |
+| RPC `sync_replace_filhos_pedido` (espelho do Alvo) | **relativo à classe** | **100 × nº de classes** | preenchido |
+
+É o padrão **LIVRO × ESPELHO** do CLAUDE.md, dentro de uma única coluna. O efeito já se manifestou em
+produção e já foi corrigido no leitor: `montarRateioDoItem` (`pedidosService.ts:918-1080`) discrimina
+pelo `valor` (`ehEspelho = toda linha tem valor`) e, para linha de espelho, **deriva a fatia da classe
+pelos VALORES**, não pela soma de percentuais. O comentário no código registra o incidente:
+*"Medido em 27/08/2026: `0004691` (4 classes) aparecia como R$ 189.378,20 em vez de R$ 47.344,55, e
+`0004667` (2 classes) dobrado — R$ 191.230,91 de valor fantasma."*
+
+> ⚠️ **Dívida estrutural, não fechada:** a semântica de `percentual` **não é declarada em lugar nenhum
+> do schema** — nem coluna, nem CHECK, nem comentário. O único discriminador é `valor is not null`, e
+> ele é implícito. Qualquer consulta nova que faça `sum(percentual)` ou `valor_total × percentual/100`
+> sobre linha de espelho erra por um fator igual ao número de classes. **É o candidato número 1 a
+> repetir o incidente.**
+
+---
+
+# S0-4 · O D2 (campo gravado uma vez, nunca completado) — **em grande parte fechado**
+
+O `if (existingPed) { … continue; }` **continua existindo** (hoje no **Job 3**, `index.ts:1401`, não
+mais no "Job 1": a numeração dos jobs mudou). O que mudou é que ele deixou de ser a única defesa:
+`completarCamposAusentes` (`index.ts:1910`) roda **em todo ciclo, para todo pedido candidato**, e
+preenche o que estiver vazio — *"vazio" inclui `[]`*, e ela **nunca sobrescreve** valor existente.
+
+| Campo | v1 (14/08): congelado? | hoje |
+|---|---|---|
+| `centro_custo` | ❌ congelado | ✅ completado quando nulo (`rateios[0].cc`) |
+| `nome_entidade` | ❌ congelado (caso `0004664`) | ✅ completado, com fallback em `compras_entidades_cache` |
+| `cnpj_entidade` | 🔴 nunca escrito | ✅ completado, mesmo fallback |
+| `nome_cond_pag` | 🔴 nunca escrito | ✅ completado |
+| `primeiro_vencimento` | 🔴 nunca escrito | ✅ derivado das parcelas |
+| `classe_rec_desp` | 🔴 nunca escrito | ✅ completado (`rateios[0].classe`) |
+| `classe_rateio`, `itens`, `parcelas` (jsonb) | 🔴 nunca escritos | ✅ dual-write na transição (decisão S1) |
+| `codigo_ind_economico`, `valor_cambio` | não existiam | ✅ completados |
+
+**Continuam congelados na primeira descoberta** (Job 3 grava, Job 2 nunca revisita): `tipo`,
+`data_pedido`, `data_cadastro`, `data_entrega`, `data_validade`, `codigo_entidade`,
+`codigo_cond_pag`, `codigo_usuario`, `texto`. São **9**, não 11 — e todos estão saudáveis
+(`codigo_usuario` 2.017/2.017 · `texto` 1.975/2.017 · `data_validade` 2.000/2.017).
+
+**Continuam nunca escritos pelo cron:** `texto_historico` (139/2.017 — só o loader antigo escreveu) e
+`anexos` (jsonb) — ver §4.2 · Anexos.
+
+⚠️ **O caso `0004664`** (R$ 110.000 sem fornecedor, motivador do D2): hoje tem `nome_entidade`
+preenchido, 1 item e 1 linha de rateio. **Resolvido.**
+
+---
+
+# S0-5 · O filtro do Job 2, o alcance real e 🔴 **o resíduo do D1 que continua vivo**
+
+### S0-5.a A fila, como o código a define (`index.ts:2130-2161`)
+
+```ts
+.or('and(status.not.in.("Encerrado","Cancelado","Cancelado Parcial")),and(detalhes_carregados.not.is.true)')
+.or("status_local.is.null,status_local.neq.excluido_alvo")
+.or(`data_pedido.gte.${hoje-180d},status_aprovacao.in.("Em Andamento","Reavaliar")`)
+.order("synced_at", { ascending: true, nullsFirst: true })
+.limit(100)
+```
+
+Três `.or()` encadeados = **AND** entre eles. Ordenação por `synced_at` ascendente ⇒ **rodízio real**,
+o mais antigo primeiro; não há inanição de cauda.
+
+### S0-5.b O gate de reprocesso — e o falso-positivo que ele carrega
+
+```ts
+const filhosAusentes = jsonbAusente(ped.classe_rateio) || jsonbAusente(ped.parcelas) || jsonbAusente(ped.itens);
+if (ped.detalhes_carregados !== true || filhosAusentes) { await persistirItensPedido(…) }
+```
+
+Os três jsonb são o **proxy** que decide se os filhos relacionais estão faltando. Na **geração antiga**
+(pré-24/05) esse proxy é **falso-positivo**: o loader antigo populou os três jsonb, mas a tabela
+normalizada de rateio nem existia como destino do sync. Logo `filhosAusentes = false`,
+`detalhes_carregados = true` — e `persistirItensPedido` **nunca roda**.
+
+**Medido, com a elegibilidade replicada em SQL:**
+
+| grupo | pedidos sem rateio normalizado (mas com rateio no jsonb) | valor |
+|---|---:|---:|
+| 🔴 **Elegíveis ao Job 2, mas barrados pelo gate** (`detalhes_carregados=true` e proxy diz "completo") | **121** | **R$ 1.809.107,94** |
+| Fora da fila do Job 2 (terminal + carregado, ou fora do corte de 180 d) | **1.053** | **R$ 10.381.241,70** |
+| **Total** | **1.174** | **R$ 12.190.349,64** |
+
+Dos 1.174, **922 são de 2026** (recorte S3) — 120 dos elegíveis e 802 dos não elegíveis.
+
+> 🔴 **Os 121 são o resíduo do D1 ainda vivo.** O cron os visita ~2,4×/dia (fila de 421, 100 por
+> execução, 10 execuções/dia) e **pula o rateio em todas**. Nenhum deles se resolve sozinho, por mais
+> que se espere. Diferente dos 1.053, que a espec já sabia que precisariam de backfill, **estes 121 a
+> espec supõe que o S1 resolveria — e não resolve.**
+
+### S0-5.c 💡 O backfill não precisa do Alvo
+
+```sql
+-- dos 1.174 sem rateio normalizado, quantos já têm o rateio por item no jsonb `itens`?
+```
+| | |
+|---|---:|
+| Pedidos sem rateio normalizado | **1.174** |
+| …com o rateio por item **já persistido** em `itens[].classeRateio` | **1.173** |
+| …só com o rateio de cabeçalho (`classe_rateio`) | 1 |
+| …sem itens normalizados (precisam de carga de item) | 77 |
+
+**1.173 de 1.174 podem ser reconstruídos em SQL puro, a partir de payload que já está no banco.**
+Isso muda a §6 do prompt de ponta a ponta: nada de "lotes de ~25 Loads com pausa, fora das janelas do
+cron". Sem chamada ao gateway, o backfill **não compete com o Job 2**, não depende de janela, e o
+achado do S0-6 deixa de ser restrição.
+⚠️ **Limite:** o jsonb é um **instantâneo** de quando o Load rodou, não o estado de agora. Para pedido
+vivo, o cron corrige depois; para terminal, o instantâneo é a melhor evidência disponível — e é a
+mesma que a tela já exibe hoje.
+
+### S0-5.d Cobertura, hoje
+
+Por coorte de descoberta (o corte da espec):
+
+| coorte | pedidos | rateio norm. | `centro_custo` | `classe_rec_desp` | `cnpj` | `nome_cond_pag` |
+|---|---:|---:|---:|---:|---:|---:|
+| Antes de 24/05 (loader antigo) | 1.061 | **0,1%** | 99,3% | 99,6% | 96,4% | 82,5% |
+| Depois de 24/05 (cron) | 956 | **42,1%** | 62,2% | 52,4% | 42,9% | 54,5% |
+
+⚠️ **Cuidado com esta tabela** — ela mede coorte, não saúde do fluxo. A coorte antiga tem 0,1% de
+rateio normalizado porque a tabela normalizada não era destino do sync na época, não porque piorou.
+A leitura útil é **por mês de descoberta, só pedidos nascidos no Alvo**:
+
+| mês desc. | peds | rateio norm. | parcelas norm. | `centro_custo` | `classe` | `cnpj` | `cond_pag` | `1º venc.` |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2026-03 | 901 | 0% | 0% | 100% | 100% | 97% | 84% | 99% |
+| 2026-04 | 61 | 0% | 0% | 100% | 100% | 97% | 31% | 100% |
+| 2026-05 | 165 | 10% | 10% | 79% | 79% | 68% | 79% | 79% |
+| 2026-06 | 408 | 18% | 18% | 47% | 30% | 20% | 30% | 30% |
+| 2026-07 | 189 | 34% | 32% | 61% | 53% | 34% | 53% | 52% |
+| **2026-08** | 133 | **72%** | 70% | **83%** | 81% | 74% | 81% | 79% |
+| **2026-09** | 25 | **72%** | 68% | **96%** | 80% | 68% | 80% | 76% |
+
+A curva sobe de 18% (jun) para 72% (ago/set) — a correção **funciona e é visível**. Mas **não chega a
+99%**, e o teto tem nome: os 121 barrados pelo gate, distribuídos justamente nos meses em que o
+loader antigo já havia populado os jsonb.
+
+### S0-5.e O que isso significa para o objetivo da missão
+
+```sql
+-- pedidos de 2026, por presença de rateio normalizado
+```
+| situação | pedidos | valor | % do valor |
+|---|---:|---:|---:|
+| **com** rateio normalizado | 403 | R$ 4.033.581,14 | 21,5% |
+| **sem** rateio normalizado | 1.361 | **R$ 14.763.599,73** | **78,5%** |
+
+🔴 E a RPC `listar_pedidos_escopo` — o escopo do líder de centro de custo, entregue **ontem**
+(AJUSTE 7.2, `8bd95e1`) — lê **as duas** fontes: `compras_pedidos_itens_rateio` **e**
+`p.centro_custo`. Com 78,5% do valor de 2026 sem rateio normalizado, **o escopo do líder hoje se
+apoia majoritariamente no cabeçalho**, que é a *primeira fatia do primeiro rateio* (o próprio código
+avisa, em `index.ts:1955`: *"esta coluna guarda a PRIMEIRA fatia do rateio, nunca o CC do pedido.
+Nenhuma visão de gasto por centro de custo pode ler daqui"*). O backfill não é higiene de dados —
+**é o que faz o AJUSTE 7.2 mostrar o número certo.**
 
 ---
 
 # §4.2 · Matriz de conformidade campo a campo
 
-## Os TRÊS escritores (a espec conhece dois)
+## Os escritores (hoje são quatro)
 
 | # | Escritor | Onde | Gatilho | Fonte |
 |---|---|---|---|---|
-| **A** | `syncPedidosCompra` | `src/services/alvoPedCompService.ts:240-490` | botão manual em `/compras/pedidos-compra` (tela intocada desde 06/04/2026) | `list` + `Load` |
-| **B** | Job 1 + Job 2 do cron | `supabase/functions/sync-compras-status-cron/index.ts:986` e `:1163`/`:1491` | pg_cron | `list` (Job 1) + `Load` (Job 2) |
-| **C** | 🔴 **`carregarDetalhesPedido`** | `src/services/alvoPedCompLoadService.ts:327-400` | **open-load do detalhe do pedido, a cada abertura** | `Load` |
-
-> **Contradiz a espec:** `MISSAO-SYNC-PEDIDOS.md` §5 aponta **A** como "a referência de
-> implementação". **C é melhor referência**: `extrairClasseRateio` (`:130-149`) tenta primeiro o
-> rateio de **cabeçalho** (`PedCompClasseRecDespChildList`) e cai para o de **item**
-> (`ItemPedCompClasseRecdespChildList`), aceitando `RateioPedCompChildList` **ou**
-> `RateioItemPedCompChildList`. **A** só conhece o caminho do item. E **C** ainda extrai anexos.
-> Assinatura de **C** no banco: **5 pedidos com `classe_rateio` preenchido e `centro_custo` nulo** —
-> exatamente o que **C** produz (grava rateio, não deriva `centro_custo`).
+| **A** | `syncPedidosCompra` | `src/services/alvoPedCompService.ts:240-490` | botão manual em `/compras/pedidos-compra` | `list` + `Load` |
+| **B3** | Job 3 — descoberta | `supabase/functions/sync-compras-status-cron/index.ts:1260` | pg_cron | `list` (leve) |
+| **B2** | Job 2 — mudanças + C3 | mesmo arquivo, `:2109` (`persistirItensPedido` `:1823`, `completarCamposAusentes` `:1910`) | pg_cron | `Load` |
+| **C** | `carregarDetalhesPedido` | `src/services/alvoPedCompLoadService.ts:327-400` | open-load do detalhe, a cada abertura | `Load` |
+| **RPC** | `sync_replace_filhos_pedido` | banco, SECURITY DEFINER | chamada por **B2** | payload já extraído |
 
 ## Cabeçalho
 
-| Campo no Hub | Origem no Alvo | Quem escreve hoje | Cobertura mar/26 → ago/26 | Veredito |
+| Campo no Hub | Origem no Alvo | Quem escreve hoje | Cobertura | Veredito |
 |---|---|---|---:|---|
-| `numero`, `codigo_empresa_filial` | `Numero`, `CodigoEmpresaFilial` (list) | A, B‑J1 | 100 → 100 | ✅ ok |
-| `status`, `aprovado`, `status_aprovacao`, `comprado` | `Status`, `Aprovado`, `StatusAprovacao`, `Comprado` | A, B‑J1, **B‑J2**, C | 100 → 100 | ✅ ok |
-| `tipo` | `Tipo` (list) | A, B‑J1 | — | ⚠️ congelado (S0-4) |
-| `codigo_entidade` | `CodigoEntidade` | A, B‑J1 | 100 → **100** | ✅ ok |
-| `nome_entidade` | `NomeEntidade` (+ fallback `entidade?.nome` **só em A**) | A, B‑J1 | 100 → **99** | ⚠️ congelado; 1 caso real (`0004664`, R$ 110.000) |
-| **`cnpj_entidade`** | `CPFCNPJ` + fallback entidade | **só A** | 97 → **43** | 🔴 degradado |
-| **`centro_custo`** | ⚠️ **duas origens distintas** (ver nota abaixo) | A (do rateio), B‑J1 (do list) | 99 → **21** | 🔴 degradado **e semanticamente errado** |
-| **`classe_rec_desp`** | `classeRateio[0].classe` | **só A** | 100 → **9** | 🔴 degradado |
-| **`classe_rateio`** (jsonb) | `PedCompClasseRecDespChildList` ‖ `ItemPedCompClasseRecdespChildList` | A, **C** | 100 → **9** | 🔴 degradado |
-| `data_pedido`, `data_cadastro`, `data_entrega`, `data_validade` | `DataPedido`, `DataCadastro`, `DataEntrega`, `DataValidade` (list) | A, B‑J1 | 96–100 → 88–100 | ⚠️ congelados, mas saudáveis |
-| `data_digitacao_alvo` | `DataHoraDigitacao` | B‑J1, B‑J2, C | — | ✅ ok |
-| `data_aprovacao_alvo` | `extrairDataAprovacaoAlvo(alvo)` (item) | B‑J2, C | — | ✅ ok |
-| `codigo_cond_pag` | `CondPagPedCompObject.CodigoCondPag` | A, B‑J1 | 100 → **96** | ⚠️ congelado |
-| **`nome_cond_pag`** | `CondPagPedCompObject.Nome` (**só no Load**) | A, **C** | 80 → **48** | 🔴 degradado |
-| **`primeiro_vencimento`** | derivado das parcelas | A, **C** | 99 → **8** | 🔴 degradado |
-| `numero_req_comp`, `codigo_empresa_filial_req_comp`, `vinculo_requisicao`, `req_comp_itens` | `extrairVinculoRequisicao(alvo)` | B‑J1 (list), **B‑J2**, C | — | ✅ ok — o Job 2 mantém |
-| **`texto`** (observação do cabeçalho) | `Texto` (list) | A, B‑J1 | 100 → **100** | ⚠️ congelado, saudável |
-| **`texto_historico`** | `TextoHistorico` (**só no Load**) | **só A** | — | 🔴 nunca escrito pelo cron |
-| `codigo_usuario` (comprador no Alvo) | `CodigoUsuario` | A, B‑J1 | — | ⚠️ congelado, saudável |
-| `proximo_aprovador`, `enviou_aprovacao`, `data_notificacao_aprovador` | `PedCompUserFieldsObject.User*` | A, B‑J1, B‑J2, C | — | ✅ ok |
-| **quem aprovou no ERP** | — | **ninguém** | — | 🔴 **não existe coluna no Hub.** Nenhum dos três loaders extrai identidade de aprovador — só `UserProximoAprovador` (**próximo**, não quem aprovou). Se o payload traz, só um Load ao vivo diz |
-
-> ⚠️ **`centro_custo` tem duas origens que significam coisas diferentes** — é o padrão LIVRO × ESPELHO
-> do CLAUDE.md. Em **A** é `classeRateio[0].centrosCusto[0].codigo` (a **primeira fatia do primeiro
-> rateio**); em **B‑J1** é `ped.CodigoCentroCtrl` do cabeçalho do list. Ver o achado do §4.3.
+| `numero`, `codigo_empresa_filial` | `Numero`, `CodigoEmpresaFilial` (list) | A, B3 | 100% | ✅ |
+| `status`, `aprovado`, `status_aprovacao`, `comprado` | idem (list e Load) | A, B3, **B2**, C | 100% | ✅ |
+| `tipo` | 🔴 **não é `ped.Tipo`** — derivado de `ValorMercadoria`/`ValorServico` | A, B3 | — | ⚠️ congelado; corrigido em `ab0e0f3` (o `Tipo` do Alvo é tipo de ENTREGA, não natureza) |
+| `codigo_entidade` | `CodigoEntidade` | A, B3 | 100% | ⚠️ congelado, saudável |
+| `nome_entidade` | `NomeEntidade` + fallback `compras_entidades_cache` | A, B3, **B2** | 99% | ✅ **corrigido** (era o `0004664`) |
+| `cnpj_entidade` | `CPFCNPJ` + mesmo fallback | A, **B2** | 43→74% (ago) | ✅ **corrigido**, subindo |
+| `centro_custo` | ⚠️ **duas origens** — `ped.CodigoCentroCtrl` (B3, do list) ou `rateios[0].cc` (B2) | A, B3, **B2** | 83–96% (ago/set) | ⚠️ **semanticamente enganoso** — é a 1ª fatia; o código avisa |
+| `classe_rec_desp` | `rateios[0].classe` | A, **B2** | 81% (ago) | ✅ corrigido |
+| `classe_rateio` (jsonb) | cabeçalho `PedCompClasseRecDespChildList`, fallback item | A, C, **B2** | 81% (ago) | ✅ dual-write (S1) |
+| `itens` / `parcelas` (jsonb) | `ItemPedCompChildList` / `ParcPagPedCompChildList` | A, C, **B2** | 81% / 79% | ✅ dual-write (S1) |
+| `primeiro_vencimento` | menor `DataVencimento` das parcelas | A, C, **B2** | 79% | ✅ corrigido |
+| `codigo_cond_pag` | `CondPagPedCompObject.CodigoCondPag` (list) | A, B3 | — | ⚠️ congelado, saudável |
+| `nome_cond_pag` | `CondPagPedCompObject.Nome` (**só no Load**) | A, C, **B2** | 81% (ago) | ✅ corrigido |
+| datas (`data_pedido`, `_cadastro`, `_entrega`, `_validade`) | list | A, B3 | 94–99% | ⚠️ congeladas, saudáveis |
+| `data_digitacao_alvo`, `data_aprovacao_alvo` | `DataHoraDigitacao`, `extrairDataAprovacaoAlvo` | B3, **B2**, C | — | ✅ |
+| `codigo_ind_economico`, `valor_cambio` (moeda) | `CodigoIndEconomico`, `ValorCambio` (**só Load**) | **B2**, C | 904 / 1.066 de 2.017 | ✅ backfill incremental; null é resposta legítima do Alvo |
+| vínculo com requisição (`numero_req_comp`, `vinculo_requisicao`, `req_comp_itens`) | `extrairVinculoRequisicao` | B3 (list, só afirma presença), **B2** (Load, afirma os dois) | — | ✅ |
+| `texto` (observação do cabeçalho) | `Texto` (list) | A, B3 | 1.975/2.017 | ⚠️ congelado, saudável |
+| **`texto_historico`** | `TextoHistorico` (**só no Load**) | **só A** | **139/2.017** | 🔴 **nunca escrito pelo cron** |
+| `codigo_usuario` (comprador no Alvo) | `CodigoUsuario` | A, B3 | 2.017/2.017 | ⚠️ congelado, saudável |
+| `proximo_aprovador`, `enviou_aprovacao`, `data_notificacao_aprovador` | `PedCompUserFieldsObject.User*` | A, B3, **B2**, C | — | ✅ |
+| **quem aprovou no ERP** | — | **ninguém** | — | 🔴 **não existe coluna no Hub.** Nenhum dos quatro escritores extrai identidade de aprovador — só `UserProximoAprovador`, que é o **próximo**, não quem aprovou. Se o payload traz, só um Load ao vivo diz |
 
 ## Valores (regra 11 — medir, não corrigir)
 
 | Campo | Origem | Quem escreve | Veredito |
 |---|---|---|---|
-| `valor_total` | `resolverValorTotalAlvo(alvo)` (cabeçalho, fallback soma de itens) | A, B‑J1, **B‑J2**, C | ✅ ok |
-| `valor_mercadoria`, `valor_servico`, `valor_frete` | `ValorMercadoria`, `ValorServico`, `ValorFrete` | A, B‑J1, **B‑J2**, C | ✅ ok |
-| `valor_desconto` | `ValorDescontoGeral` | A, **B‑J2**, C | ✅ ok |
-| `valor_outras_despesas` | `ValorOutrasDespesas` | A, **B‑J2**, C | ✅ ok |
-| `valor_ipi` | `GeralValorIPI` | A, **B‑J2**, C | ✅ ok |
+| `valor_total` | `resolverValorTotalAlvo` (cabeçalho; fallback soma de itens) | A, B3, **B2**, C | ✅ |
+| `valor_mercadoria`, `valor_servico`, `valor_frete` | campos homônimos | A, B3, **B2**, C | ✅ |
+| `valor_desconto` (`ValorDescontoGeral`), `valor_outras_despesas`, `valor_ipi` (`GeralValorIPI`) | Load | A, **B2**, C | ✅ |
 
-**Os 7 campos de valor são o que o cron faz certo** — e é por isso que a quebra passou 3 meses
-invisível. ⚠️ Medido no `DISCOVERY-FASE7A.md` §C1.2 e **não corrigido aqui**: a soma dos itens **não**
-reconcilia com `valor_total` (agosto: R$ 723.343,95 × R$ 525.339,83; `0004586` tem itens somando 4× o
-cabeçalho). O cabeçalho é a fonte da verdade — a espec já manda não tocar.
+Os 7 continuam sendo o que o cron faz certo. ⚠️ **A soma dos itens continua não reconciliando com o
+cabeçalho** em alguns pedidos — medido de novo no `0004495` (§4.3). O cabeçalho é a fonte da verdade;
+a espec manda não tocar, e não toquei.
 
 ## Itens
 
-| Campo no Hub | Origem no Alvo (`ItemPedCompChildList[]`) | Quem escreve | Veredito |
+| Campo no Hub | Origem (`ItemPedCompChildList[]`) | Quem escreve | Veredito |
 |---|---|---|---|
-| `sequencia` | `Sequencia` | B‑J2 (`persistirItensPedido`) | ✅ |
-| `item_servico` | `ItemServico === "Sim"` | B‑J2 | ✅ |
-| `codigo_produto` | `CodigoProduto` | B‑J2 | ✅ |
-| `codigo_alternativo_produto` | `CodigoAlternativoProduto` | B‑J2 | ✅ 770/2.602 preenchidos |
-| `codigo_prod_unid_med`, `produto_unidade` | `CodigoProdUnidMed` | B‑J2 | ✅ |
-| `produto_nome` | `NomeProduto ?? DescricaoAlternativaProduto` | B‑J2 | ✅ 8 nulos em 2.602 |
-| `quantidade` | `QuantidadeProdUnidMedPrincipal` | B‑J2 | ✅ |
-| `valor_unitario`, `valor_total_item` | `ValorUnitario`, `ValorTotal` | B‑J2 | ✅ |
-| **`observacao`** | `Observacao` | B‑J2 | ✅ 78/2.602 (67 gravados pelo próprio cron) |
-| item cancelado | `Cancelado` — `'Total'` é **pulado** | B‑J2 (filtro) | ✅ por design |
-| **prazo/entrega do item** | — | — | 🔴 **não existe coluna no Hub.** Achado, não omissão |
-| **centro de custo do item** | `ItemPedCompClasseRecdespChildList[]` | 🔴 **ninguém** | 🔴 **é o D1** |
-
-✅ **Boa notícia medida:** o mapeamento de itens do cron está **correto e completo** nos 11 campos que
-mapeia — 2.565 dos 2.602 itens foram criados por ele. O defeito é de **omissão do bloco de rateio**,
-não de valor errado. Confirmado item a item no §4.3.
+| `sequencia`, `item_servico`, `codigo_produto`, `codigo_alternativo_produto`, `codigo_prod_unid_med`, `produto_nome`, `produto_unidade`, `quantidade`, `valor_unitario`, `valor_total_item`, `observacao` | campos homônimos do Alvo | **B2** (`persistirItensPedido`, upsert por `(pedido_id, sequencia)`) | ✅ mapeamento correto e completo — reconferido campo a campo no §4.3 |
+| item cancelado | `Cancelado`; `'Total'` é **pulado**, `'Parcial'` é gravado | **B2** | ✅ por design |
+| **prazo / data de entrega do item** | — | — | 🔴 **não existe coluna no Hub.** Achado, não omissão |
+| **centro de custo do item** | `ItemPedCompClasseRecdespChildList[]` | **B2 → RPC** | ✅ **era o D1; hoje é gravado** (resíduo em S0-5.b) |
 
 ## Rateio
 
 | Campo no Hub | Origem no Alvo | Quem escreve | Veredito |
 |---|---|---|---|
-| `codigo_classe_rec_desp` | `…ClasseRecdespChildList[].CodigoClasseRecDesp` | só o wizard do Hub | 🔴 nunca vem do Alvo |
-| `classe_rec_desp_label` | *(não vem no payload — o Hub usa o label do catálogo)* | só o wizard | 🔴 |
-| `codigo_centro_ctrl` | `…[].Rateio*ChildList[].CodigoCentroCtrl` | só o wizard | 🔴 |
-| `centro_ctrl_label` | *(não vem no payload)* | só o wizard | 🔴 |
-| `percentual` | `Percentual` (**aninhado**, ver S0-3) | só o wizard, **achatado** | 🔴 + risco de arredondamento |
-| **valor** | `Valor` — **o Alvo manda** | — | 🔴 **não existe coluna no Hub** |
+| `codigo_classe_rec_desp` | `ItemPedCompClasseRecdespChildList[].CodigoClasseRecDesp` | wizard **e** RPC | ✅ |
+| `classe_rec_desp_label` | **não vem no payload** — `carregarCatalogosLabels` busca em `classes_rec_desp` | wizard e RPC | ✅ enriquecido localmente |
+| `codigo_centro_ctrl` | `…RateioItemPedCompChildList[].CodigoCentroCtrl` | wizard e RPC | ✅ |
+| `centro_ctrl_label` | **não vem no payload** — busca em `cost_centers.erp_code/name` | wizard e RPC | ✅ |
+| `percentual` | `Percentual` do nível | ambos | 🔴 **duas convenções** (S0-3) |
+| **`valor`** | `Valor` do CC | **só a RPC** | ✅ 🆕 coluna criada; null no wizard |
+| `valor_derivado` | — | RPC | ✅ 🆕 marca o valor calculado quando o Alvo omitiu |
+| fonte do rateio | 🔴 **só a do ITEM** (`ItemPedCompClasseRecdespChildList`) | RPC | ⚠️ o Alvo tem **duas** (cabeçalho e item) e elas divergem em centavos — o cabeçalho ficou só no jsonb de compatibilidade |
 
 ## Parcelas
 
-| Campo | Origem | Quem escreve | Veredito |
-|---|---|---|---|
-| `compras_pedidos.parcelas` (jsonb) | `extrairParcelas(data)` | A, **C** | 🔴 degradado 99 → 8 |
-| `compras_pedidos_parcelas` (201 linhas / 92 pedidos) — `sequencia`, `numero_duplicata`, `dias_entre_parcelas`, `percentual_fracao`, `valor_parcela`, `data_vencimento` | — | **só o wizard do Hub** (`pedidosService.ts:1303`) | 🔴 **nenhum loader do Alvo popula a tabela normalizada.** Mesmo defeito do rateio, uma tabela ao lado |
+| Camada | Situação |
+|---|---|
+| `compras_pedidos.parcelas` (jsonb) | ✅ dual-write por **B2**, além de A e C |
+| `compras_pedidos_parcelas` (normalizada) | ✅ **agora populada pelo Alvo** (RPC) — era 🔴 na v1. `UNIQUE (pedido_id, sequencia)` criado. Parcela sem `data_vencimento` é descartada **com aviso** (`PARCELA_SEM_VENCIMENTO_DESCARTADA`), não em silêncio |
 
-## Anexos — **existe, sim; o binário é que não**
+## Anexos — **metadado sim, binário não, rota não** (inalterado desde a v1)
 
 | Camada | Situação |
 |---|---|
-| **Payload do Alvo** | ✅ traz `PedCompArquivoChildList[]` com `Sequencia`, `Arquivo` (caminho no servidor), `CodigoUsuario`, `DataArquivo`, `Observacao` |
-| **Extração** | ✅ `extrairAnexos` (`alvoPedCompLoadService.ts:151-165`) — escritor **C** |
-| **No Hub** | ✅ `compras_pedidos.anexos` (jsonb) — **571 pedidos com anexo**, 1.863 com a coluna não-nula |
-| **Cron** | 🔴 **não escreve `anexos`** (nem Job 1 nem Job 2) — degradado junto com o resto |
-| **Binário do arquivo** | 🔴 **não chega.** Só o caminho (`\\servidor\...`). Nenhuma rota do gateway lê anexo do Alvo |
-| **Rota no gateway** | 🔴 **não existe.** Rotas usadas no repo: `GET /ped-comp/{filial}/{numero}`, `POST /ped-comp/insert`, `/ped-comp/insert-multipart`, `/ped-comp/update`, `/ped-comp/atualiza-item-pedido`. A única multipart é de **envio**. `SPEC-D001-erp-proxy.md` **não menciona** `ped-comp` nem anexo |
-| **`compras_pedidos_arquivos`** | tabela **do Hub**, não espelho: 54 linhas / 50 pedidos, alimentada só pelo upload do wizard (`storage_path` no Supabase Storage) |
+| Payload do Alvo | ✅ traz `PedCompArquivoChildList[]` (`Sequencia`, `Arquivo` = caminho no servidor, `CodigoUsuario`, `DataArquivo`, `Observacao`) |
+| Extração | ✅ `extrairAnexos` (`alvoPedCompLoadService.ts:190`) — **escritor C apenas** |
+| No Hub | `compras_pedidos.anexos` (jsonb) — **642 pedidos com ao menos um anexo** |
+| **Cron** | 🔴 **não escreve `anexos`** — zero ocorrências de `anexos`/`PedCompArquivo` em `sync-compras-status-cron/index.ts`. **Ficou de fora do card C3** |
+| Binário do arquivo | 🔴 **não chega.** Só o caminho (`\\servidor\…`) |
+| Rota no gateway | 🔴 **não existe.** Rotas de pedido no repo: `GET /ped-comp/{filial}/{numero}`, `POST /ped-comp/insert`, `/ped-comp/insert-multipart`, `/ped-comp/update`, `/ped-comp/atualiza-item-pedido`. A única multipart é de **envio** |
+| `compras_pedidos_arquivos` | tabela **do Hub**, não espelho — upload do wizard para o Supabase Storage |
 
-> **Resposta explícita à §4.2:** o **metadado** de anexo já chega e já é gravado (por C, não pelo
-> cron). O **arquivo** não chega e **não há rota** para buscá-lo. Baixar anexo do Alvo é
-> funcionalidade nova no gateway (outro repo), fora do escopo desta missão.
+> **Resposta explícita à §4.2:** o metadado de anexo chega e é gravado — **mas só pelo open-load, que
+> depende de alguém abrir o pedido na tela**. O cron não escreve. O binário não chega e **não há
+> rota**. Baixar anexo do Alvo é funcionalidade nova no `erp-proxy` (outro repo), fora do escopo.
 
 ---
 
-# §4.3 · Prova de fogo — 3 pedidos, campo a campo
+# §4.3 · Prova de fogo — 3 pedidos comparados campo a campo
 
 ## ⚠️ Limite da evidência, declarado
 
-**Não foi possível fazer o `Load` ao vivo.** O `erp-proxy` exige JWT de usuário do Supabase; a chave
-anon pública devolve `401 {"error":"Token de autenticação inválido ou expirado."}` (o `/health`
-responde `200 {"status":"ok","env":"production"}`). Usei então o **snapshot do payload já persistido**
-— `compras_pedidos.itens` e `compras_pedidos.classe_rateio`, gravados pelos loaders A/C direto do
-`Load` — comparado contra as tabelas normalizadas. É evidência de **o que o Alvo mandou naquele
-momento**, não do estado de agora.
+**Não foi feito `Load` ao vivo.** O `erp-proxy` exige JWT de usuário; a chave anon devolve 401. Usei o
+**payload persistido** (`compras_pedidos.itens`, gravado pelo próprio Load) confrontado contra as
+tabelas normalizadas. Como o jsonb e a tabela são escritos **na mesma transação lógica, do mesmo
+payload**, a comparação é forte para detectar erro de mapeamento — e é cega para deriva posterior no
+Alvo.
 
-Descoberta lateral que torna a comparação possível: **o jsonb `itens` carrega por item, em 2.078
-ocorrências, as chaves** `sequencia, codigoProduto, nomeProduto, unidade, quantidade, valorUnitario,
-valorTotal, itemServico, cancelado, **classe**, **centroCusto**, **classeRateio**`. O jsonb tem o CC
-do item; a tabela normalizada, não.
+## Pedido 1 — `0004691` · multi-classe · nascido no Alvo · **escrito pelo cron**
 
-## Pedido 1 — `0003625` · multi-CC · nascido no Alvo
+18/08/2026 · `Encerrado` · `valor_total = 47.344,55` · 1 item · **4 classes, 9 CCs, 11 linhas**
 
-25/03/2026 · `criado_no_hub=false` · `valor_total = 48.379,82` · 1 item · **2 classes, 9 CCs distintos**
+| classe | centro de custo | payload %classe | payload %CC | payload valor | Hub `percentual` | Hub `valor` | Δ |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 15.01 | 00007.00001.00004 | 6,7879 | 11,1106 | 357,06 | 11,1106 | 357,06 | **0,00** |
+| 15.01 | 00010.00002.00001 | 6,7879 | 88,8894 | 2.856,64 | 88,8894 | 2.856,64 | **0,00** |
+| 15.02 | 00007.00001.00003 | 87,4733 | 1,9465 | 806,13 | 1,9465 | 806,13 | **0,00** |
+| 15.02 | 00007.00001.00004 | 87,4733 | 8,4229 | 3.488,26 | 8,4229 | 3.488,26 | **0,00** |
+| 15.02 | 00007.00002.00001 | 87,4733 | 13,2093 | 5.470,48 | 13,2093 | 5.470,48 | **0,00** |
+| 15.02 | 00007.00004.00001 | 87,4733 | 2,2693 | 939,80 | 2,2693 | 939,80 | **0,00** |
+| 15.02 | 00007.00004.00003 | 87,4733 | 3,9092 | 1.618,96 | 3,9092 | 1.618,96 | **0,00** |
+| 15.02 | 00007.00006.00001 | 87,4733 | 68,5532 | 28.390,54 | 68,5532 | 28.390,54 | **0,00** |
+| 15.02 | 00010.00004.00002 | 87,4733 | 1,6895 | 699,69 | **1,6896** | 699,69 | **0,00** |
+| 15.06 | 00007.00006.00001 | 0,6988 | 100 | 330,86 | 100,0000 | 330,86 | **0,00** |
+| 25.13 | 00008.00002.00002 | 5,0399 | 100 | 2.386,11 | 100,0000 | 2.386,11 | **0,00** |
 
-**Item (Alvo × Hub):** ✅ **bate campo a campo** — `sequencia 1`, `codigoProduto 002.023`,
-`SERVIÇO DE HOSPEDAGEM`, `quantidade 1`, `valorUnitario 48.379,82`, `valorTotal 48.379,82`.
-O mapeamento de itens do cron está correto.
+✅ **Zero divergência de valor.** A única diferença — `1,6895 → 1,6896` — é a RPC absorvendo o resíduo
+na última linha da classe para fechar 100,0000 exatos, deliberadamente.
+Soma dos valores: **R$ 47.344,53** contra `valor_total` **R$ 47.344,55** — **2 centavos**, porque o
+rateio do Alvo é contra `ValorTotal + ValorIPI` do item, não contra o total do cabeçalho.
+🔴 Este é um dos dois itens cuja soma de `percentual` dá **400** (S0-3): quatro classes × 100.
 
-**Rateio:** `linhas_rateio = 0` na tabela normalizada, contra **12 linhas** no payload. 🔴 O D1.
+## Pedido 2 — `0003625` · coorte antiga · **o caso do backfill**
 
-🔴 **Divergência de VALOR entre as duas fontes de rateio do Alvo** — o pedido da §4.3 ("relatar
-divergências de valor, não só de ausência"). `classe_rateio` (cabeçalho, `PedCompClasseRecDespChildList`)
-× `itens[].classeRateio` (item, `ItemPedCompClasseRecdespChildList`):
+25/03/2026 · `Encerrado` · `valor_total = 48.379,82` · 1 item · `detalhes_carregados = true`
 
-| linha | cabeçalho | item | Δ |
-|---|---:|---:|---:|
-| classe `15.01` — valor | 10.372,59 | 10.372,56 | **0,03** |
-| classe `15.01` — percentual | 21,4399 | 21,4398 | 0,0001 |
-| CC `00001.00001.00008` | 5.402,15 | 5.402,13 | 0,02 |
-| CC `00001.00004.00001` (15.01) | 1.006,53 | 1.006,52 | 0,01 |
-| classe `15.02` — valor | 38.007,23 | 38.007,26 | **0,03** |
-| CC `00001.00001.00007` (15.02) | 1.318,89 | 1.318,86 | 0,03 |
-| CC `00001.00003.00001` | 15.664,41 | 15.664,44 | 0,03 |
-| CC `00001.00004.00001` (15.02) | 4.659,42 | 4.659,43 | 0,01 |
-| CC `00001.00004.00004` | 16.364,51 | 16.364,53 | 0,02 |
+| | |
+|---|---:|
+| Linhas no payload persistido (`itens[].classeRateio`) | **12** |
+| Soma dos valores no payload | **R$ 48.379,82** — bate ao centavo com o cabeçalho |
+| Linhas na tabela normalizada | **0** |
 
-**As duas fontes não batem ao centavo.** O escritor **A** lê a do item; o **C** prefere a do
-cabeçalho. **O S1 precisa escolher qual é canônica** — e a escolha muda o número do relatório de
-gasto por CC.
-
-🔴 **`centro_custo` do cabeçalho é uma amostra enviesada.** Vale `00001.00001.00007` — que no rateio
-real tem **3,0167%** da classe 15.01 e 3,4701% da 15.02, algo como **R$ 1.632 de R$ 48.380 (3,4%)**.
-O CC com a maior fatia é `00001.00003.00001` (R$ 17.209, 35,6%). A coluna guarda a **primeira fatia
-do primeiro rateio**, não o centro de custo do pedido.
-
-**Dimensão do viés, medida:**
-
-```sql
--- pedidos com rateio, contando CCs distintos por pedido
-select count(*) com_rateio, count(*) filter (where ccs>1) multi_cc, max(ccs) …
-```
-| pedidos com rateio | **multi-CC reais** | % | **valor** | máx. CCs |
-|---:|---:|---:|---:|---:|
-| 1.179 | **83** | 7,0% | **R$ 1.407.857,06** | **10** |
-
-Nos **83**, `centro_custo` está preenchido e aponta **um só** dos CCs.
-
-> 🔴 **Isto corrige o `DISCOVERY-FASE7A.md` §C1.4.** A consulta de gasto por CC usa
-> `centro_custo` do cabeçalho como 2ª fonte da cascata (14 pedidos de agosto, R$ 179.982,20).
-> Para pedido multi-CC essa fonte **atribui 100% do valor a um CC que pode valer 3%**. Não invalida o
-> total (R$ 1.642.742,28 continua reconciliando), mas **enviesa a distribuição**. Onde há rateio, o
-> rateio manda; o cabeçalho só serve quando o pedido é mono-CC — e não há como saber qual é sem o rateio.
-
-## Pedido 2 — `0004640` · CC só no cabeçalho · nascido no Alvo
-
-11/08/2026 · `valor_total = 114.639,99` · `centro_custo = 00008.00001.00006` (LAB PESQUISA) ·
-`classe_rec_desp = null` · `classe_rateio = []` · `itens` jsonb = `[]` · **2 itens normalizados** ·
-`detalhes_carregados = true`.
-
-Assinatura pura do defeito: o **Job 2 rodou** (itens gravados, flag marcada) e **nada do rateio ficou**.
-O `centro_custo` que existe veio do **list** (Job 1), não do Load.
-
-⚠️ **Este é o pedido que a §4.3 pediu e é justamente o que não dá para auditar sem Load ao vivo:**
-sem snapshot do payload, não há como saber se o Alvo tem rateio para ele nem se
-`00008.00001.00006` é o CC real ou só o do cabeçalho. **É o candidato natural para o primeiro Load de
-validação do S1.**
+Assinatura exata do resíduo: o rateio **está no Hub**, em jsonb, completo e reconciliando — e **não
+está** na tabela que as visões por centro de custo leem. Fora da fila do Job 2 (terminal + carregado),
+não se resolve sozinho. **É a prova de que o backfill por SQL é suficiente: o dado já está aqui.**
 
 ## Pedido 3 — `0004269` · nascido no Hub (caminho suposto correto)
 
-22/06/2026 · `criado_no_hub=true` · `valor_total = 49.653,47` · 1 item · **4 classes, 7 CCs, 10 linhas
-de rateio normalizadas**. Soma dos percentuais: **100,00** ✅
+22/06/2026 · `criado_no_hub = true` · `valor_total = 49.653,47` · 4 classes, 7 CCs, **10 linhas**
 
-| classe | centro de custo | % | valor derivado |
-|---|---|---:|---:|
-| 15.01 | 00007.00001.00005 | 7,85 | 3.897,80 |
-| 15.01 | 00007.00004.00001 | 2,30 | 1.142,03 |
-| 15.01 | 00010.00003.00001 | 2,15 | 1.067,55 |
-| 15.02 | 00007.00001.00005 | 1,27 | 630,60 |
-| 15.02 | 00007.00004.00001 | 7,27 | 3.609,81 |
-| 15.02 | 00007.00004.00005 | 4,26 | 2.115,24 |
-| 25.12 | 00008.00002.00001 | 1,84 | 913,62 |
-| 25.12 | 00008.00002.00020 | 1,69 | 839,14 |
-| 25.12 | 00010.00001.00001 | 6,77 | 3.361,54 |
-| **25.13** | **00010.00001.00001** | **64,60** | **32.076,14** |
+| | |
+|---|---:|
+| Soma de `percentual` | **100,0000** ✅ (convenção do wizard: absoluto) |
+| Linhas com `valor` | **0** — o wizard não grava valor |
+| Linhas no payload | 10 · soma dos valores **R$ 49.653,48** (1 centavo do cabeçalho) |
 
-✅ O caminho do Hub funciona: rateio completo, normalizado, fechando 100%.
+✅ O caminho do Hub funciona. 🔴 E exibe, lado a lado com o Pedido 1, **as duas convenções da mesma
+coluna**: 10 linhas somando 100 e sem valor (wizard) contra 11 linhas somando 400 e com valor (espelho).
 
-🔴 **Mas o mesmo viés aparece aqui:** `centro_custo` do cabeçalho = `00007.00001.00005`, que soma
-**9,12%** (R$ 4.528,40). O CC dominante é `00010.00001.00001` com **71,37%** (R$ 35.437,68). **O
-defeito do cabeçalho não é do sync — é da própria derivação `[0][0]`, e atinge também pedido nascido
-no Hub.**
+## Achado extra — `0004495` (pergunta aberta da §4.5)
+
+25/08/2026 · `criado_no_hub = true` · `Aberto` · `valor_total = 55.000,00` (todo em `valor_servico`)
+
+| item | produto | quantidade | valor unitário | `valor_total_item` | qtd × unit |
+|---:|---|---:|---:|---:|---:|
+| 1 | 002.057 | **2** | 55.000,00 | **110.000,00** | 110.000,00 |
+
+O item é internamente consistente (2 × 55.000 = 110.000); o **cabeçalho** é que diz 55.000. Como o
+pedido **nasceu no Hub**, ou a quantidade foi digitada como 2 devendo ser 1, ou o cabeçalho no Alvo
+está errado. **Não é defeito de sync** — é dado. Só o Pedro decide.
 
 ---
 
-# §4.4 · Gate de saída e cobertura do prompt
+# §4.4 · Saúde do cron `bicephalous` (frente nova)
 
-| Item do prompt | Estado |
+## S0-6 — A fila do Job 2: **estável, com leve queda. Não está crescendo.**
+
+Série extraída de `sync_runs.observacao` (`Job2 elegíveis(sem limit)=N, limit=100`):
+
+| data | fila (mín–máx no dia) |
 |---|---|
-| S0-1 (prioridade) | ✅ medido — e **reverte a proposta da espec** |
-| S0-2 · S0-3 · S0-4 · S0-5 | ✅ medidos |
-| Matriz §4.2 | ✅ 40+ campos, com os 3 escritores |
+| 26/08 | 421 – 434 |
+| 27/08 | 436 – 439 |
+| 28/08 | 436 – **440** |
+| 31/08 | 429 – 433 |
+| 01/09 | 415 – 432 |
+| 02/09 | 420 – 427 |
+| **03/09** | **421 – 422** |
+
+**De ~440 para ~421 em 7 dias úteis (≈ −2,7/dia).** A preocupação do prompt ("435 na fila, 100 por
+execução") não se confirma, e o motivo é aritmético: **10 execuções/dia × 100 = 1.000 visitas/dia
+contra ~421 elegíveis ⇒ cada elegível é visitado ~2,4×/dia.** Com `order by synced_at asc`, o rodízio
+é completo. A "fila" não é um backlog de não processados — é a **população elegível**, que gira.
+
+⚠️ **Mas isso não é boa notícia para o resíduo:** os 121 pedidos do S0-5.b estão sendo visitados 2,4
+vezes por dia, todos os dias, e **em nenhuma delas ganham rateio**. Fila saudável e defeito vivo
+convivem — é precisamente o caso do "caminho feliz que nunca rodou" ao contrário: um caminho que roda
+o tempo todo e não faz o que se supõe.
+
+**Conclusão para o S2:** como o backfill não precisa do Alvo (S0-5.c), **não há competição por
+recurso** e a ordem de execução deixa de importar.
+
+## S0-7 — Janelas reais: **08h–17h BRT, dias úteis. Não é 24/7.**
+
+```sql
+select jobid, schedule, jobname, active from cron.job where jobid=1;
+```
+→ **jobid 1 · `0 11-20 * * 1-5` · `sync-compras-status-cron-hourly` · active** — minuto 0 das 11h às
+20h **UTC** = **08h00 às 17h00 BRT**, segunda a sexta. **10 execuções por dia útil**, zero à noite e
+zero no fim de semana. `sync_settings.schedule_cron` guarda a mesma expressão.
+
+> **Corrige o prompt §1.3**, que diz "Roda de hora em hora; 110 execuções em 14 dias". A cadência
+> horária está certa, o alcance não: **não roda fora do horário comercial**. Janela segura de deploy:
+> **depois das 17h BRT ou no fim de semana** — sem precisar de kill-switch.
+
+## S0-8 — Kill-switch: **existe, e é lido.**
+
+Tabela `sync_settings`, linha `job_name = 'sync-compras-status-cron'`. A função lê em `index.ts:2597`:
+
+```ts
+.from("sync_settings").select("enabled, paused_reason")…
+if (settings && settings.enabled === false) { …registra sync_run "Sync pausado: <motivo>"… return }
+```
+
+Acionamento (SQL para o Pedro colar, **não executado**):
+```sql
+update sync_settings set enabled = false, paused_reason = '<motivo>'
+where job_name = 'sync-compras-status-cron';
+-- reverter: set enabled = true, paused_reason = null
+```
+⚠️ **Duas armadilhas.** (1) A função lê **só** `enabled` e `paused_reason`; **`paused_at` e
+`paused_by` não são lidos** — a linha de hoje tem `paused_at = 26/05/2026` com `enabled = true`, ou
+seja, um carimbo velho que **não pausa nada** e induz a erro quem olhar a tabela. (2) A pausa **não
+impede o pg_cron de disparar**: a função sobe, lê, registra um `sync_run` e sai. Isso é bom (fica
+rastro), mas significa que "pausado" ≠ "não executa".
+
+## S0-9 — O episódio de 26–27/08: **externo, transitório e recuperado — mas não como a espec conta.**
+
+| job_type | início (BRT) | disparado por | erros |
+|---|---|---|---:|
+| `reqmat` | **26/08 18:25** | pg_cron | 151 |
+| `produtos` | **26/08 20:00** | pg_cron | 1 |
+| **`bicephalous`** | **26/08 22:41** | 🔴 **`manual_admin`** | **152** |
+
+Três correções ao que o prompt §1.3 afirma:
+
+1. **Não foram "os 152 erros de 26–27/08".** Foram de **uma única execução**, em 26/08 às **22h41**.
+   Em 27/08 o `bicephalous` rodou 10 vezes, **todas com zero erros**.
+2. **Nenhuma execução agendada do `bicephalous` falhou.** As 10 do dia 26 (08h–17h) tiveram zero
+   erros. A que falhou foi **manual**, fora da janela do cron.
+3. **O padrão não é "o Alvo caiu naquele dia" — é que o Alvo não responde à noite.** As três falhas
+   estão às 18h25, 20h00 e 22h41; todas **depois do expediente**. É por isso que o `bicephalous`
+   normalmente não sofre: ele **não roda à noite** (S0-7). Quem rodou manualmente às 22h41 encontrou
+   o Alvo indisponível — 150 dos 152 erros são o mesmo `HTTP 502: Falha na autenticação do Alvo
+   (HTTP 404)` devolvendo HTML.
+
+**Recuperação, confirmada:** nas execuções seguintes (27/08, 08h–11h) o `total_mudaram` saltou para
+**49, 46, 50, 36** contra a média de 3–15 — a fila absorveu o atraso e voltou ao normal no mesmo dia.
+✅ Nenhum pedido ficou para trás.
+
+## S0-10 (não pedido, achado) — 🔴 **Quatro pedidos ficaram presos em laço de retentativa; hoje resolvidos**
+
+`sync_runs.detalhes` guarda os erros por pedido. Filtrando `c3_filhos`:
+
+| pedido | erro da RPC | tentativas | primeira | última |
+|---|---|---:|---|---|
+| `0004691` | `PERCENTUAL_CC_INVALIDO: item 1 classe 15.02 soma 99.9999` | 7 | 20/08 10:00 | 24/08 13:15 |
+| `0004371` | `PERCENTUAL_CC_INVALIDO: item 1 classe 18.05 soma 99.9999` | 7 | 20/08 09:55 | 24/08 13:12 |
+| `0004471` | `PERCENTUAL_CC_INVALIDO: item 1 classe 18.05 soma **0.0000**` | 7 | 20/08 09:55 | 24/08 13:12 |
+| `0004602` | `PERCENTUAL_CLASSE_INVALIDO: item 1 soma das classes 0.0000` | 1 | 20/08 09:34 | 20/08 09:34 |
+
+O mecanismo era vicioso e correto ao mesmo tempo: a RPC recusa o lote, o cron **reabre a flag**
+(`detalhes_carregados = false`, card C3.2) e o pedido volta na próxima execução — para falhar de novo.
+✅ **O card C3.3 (`d767457`, 24/08) fechou os quatro**: hoje têm 11, 3, 9 e 3 linhas de rateio, e
+**não há nenhuma falha `c3_filhos` desde 24/08 13:15**. Registro aqui porque a espec não sabia que
+isso tinha acontecido, e porque o padrão ("a guarda recusa, a flag reabre, o pedido volta") pode
+reaparecer com qualquer forma nova de rateio que o Alvo mandar.
+
+## S0-11 (não pedido, achado) — ⚠️ **Duas execuções que começaram e nunca terminaram**
+
+`02/09 17:00` e `24/07 08:00`: `total_candidatos = 0`, `duracao_ms` e `finished_at` **nulos**,
+`observacao` vazia. A linha de `sync_runs` é aberta no começo e fechada no fim; nula significa que a
+função **morreu no meio** (timeout ou exceção antes do bloco final). Não houve perda — a execução
+seguinte pegou tudo — mas **falha assim é silenciosa**: não conta erro, não escreve motivo, e uma
+consulta que filtre por `total_erros > 0` não a enxerga. 2 ocorrências em ~2 meses.
+
+## S0-12 (não pedido, achado) — 🔴 **A função publicada está atrás do `main` em 2 commits**
+
+| | |
+|---|---|
+| `BUILD_TAG` **publicado** | `MOEDA-PEDIDOS-A2 (2026-08-26)` · version **49** · deploy em **27/08/2026** |
+| `BUILD_TAG` no **repo** | `REQ-AUDITORIA-CHECA-ERRO-v2-JOB4 (2026-08-28)` |
+
+Confirmado por marcador: `derivarNaturezaPedido` (commit `ab0e0f3`, 27/08) **está** na versão
+publicada; o comentário `"gêmeo que JÁ disparou"` (commit `11cbe2b`, 28/08) **não está**.
+
+**Pendentes de deploy:** `f7185bf` e `11cbe2b` (ambos 28/08, +143 linhas líquidas). Os dois mexem em
+**Job 1 / Job 4 (requisições)**, não em pedidos — por isso nada do que foi medido acima está
+comprometido. Mas **qualquer deploy futuro desta função leva os dois junto**, quisera ou não. Isso
+precisa entrar no plano de deploy do S1/S2 como item explícito, não como surpresa.
+
+---
+
+# §4.5 · Cobertura do prompt
+
+| Item | Estado |
+|---|---|
+| S0-1 (prioridade) | ✅ medido — sem UNIQUE, e a implementação em produção já usa delete-then-insert |
+| S0-2 · S0-3 · S0-4 · S0-5 | ✅ medidos e re-medidos contra a v1 |
+| Matriz §4.2 | ✅ 45+ campos, com os 4 escritores e a RPC |
 | Prova de 3 pedidos §4.3 | ✅ com limite de evidência declarado (sem Load ao vivo) |
-| Campos inexistentes no Hub / sem rota | ✅ declarados: valor do rateio · prazo do item · quem aprovou · binário de anexo |
-| Nenhum código alterado, nenhuma escrita | ✅ MCP `read_only`; só `select` + 2 `GET` HTTP (`/health` e um Load recusado com 401) |
+| S0-6 · S0-7 · S0-8 · S0-9 | ✅ respondidos com série temporal e evidência |
+| Campos inexistentes no Hub / sem rota | ✅ declarados: prazo do item · quem aprovou no ERP · binário de anexo · `percentual_classe` |
+| Achados extras | S0-10 (laço de retentativa) · S0-11 (execuções sem fim) · S0-12 (deploy atrasado) |
+| Nenhum código alterado, nenhuma escrita | ✅ só `select` via MCP e leitura de arquivos |
 
 ---
 
 # Resumo executivo
 
-1. **S0-1 muda de resposta.** A chave única não está só faltando — **ela não deve existir**. O domínio
-   permite duas linhas com o mesmo (item, classe, CC), porque o Hub **achata** um percentual de duas
-   camadas do Alvo numa só coluna. Há 1 caso real, e ele soma 100% corretamente. O caminho é
-   **delete-then-insert por item**, que é o padrão que o wizard já usa (`limparFilhosDoPedido`).
-   Zero DDL. **O §5-A da missão precisa ser reescrito.**
-2. **Existe um terceiro loader**, `alvoPedCompLoadService.ts` (open-load do detalhe do pedido), mais
-   completo que o que a espec elegeu como referência: cobre as duas fontes de rateio do Alvo e extrai
-   anexos. **É a referência certa para o S1.**
-3. **O Alvo tem duas fontes de rateio que divergem em centavos** (cabeçalho × item). Escolher a
-   canônica é decisão de projeto, e muda o número do relatório por CC.
-4. **Portar o achatamento como está quebraria a invariante de 100%** — simulado no `0003625`: 12
-   linhas somam **100,02**.
-5. **O D2 congela 11 campos**, não 2. E 9 campos nunca são escritos pelo cron.
-6. **`centro_custo` do cabeçalho é a primeira fatia do primeiro rateio** — em 83 pedidos multi-CC
-   (R$ 1,4 M) aponta um CC que pode valer 3% do pedido. Corrige a §C1 do `DISCOVERY-FASE7A.md`.
-7. **O mapeamento de itens do cron está correto** — verificado campo a campo. O defeito é omissão do
-   bloco de rateio, não valor errado.
-8. **Anexos: metadado chega, binário não, e não há rota.**
-9. **615 dos 616 afetados são de 2026** (R$ 6.640.908,54) — o recorte S3 quase não reduz o trabalho.
-   **97 encerrados nunca mais serão visitados pelo cron**: é a justificativa do backfill.
+1. 🔴 **A FASE S1 já foi executada e está em produção** (cards C3, C3.2, C3.3, D4 — commits `050e88f`,
+   `105e1fb`, `d767457`, entre 20 e 24/08). O prompt de 03/09 descreve o mundo de 14/08. O rateio saiu
+   de 139 para **863 linhas**; pedidos nascidos no Alvo com rateio, de 4 para **269**.
+2. ✅ **Funciona, e a prova é campo a campo:** no `0004691`, 11 linhas de rateio batem **ao centavo**
+   com o payload do Alvo. A cobertura mensal subiu de 18% (jun) para **72%** (ago/set).
+3. 🔴 **Mas o D1 tem resíduo vivo: 121 pedidos (R$ 1,81 M) que o cron visita ~2,4×/dia e nunca
+   corrige.** O gate de reprocesso usa os três jsonb como proxy dos filhos relacionais; na geração
+   antiga o proxy é falso-positivo. **A espec supõe que o S1 resolveria estes — não resolve.**
+4. 💡 **O backfill ficou muito mais barato: 1.173 dos 1.174 pedidos sem rateio já têm o rateio por
+   item persistido no jsonb `itens`.** Dá para reconstruir em SQL puro, sem uma única chamada ao Alvo
+   — o que dissolve a restrição de janela, o ritmo de lotes e a competição com o cron da §6.
+5. 🔴 **`percentual` tem duas semânticas na mesma coluna** (absoluto no wizard, relativo à classe no
+   espelho), sem nada no schema que as declare. Já causou um incidente visível (R$ 191 mil de valor
+   fantasma na tela, 27/08), já foi corrigido **no leitor** — e continua sendo a armadilha mais
+   provável para a próxima consulta que alguém escrever.
+6. ✅ **A fila do Job 2 está estável e caindo** (~440 → ~421 em 7 dias úteis), com rodízio completo.
+   Não há atraso estrutural.
+7. ✅ **O cron roda 08h–17h BRT, dias úteis** — não 24/7. Janela de deploy segura: após 17h ou fim de
+   semana. Kill-switch existe (`sync_settings.enabled`) e é lido.
+8. ✅ **O episódio de 26/08 foi uma execução MANUAL às 22h41**, não o cron agendado. O padrão é o Alvo
+   não responder à noite. Recuperação total no dia seguinte.
+9. 🔴 **A função publicada está 2 commits atrás do `main`** (`f7185bf`, `11cbe2b`, de 28/08). Afetam
+   requisições, não pedidos — mas viajam junto no próximo deploy.
+10. ⚠️ **O impacto que importa:** 78,5% do valor de 2026 (**R$ 14,76 M**) ainda não tem rateio
+    normalizado, e a RPC `listar_pedidos_escopo` — o AJUSTE 7.2, entregue ontem — lê essa tabela.
+    Enquanto o backfill não roda, **o escopo do líder de CC se apoia no cabeçalho, que é a primeira
+    fatia do rateio.**
+
+---
 
 # O que contradiz esta especificação
 
-| # | A espec (`MISSAO-SYNC-PEDIDOS.md`) diz | O medido |
+| # | O `PROMPT-S0-SYNC-PEDIDOS.md` diz | O medido em 03/09 |
 |---|---|---|
-| 1 | §4.1-S0-1 / §5-A: criar `UNIQUE (item_id, classe, cc)` e fazer **upsert** por ela | ❌ A chave **proíbe um estado válido** (S0-1.b/c) e falharia hoje. Usar **delete-then-insert** |
-| 2 | §5: "referência de implementação: `alvoPedCompService.ts:434-463`" | ⚠️ Existe um **terceiro** loader (`alvoPedCompLoadService.ts:130-149`), mais completo. É ele a referência |
-| 3 | §5-A: mapear `ItemPedCompChildList[].ItemPedCompClasseRecdespChildList[].RateioItemPedCompChildList[]` | ⚠️ Há **duas** fontes (`PedCompClasseRecDespChildList` no cabeçalho e a do item) e elas **divergem em centavos** |
-| 4 | §4.2: rateio tem "percentual, valor" | ❌ **`valor` não existe** em `compras_pedidos_itens_rateio`. O Alvo manda; o Hub não guarda |
-| 5 | §1.1-D2: "campo que veio vazio fica nulo para sempre" — cita `centro_custo` e `nome_entidade` | ⚠️ São **11 campos** congelados, e outros **9** nunca escritos pelo cron |
-| 6 | §1.2: tabela de 8 campos degradados | ⚠️ Faltam `texto_historico`, `anexos` (jsonb) e a tabela `compras_pedidos_parcelas` inteira |
-| 7 | §4.2: anexos — "se não existir suporte, dizer" | ⚠️ **Existe suporte parcial** e não declarado: metadado extraído e gravado em `compras_pedidos.anexos` (571 pedidos). Falta o binário e a rota |
-| 8 | §6: "recalcular no S0 quantos dos 616 são 2026" | ✅ **615**. O recorte quase não reduz |
-| 9 | §4.3: comparar o `Load` contra o Hub | ⚠️ Feito com **snapshot persistido**, não Load ao vivo (401 no gateway). Declarado |
-| 10 | (implícito) `centro_custo` é o CC do pedido | 🔴 É a **primeira fatia do primeiro rateio**. 83 pedidos multi-CC, R$ 1,4 M, com cabeçalho enganoso — inclusive nascidos no Hub |
+| 1 | §5: "FASE S1 — Correção do sync" como trabalho a fazer | 🔴 **Já foi feita e está em produção desde 20–24/08.** O prompt foi escrito sobre o estado de 14/08 |
+| 2 | §1: cobertura de 14,3% com rateio, 35,7% com CC | ⚠️ Hoje: **72% e 83%** no coorte de agosto. Os números do prompt são de 14/08 |
+| 3 | §4.1-S0-1 / §5-A: criar UNIQUE e fazer upsert por ela | ❌ Não existe, não deve existir, e a produção usa **delete-then-insert** (RPC `sync_replace_filhos_pedido`) |
+| 4 | §1.3: "os 152 erros de 26–27/08 foram indisponibilidade do Alvo" e "todos os crons sofreram junto" | ⚠️ Meio certo. Foi **uma execução `manual_admin` às 22h41 de 26/08**. Nenhuma execução **agendada** do `bicephalous` falhou. O padrão é **indisponibilidade noturna**, não um incidente daquele dia |
+| 5 | §1.3: "Roda de hora em hora" | ⚠️ De hora em hora **das 08h às 17h BRT, dias úteis** (`0 11-20 * * 1-5`). Não roda à noite nem no fim de semana |
+| 6 | §4.4-S0-6: "se a fila cresce, o backfill compete com o cron" | ✅ **A fila não cresce** (−2,7/dia). E o backfill **não precisa do Alvo** (1.173 de 1.174 já têm o payload) — não há competição |
+| 7 | §6: "lotes de ~25 Loads com pausa, fora das janelas do cron" | 💡 **Desnecessário.** Backfill em SQL puro a partir do jsonb persistido |
+| 8 | §4.2: rateio tem "percentual, valor" | ✅ **Agora tem** — `valor` e `valor_derivado` foram criados. Era 🔴 na v1 |
+| 9 | §1.1-D2: "campo que veio vazio fica nulo para sempre" | ✅ **Corrigido** por `completarCamposAusentes`. Restam **9** campos congelados, todos saudáveis. O caso `0004664` está resolvido |
+| 10 | §3-regra 11: "agosto reconcilia em R$ 1.642.742,28 (92 pedidos)" | 🔴 **Âncora vencida e não reproduzível.** Agosto hoje: **R$ 2.739.015,00 / 228 pedidos** (o mês não tinha acabado em 14/08). O recorte mais próximo — agosto, pedidos descobertos até 14/08 — dá **R$ 1.583.976,69 / 87**, que também não bate: o Job 2 propaga `ValorTotal` do Alvo e os valores mudaram legitimamente desde então. **A âncora precisa ser recongelada antes do S2** |
+| 11 | §4.5: "o pedido `0004495` (itens somando o dobro do cabeçalho)" | ⚠️ Confirmado, e é **pedido nascido no Hub**: item com quantidade **2** × R$ 55.000 contra cabeçalho de R$ 55.000. Não é defeito de sync |
+| 12 | §7 (fora de escopo): "aposentar os jsonb" | ⚠️ Os jsonb agora são **estruturais**, não só legado: são o **proxy do gate de reprocesso** (`filhosAusentes`) e a **única fonte viável do backfill**. Aposentá-los exige substituir o gate primeiro |
+
+---
 
 # Perguntas que só o Pedro pode responder
 
-1. 🔴 **Qual rateio é canônico** — o do cabeçalho (`PedCompClasseRecDespChildList`) ou o do item
-   (`ItemPedCompClasseRecdespChildList`)? Divergem em centavos e a escolha muda o relatório por CC.
-   **Bloqueia o S1.**
-2. 🔴 **Como resolver o achatamento do percentual** (soma dá 100,02): (a) aumentar as casas de
-   `percentual`, (b) a última linha absorve o resíduo, (c) guardar as duas camadas (nova coluna
-   `percentual_classe`), ou (d) guardar o **`Valor`** do Alvo numa coluna nova e parar de derivar por
-   percentual. **Bloqueia o S1** e (c)/(d) são DDL.
-3. **Adicionar coluna `valor` ao rateio?** O Alvo manda e hoje se perde. Com ela, o relatório por CC
-   deixa de depender de percentual arredondado.
-4. **O que fazer com `centro_custo` do cabeçalho**, agora que se sabe que é a primeira fatia:
-   (a) manter como está, (b) parar de gravar quando houver rateio multi-CC, (c) renomear/anotar como
-   "CC principal". Afeta a §C1 do `DISCOVERY-FASE7A.md`.
-5. **A linha duplicada do `RASCUNHO-42c15eb8`** (2 × 25% na mesma classe+CC) — consolidar em uma de
-   50% ou deixar? É rascunho, nunca foi ao Alvo. Só importa se você preferir o caminho do UNIQUE.
-6. **`compras_pedidos_parcelas` entra no escopo?** A tabela normalizada nunca é populada pelo Alvo —
-   mesmo defeito do rateio, e a espec só menciona o jsonb.
-7. **Aposentadoria dos jsonb** (`classe_rateio`, `itens`, `anexos`, `parcelas`): quando? Hoje
-   `ConfirmarLancamentoModal.tsx:295,340` e `VincularPedidoDialog.tsx:213,227` dependem deles.
-8. **Os 2 pedidos `excluido_alvo`** (404 esperado no backfill): pular e logar, ou investigar?
-9. **Pedido `0004495`** (`data_pedido = 25/08/2026`, futuro; itens somando R$ 110.000 contra
-   `valor_total` R$ 55.000): dado correto ou erro de digitação no Alvo? Entra no fechamento de agosto.
-10. **Anexos:** vale abrir rota de download no `erp-proxy` (outro repo, escopo novo), ou o metadado
-    basta?
-11. **"Quem aprovou no ERP"**: quer o campo? Não existe coluna no Hub e nenhum loader extrai — só um
+1. 🔴 **O backfill passa a ser SQL puro sobre o jsonb já persistido (1.173 pedidos, sem tocar o
+   Alvo)?** É a mudança mais consequente desta Discovery. A alternativa é o plano original (Loads em
+   lote), muito mais caro e mais lento. **Bloqueia o desenho do S2.**
+2. 🔴 **Os 121 pedidos barrados pelo gate: corrigir o gate ou deixar que o backfill os cubra?**
+   Corrigir o gate (deixar de usar jsonb como proxy dos filhos relacionais) evita que o buraco
+   reapareça; o backfill sozinho tapa hoje e deixa o mecanismo de pé. **Bloqueia o S1-resíduo.**
+3. 🔴 **Recongelar a âncora de reconciliação.** A da regra 11 não é reproduzível. Proponho congelar
+   **agosto/2026 = R$ 2.739.015,00 em 228 pedidos** (medido 03/09 09h23 BRT) como novo invariante
+   anti-wipe. Confirma?
+4. **A dupla convenção de `percentual` fica como está?** Opções: (a) manter e confiar no leitor;
+   (b) criar `percentual_classe` e gravar as duas camadas; (c) documentar em `COMMENT ON COLUMN`
+   (barato, e hoje não há nada no schema avisando). É a armadilha mais provável de reincidir.
+5. **`anexos` entra no cron?** Hoje só o open-load grava — ou seja, um pedido que ninguém abriu na
+   tela nunca tem anexo espelhado. É omissão do card C3 ou decisão?
+6. **`texto_historico`** continua sem escritor no cron (139 de 2.017). Recuperar ou aposentar?
+7. **Deploy pendente:** `f7185bf` e `11cbe2b` estão no `main` e não em produção há 6 dias. Publicar
+   junto com o próximo deploy desta função, ou publicar antes, isolado, para não misturar mudanças?
+8. **Pedido `0004495`**: quantidade 2 no item contra cabeçalho de R$ 55.000, pedido nascido no Hub.
+   Corrigir a quantidade, corrigir o cabeçalho, ou deixar?
+9. **Os 2 pedidos `excluido_alvo`** no backfill: pular e logar, ou investigar?
+10. **Execuções que morrem no meio** (S0-11, 2 casos): vale instrumentar — um `sync_run` sem
+    `finished_at` hoje é invisível para qualquer alarme baseado em `total_erros`?
+11. **`compras_pedidos_parcelas` e `anexos` entram na validação do S2**, ou o backfill se limita ao
+    rateio (escrita mínima, regra 11)?
+12. **Quem aprovou no ERP**: quer o campo? Não existe coluna no Hub e nenhum escritor extrai — só um
     Load ao vivo diz se o payload traz.
-12. **Um Load ao vivo para o `0004640`** fecharia o único buraco de evidência desta Discovery. Você
-    consegue abrir o pedido no Hub e colar o JSON de `/ped-comp/1.01/0004640` (F12 → Network)?
+
+---
+
+*Fim da Discovery S0 (revisão 2). Sequência revista: **S1-resíduo** (gate dos 121) → **S2** (backfill
+SQL de 1.173) → validação contra a âncora recongelada. A v1 de 14/08 permanece em
+`git show 0dce7cb:DISCOVERY-SYNC-RATEIO-PEDIDOS.md`.*
