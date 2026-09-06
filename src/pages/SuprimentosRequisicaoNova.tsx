@@ -40,6 +40,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { applyCnpjMask, stripCnpjMask, isValidCnpjLength } from "@/lib/cnpj";
+import { destinoAposSubmissao, regenerarGuidsAnexos } from "@/lib/requisicaoPosEnvio";
 
 interface StockProduct {
   codigo_produto: string;
@@ -491,7 +492,6 @@ export default function SuprimentosRequisicaoNova() {
           title: "Requisição enviada para aprovação do líder",
           description: "Ela só será enviada ao ERP depois que o líder do centro de custo aprovar.",
         });
-        navigate("/suprimentos/requisicoes");
       } else if (result.sucesso) {
         toast({
           title: "Requisição enviada com sucesso!",
@@ -499,7 +499,6 @@ export default function SuprimentosRequisicaoNova() {
             ? `Número no ERP: ${result.numero_alvo}`
             : "Requisição sincronizada com o ERP.",
         });
-        navigate("/suprimentos/requisicoes");
       } else if (result.rota === null) {
         // Recusa no roteamento (permissão, status, centro de custo): nada foi ao ERP.
         toast({
@@ -528,12 +527,32 @@ export default function SuprimentosRequisicaoNova() {
           variant: "destructive",
         });
       }
+
+      // Para onde ir depois do toast. A decisão vive em `destinoAposSubmissao`
+      // (src/lib/requisicaoPosEnvio.ts) para poder ser testada sem montar o wizard.
+      // Nas falhas que JÁ deixaram um rascunho gravado (recusa no roteamento e falha
+      // de envio ao ERP), sair do wizard para o detalhe é o que impede o segundo
+      // clique em "Enviar" de criar OUTRA requisição reinserindo os mesmos GUIDs de
+      // anexo — no detalhe, "Reenviar" reusa os anexos já gravados.
+      const destino = destinoAposSubmissao(result);
+      if (destino.tipo === "lista") {
+        navigate("/suprimentos/requisicoes");
+      } else if (destino.tipo === "detalhe") {
+        navigate(`/suprimentos/requisicoes/${destino.requisicaoId}`);
+      } else {
+        // Cinto e suspensórios: a tela permanece, então os GUIDs em memória viram
+        // outros. O GUID identifica o anexo DAQUELA tentativa e tem UNIQUE global;
+        // uma nova tentativa cria outra requisição e reinsere os anexos.
+        setArquivos((prev) => regenerarGuidsAnexos(prev));
+      }
     } catch (err: any) {
       toast({
         title: "Erro inesperado",
         description: err?.message || "Não foi possível enviar a requisição.",
         variant: "destructive",
       });
+      // Erro inesperado também mantém a tela: mesmo motivo do ramo `permanece` acima.
+      setArquivos((prev) => regenerarGuidsAnexos(prev));
     } finally {
       setEnviando(false);
     }
