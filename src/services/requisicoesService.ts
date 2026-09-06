@@ -82,37 +82,70 @@ async function getSupabaseJWT(): Promise<string> {
 }
 
 /**
- * Login do ERP Alvo de QUEM ESTÁ OPERANDO. Sem ele, o envio PARA.
+ * Login de SERVIÇO usado quando o perfil de quem opera não tem `alvo_usuario`.
  *
- * 🔴 POR QUE ISTO EXISTE. Até 28/08/2026 o payload da requisição mandava
+ * ⚠️ PROVISÓRIO — é o login de uma PESSOA (Pedro), escolhido só porque é o único
+ * que existe no Alvo hoje com o perfil necessário. Deve ser trocado por um usuário
+ * NÃO-PESSOA do ERP (ex.: `HUB.REQUISICOES`) assim que ele for criado no Alvo;
+ * enquanto isso, um documento enviado com este login diz "o Hub digitou", não "o
+ * Pedro pediu". Quem pediu está em `CodigoFuncionario` e no carimbo do `Texto`.
+ */
+const LOGIN_SERVICO_REQCOMP = "PEDRO.SCRIGNOLI";
+
+/**
+ * Login do ERP Alvo de QUEM ESTÁ OPERANDO — com fallback para o login de SERVIÇO
+ * quando a pessoa ainda não tem o dela cadastrada.
+ *
+ * 🔴 POR QUE ISTO EXISTE (a D-17). Até 28/08/2026 o payload da requisição mandava
  * `CodigoUsuario`/`UsuarioLogado` com a constante literal `"PEDRO.SCRIGNOLI"`.
  * Medido na série completa (`compras_requisicoes_auditoria`, evento
  * `envio_tentado`, 28/08/2026 10:5x UTC): **226 payloads, 32 pessoas distintas do
  * Hub, 1 único `CodigoUsuario`** — todos os 225 que trazem a chave dizem
  * PEDRO.SCRIGNOLI (o 226º, de 10/04/2026, é anterior ao campo). Entre eles, 3
  * requisições da `ana.sanches`, que **tinha login próprio disponível** e foi
- * descartado.
+ * descartado. É a TERCEIRA ocorrência do mesmo padrão, em três módulos e por três
+ * campos diferentes: A-8 (Projetos, `alvo_usuario`) · A-10 (Suprimentos,
+ * `funcionario_alvo_codigo` — `nfe@` e `pedro.scrignoli@` compartilhavam o `0000149`,
+ * conferido em 28/08/2026) · e este (requisições, `CodigoUsuario`).
  *
- * É a TERCEIRA ocorrência do mesmo padrão, em três módulos e por três campos
- * diferentes: A-8 (Projetos, `alvo_usuario`) · A-10 (Suprimentos,
- * `funcionario_alvo_codigo` — `nfe@` e `pedro.scrignoli@` ainda compartilham o
- * `0000149`, conferido hoje) · e este (requisições, `CodigoUsuario`).
+ * 🔴 O QUE DEU ERRADO NA D-17 (não apagar esta parte). A regra escrita era "sem
+ * identidade própria, falha com mensagem clara — nunca cai para a identidade de
+ * outra pessoa", e ela foi publicada em 02/09/2026 (~17:53 UTC, commits e5c500f +
+ * 7091c09) **sem o pré-requisito dela**: preencher os ~30 `profiles.alvo_usuario`
+ * que faltavam. Resultado medido em 06/09/2026: **5 de 58 perfis** têm login; **31
+ * requisitantes ativos** e **2 dos 4 líderes** (caio.santos, guilherme.oliveira)
+ * estão sem. E como o envio pós-aprovação roda na SESSÃO DO LÍDER, **aprovar também
+ * parou** — não só criar. O módulo ficou travado do dia 02 ao dia 06. A lição não é
+ * "a regra estava errada": é que um gate de identidade só pode ser publicado DEPOIS
+ * do backfill que ele pressupõe.
  *
- * A regra é a D-17 do `PLANO-PROJETOS`, já decidida e já em produção no módulo de
- * Projetos: **sem identidade própria, falha com mensagem clara — nunca cai para a
- * identidade de outra pessoa.** Pedido no ERP com autor errado é pior do que
- * pedido não enviado: o Hub e o ERP passam a contar histórias diferentes sobre o
- * mesmo documento, e isso é rastreabilidade falsa no sistema contábil.
+ * 🩹 O QUE ESTE CÓDIGO FAZ HOJE (hotfix, 06/09/2026). Sem `alvo_usuario`, o envio
+ * NÃO para mais: segue com `LOGIN_SERVICO_REQCOMP`, sempre com um `console.warn`
+ * explícito que serve de fila de cadastro (user id + e-mail). Isto troca uma parada
+ * total por uma identidade de OPERADOR genérica — é dívida assumida, não a regra
+ * final. A saída definitiva tem duas metades, e as duas continuam pendentes:
+ * (1) criar o usuário não-pessoa no Alvo e apontar `LOGIN_SERVICO_REQCOMP` para ele;
+ * (2) fazer o backfill dos ~30 logins e então reavaliar se o gate volta a barrar.
+ *
+ * ⚠️ O que o fallback NÃO apaga: `CodigoUsuario`/`UsuarioLogado` é o DIGITADOR, e
+ * nunca foi o único eixo de identidade do payload. A identidade REAL do requisitante
+ * continua em **dois** lugares independentes deste login:
+ *   · `CodigoFuncionario` — o código do requisitante (34 códigos distintos nos
+ *     mesmos 226 envios: este eixo NUNCA esteve emprestado);
+ *   · o carimbo `"[Hub] Requisitante: <nome> | <data/hora> | ID: <uuid curto>"` no
+ *     campo `Texto` (montado em `montarTexto`, gravado em `compras_requisicoes.texto`).
+ * Por isso um envio com o login de serviço é rastreável; o que se perde é saber pelo
+ * ERP QUEM clicou, não a favor de quem o documento foi criado.
+ *
+ * ✋ O que continua PARANDO o envio: login próprio cadastrado com formato inválido.
+ * Valor sujo é erro de CADASTRO e precisa aparecer — cair para o login de serviço
+ * nesse caso transformaria um erro visível em envio silencioso com identidade
+ * trocada. Sessão expirada também continua lançando.
  *
  * ℹ️ A identidade vem da SESSÃO, não do `opts.userId`: quem opera é quem está
  * logado. É a mesma resolução usada pelo módulo de Projetos
  * (`alvoProjetoPedidoService`), pela MESMA função — a lógica de busca vive em
  * `pedidosService.resolverUsuarioAlvoOuNull` e não é copiada.
- *
- * ⚠️ Isto NÃO é o único eixo de identidade do payload: `CodigoFuncionario`
- * continua sendo o do requisitante, e ele **já distingue as pessoas** — 34 códigos
- * distintos nos mesmos 226 envios. O que estava emprestado era o login do
- * operador, não o requisitante.
  */
 async function resolverCodigoUsuarioAlvo(): Promise<string> {
   const {
@@ -125,18 +158,28 @@ async function resolverCodigoUsuarioAlvo(): Promise<string> {
 
   const login = (await resolverUsuarioAlvoOuNull(session.user.id, session.user.email))?.trim();
   if (!login) {
-    throw new Error(
-      "Seu usuário não tem login do ERP Alvo configurado — peça ao administrador para cadastrá-lo " +
-        "no seu perfil. A requisição NÃO foi enviada ao ERP: o Hub não lança documento no ERP com " +
-        "a identidade de outra pessoa.",
+    // HOTFIX 06/09/2026 — cai para o login de serviço em vez de parar o módulo.
+    // Nunca silencioso: este warn É a fila de cadastro (id + e-mail de quem faltou).
+    // O documento continua carregando a identidade real do requisitante em
+    // `CodigoFuncionario` e no carimbo "[Hub] Requisitante:" do `Texto`; o login
+    // diz apenas QUEM DIGITOU.
+    console.warn(
+      `[requisicoes] perfil SEM 'alvo_usuario' (user_id=${session.user.id} email=${session.user.email ?? "?"}). ` +
+        `A requisição vai ao ERP com o LOGIN DE SERVIÇO "${LOGIN_SERVICO_REQCOMP}" (provisório). ` +
+        "A identidade real do requisitante segue no CodigoFuncionario e no carimbo " +
+        '"[Hub] Requisitante:" do campo Texto. Cadastre o login próprio desta pessoa em profiles.alvo_usuario.',
     );
+    return LOGIN_SERVICO_REQCOMP;
   }
 
-  // ⚠️ `profiles.alvo_usuario` é TEXTO LIVRE preenchido à mão, e o desbloqueio deste
-  // card prevê cadastrar 30 logins de uma vez. Um espaço sobrando ou uma letra
-  // minúscula só apareceria como recusa do Alvo — DEPOIS de o `envio_tentado` já ter
-  // sido gravado, o que faz a auditoria registrar uma tentativa com um payload que o
-  // ERP nunca teve chance de aceitar. Barrar aqui é barato e a mensagem diz o que é.
+  // ⚠️ Daqui para baixo, a pessoa TEM login próprio cadastrado — e por isso este
+  // caminho continua PARANDO, sem fallback: `profiles.alvo_usuario` é TEXTO LIVRE
+  // preenchido à mão, e o backfill pendente prevê cadastrar ~30 logins de uma vez.
+  // Um espaço sobrando ou uma letra minúscula só apareceria como recusa do Alvo —
+  // DEPOIS de o `envio_tentado` já ter sido gravado, o que faz a auditoria registrar
+  // uma tentativa com um payload que o ERP nunca teve chance de aceitar. E cair para
+  // o login de serviço aqui esconderia um erro de cadastro atrás de um envio bem
+  // sucedido com identidade trocada. Barrar é barato e a mensagem diz o que corrigir.
   if (!/^[A-Z0-9][A-Z0-9._-]*$/.test(login)) {
     throw new Error(
       `O login do ERP Alvo cadastrado no seu perfil ("${login}") não tem o formato que o ERP usa ` +
@@ -237,9 +280,10 @@ function montarTexto(input: NovaRequisicaoInput): string {
  */
 interface PayloadReqCompParams {
   /**
-   * Login do ERP Alvo de quem está operando. OBRIGATÓRIO e sem default de
-   * propósito: um valor opcional aqui reabriria a porta para a identidade
-   * emprestada que este parâmetro veio fechar (ver `resolverCodigoUsuarioAlvo`).
+   * Login do ERP Alvo de quem está DIGITANDO. OBRIGATÓRIO e sem default de
+   * propósito: quem decide este valor é `resolverCodigoUsuarioAlvo` e mais ninguém
+   * — inclusive a escolha do login de serviço, que lá é explícita e logada. Um
+   * default aqui criaria um segundo lugar capaz de emprestar identidade, sem aviso.
    */
   codigo_usuario: string;
   codigo_centro_ctrl: string;
@@ -473,10 +517,11 @@ async function registrarFalhaEnvioLegado(
 
   // 🔴 O supabase-js devolve `{data, error}` em vez de lançar, então sem esta
   // conferência uma escrita rejeitada some. Isto importa mais aqui do que nos blocos
-  // de onde a função foi extraída: este passou a ser o ÚNICO desfecho do caminho novo
-  // de recusa por identidade — o que ~30 pessoas percorrem no primeiro clique depois
-  // do Publish. Se falhar em silêncio, a tela diz "salvo como rascunho com o erro
-  // registrado" e nada foi gravado.
+  // de onde a função foi extraída: este é o ÚNICO desfecho do caminho de recusa por
+  // identidade. Com a D-17 publicada em 02/09 ele era o que ~30 pessoas percorriam no
+  // primeiro clique; desde o hotfix de 06/09 sobrou o login próprio mal cadastrado —
+  // menos frequente, mesma exigência. Se falhar em silêncio, a tela diz "salvo como
+  // rascunho com o erro registrado" e nada foi gravado.
   // Não lança: o que vale para a pessoa é a mensagem do fluxo, que nunca é silenciosa.
   if (errStatus) {
     console.error(`[requisicoes] desfecho de falha NÃO gravado em ${requisicaoId}: ${errStatus.message}`);
@@ -683,8 +728,10 @@ export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvo
     : undefined;
 
   // ── D-17: identidade do operador no ERP, ANTES de montar o payload e ANTES de
-  // qualquer escrita. Falhando aqui, nada foi ao ERP e nada de enganoso fica
-  // gravado: não há `envio_tentado` com um payload que nunca existiu.
+  // qualquer escrita. Desde o hotfix de 06/09/2026, a falta de `alvo_usuario` NÃO
+  // cai mais aqui — segue com o login de serviço. Ainda falham: sessão expirada e
+  // login próprio com formato inválido. Falhando, nada foi ao ERP e nada de enganoso
+  // fica gravado: não há `envio_tentado` com um payload que nunca existiu.
   let codigoUsuarioAlvo: string;
   try {
     codigoUsuarioAlvo = await resolverCodigoUsuarioAlvo();
