@@ -5,16 +5,17 @@
 > Documentos da missão: `MISSAO-SYNC-PEDIDOS.md` (espec-mãe) · `PROMPT-S0-SYNC-PEDIDOS.md`
 > (substitui a §4 da espec) · `DISCOVERY-SYNC-RATEIO-PEDIDOS.md` (achados, revisão 2).
 
-**Criado em:** 03/09/2026 · **Última atualização:** 03/09/2026 (fim da sessão S1.1)
+**Criado em:** 03/09/2026 · **Última atualização:** 06/09/2026 (deploy da S1.1)
 
 ---
 
 ## 1. Situação em uma linha
 
-A correção do sync (**FASE S1**) **já foi ao ar** entre 20 e 24/08 e funciona. A **S1.1** (esta
-sessão) corrigiu o gate que barrava 122 pedidos e instrumentou as execuções órfãs — **falta o
-deploy**. Restam **1.174 pedidos / R$ 12,19 M** sem rateio normalizado para o backfill, cujo
-desenho mudou: o jsonb sozinho **não basta** (9,5% está desatualizado — §5.1).
+A correção do sync (**FASE S1**) **já foi ao ar** entre 20 e 24/08 e funciona. A **S1.1** corrigiu o
+gate que barrava 122 pedidos e instrumentou as execuções órfãs — **publicada em 06/09/2026**, ainda
+**sem ciclo real** (o primeiro é segunda 08/09 08h00 BRT — ver §10.4). Restam **1.174 pedidos /
+R$ 12,19 M** sem rateio normalizado para o backfill, cujo desenho mudou: o jsonb sozinho **não
+basta** (9,5% está desatualizado — §5.1).
 
 ---
 
@@ -24,7 +25,7 @@ desenho mudou: o jsonb sozinho **não basta** (9,5% está desatualizado — §5.
 |---|---|---|
 | **S0 — Discovery** | ✅ **concluída** (rev. 1 em 14/08, rev. 2 em 03/09) | `DISCOVERY-SYNC-RATEIO-PEDIDOS.md` |
 | **S1 — Correção do sync** | ✅ **em produção desde 20–24/08** (cards C3, C3.2, C3.3, D4) | **Não foi executada por esta missão** — chegou pela trilha de Suprimentos. Ver §4 |
-| **S1.1 — Gate + instrumentação** | 🟡 **código pronto, AGUARDANDO DEPLOY** | Commit desta sessão. Gate por evidência direta + carimbo de execução órfã. Ver §9 |
+| **S1.1 — Gate + instrumentação** | 🟡 **publicada em 06/09/2026, aguardando 1º ciclo** | Deploy confirmado (v50, `BUILD_TAG` S1.1). Efeito só é observável na 2ª-feira 08/09. Ver §9 e §10.4 |
 | **S2 — Backfill** | 🔴 **aberto — desenho a revisar** | A pré-condição §5.1 reprovou parcialmente: o jsonb é fiel mas **desatualizado em 9,5%**. Ver §10 |
 | **S3 — Convenção de percentual** | 🔴 aberto | T4 do Ajuste |
 
@@ -142,8 +143,8 @@ cruzassem. **Um escritor por vez vale para o repo; não valeu para os planos.**
 | # | Pergunta | Bloqueia |
 |---|---|---|
 | 1 | 🔴 **Fonte do backfill**, agora que o jsonb mostrou 9,5% de desatualização: usar `resposta_alvo` da auditoria quando existir (cobre 508) e jsonb no resto (666), ou fazer Load ao vivo dos 666? | desenho do **S2** — ver §10 |
-| 2 | 🔴 **Aplicar `docs/SQL-S1.1-CHECK-AUDITORIA-REQ.sql` antes do deploy?** Sem ele o deploy dos 2 commits pendentes faz `sync_runs` acusar ~2 erros/dia para sempre | **deploy da S1.1** |
-| 3 | **Janela do deploy** da S1.1 (após 17h BRT ou fim de semana) | **S1.1** |
+| ~~2~~ | ✅ **Fechado em 06/09** — o CHECK de `compras_requisicoes_auditoria` **já contém** `descoberta_alvo` e `sync_status`: o DDL foi aplicado em 03/09, entre o commit (10h21) e as 16h00. Verificado por `pg_get_constraintdef` + 1 linha `descoberta_alvo` gravada às 16h00. Nada a fazer no deploy | — |
+| ~~3~~ | ✅ **Fechado em 06/09** — deploy feito no domingo, fora da janela `1-5` | — |
 | 4 | A **dupla convenção de `percentual`** fica como está, ganha coluna, ou ganha `COMMENT`? | fase **S3** |
 
 As demais perguntas (5 a 12) estão em `DISCOVERY-SYNC-RATEIO-PEDIDOS.md`, seção final.
@@ -158,7 +159,7 @@ As demais perguntas (5 a 12) estão em `DISCOVERY-SYNC-RATEIO-PEDIDOS.md`, seç�
 | R2 | 🔴 O **escopo do líder de CC** (AJUSTE 7.2, entregue 02/09) lê a tabela de rateio **e** o cabeçalho. Com 78,5% do valor sem rateio, apoia-se na *primeira fatia* | `listar_pedidos_escopo` lê as duas fontes |
 | R3 | ⚠️ Falha de RPC no rateio **reabre a flag** e o pedido volta — se a forma nova do Alvo for sempre recusada, vira **laço infinito** | 4 pedidos, 20–24/08, resolvidos pelo C3.3 |
 | R4 | ⚠️ Execução do cron pode **morrer no meio** sem contar erro (`finished_at` nulo) — invisível a alarme por `total_erros` | 2 casos: 24/07 08:00, 02/09 17:00 |
-| R5 | 🔴 Função publicada **2 commits atrás** do `main` — qualquer deploy leva `f7185bf` e `11cbe2b` junto | `BUILD_TAG` publicado ≠ repo |
+| ~~R5~~ | ✅ **Extinto em 06/09** — a publicada é `7b4214b` e leva `f7185bf` + `11cbe2b` junto, como previsto. `BUILD_TAG` publicado = repo | v50, §10.4 |
 | R6 | ⚠️ `paused_at` em `sync_settings` **não é lido** pela função; a linha de hoje tem carimbo de 26/05 com `enabled=true` — quem olhar a tabela conclui errado | `index.ts:2597` lê só `enabled` e `paused_reason` |
 
 ---
@@ -228,20 +229,101 @@ Medido: **3 órfãs** — 19/06 15:00, 24/07 08:00, 02/09 17:00 (o Discovery tin
 **Não há risco de enfileiramento:** a fila não cresce (é população elegível, não backlog), o custo
 marginal é uma RPC transacional por pedido, e as execuções levam hoje 43–115 s.
 
-### 10.3 Pré-requisitos do deploy (nada foi publicado)
+### 10.3 Pré-requisitos do deploy — ✅ **cumpridos em 06/09/2026** (registro em §10.4)
 
-1. 🔴 **Decidir sobre `docs/SQL-S1.1-CHECK-AUDITORIA-REQ.sql`** — ver §6, bloqueio 2.
-2. **Janela:** após 17h BRT ou fim de semana (o cron roda 08h–17h, dias úteis).
-3. **Deploy:** `supabase functions deploy sync-compras-status-cron --project-ref hbtggrbauguukewiknew`.
-4. **Confirmar que a função responde** (deploy fantasma já ocorreu): o `BUILD_TAG` publicado deve
-   passar a ser `S1.1-GATE-EVIDENCIA-DIRETA + ORFAS (2026-09-03)`.
-5. **Um ciclo real** e então conferir `sync_runs` e a queda do número de barrados.
+1. ✅ **`docs/SQL-S1.1-CHECK-AUDITORIA-REQ.sql`** — já estava aplicado desde 03/09; nada a decidir.
+2. ✅ **Janela:** domingo 06/09, fora do `1-5`.
+3. ✅ **Deploy:** `supabase functions deploy sync-compras-status-cron --project-ref hbtggrbauguukewiknew`.
+4. ✅ **Confirmado que a função responde** — `BUILD_TAG` publicado é
+   `S1.1-GATE-EVIDENCIA-DIRETA + ORFAS (2026-09-03)`.
+5. 🟡 **Um ciclo real** — pendente: primeiro é **segunda 08/09 08h00 BRT**. Conferir `sync_runs` e a
+   queda do número de barrados (§10.4).
 6. **Âncora de agosto inalterada:** R$ 2.739.015,00 / 228.
 
 ⚠️ **A Edge Function não pôde ser compilada localmente** — `deno` não está instalado nesta máquina, e
 `tsc -p tsconfig.app.json` (que passou) **não cobre `supabase/functions/`**. O `bun run build` também
 não a inclui. A compilação real acontece no `functions deploy`. Revisei as três regiões editadas à
 mão; o risco residual é de tipo, não de lógica.
+→ **Resolvido pelo próprio deploy de 06/09:** o bundle é montado no servidor e subiu sem erro; o
+risco de tipo não se materializou.
+
+### 10.4 Registro do deploy — 06/09/2026 (domingo), 07h40 BRT / 10h40 UTC
+
+Commit publicado: **`7b4214b`** (leva junto `f7185bf` e `11cbe2b`, como previsto na R5).
+Comando: `supabase functions deploy sync-compras-status-cron --project-ref hbtggrbauguukewiknew`.
+Sem Docker e sem `deno` local — bundle montado no servidor, sem erro de compilação.
+
+**Três evidências independentes de que subiu de verdade** (o projeto já teve deploy fantasma; o
+`"Deployed Functions."` do CLI **não** é prova):
+
+| # | O que prova | Evidência |
+|---|---|---|
+| 1 | **Bundle novo no ar** | Management API: `version` **49 → 50**; `ezbr_sha256` `8b12fe72…04a4f` → `4c82f610…7b125`; `updated_at` 06/09 10:40 UTC; `status` ACTIVE |
+| 2 | **Boota e executa** | `POST` com `x-cron-secret` inválido → **HTTP 401** `{"error":"Não autorizado"}` — corpo exato do handler. Descarta BOOT_ERROR e confirma que `CRON_SECRET` existe (ausente daria 500 "mal configurada") |
+| 3 | **É o build certo** | `function_logs`: `booted (time: 29ms)` + `[cron] build=S1.1-GATE-EVIDENCIA-DIRETA + ORFAS (2026-09-03)`. Anterior: `REQ-AUDITORIA-CHECA-ERRO-v2-JOB4 (2026-08-28)` |
+
+Só a evidência 3 separa "subiu *algum* bundle" de "subiu o commit que eu queria" — as outras duas,
+sozinhas, não distinguem.
+
+**A sonda da evidência 2 é inócua por construção:** o gate do segredo está *antes* de qualquer
+chamada ao Alvo e antes do insert em `sync_runs`. Conferido: nenhuma linha nova em `sync_runs` (a
+última seguiu sendo 04/09 17:00 BRT).
+
+⚠️ **`function_edge_logs` não carrega os `console.log` da aplicação** — o BUILD_TAG só aparece em
+`source = 'function_logs'`, filtrando por
+`log_attributes['function_id'] = '62f80576-57c5-4d49-8992-777778e875a8'`.
+
+#### SQL do CHECK: já estava aplicado
+
+O commit manda rodar `docs/SQL-S1.1-CHECK-AUDITORIA-REQ.sql` **antes** do deploy, sob pena de
+`total_erros` subir ~2/dia para sempre. Verificado em vez de assumido: o CHECK de
+`compras_requisicoes_auditoria` **já contém** `descoberta_alvo` e `sync_status`, e há **1 linha
+`descoberta_alvo` gravada em 03/09 16h00** — prova de que o insert já funciona. O DDL entrou em
+03/09 entre o commit (10h21) e as 16h00. **Nada foi escrito no banco nesta sessão.**
+
+#### O que observar em `sync_runs` na segunda 08/09
+
+Baseline (sexta 04/09, 8 execuções): `candidatos` 494–498 · `consultados` = `candidatos` ·
+`mudaram` **1–6** · `erros` **0** · 48–114 s · `obs = "Job2 elegíveis(sem limit)=418–421, limit=100"`.
+
+**Na 1ª execução (08h00):**
+
+- 🔔 **Ruído esperado, uma vez só: 3 linhas ANTIGAS ganham `total_erros = 1`.** São as órfãs de
+  **19/06 15:00, 24/07 08:00 e 02/09 17:00** (confirmadas em 06/09 com `finished_at` e `observacao`
+  nulos). O carimbo vai nas linhas passadas, **não** na execução de segunda. Alarme por
+  `total_erros > 0` **vai disparar** — é o comportamento desejado (essas falhas eram invisíveis), e
+  **não se repete**: `observacao is null` torna a varredura idempotente.
+- **`total_mudaram` deve saltar** muito acima de 1–6: os 122 pedidos antes barrados passam a
+  disparar, a 100 por ciclo.
+
+**Ao longo do dia:**
+
+- ✅ **Sinal de sucesso: `Job2 elegíveis(sem limit)` CAI** de ~420. É esse número que diz se o gate
+  funcionou. Drenagem prevista em ~meio dia útil.
+- 🔴 **Sinal de fracasso: elegíveis NÃO cai e `mudaram` fica alto ciclo após ciclo, todo dia.** Seria
+  o laço infinito dos 7 pedidos sem rateio em lugar nenhum — exatamente o que a conjunção do gate
+  existe para evitar (R3). Se até terça não estabilizar abaixo do baseline, o gate está mandando
+  reprocessar o que nunca poderá ser satisfeito.
+- **`total_erros` da execução nova deve seguir 0.** Com o CHECK já corrigido, erro aqui é sintoma de
+  outra coisa — ler `detalhes`.
+- **Duração:** as RPCs de reprocesso somam sobre os 48–114 s atuais. Execução que morra no meio agora
+  **se auto-reporta** no ciclo seguinte, em vez de sumir (é a instrumentação da §10.1-b).
+- **Log:** `[cron] build=S1.1-GATE-EVIDENCIA-DIRETA…` na execução das 08h confirma que o pg_cron
+  pegou o build novo. `gate degradado para o proxy dos jsonb neste ciclo` = a leitura do Hub falhou e
+  o critério novo não atuou naquele ciclo (fallback conservador da regra 10); preocupante só se for
+  recorrente.
+
+```sql
+select started_at at time zone 'America/Sao_Paulo' as inicio_brt,
+       total_candidatos, total_mudaram, total_erros,
+       round(duracao_ms/1000.0,1) as seg, observacao
+from public.sync_runs
+where job_type = 'bicephalous' and started_at > '2026-09-08'
+order by started_at;
+```
+
+**Rollback:** `git checkout 11cbe2b -- supabase/functions/sync-compras-status-cron/index.ts` +
+redeploy (volta ao `BUILD_TAG` de 28/08). Sem revert no repo.
 
 ---
 
@@ -291,6 +373,27 @@ Mesmo CC, mesmo valor, **classe reclassificada no ERP**. `detalhes_carregados_em
 ---
 
 ## 11. Diário
+
+### 06/09/2026 — Deploy da S1.1 (domingo, fora da janela do cron)
+
+Escopo: **só o deploy**. Nenhuma alteração de código, nenhuma escrita no banco, sem push do que já
+estava publicado. Registro completo em §10.4.
+
+- **`7b4214b` publicado** às 07h40 BRT — v49 → **v50**, `BUILD_TAG` confirmado por log
+  (`booted` + `[cron] build=S1.1-GATE-EVIDENCIA-DIRETA + ORFAS`). Bloqueio 3 e risco R5 fechados.
+- **Bloqueio 2 caiu sozinho:** o SQL do CHECK **já estava aplicado** desde 03/09 (verificado, não
+  assumido — o próprio doc dizia "NÃO EXECUTADO"). Sem ele o deploy custaria ~2 erros/dia para
+  sempre; o custo não existe.
+- **Lição de método — `"Deployed Functions."` não é prova.** Fixadas três evidências independentes
+  (§10.4): `version`+`sha256` pela Management API, probe 401 sem efeito colateral, e BUILD_TAG em
+  `function_logs`. Só a terceira distingue "subiu algum bundle" de "subiu o commit certo".
+- **Armadilha de log registrada:** `function_edge_logs` **não** carrega os `console.log` da
+  aplicação — é `function_logs`. Buscar no source errado devolve vazio e parece "não bootou".
+- **Correção ao CLAUDE.md, para quem vier depois:** o cron deste módulo é o **jobid 1**,
+  `0 11-20 * * 1-5` — **de hora em hora, 08h–17h BRT**. As janelas 07h30/12h30/16h30 citadas no
+  CLAUDE.md são do **intercompany** (jobid 14), não deste. Já estava certo na §8 daqui.
+- **Pendente:** o 1º ciclo real é **segunda 08/09 08h00 BRT**. O deploy não foi validado por
+  execução — caminho feliz que ainda não rodou.
 
 ### 03/09/2026 — Sessão S1.1 (gate + pré-condição do backfill)
 
