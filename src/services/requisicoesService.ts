@@ -506,7 +506,19 @@ async function registrarFalhaEnvioLegado(
     { onConflict: "id" },
   );
 
-  const { error: errAudit } = await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+  // 🔴 POR QUE `.insert` E NÃO `.upsert` — vale para os 9 sites de auditoria deste
+  // arquivo, não repito o comentário nos outros oito.
+  // O PostgREST traduz `.upsert()` para `INSERT ... ON CONFLICT DO UPDATE`, e isso
+  // exige privilégio **UPDATE** na tabela. O card B4 (19/08/2026) tornou
+  // `compras_requisicoes_auditoria` append-only revogando UPDATE/DELETE de
+  // `authenticated` (ACL medido em 06/09/2026: `authenticated=arDxtm` — tem `a`
+  // (INSERT) e `r` (SELECT), NÃO tem `w`). Desde então todo upsert de auditoria vindo
+  // do navegador voltava **42501 "permission denied"** (14 vezes só em 04/09), e como
+  // ninguém checava o `error` a falha sumia: a trilha escrita pelo frontend ficou
+  // congelada em **19/08/2026 19:06 UTC** ('criada', 'envio_tentado', 'envio_sucesso').
+  // O upsert nunca teve função aqui — `id` é `gen_random_uuid()`, então nunca houve
+  // conflito a resolver. `.insert()` usa só o privilégio que a tabela concede.
+  const { error: errAudit } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
     requisicao_id: requisicaoId,
     evento: "envio_falha",
     user_id: userId,
@@ -624,13 +636,19 @@ export async function criarRequisicao(input: NovaRequisicaoInput): Promise<strin
       }
     }
 
-    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+    const { error: errAuditCriada } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
       requisicao_id: requisicaoId,
       evento: "criada",
       user_id: input.user_id,
       user_nome: input.requisitante_nome,
       sucesso: true,
     });
+    // Não lança: a requisição FOI criada; perder a trilha não pode desfazer isso.
+    if (errAuditCriada) {
+      console.error(
+        `[auditoria] falhou ao gravar evento "criada" da requisição ${requisicaoId}: ${errAuditCriada.message}`,
+      );
+    }
 
     return requisicaoId;
   } catch (errCriacao: any) {
@@ -641,14 +659,23 @@ export async function criarRequisicao(input: NovaRequisicaoInput): Promise<strin
     if (requisicaoId) {
       await tentarRegistrarErroNoRascunho(requisicaoId, `Erro durante criação: ${msgErro}`);
 
-      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
-        requisicao_id: requisicaoId,
-        evento: "envio_falha",
-        user_id: input.user_id,
-        user_nome: input.requisitante_nome,
-        sucesso: false,
-        mensagem_erro: `Erro durante criação: ${msgErro}`,
-      });
+      const { error: errAuditFalhaCriacao } = await (supabase as any)
+        .from("compras_requisicoes_auditoria")
+        .insert({
+          requisicao_id: requisicaoId,
+          evento: "envio_falha",
+          user_id: input.user_id,
+          user_nome: input.requisitante_nome,
+          sucesso: false,
+          mensagem_erro: `Erro durante criação: ${msgErro}`,
+        });
+      // Não lança: mascararia `msgErro`, que é o erro real que a pessoa precisa ver.
+      if (errAuditFalhaCriacao) {
+        console.error(
+          `[auditoria] falhou ao gravar evento "envio_falha" da requisição ${requisicaoId}: ` +
+            errAuditFalhaCriacao.message,
+        );
+      }
 
       const err = new Error(msgErro) as Error & { requisicaoId?: string };
       err.requisicaoId = requisicaoId;
@@ -763,7 +790,7 @@ export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvo
     arquivos_guids: guids,
   });
 
-  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+  const { error: errAuditTentado } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
     requisicao_id: requisicaoId,
     evento: "envio_tentado",
     user_id: opts.userId,
@@ -771,6 +798,12 @@ export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvo
     payload_enviado: payload,
     sucesso: true,
   });
+  // Não lança: auditoria perdida não pode impedir um envio que ainda vai acontecer.
+  if (errAuditTentado) {
+    console.error(
+      `[auditoria] falhou ao gravar evento "envio_tentado" da requisição ${requisicaoId}: ${errAuditTentado.message}`,
+    );
+  }
 
   if (opts.persistencia === "legado") {
     await (supabase as any).from("compras_requisicoes").upsert(
@@ -850,7 +883,7 @@ export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvo
         { onConflict: "id" },
       );
 
-      await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+      const { error: errAuditSucesso } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
         requisicao_id: requisicaoId,
         evento: "envio_sucesso",
         user_id: opts.userId,
@@ -858,6 +891,14 @@ export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvo
         resposta_alvo: respData,
         sucesso: true,
       });
+      // Não lança: a requisição JÁ existe no ERP; derrubar aqui viraria falso negativo
+      // e convidaria a um reenvio, que duplicaria o documento no Alvo.
+      if (errAuditSucesso) {
+        console.error(
+          `[auditoria] falhou ao gravar evento "envio_sucesso" da requisição ${requisicaoId}: ` +
+            errAuditSucesso.message,
+        );
+      }
     }
 
     // Marcar arquivos com o número do Alvo (RPC — PATCH direto é bloqueado por CORS)
@@ -1143,7 +1184,7 @@ export async function reenviarRequisicao(
     arquivos_guids: guids,
   });
 
-  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+  const { error: errAuditReenvioTentado } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
     requisicao_id: requisicaoId,
     evento: "envio_tentado",
     user_id: userId,
@@ -1151,6 +1192,13 @@ export async function reenviarRequisicao(
     payload_enviado: payload,
     sucesso: true,
   });
+  // Não lança: auditoria perdida não pode impedir um reenvio que ainda vai acontecer.
+  if (errAuditReenvioTentado) {
+    console.error(
+      `[auditoria] falhou ao gravar evento "envio_tentado" (reenvio) da requisição ${requisicaoId}: ` +
+        errAuditReenvioTentado.message,
+    );
+  }
 
   await (supabase as any).from("compras_requisicoes").upsert(
     {
@@ -1225,7 +1273,7 @@ export async function reenviarRequisicao(
       }
     }
 
-    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+    const { error: errAuditReenvioSucesso } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
       requisicao_id: requisicaoId,
       evento: "envio_sucesso",
       user_id: userId,
@@ -1233,6 +1281,15 @@ export async function reenviarRequisicao(
       resposta_alvo: respData,
       sucesso: true,
     });
+    // Não lança: um throw aqui cairia no `catch` desta função, que chama
+    // `registrarFalhaEnvioLegado` e voltaria a requisição para 'rascunho' — depois de
+    // ela já ter sido criada no ERP. Auditoria falha, o desfecho fica de pé.
+    if (errAuditReenvioSucesso) {
+      console.error(
+        `[auditoria] falhou ao gravar evento "envio_sucesso" (reenvio) da requisição ${requisicaoId}: ` +
+          errAuditReenvioSucesso.message,
+      );
+    }
 
     return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo, rota: null };
   } catch (err: any) {
@@ -1758,7 +1815,7 @@ export async function sincronizarStatusRequisicao(
       { onConflict: "id" },
     );
 
-    await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+    const { error: errAuditCancelada } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
       requisicao_id: requisicaoId,
       evento: "cancelada_alvo",
       user_id: userId,
@@ -1767,6 +1824,14 @@ export async function sincronizarStatusRequisicao(
       mensagem_erro: "Requisição não encontrada no ERP (possivelmente deletada fisicamente).",
       resposta_alvo: respData,
     });
+    // Não lança: a mudança de status já foi persistida acima; um throw aqui subiria
+    // para o laço de sincronização e derrubaria as outras requisições da rodada.
+    if (errAuditCancelada) {
+      console.error(
+        `[auditoria] falhou ao gravar evento "cancelada_alvo" da requisição ${requisicaoId}: ` +
+          errAuditCancelada.message,
+      );
+    }
 
     return {
       mudou: true,
@@ -1825,7 +1890,7 @@ export async function sincronizarStatusRequisicao(
 
   const evento = novoStatusHub === "convertida_pedido" ? "convertida_pedido" : "cancelada_alvo";
 
-  await (supabase as any).from("compras_requisicoes_auditoria").upsert({
+  const { error: errAuditStatus } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
     requisicao_id: requisicaoId,
     evento,
     user_id: userId,
@@ -1834,6 +1899,13 @@ export async function sincronizarStatusRequisicao(
     resposta_alvo: respData,
     mensagem_erro: motivo,
   });
+  // Não lança: mesma razão do bloco de `cancelada_alvo` acima — a mudança de status
+  // já está persistida e este código roda dentro de uma varredura de várias requisições.
+  if (errAuditStatus) {
+    console.error(
+      `[auditoria] falhou ao gravar evento "${evento}" da requisição ${requisicaoId}: ${errAuditStatus.message}`,
+    );
+  }
 
   return {
     mudou: true,
