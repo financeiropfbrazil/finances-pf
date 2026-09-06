@@ -1,5 +1,5 @@
 # ESTADO-REVISAO-SUPRIMENTOS
-### Estado vivo da missão · última atualização: 28/08/2026, após a sessão de execução Trilha 1 + Trilha 2 (§15)
+### Estado vivo da missão · última atualização: 06/09/2026, após a missão dos requisitantes bloqueados (§16)
 
 > **Leia este arquivo ANTES de qualquer coisa nesta missão.** Ele registra o que foi
 > executado, o que foi medido e — principalmente — **onde a documentação está errada**.
@@ -1820,6 +1820,143 @@ As três trilhas bateram no mesmo ponto por caminhos independentes. `alvoPedComp
 (H, mudança de bloco de aprovação sem `sync_status` correspondente).
 **Consequência que vale para tudo neste documento:** 89/63/26 (H), 26 divergentes (G) e 5/111 (I)
 são todos **PISO**. Enquanto houver escritor sem auditoria, nenhum desses números é total.
+
+---
+
+---
+
+## 16. Sessão de 06/09/2026 — requisitantes bloqueados (o preço do Publish sem pré-requisito)
+
+> **Três defeitos, um deles causado por esta própria missão.** Todo acesso ao banco nesta
+> sessão foi **SELECT**. Nada foi escrito no banco: os dois `.sql` são roteiros para o Pedro
+> colar, e o `DELETE` **não foi executado**.
+
+### 16.1 O que quebrou, e por culpa de quem
+
+**O módulo de requisições ficou parado de 02/09 a 06/09/2026.** O card B da §15 (`c6984e1` →
+`9c957ff`, publicado como `e5c500f` + `7091c09`) implementava a regra D-17: sem
+`profiles.alvo_usuario`, o envio PARA. A §15.2 deste arquivo dizia, em letras garrafais,
+**⛔ Publish BLOQUEADO** — e o Publish foi feito assim mesmo, em **02/09/2026 ~17:53 UTC**,
+sem o pré-requisito que o próprio commit declarava (preencher os ~30 logins).
+
+Medido em **06/09/2026** (banco + logs do Postgres):
+
+| Fato | Medida |
+|---|---|
+| Perfis com `alvo_usuario` | **5 de 58** |
+| Requisitantes ativos sem login | **31** |
+| Líderes sem login | **2 de 4** (caio.santos, guilherme.oliveira) |
+| Aprovação também travada | sim — `envio_pos_aprovacao_falha` de caio.santos, 02/09 18:11 UTC |
+
+🔴 **O segundo denominador que a §14.4 já tinha avisado cobrou o preço:** o envio pós-aprovação
+roda na **sessão do líder**, então o gate travou **aprovar**, não só **criar**. O aviso estava
+escrito e mesmo assim o efeito foi surpresa na hora.
+
+### 16.2 Os três cards
+
+| Card | Commit | O que entrou |
+|---|---|---|
+| **A** — gate de identidade | `b4f33b0` | sem `alvo_usuario`, resolve para `LOGIN_SERVICO_REQCOMP` (`"PEDRO.SCRIGNOLI"`, **provisório**) com `console.warn` explícito, em vez de lançar. Continuam parando: sessão expirada e login próprio com **formato inválido** |
+| **B** — wizard de anexos | `b5ebffb` | falha que já gravou rascunho navega para o detalhe; GUIDs regenerados quando a tela permanece; decisão extraída para `src/lib/requisicaoPosEnvio.ts` |
+| **C** — auditoria | `413161d` | os **9** `.upsert()` de `compras_requisicoes_auditoria` viram `.insert()` e passam a checar `error` |
+| **D** — verificação | `b023c60` | `VERIFY-REQUISITANTES.sql` + `LIMPEZA-RASCUNHOS.sql` (DELETE **não** executado) |
+
+**Verificação:** `tsc --noEmit -p tsconfig.app.json` limpo · `bun run build` limpo · suíte subiu
+de 59 para **77** testes passando. Os **7** que falham em `sidebar-ordem.test.tsx` são
+pré-existentes — medidos no HEAD **antes** de qualquer edição desta sessão.
+
+### 16.3 🔴 O B4 furou a trilha que ele mesmo veio proteger
+
+O card **B4** (19/08/2026) tornou `compras_requisicoes_auditoria` append-only revogando
+`UPDATE`/`DELETE` de `authenticated`. Só que os 9 sites do frontend gravavam com `.upsert()`,
+que o PostgREST traduz para `INSERT ... ON CONFLICT DO UPDATE` — **e isso exige UPDATE**.
+
+ACL medido em 06/09/2026: `authenticated=arDxtm` — tem `a` (INSERT) e `r` (SELECT), **não tem
+`w`**. `has_table_privilege('authenticated', ..., 'UPDATE')` = **false**. PostgREST devolve
+**42501**, **14 vezes só em 04/09**, e **nenhum dos 9 sites checava `error`**.
+
+Resultado, medido em 06/09/2026 14:41 UTC — a trilha do frontend está congelada desde
+**19/08/2026 19:06 UTC**:
+
+| evento | último (UTC) | total |
+|---|---|---|
+| `criada` | 2026-08-19 19:06:32 | 214 |
+| `envio_tentado` | 2026-08-19 19:06:34 | 226 |
+| `envio_sucesso` | 2026-08-19 19:06:36 | 202 |
+| `envio_falha` | 2026-07-31 11:47:44 | 19 |
+
+Os eventos escritos por **backend/cron continuam vivos** (`submetida_sem_gate` 04/09 20:58,
+`aprovada_lider` 03/09 17:55) — o eixo morto era só o do navegador, e é por isso que ninguém
+viu. **Nenhum dos 9 sites dependia de conflito:** `id` é `gen_random_uuid()` default. O upsert
+nunca teve função ali; era hábito.
+
+⚠️ **A §2 item 7 deste arquivo diz que a auditoria de requisições é escrita majoritariamente
+pelo frontend (887 de 933).** Some isso ao acima: **de 19/08 a 06/09 a fonte majoritária da
+trilha esteve desligada.** Todo número de auditoria de requisição que atravesse essa janela é
+piso, não total.
+
+### 16.4 O 23505 dos anexos — latente desde maio, detonado pelo card D-17
+
+O wizard gera o GUID do anexo uma vez e o mantém no estado; cada clique em Enviar cria **outra**
+requisição e reinsere o **mesmo** GUID, que tem UNIQUE global ⇒ 23505 (log do Postgres, 04/09
+11:51:11). A tela permanecia e o ciclo se repetia: **14 rascunhos-lixo** desde 02/09. Já tinha
+acontecido em **18/05/2026**, uma vez — o gate de identidade, ao fazer *todo primeiro envio*
+falhar, transformou o defeito raro em defeito toda vez.
+
+🔴 **Um defeito latente não é um defeito pequeno; é um defeito esperando um gatilho.** O gatilho
+veio de outro card, publicado no mesmo dia, por outro motivo.
+
+### 16.5 Correções de medição desta sessão
+
+1. **O LIKE do GUID casa 15, não 14.** Há um outlier de 18/05/2026
+   (`46b68561-da7f-4d11-afa3-0f6bb67d9119`). A trava `created_at >= '2026-09-02'` isola os 14 —
+   **a trava de data não é decorativa**.
+2. **No grupo de erro de login (6), são 5 os que têm anexo, não 6.** `b2a53ece` tem 0 anexos,
+   mas tem item e descrição reais, então segue fora da limpeza pelo mesmo critério.
+3. **`SuprimentosRequisicaoDetalhe.tsx:246` não tem `.upsert`** — é um `SELECT` de auditoria. O
+   arquivo inteiro não tem nenhum `.upsert` nem `.insert`. Os sites de auditoria do frontend são
+   **9**, todos em `requisicoesService.ts`.
+4. **O carimbo `"[Hub] Requisitante:"` é garantia de criação, não de envio** (é gravado por
+   `criarRequisicao` e apenas relido no envio). Medido nas 310 requisições desde 01/06/2026: 256
+   têm carimbo e **as 54 sem carimbo têm `requisitante_user_id` nulo e zero `envio_tentado`** —
+   vieram do espelho do Alvo. Ou seja, **em 195 de 195 envios reais do Hub os dois eixos de
+   identidade estavam presentes**, e `codigo_funcionario` está preenchido em **310/310**. A
+   ressalva é real e empiricamente vazia; o fallback não fica apoiado numa perna só.
+5. **`bianca.goncalves` está `is_active = true`** em 06/09/2026 — a §14.4 a registrou como
+   inativa em 28/08. É a maior emissora do grupo travado (36 requisições, a última em 04/09
+   11:51:09 UTC, o mesmo minuto do 23505 no log).
+
+### 16.6 🔴 Regra de método que esta sessão produziu
+
+**Commit marcado "⛔ NÃO PUBLICAR" precisa de gate no Publish, não só na mensagem.** A §15.2
+descrevia o bloqueio com precisão — medido, nominal, com o SQL do desbloqueio pronto ao lado — e
+o Publish aconteceu do mesmo jeito, quatro dias depois, custando quatro dias de módulo parado
+para 31 requisitantes. **Aviso escrito em documento não é controle; é intenção.** Enquanto o
+Publish do Lovable for um botão manual sem checagem, um commit que depende de pré-requisito de
+DADOS precisa ou (a) não ser mergeado no `main` até o pré-requisito existir, ou (b) nascer atrás
+de um flag desligado, ou (c) trazer o próprio fallback junto — que foi o que o card A desta
+sessão teve de fazer às pressas, em produção, com gente parada.
+
+Corolário: **a §15.3 desta mesma missão já dizia "antes de aplicar uma regra de identidade, meça
+quem a satisfaz hoje"**. A medição foi feita, deu 2 de 32, foi escrita — e não impediu nada.
+O que faltou não foi medir; foi **amarrar a medição ao gatilho**.
+
+### 16.7 O que fica aberto
+
+1. **`LOGIN_SERVICO_REQCOMP` é o login de uma PESSOA.** Trocar por um usuário não-pessoa do Alvo
+   (ex. `HUB.REQUISICOES`) assim que existir. Até lá, todo documento novo diz "PEDRO.SCRIGNOLI
+   digitou" — rastreável pelo `CodigoFuncionario`, mas errado como fato.
+2. **O backfill dos ~30 logins continua pendente** (`docs/SQL-14.4-alvo-usuario-requisicoes.sql`).
+   Com ele, dá para reavaliar se o gate volta a barrar — e aí a D-17 se cumpre de verdade.
+3. **`pedidosService.ts` mantém o fallback** (`USUARIO_LOGADO` + `resolverUsuarioAlvo`,
+   `console.error` + return). Pendência já registrada no `7091c09`; **não** foi tocada aqui.
+4. **Os 9 `console.error` novos do card C não têm asserção de teste** — o duplo do Supabase sempre
+   devolve `error: null`. A falha deixou de ser silenciosa, mas depende do console do navegador
+   para ser vista.
+5. **Os 6 rascunhos com erro de login precisam ser reenviados pela tela** depois do Publish. Eles
+   **não** entram no `LIMPEZA-RASCUNHOS.sql`.
+6. **`profiles` continua aberta no RLS** (policy única `ALL / authenticated / true / true`) — a
+   pendência 1 da §14.4 segue de pé, e agora com uma coluna que decide identidade no ERP.
 
 ---
 
