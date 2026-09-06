@@ -66,6 +66,7 @@ import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
 import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import CronReqMatDashboard from "./pages/ferramentas/CronReqMatDashboard";
+import CronEstoqueDashboard from "./pages/ferramentas/CronEstoqueDashboard";
 import ProducaoOrdens from "./pages/ProducaoOrdens";
 import ProducaoOrdemDetalhe from "./pages/ProducaoOrdemDetalhe";
 import ProducaoRM from "./pages/ProducaoRM";
@@ -641,6 +642,14 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="ferramentas_cron_req">
               <CronReqMatDashboard />
+            </PermissionRoute>
+          }
+        />
+		        <Route
+          path="/ferramentas/cron-estoque"
+          element={
+            <PermissionRoute permKey="ferramentas_cron_req">
+              <CronEstoqueDashboard />
             </PermissionRoute>
           }
         />

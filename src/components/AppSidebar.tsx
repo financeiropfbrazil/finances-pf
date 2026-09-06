@@ -157,6 +157,7 @@ const ferramentasSubItems = [
   // OP-2.6 — "RM (Produção)" e não "Requisições": a entrada acima já é o cron
   // das Requisições de COMPRA (Suprimentos). São jobs diferentes.
   { label: "Cron RM (Produção)", url: "/ferramentas/cron-reqmat", icon: Package },
+  { label: "Cron Estoque", url: "/ferramentas/cron-estoque", icon: Boxes },
 ];
 
 const entidadesSubItems = [
