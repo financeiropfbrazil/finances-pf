@@ -160,7 +160,7 @@ function tituloDuracao(ms: number | null): string | undefined {
  * que roda o mesmo sync incluindo o cadastro de números de série.
  */
 function describeSchedule(_cron: string): string {
-  return "07h50, 12h50 e 16h50 (seg-sex) · séries aos sábados";
+  return "07h50, 12h50 e 16h50 (seg-sex) · seg 05h · séries aos sábados";
 }
 
 function describeStatusRow(run: RunRow): { variant: "ok" | "warn" | "err"; icon: typeof CheckCircle2 } {
@@ -503,9 +503,9 @@ export default function CronEstoqueDashboard() {
           <DialogHeader>
             <DialogTitle>Pausar Cron Estoque</DialogTitle>
             <DialogDescription>
-              Enquanto pausado, o agendamento continua disparando mas a função detecta e pula. O espelho para de
-              receber movimentos novos, e as consultas do assistente passam a avisar que o dado está defasado. Informe
-              o motivo para auditoria.
+              Enquanto pausado, o agendamento continua disparando mas a função detecta e pula. O espelho para de receber
+              movimentos novos, e as consultas do assistente passam a avisar que o dado está defasado. Informe o motivo
+              para auditoria.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
