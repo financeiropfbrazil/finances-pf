@@ -1,6 +1,35 @@
 # Implantação autorizada — 07/09/2026
 
+## Estado final vigente — aceite restrito aberto
+
+Em 07/09/2026 às 15:59:31 BRT (18:59:31 UTC), ABRIR-SOMENTE-ACEITE.sql foi
+executado e confirmado. Modo aceite para Pedro Scrignoli, Caio Santos, Ana Sanches
+e Mirlene Oliveira; zero não participantes permitidos pelo gate. Lideranças e RBAC
+preservados. Operação geral continua suspensa, cron jobid 1 active=false e
+sync_settings.enabled=false. Zero tokens sem número na verificação de abertura.
+
+Lovable confirmado: /multicc-version.json HTTP 200, release multicc-20260907-aceite-1.
+HTML aponta /assets/index-BvubHJN_.js; presença dos seis contratos conferida
+(enviar-aprovada, requisicoes_fila_aprovacao, requisicao_aprovacao_cc,
+quantidade_solicitada, conteudo_sha256, salvar_rateio_requisicao).
+SHA-256 UTF-8 do JS: 336d73bc3c003431bf1ab106f65a0d90e74c25cd1c65fd6ba9dc97b790e58272.
+Gateway 4ef34d5, SQL integral 20260907184223 e Edge v51 já publicados e conferidos.
+As esperas/divergências descritas abaixo são históricas e foram superadas.
+
+Usuário pode iniciar o primeiro caso Caio/Ana de ACEITE-PREENCHIDO.md, usando
+descrição ACEITE-MULTICC-CAIO-ANA-01 com data/hora. O agente não criou requisição
+nem executou Insert no Alvo. Liberação geral/cron aguardam confirmação posterior.
+
 ## Estado vigente — SQL e Edge publicados, frontend em publicação
+
+**Conferência após o usuário informar Publish no Lovable:** marcador retorna 404
+com e sem query string. HTML publicado referencia /assets/index-Bv6OpBk6.js, cujo
+conteúdo não contém enviar-aprovada, requisicoes_fila_aprovacao,
+requisicao_aprovacao_cc, quantidade_solicitada, conteudo_sha256 ou salvar_rateio_requisicao.
+Evidência em lovable-verificacao.json. Não basta o anúncio de publicação: os artefatos
+públicos ainda não confirmam a entrega. ABRIR-SOMENTE-ACEITE.sql não foi executado.
+Conferir sincronização do Lovable com main/finances-pf e presença de
+public/multicc-version.json no editor antes de Publish → Update.
 
 **Última etapa pendente:** frontend enviado e origin/main conferido em
 74915a19f6899b94c16a63b42fb249cd1a84428f. O site público consultado retornou Not found

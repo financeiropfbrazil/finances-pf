@@ -6,7 +6,8 @@
     "render_publicado": true,
     "sql_principal_aplicado": true,
     "edge_publicada": 51,
-    "frontend_publicado": false,
+    "frontend_publicado": "multicc-20260907-aceite-1; marcador 200 e JS index-BvubHJN_ conferidos",
+    "aceite_restrito_aberto": "2026-09-07T18:59:31.536119Z; Pedro, Caio, Ana, Mirlene; zero não participantes permitidos",
     "testes_nesta_janela": {"sql": 112, "express": 20, "vitest": 113, "tsc_frontend": "passou", "tsc_gateway": "passou", "deno_check": "passou", "vite_build": "passou"},
     "storage": "52 testes anteriores, não repetidos nesta janela",
     "aceite_alvo": "aguardando publicação coordenada; nenhum Insert executado"

@@ -1,0 +1,14 @@
+{
+  "data": "2026-09-07",
+  "usuario_informou_publicacao": "https://finance-pf.lovable.app",
+  "marker_status": 404,
+  "marker_body": "Not found",
+  "marker_consultado_com_e_sem_query": true,
+  "html_script": "/assets/index-Bv6OpBk6.js",
+  "js_sha256_utf8": "75924cdf30800fa19c8c3ec0321238cebe9badc2a40f847fdc94bc1fda964322",
+  "ausentes_no_js": ["enviar-aprovada", "requisicoes_fila_aprovacao", "requisicao_aprovacao_cc", "quantidade_solicitada", "conteudo_sha256", "salvar_rateio_requisicao"],
+  "marcador_presente_origin_main": true,
+  "blob_marcador": "101598c92281d87e1aae328ac1c9cae9b6430674",
+  "abertura_aceite_executada": false,
+  "motivo": "Versão multicc-20260907-aceite-1 ainda não confirmada nos artefatos públicos"
+}

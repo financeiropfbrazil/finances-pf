@@ -1,0 +1,17 @@
+{
+  "abertura_utc": "2026-09-07T18:59:31.536119Z",
+  "modo": "aceite",
+  "participantes": ["Pedro Scrignoli", "caio.santos", "ana.sanches", "mirlene.oliveira"],
+  "nao_participantes_permitidos": 0,
+  "cron_active": false,
+  "sync_enabled": false,
+  "tokens_sem_numero": 0,
+  "frontend": "multicc-20260907-aceite-1",
+  "marker_status": 200,
+  "js": "/assets/index-BvubHJN_.js",
+  "js_sha256_utf8": "336d73bc3c003431bf1ab106f65a0d90e74c25cd1c65fd6ba9dc97b790e58272",
+  "gateway": "4ef34d50383343d2673b6dd702bccf26afeb3fda",
+  "edge_version": 51,
+  "sql_version": "20260907184223",
+  "teste_alvo_executado_pelo_agente": false
+}

@@ -1,9 +1,10 @@
 # Aceite com cadastros existentes — preparado em 07/09/2026
 
-**Estado vigente da implantação:** gateway 4ef34d5 confirmado por health, SQL integral
-aplicado e Edge v51 publicada. Frontend enviado em 74915a1; falta publicação efetiva
-no Lovable. Janela fechada e cron parado. Ainda não executar o caso abaixo. O registro
-de preparação seguinte é histórico; consulte deployment/IMPLANTACAO.md para o atual.
+**Estado vigente:** gateway 4ef34d5, SQL integral, Edge v51 e frontend
+multicc-20260907-aceite-1 publicados e conferidos. Aceite restrito aberto em
+07/09/2026 às 15:59:31 BRT para Pedro, Caio, Ana e Mirlene. Pode executar o primeiro
+caso abaixo; cron e operação geral continuam suspensos. Os demais registros de
+preparação/espera são históricos; estado completo em deployment/IMPLANTACAO.md.
 
 **Somente SELECT em produção; nenhuma atribuição, contato com participantes, Insert,
 migração, push ou publicação executados.** Fingerprint: projeto hbtggrbauguukewiknew,
