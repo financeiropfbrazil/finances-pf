@@ -232,3 +232,6 @@ transições/envios sem confirmação. PAUSAR.sql aplicado e verificado. Gateway
 112 verificações SQL (incluindo 12 da janela restrita), 20 Express real, 113 testes
 frontend, type-checks, Deno integral e build passaram nesta janela. Storage 26+26
 permanece evidência anterior. Conversões/CCs/lideranças preservados. Aceite real pendente.
+# Continuação: SQL integral aplicado e verificado; Render 4ef34d5 confirmado pelo
+# health; Edge v51 publicada com fonte/shared idênticos. Frontend em publicação.
+# Nenhum aceite real executado; janela fechada, cron suspenso. Ver deployment/IMPLANTACAO.md.

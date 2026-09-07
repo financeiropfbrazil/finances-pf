@@ -1,5 +1,26 @@
 # Implantação autorizada — 07/09/2026
 
+## Estado vigente — SQL e Edge publicados, frontend em publicação
+
+- Render Live 4ef34d5 às 15h37 BRT confirmado pelo usuário. Health às 18:41:52 UTC
+  confirmou revision=4ef34d50383343d2673b6dd702bccf26afeb3fda e
+  requisicoes=multicc-20260907-aceite-1. Build: npm install && npm run build;
+  Start: npm start. Divergência anterior encerrada por verificação positiva.
+- SQL-INTEGRAL.sql aplicado inteiro em uma transação no hbtggrbauguukewiknew.
+  Janela iniciada 18:42:23 UTC, modo fechada, lista vazia. Sem supabase db push.
+  Conferidos: 17 eventos antigos + 7 novos na constraint, RLS dos grupos, ACLs,
+  triggers de congelamento e janela, três guards restritivos de Storage, zero tokens
+  sem número. O corpo original de envio é privado inclusive para service_role.
+- Edge sync-compras-status-cron ACTIVE v51; verify_jwt=false preservado da v50.
+  Bundle SHA d6aeba6bd9a420b33c0abf67d5af8928a528c79f45efaf5650a6852a4106a049.
+  Fonte e shared recuperados após deploy e comparados: ambos iguais aos locais.
+- Frontend: commit de código a4d4783, com commits posteriores de registro. Push e
+  confirmação do Lovable em andamento. Manter janela fechada até versão pública conferida.
+- Cron jobid 1 inactive e sync_settings.enabled=false. Nenhum Insert, backfill,
+  requisição de teste ou atribuição de liderança realizada. Primeiro aceite aguarda UI.
+
+Os registros de espera abaixo são históricos; prevalece o estado vigente acima.
+
 Autorização explícita do usuário: SQL, gateway, Edge, commits/pushes e frontend.
 Somente Financial Hub hbtggrbauguukewiknew. Nenhum Insert no Alvo nem requisição
 de teste criada pelo agente. Operação geral e cron permanecem suspensos até aceite.

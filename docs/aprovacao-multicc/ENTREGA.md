@@ -247,3 +247,6 @@ Edge e frontend ainda não publicados. Não iniciar aceite enquanto o conjunto n
 confirmado. Estado, cópias, testes repetidos e ação de painel em
 [deployment/IMPLANTACAO.md](deployment/IMPLANTACAO.md). O restante abaixo registra a
 preparação e as revisões anteriores, não comprova publicação.
+# Publicação em andamento: SQL integral aplicado, gateway 4ef34d5 confirmado pelo
+# health e Edge v51 conferida. Frontend/Lovable ainda aguardando confirmação.
+# Janela fechada e cron suspenso. Estado vigente em deployment/IMPLANTACAO.md.
