@@ -85,12 +85,14 @@ async function getSupabaseJWT(): Promise<string> {
   return session.access_token;
 }
 
-async function callGatewayReqComp(path: string, method: "GET" | "POST", body?: unknown): Promise<any> {
+async function callGatewayReqComp(path: string, method: "GET" | "POST", body?: unknown, signal?: AbortSignal): Promise<any> {
   const jwt = await getSupabaseJWT();
+  if (signal?.aborted) throw new DOMException("Consulta cancelada", "AbortError");
   const url = `${ERP_PROXY_URL}${path}`;
 
   const resp = await fetch(url, {
     method,
+    ...(signal ? { signal } : {}),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${jwt}`,
@@ -213,8 +215,33 @@ async function tentarRegistrarErroNoRascunho(requisicaoId: string, mensagem: str
  * (R1) exige rascunho. A conclusão da criação só é registrada depois de todas
  * as gravações; uma falha parcial impede a submissão do conteúdo incompleto.
  */
-export async function carregarUnidadesProduto(codigo: string): Promise<UnidadeRequisicao[]> {
-  return unidadesProduto(await callGatewayReqComp(`/produto/load?codigo=${encodeURIComponent(codigo)}`, "GET"), codigo);
+export async function carregarUnidadesProduto(codigo: string, signal?: AbortSignal): Promise<UnidadeRequisicao[]> {
+  const controller = new AbortController();
+  const cancelar = () => controller.abort();
+  signal?.addEventListener("abort", cancelar, { once: true });
+  if (signal?.aborted) cancelar();
+  let timer: ReturnType<typeof setTimeout>;
+  const limite = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`A consulta das unidades de ${codigo} excedeu 45 segundos. Tente novamente.`));
+      controller.abort();
+    }, 45_000);
+  });
+  try {
+    return await Promise.race([limite, (async () => {
+      const raw = await callGatewayReqComp(`/produto/load?codigo=${encodeURIComponent(codigo)}`, "GET", undefined, controller.signal);
+      let produto: ReturnType<typeof objetoAlvo>;
+      try { produto = objetoAlvo(raw, "ProdUnidMedChildList"); }
+      catch { throw new Error(`A resposta do Alvo para ${codigo} não trouxe a lista de unidades. Tente novamente; se persistir, confira o cadastro com Suprimentos.`); }
+      if (produto.Codigo !== codigo) throw new Error("Produto/Load não corresponde ao produto solicitado");
+      // Ausência explícita é diferente de conversão não comprovada. Nunca inventar base.
+      if ((produto.ProdUnidMedChildList as unknown[]).length === 0) return [];
+      return unidadesProduto(produto, codigo);
+    })()]);
+  } finally {
+    clearTimeout(timer!);
+    signal?.removeEventListener("abort", cancelar);
+  }
 }
 
 export async function criarRequisicao(input: NovaRequisicaoInput): Promise<string> {

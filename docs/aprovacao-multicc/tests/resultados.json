@@ -1,4 +1,17 @@
 {
+  "correcao_seletores": {
+    "release": "multicc-20260907-aceite-2",
+    "relatorio": "../CORRECAO-SELETORES.md",
+    "suite_regressao": "120 passaram; sidebar excluído (7 falhas antigas)",
+    "testes_finais": {"avisos_com_repro_baseline": 5, "consulta_unidades": 6},
+    "visual": "Chrome headless isolado, temas claro/escuro, componentes reais com Load salvo e falhas de rede simuladas",
+    "evidencia_visual": "visual/resultados.json",
+    "produto_aceite": "Load real 001.013.00382: UNID/2, 10→1 e 20→2",
+    "produto_00100100051": "cadastro ativo confirmado por SELECT; resposta real de Produto/Load pendente, sem conversão inferida",
+    "cron": "suspenso",
+    "operacao": "aceite restrito, 4 participantes",
+    "insert_alvo": false
+  },
   "implantacao_autorizada_20260907": {
     "registro": "../deployment/IMPLANTACAO.md",
     "pausa_producao": "aplicada 2026-09-07T16:24:27Z; cron 1 e sync desativados; trigger ativo",

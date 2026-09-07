@@ -235,3 +235,10 @@ permanece evidência anterior. Conversões/CCs/lideranças preservados. Aceite r
 # Continuação: SQL integral aplicado e verificado; Render 4ef34d5 confirmado pelo
 # health; Edge v51 publicada com fonte/shared idênticos. Frontend em publicação.
 # Nenhum aceite real executado; janela fechada, cron suspenso. Ver deployment/IMPLANTACAO.md.
+## Revisão da correção de seletores — aceite-2
+
+Ver CORRECAO-SELETORES.md: reprodução do componente anterior em consulta pendente,
+120 testes de regressão aprovados e testes adicionais de reprodução/resposta sem lista,
+menus em Chrome local nos dois temas (contraste mínimo 11,86:1), 10→1/20→2 preservados.
+Sem alterações SQL/gateway/Edge, sem Inserts. Falta resposta autenticada de Produto/Load
+para concluir o diagnóstico específico de 001.001.00051. Publicação Lovable requerida.

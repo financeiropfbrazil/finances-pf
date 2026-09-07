@@ -250,3 +250,11 @@ preparação e as revisões anteriores, não comprova publicação.
 # Publicação em andamento: SQL integral aplicado, gateway 4ef34d5 confirmado pelo
 # health e Edge v51 conferida. Frontend/Lovable ainda aguardando confirmação.
 # Janela fechada e cron suspenso. Estado vigente em deployment/IMPLANTACAO.md.
+## Correção posterior ao primeiro aceite — seletores
+
+Entrega frontend multicc-20260907-aceite-2: seletores do Hub nos dois temas,
+carregamento/timeout/erro recuperável/ausência de unidades explícitos e seleção única
+sem inventar conversões. Validação visual local e testes em CORRECAO-SELETORES.md.
+Resposta real de 001.001.00051 ainda necessária; não declarar incompatibilidade ou
+teste funcional desse produto como comprovados. Exige nova atualização no Lovable.
+Aceite permanece restrito aos quatro participantes e cron continua suspenso.

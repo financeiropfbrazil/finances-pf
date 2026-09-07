@@ -1,0 +1,142 @@
+[
+  {
+    "theme": "light",
+    "quantidades": "10→1;20→2",
+    "retry": true,
+    "menu": "[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}PACOTE — posição 1UNID — posição 2 (compras)",
+    "colors": [
+      {
+        "role": "combobox",
+        "text": "UNID — posição 2 (compras)",
+        "foreground": "rgb(23, 29, 43)",
+        "background": "rgb(249, 250, 251)",
+        "contrast": 16.114042234009258
+      },
+      {
+        "role": "combobox",
+        "text": "M3 — posição 3 (compras) — indisponível",
+        "foreground": "rgb(23, 29, 43)",
+        "background": "rgb(249, 250, 251)",
+        "contrast": 16.114042234009258
+      },
+      {
+        "role": "alert",
+        "text": "M3 (posição 3) usa conversão do tipo Divisor, ainda não validada para requisições no Alvo. Não é possível adicionar o item nessa unidade. A seleção foi mantida; nenhuma conversão para outra unidade será feita automaticamente.",
+        "foreground": "rgb(23, 29, 43)",
+        "background": "rgb(240, 242, 244)",
+        "contrast": 15.00506606421339
+      },
+      {
+        "role": "status",
+        "text": "Consultando unidades no Alvo…",
+        "foreground": "rgb(23, 29, 43)",
+        "background": "rgb(240, 242, 244)",
+        "contrast": 15.00506606421339
+      },
+      {
+        "role": "alert",
+        "text": "Não foi possível consultar as unidades: Consulta excedeu 45 segundos.",
+        "foreground": "rgb(23, 29, 43)",
+        "background": "rgb(240, 242, 244)",
+        "contrast": 15.00506606421339
+      },
+      {
+        "role": "combobox",
+        "text": "13.07 — Material de consumo",
+        "foreground": "rgb(23, 29, 43)",
+        "background": "rgb(249, 250, 251)",
+        "contrast": 16.114042234009258
+      },
+      {
+        "role": "combobox",
+        "text": "00010.00002.00005 — Engenharia de Manufatura",
+        "foreground": "rgb(23, 29, 43)",
+        "background": "rgb(249, 250, 251)",
+        "contrast": 16.114042234009258
+      },
+      {
+        "role": "listbox",
+        "foreground": "rgb(23, 29, 43)",
+        "background": "rgb(255, 255, 255)",
+        "width": 680,
+        "height": 74,
+        "x": 161,
+        "y": 173,
+        "opacity": "1",
+        "visibility": "visible",
+        "parent": "position: fixed; left: 0px; top: 0px; transform: translate(161px, 169px); min-width: max-content; z-index: 50; --radix-popper-available-width: 980px; --radix-popper-available-height: 1121px; --radix-popper-anchor-width: 678px; --radix-popper-anchor-height: 40px; --radix-popper-transform-origin: 0% 0px;",
+        "contrast": 16.839590269544242
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "quantidades": "10→1;20→2",
+    "retry": true,
+    "menu": "[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}PACOTE — posição 1UNID — posição 2 (compras)",
+    "colors": [
+      {
+        "role": "combobox",
+        "text": "UNID — posição 2 (compras)",
+        "foreground": "rgb(226, 229, 233)",
+        "background": "rgb(19, 21, 27)",
+        "contrast": 14.440714295622806
+      },
+      {
+        "role": "combobox",
+        "text": "M3 — posição 3 (compras) — indisponível",
+        "foreground": "rgb(226, 229, 233)",
+        "background": "rgb(19, 21, 27)",
+        "contrast": 14.440714295622806
+      },
+      {
+        "role": "alert",
+        "text": "M3 (posição 3) usa conversão do tipo Divisor, ainda não validada para requisições no Alvo. Não é possível adicionar o item nessa unidade. A seleção foi mantida; nenhuma conversão para outra unidade será feita automaticamente.",
+        "foreground": "rgb(226, 229, 233)",
+        "background": "rgb(34, 37, 43)",
+        "contrast": 12.151945153830207
+      },
+      {
+        "role": "status",
+        "text": "Consultando unidades no Alvo…",
+        "foreground": "rgb(226, 229, 233)",
+        "background": "rgb(34, 37, 43)",
+        "contrast": 12.151945153830207
+      },
+      {
+        "role": "alert",
+        "text": "Não foi possível consultar as unidades: Consulta excedeu 45 segundos.",
+        "foreground": "rgb(226, 229, 233)",
+        "background": "rgb(34, 37, 43)",
+        "contrast": 12.151945153830207
+      },
+      {
+        "role": "combobox",
+        "text": "13.07 — Material de consumo",
+        "foreground": "rgb(226, 229, 233)",
+        "background": "rgb(19, 21, 27)",
+        "contrast": 14.440714295622806
+      },
+      {
+        "role": "combobox",
+        "text": "00010.00002.00005 — Engenharia de Manufatura",
+        "foreground": "rgb(226, 229, 233)",
+        "background": "rgb(19, 21, 27)",
+        "contrast": 14.440714295622806
+      },
+      {
+        "role": "listbox",
+        "foreground": "rgb(226, 229, 233)",
+        "background": "rgb(35, 39, 46)",
+        "width": 680,
+        "height": 74,
+        "x": 161,
+        "y": 173,
+        "opacity": "1",
+        "visibility": "visible",
+        "parent": "position: fixed; left: 0px; top: 0px; transform: translate(161px, 169px); min-width: max-content; z-index: 50; --radix-popper-available-width: 980px; --radix-popper-available-height: 1121px; --radix-popper-anchor-width: 678px; --radix-popper-anchor-height: 40px; --radix-popper-transform-origin: 0% 0px;",
+        "contrast": 11.860559081728296
+      }
+    ]
+  }
+]

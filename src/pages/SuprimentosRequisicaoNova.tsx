@@ -1,5 +1,5 @@
 import { converterSolicitada } from "../../supabase/functions/_shared/requisicao-unidades";
-import { UnidadeRequisicaoSelect, restricaoUnidadeRequisicao } from "@/components/compras/UnidadeRequisicaoSelect";
+import { UnidadeRequisicaoSelect, restricaoUnidadeRequisicao, posicaoInicialUnidade } from "@/components/compras/UnidadeRequisicaoSelect";
 import { RateioCCEditor } from "@/components/compras/RateioCCEditor";
 import { centrosEnvolvidos, validarRateioCC } from "@/lib/requisicaoCC";
 import type { RateioCCClasseInput } from "@/services/requisicoesService";
@@ -135,19 +135,19 @@ export default function SuprimentosRequisicaoNova() {
   const [produtoSelecionado, setProdutoSelecionado] = useState<StockProduct | null>(null);
   const [itemQtd, setItemQtd] = useState("1");
   const [itemPosicao, setItemPosicao] = useState<number | null>(null);
-  const { data: unidadesItem = [], isFetching: carregandoUnidades, error: erroUnidades } = useQuery({
+  const { data: unidadesItem = [], isFetching: carregandoUnidades, error: erroUnidades, refetch: recarregarUnidades, fetchStatus: estadoConsultaUnidades } = useQuery({
     queryKey: ["req-unidades-produto", produtoSelecionado?.codigo_produto],
-    queryFn: () => carregarUnidadesProduto(produtoSelecionado!.codigo_produto),
-    enabled: !!produtoSelecionado, staleTime: 0,
+    queryFn: ({ signal }) => carregarUnidadesProduto(produtoSelecionado!.codigo_produto, signal),
+    enabled: !!produtoSelecionado && itemDialogOpen, staleTime: 60_000,
+    retry: false, refetchOnWindowFocus: false,
   });
   useEffect(() => {
     if (itemPosicao !== null || !unidadesItem.length) return;
-    const compras = unidadesItem.filter(u => u.compras);
-    setItemPosicao(compras.length === 1 ? compras[0].posicao : unidadesItem.find(u => u.posicao === 1)?.posicao ?? null);
+    setItemPosicao(posicaoInicialUnidade(unidadesItem));
   }, [unidadesItem, itemPosicao]);
   const [itemObs, setItemObs] = useState("");
   const restricaoUnidadeItem = restricaoUnidadeRequisicao(unidadesItem.find(u => u.posicao === itemPosicao));
-  const unidadeItemIndisponivel = carregandoUnidades || !!erroUnidades || !!restricaoUnidadeItem || !unidadesItem.some(u => u.posicao === itemPosicao);
+  const unidadeItemIndisponivel = carregandoUnidades || estadoConsultaUnidades === "paused" || !!erroUnidades || !!restricaoUnidadeItem || !unidadesItem.some(u => u.posicao === itemPosicao);
   const [itemCC, setItemCC] = useState("");
   const [rateioCC, setRateioCC] = useState<RateioCCClasseInput[]>([]);
   const [produtoPopoverOpen, setProdutoPopoverOpen] = useState(false);
@@ -1464,13 +1464,17 @@ export default function SuprimentosRequisicaoNova() {
 
               <div className="space-y-2">
                 <Label>Centro de custo do item</Label>
-                <select aria-label="Centro de custo do item" className="w-full rounded border p-2" value={itemCC} onChange={(e) => setItemCC(e.target.value)}>
-                  <option value="">Usar o CC principal da requisição</option>
-                  {costCenters.map((cc) => <option key={cc.erp_code} value={cc.erp_code}>{cc.erp_code} — {cc.name}</option>)}
-                </select>
+                <Select value={itemCC || "principal"} onValueChange={value => setItemCC(value === "principal" ? "" : value)}>
+                  <SelectTrigger aria-label="Centro de custo do item" className="text-foreground"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="principal">Usar o CC principal da requisição</SelectItem>
+                    {costCenters.map((cc) => <SelectItem key={cc.erp_code} value={cc.erp_code}>{cc.erp_code} — {cc.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
                 <Label>Unidade solicitada</Label>
-                <UnidadeRequisicaoSelect unidades={unidadesItem} posicao={itemPosicao} onChange={setItemPosicao} carregando={carregandoUnidades} />
-                {erroUnidades && <p role="alert" className="text-sm text-destructive">Não foi possível obter as unidades: {String(erroUnidades.message)}</p>}
+                <UnidadeRequisicaoSelect unidades={unidadesItem} posicao={itemPosicao} onChange={setItemPosicao}
+                  carregando={carregandoUnidades} erro={erroUnidades} onRetry={() => void recarregarUnidades()}
+                  produtoSelecionado={!!produtoSelecionado} pausado={estadoConsultaUnidades === "paused"} />
                 <Label>Quantidade solicitada</Label>
                 <Input type="text" inputMode="decimal" value={itemQtd} onChange={(e) => setItemQtd(e.target.value)} />
               </div>
