@@ -7,15 +7,16 @@ import { RateioCCEditor } from '@/components/compras/RateioCCEditor';
 import { unidadesProduto, converterSolicitada } from '../../../supabase/functions/_shared/requisicao-unidades';
 import load from '../produto-load/respostas/001.013.00382.json';
 import m3 from '../produto-load/respostas/001.017.092.json';
+import drypatchCapture from '../produto-load/20260907-191432.txt?raw';
 const query = new URLSearchParams(location.search);
 document.documentElement.classList.toggle('dark', query.get('theme') === 'dark');
-function Sample({ blocked = false }: { blocked?: boolean }) {
- const units = unidadesProduto(blocked ? m3.data : load.data, blocked ? '001.017.092' : '001.013.00382');
+function Sample({ blocked = false, drypatch = false }: { blocked?: boolean; drypatch?: boolean }) {
+ const units = unidadesProduto(drypatch ? JSON.parse(drypatchCapture) : blocked ? m3.data : load.data, drypatch ? '001.001.00051' : blocked ? '001.017.092' : '001.013.00382');
  const [position, setPosition] = useState(posicaoInicialUnidade(units));
  return <section className="space-y-3 rounded-lg border bg-card p-5 text-card-foreground">
-  <h2>{blocked ? '001.017.092 — compras M3 preservada' : '001.013.00382 — produto do aceite'}</h2>
+  <h2>{drypatch ? '001.001.00051 — captura real do Laboratório (HTTP não registrado)' : blocked ? '001.017.092 — compras M3 preservada' : '001.013.00382 — produto do aceite'}</h2>
   <UnidadeRequisicaoSelect unidades={units} posicao={position} onChange={setPosition} carregando={false} />
-  {!blocked && <p data-testid="quantidades">{[10,20].map(n => `${n} → ${converterSolicitada(n, units.find(u => u.posicao === position)!)}`).join(' | ')}</p>}
+  {!blocked && <p data-testid={drypatch ? 'drypatch-quantidades' : 'quantidades'}>{[10,20].map(n => `${n} → ${converterSolicitada(n, units.find(u => u.posicao === position)!)}`).join(' | ')}</p>}
  </section>;
 }
 function App() {
@@ -23,7 +24,7 @@ function App() {
  const [distribution, setDistribution] = useState([{codigo_classe_rec_desp:'13.07',percentual:100,ccs:[{codigo_centro_ctrl:'00010.00002.00005',percentual:100}]}]);
  return <main className="mx-auto max-w-3xl space-y-5 bg-background p-6 text-foreground">
   <h1 className="text-xl font-semibold">Unidades e centros de custo — {query.get('theme') || 'light'}</h1>
-  <Sample /> <Sample blocked />
+  <Sample drypatch /> <Sample /> <Sample blocked />
   <section className="space-y-3 rounded-lg border bg-card p-5 text-card-foreground"><h2>Consulta pendente (simulada)</h2>
    <UnidadeRequisicaoSelect unidades={[]} posicao={null} onChange={()=>{}} carregando />
   </section>

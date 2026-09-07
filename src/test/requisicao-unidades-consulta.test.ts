@@ -41,3 +41,12 @@ it("Load real do produto do aceite seleciona UNID/2 e preserva 10→1,20→2", a
   const u = units.find(u => u.posicao === 2)!;
   expect([u.codigo, u.posicao, converterSolicitada(10, u), converterSolicitada(20, u)]).toEqual(["UNID", 2, 1, 2]);
 });
+it("captura real do Laboratório de 001.001.00051 preenche UNID/1 sem exigir marca de compras", async () => {
+  const real = JSON.parse(readFileSync("docs/aprovacao-multicc/produto-load/20260907-191432.txt", "utf8"));
+  // HTTP simulado para isolar tratamento da resposta; o status original não foi registrado.
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => real })));
+  const units = await carregarUnidadesProduto("001.001.00051");
+  expect(units).toEqual([{ codigo: "UNID", posicao: 1, peso: 1, tipo: "Fator", compras: false }]);
+  expect(posicaoInicialUnidade(units)).toBe(1);
+  expect([converterSolicitada(10, units[0]), converterSolicitada(20, units[0])]).toEqual([10, 20]);
+});

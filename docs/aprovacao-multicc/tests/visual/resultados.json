@@ -2,9 +2,17 @@
   {
     "theme": "light",
     "quantidades": "10→1;20→2",
+    "drypatch": "UNID/1 habilitada; 10→10;20→20; captura do Laboratório, não HTTP real do formulário",
     "retry": true,
-    "menu": "[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}PACOTE — posição 1UNID — posição 2 (compras)",
+    "menu": "[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}UNID — posição 1",
     "colors": [
+      {
+        "role": "combobox",
+        "text": "UNID — posição 1",
+        "foreground": "rgb(23, 29, 43)",
+        "background": "rgb(249, 250, 251)",
+        "contrast": 16.114042234009258
+      },
       {
         "role": "combobox",
         "text": "UNID — posição 2 (compras)",
@@ -59,7 +67,7 @@
         "foreground": "rgb(23, 29, 43)",
         "background": "rgb(255, 255, 255)",
         "width": 680,
-        "height": 74,
+        "height": 42,
         "x": 161,
         "y": 173,
         "opacity": "1",
@@ -72,9 +80,17 @@
   {
     "theme": "dark",
     "quantidades": "10→1;20→2",
+    "drypatch": "UNID/1 habilitada; 10→10;20→20; captura do Laboratório, não HTTP real do formulário",
     "retry": true,
-    "menu": "[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}PACOTE — posição 1UNID — posição 2 (compras)",
+    "menu": "[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}UNID — posição 1",
     "colors": [
+      {
+        "role": "combobox",
+        "text": "UNID — posição 1",
+        "foreground": "rgb(226, 229, 233)",
+        "background": "rgb(19, 21, 27)",
+        "contrast": 14.440714295622806
+      },
       {
         "role": "combobox",
         "text": "UNID — posição 2 (compras)",
@@ -129,7 +145,7 @@
         "foreground": "rgb(226, 229, 233)",
         "background": "rgb(35, 39, 46)",
         "width": 680,
-        "height": 74,
+        "height": 42,
         "x": 161,
         "y": 173,
         "opacity": "1",

@@ -21,6 +21,9 @@ try {
   const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},sessionId);if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
   for(let i=0;i<150;i++){if(await evaluate(`document.querySelector('[data-testid="quantidades"]')?.textContent`))break;await new Promise(r=>setTimeout(r,150));}
   assert.equal(await evaluate(`document.querySelector('[data-testid="quantidades"]').textContent`),'10 → 1 | 20 → 2');
+  assert.equal(await evaluate(`document.querySelector('[data-testid="drypatch-quantidades"]').textContent`),'10 → 10 | 20 → 20');
+  assert.equal(await evaluate(`document.querySelector('[role="combobox"]').disabled`),false);
+  assert.match(await evaluate(`document.querySelector('[role="combobox"]').textContent`),/UNID.*posição 1/);
   await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Tentar novamente').click()`);
   assert.equal(await evaluate(`document.querySelector('[data-testid="retry"]').textContent`),'Tentativas: 1');
   const colors=await evaluate(`Array.from(document.querySelectorAll('[role="alert"],[role="status"],[role="combobox"]')).filter(e=>!e.disabled).map(e=>{const s=getComputedStyle(e);return {role:e.getAttribute('role'),text:e.textContent,foreground:s.color,background:s.backgroundColor}})`);
@@ -39,7 +42,7 @@ try {
   await writeFile(`${out}/${theme}-menu.png`,Buffer.from(opened.data,'base64'));
   const luminance=color=>color.match(/[\d.]+/g).slice(0,3).map(Number).map(n=>n/255).map(n=>n<=0.04045?n/12.92:((n+0.055)/1.055)**2.4).reduce((sum,n,i)=>sum+n*[0.2126,0.7152,0.0722][i],0);
   for(const c of colors){const a=luminance(c.foreground),b=luminance(c.background);c.contrast=(Math.max(a,b)+0.05)/(Math.min(a,b)+0.05);assert.ok(c.contrast>=4.5);}
-  results.push({theme,quantidades:'10→1;20→2',retry:true,menu,colors});
+  results.push({theme,quantidades:'10→1;20→2',drypatch:'UNID/1 habilitada; 10→10;20→20; captura do Laboratório, não HTTP real do formulário',retry:true,menu,colors});
   await call('Target.closeTarget',{targetId});
  }
  await writeFile(`${out}/resultados.json`,JSON.stringify(results,null,2));console.log(JSON.stringify(results));

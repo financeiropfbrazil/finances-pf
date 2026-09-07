@@ -1,5 +1,27 @@
 # Correção do aceite: seletores e consulta de unidades — 07/09/2026
 
+## Atualização: captura real DRYPATCH e publicação confirmadas
+
+Recebido produto-load/20260907-191432.txt, obtido pelo usuário no Laboratório de API.
+Status HTTP original não registrado. Validador e serviço da entrega retornam exatamente
+UNID/1/Peso 1/Fator/compras=false; posicaoInicialUnidade seleciona 1 automaticamente.
+Teste com resposta simulada a partir desse JSON real passou, assim como navegador local
+nos temas claro/escuro: seletor habilitado com UNID/1, quantidades 10→10 e 20→20.
+Capturas tests/visual atualizadas. Produto do aceite mantém UNID/2, 10→1 e 20→2.
+Sete testes de consulta passaram nesta etapa. Nenhuma alteração do código de produção
+foi necessária após receber a captura; nenhuma chamada de escrita ou Insert no Alvo.
+
+Lovable: marcador HTTP 200 com multicc-20260907-aceite-2. HTML/JS publicado:
+/assets/index-xkRUjpn6.js, SHA-256 UTF-8
+d228ca6b53636eab2a0113c0fbc28f5660635ce1bae74613b683f50d9d342fd5.
+Confirmadas as mensagens de carregamento, timeout e nova tentativa no JS.
+
+A ausência de marca de compras NÃO bloqueia este cadastro na implementação corrigida.
+A captura do Laboratório não comprova que a chamada do formulário terminou, seu status
+HTTP ou seu corpo. O diagnóstico desse transporte permanece separado; testar seleção
+no formulário publicado para encerrar essa pendência, sem inferir sucesso HTTP do JSON.
+As menções abaixo à captura ainda ausente/publicação pendente são o histórico anterior.
+
 Frontend preparado como multicc-20260907-aceite-2. Sem alteração SQL, Edge ou gateway,
 sem Insert de teste no Alvo. SELECT confirmou modo aceite, quatro participantes,
 cron jobid 1 inativo e sync_settings.enabled=false. Lideranças preservadas.

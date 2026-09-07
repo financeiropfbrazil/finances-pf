@@ -7,7 +7,9 @@
     "visual": "Chrome headless isolado, temas claro/escuro, componentes reais com Load salvo e falhas de rede simuladas",
     "evidencia_visual": "visual/resultados.json",
     "produto_aceite": "Load real 001.013.00382: UNID/2, 10→1 e 20→2",
-    "produto_00100100051": "cadastro ativo confirmado por SELECT; resposta real de Produto/Load pendente, sem conversão inferida",
+    "produto_00100100051": "captura real Laboratório 20260907-191432.txt validada: UNID/1/Fator1/compras=false; preenchimento automático e seletor habilitado confirmados no navegador local; transporte HTTP do formulário não comprovado",
+    "consulta_unidades_com_captura_real": 7,
+    "aceite_2_publicado": "marcador HTTP 200 e JS index-xkRUjpn6.js conferidos",
     "cron": "suspenso",
     "operacao": "aceite restrito, 4 participantes",
     "insert_alvo": false

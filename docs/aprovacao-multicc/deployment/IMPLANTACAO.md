@@ -1,5 +1,14 @@
 # Implantação autorizada — 07/09/2026
 
+## Correção do aceite publicada — aceite-2
+
+Confirmados marcador multicc-20260907-aceite-2 e JS /assets/index-xkRUjpn6.js com
+carregamento, timeout e retry. Captura real DRYPATCH 20260907-191432.txt validada:
+UNID/1/Fator1, sem compras, selecionada automaticamente e habilitada em teste local
+claro/escuro. Status HTTP do Laboratório não registrado; chamada do formulário em
+produção não foi comprovada por essa captura. Ver CORRECAO-SELETORES.md.
+Esta continuação altera somente testes/evidências, sem nova publicação de código.
+
 ## Estado final vigente — aceite restrito aberto
 
 Em 07/09/2026 às 15:59:31 BRT (18:59:31 UTC), ABRIR-SOMENTE-ACEITE.sql foi
