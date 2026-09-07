@@ -31,6 +31,21 @@ de teste criada pelo agente. Operação geral e cron permanecem suspensos até a
 
 ### Ponto de espera: Render
 
+**Continuação após confirmação do usuário:** painel Render informou Live no commit
+4ef34d5. Porém GET público sem cache em 07/09/2026 às 17:47:07 e 17:53:56 UTC ainda
+retornou o formato antigo, sem `revision` e `requisicoes`. A segunda resposta tem
+`cf-cache-status: DYNAMIC`, origem Render e timestamp atual. Não é comprovação de
+execução do código do commit, embora o estado Live no painel esteja confirmado.
+
+O SHA versionado contém ambos os campos em src/index.ts. package.json executa
+`node dist/index.js`, tsconfig compila src para dist, e dist não é versionado.
+Build antigo, comando/diretório diferente ou outro serviço são hipóteses; nenhuma
+foi assumida como causa. Solicitada conferência somente dos campos não secretos:
+URL pública, repositório, Root Directory, Build Command e Start Command do Render.
+Nenhuma nova alteração de produção foi feita nesta continuação: SQL principal,
+Edge e frontend continuam aguardando resolver a divergência. SELECT confirmou
+zero transições, trigger de suspensão ativo, cron e sync_settings desativados.
+
 Até a consulta de 16:50:35 UTC, health ainda retorna apenas status/service/timestamp/env,
 sem revision/requisicoes. GitHub API: statuses=[], check_runs=[], deployments=[] para
 4ef34d5. Não há confirmação de deployment, e não se presume que auto-deploy esteja ligado.
