@@ -1,0 +1,90 @@
+{
+  "data": "2026-09-07T16:17:59.126Z",
+  "middleware_sha256": "aefd0109e6c0542ae69f15e999f306d30420ef0f95a6f75affce0f5c2ccc286d",
+  "index_sha256": "68e7395abcf2acded2ba0683776f4844dc5dfc9a212d93c2a29a1e1c5754e458",
+  "express": "4.22.2",
+  "jose": "5.10.0",
+  "results": [
+    {
+      "name": "Sem JWT: 401",
+      "pass": true
+    },
+    {
+      "name": "JWT inválido: 401",
+      "pass": true
+    },
+    {
+      "name": "JWT expirado: 401",
+      "pass": true
+    },
+    {
+      "name": "Emissor errado: 401",
+      "pass": true
+    },
+    {
+      "name": "JWT sem sub: 401",
+      "pass": true
+    },
+    {
+      "name": "Hub IA autenticado não envia: 403",
+      "pass": true
+    },
+    {
+      "name": "Sistema autenticado não envia: 403",
+      "pass": true
+    },
+    {
+      "name": "Secret errado não faz fallback para JWT válido",
+      "pass": true
+    },
+    {
+      "name": "Nenhuma tentativa não autorizada alcança RPC",
+      "pass": true
+    },
+    {
+      "name": "Usuário Financial Hub não-admin alcança gate SQL",
+      "pass": true
+    },
+    {
+      "name": "RPC recebeu uma tentativa autenticada",
+      "pass": true
+    },
+    {
+      "name": "Rota antiga insert bloqueada antes do legado",
+      "pass": true
+    },
+    {
+      "name": "Rota antiga insert-multipart bloqueada antes do legado",
+      "pass": true
+    },
+    {
+      "name": "Nenhum handler legado executado por Insert",
+      "pass": true
+    },
+    {
+      "name": "ID inválido: 400",
+      "pass": true
+    },
+    {
+      "name": "Origem Lovable passa pelo CORS",
+      "pass": true
+    },
+    {
+      "name": "Origem não permitida recusada",
+      "pass": true
+    },
+    {
+      "name": "Body maior que 2MB não alcança RPC",
+      "pass": true
+    },
+    {
+      "name": "Rota legada de leitura continua alcançável",
+      "pass": true
+    },
+    {
+      "name": "Somente leitura caiu no router legado",
+      "pass": true
+    }
+  ],
+  "limites": "JWKS local assinado RSA; não equivale a sessão real de produção. ERP/RPC/handler legado substituídos; middleware, Express, CORS e body parser reais."
+}

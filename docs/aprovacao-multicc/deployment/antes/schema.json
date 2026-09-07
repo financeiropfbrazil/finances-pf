@@ -1,0 +1,432 @@
+[
+  {
+    "backup": {
+      "acl": [
+        {
+          "proacl": [
+            "postgres=X/postgres",
+            "service_role=X/postgres"
+          ],
+          "assinatura": "_req_evento(uuid,text,jsonb,boolean)"
+        },
+        {
+          "proacl": [
+            "postgres=X/postgres",
+            "authenticated=X/postgres",
+            "service_role=X/postgres"
+          ],
+          "assinatura": "aprovar_requisicao(uuid)"
+        },
+        {
+          "proacl": [
+            "postgres=X/postgres",
+            "authenticated=X/postgres",
+            "service_role=X/postgres"
+          ],
+          "assinatura": "registrar_envio_requisicao(uuid,text,text)"
+        },
+        {
+          "proacl": [
+            "postgres=X/postgres",
+            "authenticated=X/postgres",
+            "service_role=X/postgres"
+          ],
+          "assinatura": "rejeitar_requisicao(uuid,text,text)"
+        },
+        {
+          "proacl": [
+            "=X/postgres",
+            "postgres=X/postgres",
+            "anon=X/postgres",
+            "authenticated=X/postgres",
+            "service_role=X/postgres"
+          ],
+          "assinatura": "vincular_pedido_requisicao(uuid,uuid,text)"
+        },
+        {
+          "proacl": [
+            "=X/postgres",
+            "postgres=X/postgres",
+            "anon=X/postgres",
+            "authenticated=X/postgres",
+            "service_role=X/postgres"
+          ],
+          "assinatura": "desvincular_pedido_requisicao(uuid,text)"
+        },
+        {
+          "proacl": [
+            "postgres=X/postgres",
+            "authenticated=X/postgres",
+            "service_role=X/postgres"
+          ],
+          "assinatura": "submeter_requisicao(uuid)"
+        },
+        {
+          "proacl": [
+            "postgres=X/postgres",
+            "service_role=X/postgres"
+          ],
+          "assinatura": "req_replace_rateio(uuid,jsonb,text)"
+        }
+      ],
+      "policies": [
+        {
+          "cmd": "DELETE",
+          "qual": "((uploaded_by_user_id = auth.uid()) AND (EXISTS ( SELECT 1\n   FROM compras_requisicoes r\n  WHERE ((r.id = compras_requisicoes_arquivos.requisicao_id) AND (r.numero_alvo IS NULL)))))",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_arquivos",
+          "permissive": "PERMISSIVE",
+          "policyname": "arquivos_delete_own",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_arquivos",
+          "permissive": "PERMISSIVE",
+          "policyname": "arquivos_insert_auth",
+          "schemaname": "public",
+          "with_check": "(EXISTS ( SELECT 1\n   FROM compras_requisicoes r\n  WHERE (r.id = compras_requisicoes_arquivos.requisicao_id)))"
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "(EXISTS ( SELECT 1\n   FROM compras_requisicoes r\n  WHERE (r.id = compras_requisicoes_arquivos.requisicao_id)))",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_arquivos",
+          "permissive": "PERMISSIVE",
+          "policyname": "arquivos_select_auth",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "UPDATE",
+          "qual": "(EXISTS ( SELECT 1\n   FROM compras_requisicoes r\n  WHERE (r.id = compras_requisicoes_arquivos.requisicao_id)))",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_arquivos",
+          "permissive": "PERMISSIVE",
+          "policyname": "arquivos_update_auth",
+          "schemaname": "public",
+          "with_check": "(EXISTS ( SELECT 1\n   FROM compras_requisicoes r\n  WHERE (r.id = compras_requisicoes_arquivos.requisicao_id)))"
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_auditoria",
+          "permissive": "PERMISSIVE",
+          "policyname": "audit_req_insert",
+          "schemaname": "public",
+          "with_check": "true"
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "true",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_auditoria",
+          "permissive": "PERMISSIVE",
+          "policyname": "audit_req_select",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "ALL",
+          "qual": "true",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_itens",
+          "permissive": "PERMISSIVE",
+          "policyname": "Allow all for authenticated on compras_requisicoes_itens",
+          "schemaname": "public",
+          "with_check": "true"
+        },
+        {
+          "cmd": "ALL",
+          "qual": "true",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_itens_classe_rec_desp",
+          "permissive": "PERMISSIVE",
+          "policyname": "Allow all for authenticated on compras_requisicoes_itens_classe",
+          "schemaname": "public",
+          "with_check": "true"
+        },
+        {
+          "cmd": "ALL",
+          "qual": "true",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes",
+          "permissive": "PERMISSIVE",
+          "policyname": "Allow all for authenticated on compras_requisicoes",
+          "schemaname": "public",
+          "with_check": "true"
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "true",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_rateio_classes",
+          "permissive": "PERMISSIVE",
+          "policyname": "compras_requisicoes_rateio_classes_select_authenticated",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "true",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "compras_requisicoes_rateio_cc",
+          "permissive": "PERMISSIVE",
+          "policyname": "compras_requisicoes_rateio_cc_select_authenticated",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "(bucket_id = 'email-nfe-attachments'::text)",
+          "roles": [
+            "public"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "Public read access",
+          "schemaname": "storage",
+          "with_check": null
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "Service role insert",
+          "schemaname": "storage",
+          "with_check": "(bucket_id = 'email-nfe-attachments'::text)"
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "(bucket_id = ANY (ARRAY['intercompany-reembolso-manual'::text, 'intercompany-reembolso-nf'::text]))",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "auth read intercompany reembolso pdfs",
+          "schemaname": "storage",
+          "with_check": null
+        },
+        {
+          "cmd": "DELETE",
+          "qual": "(bucket_id = 'compras-pedidos'::text)",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "compras_pedidos_storage_delete",
+          "schemaname": "storage",
+          "with_check": null
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "compras_pedidos_storage_insert",
+          "schemaname": "storage",
+          "with_check": "(bucket_id = 'compras-pedidos'::text)"
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "(bucket_id = 'compras-pedidos'::text)",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "compras_pedidos_storage_select",
+          "schemaname": "storage",
+          "with_check": null
+        },
+        {
+          "cmd": "UPDATE",
+          "qual": "(bucket_id = 'compras-pedidos'::text)",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "compras_pedidos_storage_update",
+          "schemaname": "storage",
+          "with_check": null
+        },
+        {
+          "cmd": "DELETE",
+          "qual": "(bucket_id = 'compras-requisicoes'::text)",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "compras_req_storage_delete",
+          "schemaname": "storage",
+          "with_check": null
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "compras_req_storage_insert",
+          "schemaname": "storage",
+          "with_check": "(bucket_id = 'compras-requisicoes'::text)"
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "(bucket_id = 'compras-requisicoes'::text)",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "compras_req_storage_select",
+          "schemaname": "storage",
+          "with_check": null
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "ic importado insert",
+          "schemaname": "storage",
+          "with_check": "((bucket_id = 'intercompany-importado'::text) AND user_has_permission(auth.uid(), 'intercompany.access'::text))"
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "(bucket_id = 'intercompany-importado'::text)",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "ic importado select",
+          "schemaname": "storage",
+          "with_check": null
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "public"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "imob_auditoria_fotos_insert_all",
+          "schemaname": "storage",
+          "with_check": "(bucket_id = 'imob-auditoria-fotos'::text)"
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "(bucket_id = 'imob-auditoria-fotos'::text)",
+          "roles": [
+            "public"
+          ],
+          "tablename": "objects",
+          "permissive": "PERMISSIVE",
+          "policyname": "imob_auditoria_fotos_select_all",
+          "schemaname": "storage",
+          "with_check": null
+        }
+      ],
+      "triggers": [
+        {
+          "tabela": "compras_requisicoes_arquivos",
+          "definicao": "CREATE TRIGGER trg_compras_req_arquivos_updated_at BEFORE UPDATE ON public.compras_requisicoes_arquivos FOR EACH ROW EXECUTE FUNCTION set_updated_at_compras_req_arquivos()"
+        },
+        {
+          "tabela": "compras_requisicoes",
+          "definicao": "CREATE TRIGGER trg_compras_requisicoes_updated_at BEFORE UPDATE ON public.compras_requisicoes FOR EACH ROW EXECUTE FUNCTION set_compras_requisicoes_updated_at()"
+        },
+        {
+          "tabela": "compras_requisicoes",
+          "definicao": "CREATE TRIGGER trg_req_protege_aprovacao BEFORE INSERT OR DELETE OR UPDATE ON public.compras_requisicoes FOR EACH ROW EXECUTE FUNCTION fn_req_protege_aprovacao()"
+        }
+      ],
+      "constraints": [
+        {
+          "tabela": "compras_requisicoes",
+          "conname": "compras_requisicoes_pkey",
+          "definicao": "PRIMARY KEY (id)"
+        },
+        {
+          "tabela": "compras_requisicoes",
+          "conname": "compras_requisicoes_requisitante_user_id_fkey",
+          "definicao": "FOREIGN KEY (requisitante_user_id) REFERENCES auth.users(id) ON DELETE RESTRICT"
+        },
+        {
+          "tabela": "compras_requisicoes",
+          "conname": "compras_requisicoes_status_check",
+          "definicao": "CHECK ((status = ANY (ARRAY['rascunho'::text, 'pendente_envio'::text, 'erro_envio'::text, 'sincronizada'::text, 'cancelada'::text, 'convertida_pedido'::text, 'pendente_aprovacao'::text, 'aprovada'::text, 'rejeitada'::text])))"
+        },
+        {
+          "tabela": "compras_requisicoes",
+          "conname": "uq_compras_requisicoes_filial_numero_alvo",
+          "definicao": "UNIQUE (codigo_empresa_filial, numero_alvo)"
+        },
+        {
+          "tabela": "compras_requisicoes_auditoria",
+          "conname": "compras_requisicoes_auditoria_evento_check",
+          "definicao": "CHECK ((evento = ANY (ARRAY['criada'::text, 'editada'::text, 'envio_tentado'::text, 'envio_sucesso'::text, 'envio_falha'::text, 'cancelada_alvo'::text, 'convertida_pedido'::text, 'vinculado_pedido'::text, 'desvinculado_pedido'::text, 'enviada_aprovacao'::text, 'aprovada_lider'::text, 'rejeitada_lider'::text, 'submetida_sem_gate'::text, 'envio_pos_aprovacao_sucesso'::text, 'envio_pos_aprovacao_falha'::text, 'descoberta_alvo'::text, 'sync_status'::text])))"
+        },
+        {
+          "tabela": "compras_requisicoes_auditoria",
+          "conname": "compras_requisicoes_auditoria_pkey",
+          "definicao": "PRIMARY KEY (id)"
+        },
+        {
+          "tabela": "compras_requisicoes_auditoria",
+          "conname": "compras_requisicoes_auditoria_requisicao_id_fkey",
+          "definicao": "FOREIGN KEY (requisicao_id) REFERENCES compras_requisicoes(id) ON DELETE CASCADE"
+        },
+        {
+          "tabela": "compras_requisicoes_auditoria",
+          "conname": "compras_requisicoes_auditoria_user_id_fkey",
+          "definicao": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL"
+        }
+      ]
+    }
+  }
+]

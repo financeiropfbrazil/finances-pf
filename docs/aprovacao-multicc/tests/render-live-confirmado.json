@@ -1,0 +1,12 @@
+{
+  "servico": "erp-proxy",
+  "status": "Live",
+  "commit_informado": "76f67b2",
+  "branch": "main",
+  "deploy_data_informada": "2026-09-06 17:28",
+  "fuso": "não explicitado na confirmação do usuário",
+  "fonte": "Usuário confirmou no painel do Render nesta conversa",
+  "verificado_diretamente_pelo_agente_no_painel": false,
+  "corresponde_ao_prefixo_origin_main": "76f67b2843061e7e9fb846ba8bac876901773585",
+  "patch_apply_check_contra_esse_commit": "passed na etapa anterior"
+}

@@ -1,0 +1,165 @@
+{
+  "implantacao_autorizada_20260907": {
+    "registro": "../deployment/IMPLANTACAO.md",
+    "pausa_producao": "aplicada 2026-09-07T16:24:27Z; cron 1 e sync desativados; trigger ativo",
+    "gateway_commit_push": "4ef34d50383343d2673b6dd702bccf26afeb3fda",
+    "render_publicado": false,
+    "sql_principal_aplicado": false,
+    "edge_publicada": false,
+    "frontend_publicado": false,
+    "testes_nesta_janela": {"sql": 112, "express": 20, "vitest": 113, "tsc_frontend": "passou", "tsc_gateway": "passou", "deno_check": "passou", "vite_build": "passou"},
+    "storage": "52 testes anteriores, não repetidos nesta janela",
+    "aceite_alvo": "aguardando publicação coordenada; nenhum Insert executado"
+  },
+  "head": "8f1e315b898e5164d22dca96e7c8acc79d77c946",
+  "baseline": {
+    "numTotalTests": 84,
+    "numPassedTests": 77,
+    "numFailedTests": 7
+  },
+  "final": {
+    "numTotalTests": 118,
+    "numPassedTests": 111,
+    "numFailedTests": 7
+  },
+  "baseline_failures": [
+    "AppSidebar — ordem mantém a ordem selada na REC-1.8 quando tudo está liberado",
+    "AppSidebar — ordem tem 24 entradas de topo",
+    "AppSidebar — gates não-admin com apenas producao.access vê só Produção",
+    "AppSidebar — gates não-admin com apenas suprimentos_requisicoes vê só Suprimentos",
+    "AppSidebar — gates admin sem nenhuma permissão RBAC vê os grupos admin-only",
+    "AppSidebar — gates sem permissão nenhuma não vê nada",
+    "AppSidebar — gates cada permissão isolada libera exatamente a sua entrada"
+  ],
+  "final_failures": [
+    "AppSidebar — ordem mantém a ordem selada na REC-1.8 quando tudo está liberado",
+    "AppSidebar — ordem tem 24 entradas de topo",
+    "AppSidebar — gates não-admin com apenas producao.access vê só Produção",
+    "AppSidebar — gates não-admin com apenas suprimentos_requisicoes vê só Suprimentos",
+    "AppSidebar — gates admin sem nenhuma permissão RBAC vê os grupos admin-only",
+    "AppSidebar — gates sem permissão nenhuma não vê nada",
+    "AppSidebar — gates cada permissão isolada libera exatamente a sua entrada"
+  ],
+  "sql": {
+    "passed": 100,
+    "runtime": "PostgreSQL 17.4 local",
+    "nonadmin": "role authenticated; identidades sintéticas is_admin=false, exceto teste administrativo",
+    "concurrency": "duas conexões reais; aprovação, rejeição e mutação na submissão"
+  },
+  "verification": {
+    "frontend_tsc": "passed",
+    "vite_build": "passed",
+    "gateway_tsc_temp_copy": "passed",
+    "gateway_patch_apply_check": "passed",
+    "edge_cron": "Deno 2.9.6 check --no-config --no-lock: exit 0, real dependencies; new duplicate property and preexisting PedidoLeve.DataHoraDigitacao type error fixed"
+  },
+  "review": {
+    "audit_before": "--antes: missing CC events and 23514 for login_servico_provisorio/envio_reivindicado; expected exit 1",
+    "audit_after": "all seven new events persisted; 17 legacy accepted; failure rolls back submission",
+    "storage": "26 HTTP checks passed on file + 26 on S3 MinIO; real GoTrue/PostgREST/Storage, synthetic nonadmin JWTs, real gateway handler with injected local dependencies, HTTP ERP simulator",
+    "units": "Fator per-product from Produto/Load: real 10/1 and 20/2 position 2; create/sync/clone/gateway preserve tuple; legacy missing fields recover ReqComp/Load or fail; Divisor/dimensional/rounding pending"
+  },
+  "storage_integration_pending": [],
+  "units_evidence": {
+    "file": "docs/aprovacao-multicc/load-gpt6-1.txt",
+    "sha256": "003260ca6d4491457d34f45612cdd8b458a7198a21eebf59f829edad7fa0ae74",
+    "insert": "request/response confirmado pelo usuário: 0001480, UNID posição 2, tuplas 10/1 e 20/2",
+    "native_alvo_insert_executed_by_agent": false
+  },
+  "integration": {
+    "file": "tests/integrated/resultados-http.json",
+    "s3": "tests/integrated/resultados-http-s3.json",
+    "unit_rerun": "111 passed; sidebar excluded (7 failures documented in previous full run)",
+    "production_acceptance": "not run",
+    "containers": "stopped; volumes preserved"
+  },
+  "deno": {
+    "version": "2.9.6",
+    "command": "deno check --no-config --no-lock supabase/functions/sync-compras-status-cron/index.ts",
+    "exitCode": 0,
+    "baseline": "HEAD reproduced TS2339 DataHoraDigitacao; modified file initially also TS2783 duplicate codigo_prod_unid_med",
+    "edge_sha256": "87d28c39e27a04d5f43568116bf1b3b0f3debafadd8a41587542787aac97f4ed",
+    "shared_sha256": "c981812b38bd01979363fc75d315bb6bc787e3aa807cd786a2cc7664f4b87233"
+  },
+  "unit_coverage": {
+    "source": "tests/cobertura-unidades.json",
+    "read_only": true,
+    "requests": 286,
+    "requests_without_items": 11,
+    "items": 363,
+    "products": 171,
+    "products_with_cached_scale": 3,
+    "products_without_cached_scale": 168,
+    "known_unsupported_scalar_formats": 0,
+    "limitation": "missing dimensional/dependency flags, cache from 2026-08-10; absent scales are unknown, not supported"
+  },
+  "continuacao_leitura": {
+    "express_checks": 20,
+    "express_failure": null,
+    "express_evidence": "tests/resultados-express.json",
+    "produto_load": {
+      "chamadas": 171,
+      "conclusivas": 171,
+      "inconclusivas": 0,
+      "bloqueio": null
+    },
+    "gateway_origin_main": "76f67b2843061e7e9fb846ba8bac876901773585",
+    "patch_apply_check": "passed",
+    "render_live_sha": "76f67b2; confirmado pelo usuário no painel Render",
+    "acceptance_plan": "ACEITE-ALVO.md",
+    "render_live": {
+      "servico": "erp-proxy",
+      "status": "Live",
+      "commit_informado": "76f67b2",
+      "branch": "main",
+      "deploy_data_informada": "2026-09-06 17:28",
+      "fuso": "não explicitado na confirmação do usuário",
+      "fonte": "Usuário confirmou no painel do Render nesta conversa",
+      "verificado_diretamente_pelo_agente_no_painel": false,
+      "corresponde_ao_prefixo_origin_main": "76f67b2843061e7e9fb846ba8bac876901773585",
+      "patch_apply_check_contra_esse_commit": "passed na etapa anterior"
+    }
+  },
+  "classificacao_offline": {
+    "produtos": 171,
+    "produtos_todas_suportadas": 170,
+    "produtos_parciais": 1,
+    "produtos_todas_bloqueadas": 0,
+    "unidades": 196,
+    "suportadas": 194,
+    "bloqueadas": 2,
+    "compras": 41,
+    "compras_bloqueadas": 1,
+    "produtos_sem_marca_compras": 132,
+    "produtos_multiplas_marcas_compras": 2,
+    "pares_historicos": 171,
+    "itens_historicos": 363,
+    "pares_bloqueados": 0,
+    "pares_ambiguos": 0,
+    "pares_ausentes": 0,
+    "modo": "offline; zero HTTP",
+    "validador_sha256": "c981812b38bd01979363fc75d315bb6bc787e3aa807cd786a2cc7664f4b87233",
+    "evidencia": "produto-load/analise-offline.json",
+    "relatorio": "CLASSIFICACAO-UNIDADES.md"
+  },
+  "aceite_preenchido": {
+    "documento": "ACEITE-PREENCHIDO.md",
+    "cadastros": "tests/participantes-existentes.json",
+    "somente_select": true,
+    "autor": "caio.santos",
+    "aprovadora_final": "ana.sanches",
+    "ccs": [
+      "00010.00002.00005",
+      "00007.00001.00002"
+    ],
+    "alternativos": "indisponível: requer vínculo adicional autorizado",
+    "aviso_m3": "inline antes de avançar; preserva M3/3; sem conversão nova",
+    "testes_executados": {
+      "vitest_passed": 113,
+      "excluded": "sidebar-ordem.test.tsx (7 falhas antigas no baseline)",
+      "frontend_tsc": "passed",
+      "build": "passed com avisos existentes"
+    },
+    "browser_visual": "não executado nesta etapa"
+  }
+}

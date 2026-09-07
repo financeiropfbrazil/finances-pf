@@ -1,8 +1,13 @@
+import { converterSolicitada } from "../../supabase/functions/_shared/requisicao-unidades";
+import { UnidadeRequisicaoSelect, restricaoUnidadeRequisicao } from "@/components/compras/UnidadeRequisicaoSelect";
+import { RateioCCEditor } from "@/components/compras/RateioCCEditor";
+import { centrosEnvolvidos, validarRateioCC } from "@/lib/requisicaoCC";
+import type { RateioCCClasseInput } from "@/services/requisicoesService";
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { submeterRequisicao, carregarRequisicaoParaClonar, type ArquivoInput } from "@/services/requisicoesService";
+import { submeterRequisicao, carregarUnidadesProduto, carregarRequisicaoParaClonar, type ArquivoInput } from "@/services/requisicoesService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -58,6 +63,7 @@ interface RateioClasseItem {
 }
 
 interface ItemWizard {
+  codigo_centro_ctrl?: string;
   tempId: string;
   item_servico: boolean;
   codigo_produto: string;
@@ -66,6 +72,8 @@ interface ItemWizard {
   produto_nome: string;
   produto_unidade: string;
   quantidade: number;
+  quantidade_solicitada: number;
+  posicao_prod_unid_med: number;
   observacao: string;
   rateio: RateioClasseItem[];
 }
@@ -126,7 +134,22 @@ export default function SuprimentosRequisicaoNova() {
   const [itemTipo, setItemTipo] = useState<"produto" | "servico">("produto");
   const [produtoSelecionado, setProdutoSelecionado] = useState<StockProduct | null>(null);
   const [itemQtd, setItemQtd] = useState("1");
+  const [itemPosicao, setItemPosicao] = useState<number | null>(null);
+  const { data: unidadesItem = [], isFetching: carregandoUnidades, error: erroUnidades } = useQuery({
+    queryKey: ["req-unidades-produto", produtoSelecionado?.codigo_produto],
+    queryFn: () => carregarUnidadesProduto(produtoSelecionado!.codigo_produto),
+    enabled: !!produtoSelecionado, staleTime: 0,
+  });
+  useEffect(() => {
+    if (itemPosicao !== null || !unidadesItem.length) return;
+    const compras = unidadesItem.filter(u => u.compras);
+    setItemPosicao(compras.length === 1 ? compras[0].posicao : unidadesItem.find(u => u.posicao === 1)?.posicao ?? null);
+  }, [unidadesItem, itemPosicao]);
   const [itemObs, setItemObs] = useState("");
+  const restricaoUnidadeItem = restricaoUnidadeRequisicao(unidadesItem.find(u => u.posicao === itemPosicao));
+  const unidadeItemIndisponivel = carregandoUnidades || !!erroUnidades || !!restricaoUnidadeItem || !unidadesItem.some(u => u.posicao === itemPosicao);
+  const [itemCC, setItemCC] = useState("");
+  const [rateioCC, setRateioCC] = useState<RateioCCClasseInput[]>([]);
   const [produtoPopoverOpen, setProdutoPopoverOpen] = useState(false);
   const [produtoSearch, setProdutoSearch] = useState("");
 
@@ -354,9 +377,11 @@ export default function SuprimentosRequisicaoNova() {
           origem.data_necessidade ? new Date(`${origem.data_necessidade}T12:00:00`) : undefined,
         );
 
+        setRateioCC(origem.rateio_cc);
         setItens(
           origem.itens.map((item) => ({
             tempId: crypto.randomUUID(),
+            codigo_centro_ctrl: item.codigo_centro_ctrl,
             item_servico: item.item_servico,
             codigo_produto: item.codigo_produto,
             codigo_alternativo_produto: item.codigo_alternativo_produto,
@@ -364,6 +389,8 @@ export default function SuprimentosRequisicaoNova() {
             produto_nome: item.produto_nome || item.codigo_produto,
             produto_unidade: item.produto_unidade || "",
             quantidade: item.quantidade,
+          quantidade_solicitada: item.quantidade_solicitada,
+          posicao_prod_unid_med: item.posicao_prod_unid_med,
             observacao: item.observacao || "",
             rateio: item.rateio.map((r) => ({
               tempRateioId: crypto.randomUUID(),
@@ -452,7 +479,10 @@ export default function SuprimentosRequisicaoNova() {
 
     setEnviando(true);
     try {
+      const erroRateio = validarRateioCC(codigoCentroCtrl, rateioCC);
+      if (erroRateio) throw new Error(erroRateio);
       const inputBase = {
+        rateio_cc: rateioCC,
         user_id: user.id,
         requisitante_nome: profile?.full_name || user.email || "Usuário",
         codigo_funcionario: codigoFuncionario,
@@ -465,6 +495,7 @@ export default function SuprimentosRequisicaoNova() {
         data_necessidade: format(dataNecessidade, "yyyy-MM-dd"),
         observacao_livre: observacaoLivre,
         itens: itens.map((item) => ({
+          codigo_centro_ctrl: item.codigo_centro_ctrl || codigoCentroCtrl,
           item_servico: item.item_servico,
           codigo_produto: item.codigo_produto,
           codigo_alternativo_produto: item.codigo_alternativo_produto,
@@ -472,6 +503,8 @@ export default function SuprimentosRequisicaoNova() {
           produto_nome: item.produto_nome,
           produto_unidade: item.produto_unidade,
           quantidade: item.quantidade,
+          quantidade_solicitada: item.quantidade_solicitada,
+          posicao_prod_unid_med: item.posicao_prod_unid_med,
           observacao: item.observacao,
           rateio: item.rateio.map((r) => ({
             codigo_classe_rec_desp: r.codigo_classe_rec_desp,
@@ -578,8 +611,10 @@ export default function SuprimentosRequisicaoNova() {
     setEditingItemId(null);
     setItemTipo("produto");
     setProdutoSelecionado(null);
+    setItemPosicao(null);
     setItemQtd("1");
     setItemObs("");
+    setItemCC("");
     setProdutoSearch("");
     setItemStep(1);
     setItemRateio([]);
@@ -609,14 +644,17 @@ export default function SuprimentosRequisicaoNova() {
       unidade_medida: item.produto_unidade,
       tipo_produto_fiscal: item.item_servico ? "09" : null,
     });
-    setItemQtd(String(item.quantidade));
+    setItemQtd(String(item.quantidade_solicitada));
+    setItemPosicao(item.posicao_prod_unid_med);
     setItemObs(item.observacao || "");
+    setItemCC(item.codigo_centro_ctrl || "");
     setItemRateio(item.rateio || []);
     setItemStep(1);
     setItemDialogOpen(true);
   };
 
   const handleNextToRateio = () => {
+    if (unidadeItemIndisponivel) return;
     if (!produtoSelecionado) {
       toast({ title: "Selecione um produto ou serviço", variant: "destructive" });
       return;
@@ -638,6 +676,7 @@ export default function SuprimentosRequisicaoNova() {
   };
 
   const handleSaveItem = () => {
+    if (unidadeItemIndisponivel) return;
     if (contarCaracteres(itemObs) > MAX_OBSERVACAO_ITEM) {
       toast({
         title: "Observação do item muito longa",
@@ -662,15 +701,26 @@ export default function SuprimentosRequisicaoNova() {
     }
 
     const qtdNum = parseFloat(itemQtd.replace(",", "."));
+    const unidade = unidadesItem.find(u => u.posicao === itemPosicao);
+    let principal: number;
+    try {
+      if (!unidade || carregandoUnidades || erroUnidades) throw new Error("Aguarde o cadastro de unidades e selecione uma unidade válida.");
+      principal = converterSolicitada(qtdNum, unidade);
+    } catch (error) {
+      toast({ title: "Confira a unidade", description: String(error instanceof Error ? error.message : error), variant: "destructive" }); return;
+    }
     const novoItem: ItemWizard = {
+      codigo_centro_ctrl: itemCC || undefined,
       tempId: editingItemId || `tmp-${Date.now()}-${Math.random()}`,
       item_servico: itemTipo === "servico",
       codigo_produto: produtoSelecionado!.codigo_produto,
       codigo_alternativo_produto: produtoSelecionado!.codigo_alternativo,
-      codigo_prod_unid_med: produtoSelecionado!.unidade_medida || "UNID",
+      codigo_prod_unid_med: unidade!.codigo,
       produto_nome: produtoSelecionado!.nome_produto,
-      produto_unidade: produtoSelecionado!.unidade_medida || "UNID",
-      quantidade: qtdNum,
+      produto_unidade: unidade!.codigo,
+      quantidade: principal,
+      quantidade_solicitada: qtdNum,
+      posicao_prod_unid_med: unidade!.posicao,
       observacao: itemObs.trim(),
       rateio: itemRateio,
     };
@@ -821,11 +871,12 @@ export default function SuprimentosRequisicaoNova() {
                           </Badge>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          {item.quantidade} {item.produto_unidade} · {item.codigo_produto}
+                          {item.quantidade_solicitada} {item.produto_unidade} (principal: {item.quantidade}) · {item.codigo_produto}
                         </p>
                         {item.observacao && (
                           <p className="text-xs text-muted-foreground italic mt-1">"{item.observacao}"</p>
                         )}
+                        <p className="text-xs">CC: {item.codigo_centro_ctrl || codigoCentroCtrl || "CC principal (etapa Área)"}</p>
                         {item.rateio.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
                             {item.rateio.map((r) => (
@@ -1128,7 +1179,7 @@ export default function SuprimentosRequisicaoNova() {
                           </Badge>
                         </div>
                         <div className="mt-0.5 text-xs text-muted-foreground">
-                          {item.quantidade} {item.produto_unidade} · {item.codigo_produto}
+                          {item.quantidade_solicitada} {item.produto_unidade} (principal: {item.quantidade}) · {item.codigo_produto}
                         </div>
                         {item.observacao && (
                           <div className="mt-1 text-xs italic text-muted-foreground">"{item.observacao}"</div>
@@ -1206,6 +1257,8 @@ export default function SuprimentosRequisicaoNova() {
             </CardContent>
           </Card>
 
+          <RateioCCEditor value={rateioCC} onChange={setRateioCC} classes={classes} centros={costCenters} />
+          <p className="text-sm">Centros envolvidos: {centrosEnvolvidos(codigoCentroCtrl, itens, rateioCC).join(", ")}. A dispensa do autor cobre apenas os CCs que ele lidera. Os demais aguardam seus líderes.</p>
           {/* Card 4 — Observação livre */}
           <Card>
             <CardContent className="space-y-3 p-6">
@@ -1349,6 +1402,7 @@ export default function SuprimentosRequisicaoNova() {
                 onValueChange={(v) => {
                   setItemTipo(v as any);
                   setProdutoSelecionado(null);
+    setItemPosicao(null);
                 }}
               >
                 <TabsList className="w-full">
@@ -1387,6 +1441,7 @@ export default function SuprimentosRequisicaoNova() {
                               key={p.codigo_produto}
                               value={p.codigo_produto}
                               onSelect={() => {
+                                setItemPosicao(null);
                                 setProdutoSelecionado(p);
                                 setProdutoPopoverOpen(false);
                               }}
@@ -1408,7 +1463,15 @@ export default function SuprimentosRequisicaoNova() {
               </div>
 
               <div className="space-y-2">
-                <Label>Quantidade</Label>
+                <Label>Centro de custo do item</Label>
+                <select aria-label="Centro de custo do item" className="w-full rounded border p-2" value={itemCC} onChange={(e) => setItemCC(e.target.value)}>
+                  <option value="">Usar o CC principal da requisição</option>
+                  {costCenters.map((cc) => <option key={cc.erp_code} value={cc.erp_code}>{cc.erp_code} — {cc.name}</option>)}
+                </select>
+                <Label>Unidade solicitada</Label>
+                <UnidadeRequisicaoSelect unidades={unidadesItem} posicao={itemPosicao} onChange={setItemPosicao} carregando={carregandoUnidades} />
+                {erroUnidades && <p role="alert" className="text-sm text-destructive">Não foi possível obter as unidades: {String(erroUnidades.message)}</p>}
+                <Label>Quantidade solicitada</Label>
                 <Input type="text" inputMode="decimal" value={itemQtd} onChange={(e) => setItemQtd(e.target.value)} />
               </div>
 
@@ -1544,7 +1607,7 @@ export default function SuprimentosRequisicaoNova() {
                 <Button variant="outline" onClick={() => setItemDialogOpen(false)}>
                   Cancelar
                 </Button>
-                <Button onClick={handleNextToRateio}>
+                <Button onClick={handleNextToRateio} disabled={unidadeItemIndisponivel}>
                   Próximo <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </>
@@ -1553,7 +1616,7 @@ export default function SuprimentosRequisicaoNova() {
                 <Button variant="outline" onClick={() => setItemStep(1)}>
                   <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
                 </Button>
-                <Button onClick={handleSaveItem}>{editingItemId ? "Salvar" : "Adicionar"}</Button>
+                <Button onClick={handleSaveItem} disabled={unidadeItemIndisponivel}>{editingItemId ? "Salvar" : "Adicionar"}</Button>
               </>
             )}
           </DialogFooter>

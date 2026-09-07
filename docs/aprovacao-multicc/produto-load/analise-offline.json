@@ -1,0 +1,5212 @@
+{
+  "gerado_em": "2026-09-07T15:30:43.067Z",
+  "modo": "offline; zero HTTP",
+  "validador_sha256": "c981812b38bd01979363fc75d315bb6bc787e3aa807cd786a2cc7664f4b87233",
+  "ensaio": "Solicitada=1 por unidade, usando unidadesProduto, converterSolicitada e validarItemCadastro. Não reconstrói quantidades/posições históricas.",
+  "resumo": {
+    "produtos": 171,
+    "produtos_todas_suportadas": 170,
+    "produtos_parciais": 1,
+    "produtos_todas_bloqueadas": 0,
+    "unidades": 196,
+    "suportadas": 194,
+    "bloqueadas": 2,
+    "compras": 41,
+    "compras_bloqueadas": 1,
+    "produtos_sem_marca_compras": 132,
+    "produtos_multiplas_marcas_compras": 2,
+    "pares_historicos": 171,
+    "itens_historicos": 363,
+    "pares_bloqueados": 0,
+    "pares_ambiguos": 0,
+    "pares_ausentes": 0
+  },
+  "produtos": [
+    {
+      "codigo": "001.002.00051",
+      "resposta_sha256": "13ea60f352712c031960c78857bb3a7118237ba5752a11447a622b81eb404c4d",
+      "consultado_em": "2026-09-07T15:18:02.189Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.002.00077",
+      "resposta_sha256": "95e237c8176acca56ec11fb9c57618f1ae3e4ed5ccbefd91f512fc72175d2f76",
+      "consultado_em": "2026-09-07T15:18:04.507Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.003.00001",
+      "resposta_sha256": "902d165aaebe7d6cce2f93f3e885dc890327f24fb5820ef6c870e41126c2077d",
+      "consultado_em": "2026-09-07T15:18:07.160Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.004.00005",
+      "resposta_sha256": "22492ae162c154be7ea257418a017bd7d36c497a1a54d32ad681fe3c1f1e8cc4",
+      "consultado_em": "2026-09-07T15:18:08.954Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.004.00034",
+      "resposta_sha256": "c3d5a49e7b65079ee52b44cd7ceb28e50dc8a340e287321945195c5fb1d2b6e6",
+      "consultado_em": "2026-09-07T15:18:10.837Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.005.00191",
+      "resposta_sha256": "8dc6d971b554f9672835f8a64faad9269733e4f0adf7f463cccc82c2da6c34e1",
+      "consultado_em": "2026-09-07T15:18:12.674Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "PC",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "PC",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00016",
+      "resposta_sha256": "616f22f42f5c09171cca70fe6f6af9424b9bfd417fa4d06787f56ee5a5730ef4",
+      "consultado_em": "2026-09-07T15:18:14.475Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00029",
+      "resposta_sha256": "5ed5fa2891a1006ce6965a25ae262f1efebb334e03003498323df0a0d80df256",
+      "consultado_em": "2026-09-07T15:18:16.383Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00031",
+      "resposta_sha256": "c08460cb647f632c27aba2fd5b5c57a473d64b6313ffcaea57d4ed6461e4ffea",
+      "consultado_em": "2026-09-07T15:18:18.167Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "requisicoes": 3,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00036",
+      "resposta_sha256": "cc237ba288f2179b4be92d87f075f33038d319c7fd4d546f02f20546f43b87f9",
+      "consultado_em": "2026-09-07T15:18:19.977Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00054",
+      "resposta_sha256": "460c12fb28d399d6562f724e42e6e48560bf99fae0a3b1acc32554173045004e",
+      "consultado_em": "2026-09-07T15:18:21.770Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00057",
+      "resposta_sha256": "dc3d8749ab1732f097f8d053100e18431aad6100bb3218981ea0d8e5d3263b47",
+      "consultado_em": "2026-09-07T15:18:23.543Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00068",
+      "resposta_sha256": "a9d1363b936590336769b4b8589e8365d2b630ebc331aa4f273e46056e79ecfe",
+      "consultado_em": "2026-09-07T15:18:25.313Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00093",
+      "resposta_sha256": "288ca0f4c6c01c00cf641f898326c49508bf52cad1d70e708b08ac9914c7c4f9",
+      "consultado_em": "2026-09-07T15:18:27.133Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 0.1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00094",
+      "resposta_sha256": "4702999176fd1d01028d9768bf1d69ac35fce80272d69b04905dc1aa6496bc43",
+      "consultado_em": "2026-09-07T15:18:28.985Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.006.00096",
+      "resposta_sha256": "e22d87f6a96dd4070146d35168b14785338481814ac28f80b547651bc6fde9f5",
+      "consultado_em": "2026-09-07T15:18:30.785Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.007.00018",
+      "resposta_sha256": "4c5e89f3893b1ad211ae915e02375b80a310adc6c02bcd43a071f1885c2cefa1",
+      "consultado_em": "2026-09-07T15:18:32.551Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "M",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "M",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.007.00025",
+      "resposta_sha256": "3040c52fe360eab2d3da257e720d4ea94809e2c5c6db7103c8e621e322527462",
+      "consultado_em": "2026-09-07T15:18:34.427Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 0.005,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.009.00068",
+      "resposta_sha256": "c70e2b61389caa07bdf80fa6bcdb3c06989ee8123c2ec5a635cc1a3fc4e5df95",
+      "consultado_em": "2026-09-07T15:18:36.180Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.009.00079",
+      "resposta_sha256": "43e7587f75c9f49d054ae5da66acd31133b9f8c5ac1a8e89e230a70125b291e8",
+      "consultado_em": "2026-09-07T15:18:37.943Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.009.00089",
+      "resposta_sha256": "615d3d8c2dc9f1e3b9adce7c8ac093d4bbe8f1040ae74ca72e215c0e92088b89",
+      "consultado_em": "2026-09-07T15:18:39.692Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.009.00162",
+      "resposta_sha256": "c7ab3eedd89dac0f6942516284005d0f14fb509599cc5a5969d071b1c4845b46",
+      "consultado_em": "2026-09-07T15:18:41.495Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.009.00164",
+      "resposta_sha256": "2219acafef30d1f7d589029866a4bc4e724637c35a7d9ba1bb507d7910bf24f4",
+      "consultado_em": "2026-09-07T15:18:43.295Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.009.00165",
+      "resposta_sha256": "f19279d142cf671158d7a807ca6b18769caeadc02e4b2373f29eba23282f5cc7",
+      "consultado_em": "2026-09-07T15:18:45.083Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.012.003",
+      "resposta_sha256": "2f2f0d8ba49aca59ab7e3c0c9a2d88f67fe07bee3c4b2535152e59a462b6e5ef",
+      "consultado_em": "2026-09-07T15:18:46.889Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 7,
+          "requisicoes": 7,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.012.004",
+      "resposta_sha256": "87da8180012db4982ebba3a3cd9f06b40581cf4531144f414298277cb1370fa0",
+      "consultado_em": "2026-09-07T15:18:48.682Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 9,
+          "requisicoes": 9,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.012.005",
+      "resposta_sha256": "7fb30a0972c731fd09f10bd63c3058c163a9de57cfe532ceda6598620a1646fb",
+      "consultado_em": "2026-09-07T15:18:50.439Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.012.006",
+      "resposta_sha256": "8930ac9feee6d891e6916945c094090e10f389c1d5dbc5f28392c71bcfa62b01",
+      "consultado_em": "2026-09-07T15:18:52.210Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 17,
+          "requisicoes": 16,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.012.022",
+      "resposta_sha256": "8ce30d93d8f00213bb7dc438334ea0b08e99aa71760a3725b04685360566ad6c",
+      "consultado_em": "2026-09-07T15:18:53.988Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 5,
+          "requisicoes": 5,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00036",
+      "resposta_sha256": "07c286224c4add360e924e46de0c9c33f97650d5fa202ba40b55476ae7988bb3",
+      "consultado_em": "2026-09-07T15:18:55.762Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00050",
+      "resposta_sha256": "5c804f97ed5b41150f3cb070179178a46796ecb936c5b7d8e9648417ec7d8a7c",
+      "consultado_em": "2026-09-07T15:18:57.532Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00062",
+      "resposta_sha256": "3e8667d44407f51d8cc87eb8b1a51f8691c6f6261c73dc2bbf4caefba513e399",
+      "consultado_em": "2026-09-07T15:18:59.443Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "GALAO",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00089",
+      "resposta_sha256": "c1edb8c52b271094840ef5921eab8fc784b186c50b36108128c637d8c385dcff",
+      "consultado_em": "2026-09-07T15:19:01.262Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "requisicoes": 4,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00124",
+      "resposta_sha256": "dd651b9f84f06b33ec29f2f040563b93fa6ea2ab4ac238801eadd078f6024991",
+      "consultado_em": "2026-09-07T15:19:03.043Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00127",
+      "resposta_sha256": "100afdf8257694cd521c996de8794d5c741c7df665c5ca98e16cd7b44f2d4391",
+      "consultado_em": "2026-09-07T15:19:04.894Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "M",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 6,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00136",
+      "resposta_sha256": "2e15839d76680beeb038c8b06c413234566a28810e833f189768d0a34d0e27e2",
+      "consultado_em": "2026-09-07T15:19:06.671Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00167",
+      "resposta_sha256": "c303137dcc14edc5f91a0eb7540dc46666f3e13d63115c5134cd34c7199bffb0",
+      "consultado_em": "2026-09-07T15:19:08.513Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00168",
+      "resposta_sha256": "c47ba1d45df9a5939df89794bbcd92223b9bcfd76fb4f22c9e5e13605941f65e",
+      "consultado_em": "2026-09-07T15:19:10.381Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00185",
+      "resposta_sha256": "7a7904e081cab0b746094d88806f287a0c1ffd165d9a749e9177b9e495773a02",
+      "consultado_em": "2026-09-07T15:19:12.226Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00199",
+      "resposta_sha256": "d8ac3ff1bc5e06cdf1d4d00f7558cf7c21654c0aa35aa1d14637a4e55b0af914",
+      "consultado_em": "2026-09-07T15:19:13.992Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00208",
+      "resposta_sha256": "8dec412e79827881e2bbafc56e778fc89b4b9d2311a73673d45609411f561878",
+      "consultado_em": "2026-09-07T15:19:15.823Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "FARDO",
+          "posicao": 2,
+          "peso": 25,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00249",
+      "resposta_sha256": "6ffe9fe39dfba3803ee38a7a4d8174c736e61672abc3c00b78a17721e434543c",
+      "consultado_em": "2026-09-07T15:19:17.630Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00259",
+      "resposta_sha256": "be8b8660860230c1ea137c9d720e700cee001def71ab8686cf248b51f2741907",
+      "consultado_em": "2026-09-07T15:19:19.518Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00358",
+      "resposta_sha256": "6ddd87e0155f7a53fcf725a651af11d42d077a18a56e8cc1dd2f1dc046d7d199",
+      "consultado_em": "2026-09-07T15:19:21.304Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00382",
+      "resposta_sha256": "8b24bcb67e28e382844b7dcb5938ff7ff684e88b75e4039af91b324c3cf758fd",
+      "consultado_em": "2026-09-07T15:19:22.990Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "PACOTE",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 2,
+          "peso": 0.1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "PACOTE",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00418",
+      "resposta_sha256": "5c9f6b2d53d23494f766df48d8596b09c5c798b4c71197a3a658130b33def61c",
+      "consultado_em": "2026-09-07T15:19:24.911Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00509",
+      "resposta_sha256": "fd56be6351948b00380f7d1e2915448650f42ee9fac8bef44ec28c99e9896325",
+      "consultado_em": "2026-09-07T15:19:26.704Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 10,
+          "requisicoes": 10,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00512",
+      "resposta_sha256": "d199c7517aca19a17a05843881daaff5e28c7aebc8ea97f0a3d284389b64a84f",
+      "consultado_em": "2026-09-07T15:19:28.522Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 13,
+          "requisicoes": 13,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00521",
+      "resposta_sha256": "19824ba32a4876e0b131d04b0c719875245586ee01d941bf3f7334e2d578f50e",
+      "consultado_em": "2026-09-07T15:19:30.442Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00522",
+      "resposta_sha256": "967a080820085ff83f168678786d0361c0ed9b6ab1ee9098c02ffae5c27c38a3",
+      "consultado_em": "2026-09-07T15:19:32.330Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00529",
+      "resposta_sha256": "f5e4a5365bdeae81d06c303b12bf0d47b89e1292bede4923640e5b2a49013c7e",
+      "consultado_em": "2026-09-07T15:19:34.346Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00546",
+      "resposta_sha256": "6dc66e75e47c9f8f9555bfc1703e5abec4ac38ca300668622eb22accad15fad1",
+      "consultado_em": "2026-09-07T15:19:36.064Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.013.00551",
+      "resposta_sha256": "b7847b2b878864957d4d8458aa45649a323e5ca2d943c2c6f32c59037ea85368",
+      "consultado_em": "2026-09-07T15:19:37.904Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "PACOTE",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.001",
+      "resposta_sha256": "c10960856f8196eb7bf9359079d06ef4e60b6992663f30b13b1502cd8384d920",
+      "consultado_em": "2026-09-07T15:19:39.790Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 10,
+          "requisicoes": 10,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.002",
+      "resposta_sha256": "0cd15125a90a25b91c6b49ec2b36b8121aa70578759fe00f44ff1268be12daa0",
+      "consultado_em": "2026-09-07T15:19:41.595Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "requisicoes": 4,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.003",
+      "resposta_sha256": "395f6eecf9bd44bb960f09cf9049c184bb3666d36004a302322b29306c9454fa",
+      "consultado_em": "2026-09-07T15:19:43.423Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "requisicoes": 3,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.005",
+      "resposta_sha256": "76ef609438319ab0b12625bf997313f8b6557497ad9cd5df0bf92a09fab76566",
+      "consultado_em": "2026-09-07T15:19:45.272Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 9,
+          "requisicoes": 9,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.006",
+      "resposta_sha256": "1d1cc12d59692a7c4de32f3fe4d06c0440566e3143118e612bd6f6c7c7a32f54",
+      "consultado_em": "2026-09-07T15:19:47.055Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.007",
+      "resposta_sha256": "1cdaf32a858f0239de2647c0d748900c58b9af8583c2ba7a747f2eacb2881ee4",
+      "consultado_em": "2026-09-07T15:19:48.520Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.015",
+      "resposta_sha256": "0a99a20522f0bade8b4f15d331661fbffe73bfca7b509be43f9ba5c2684d9c16",
+      "consultado_em": "2026-09-07T15:19:50.965Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.024",
+      "resposta_sha256": "484a523bf6fc70d357974cdc20256d377e606a1adfcda649efc5c4a0f42de5b9",
+      "consultado_em": "2026-09-07T15:19:52.739Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.031",
+      "resposta_sha256": "dc362f0bec8f58a64cb97be2bb8befae9d2eb6fcd9ee3ba3f763f6ee514cc3a2",
+      "consultado_em": "2026-09-07T15:19:54.529Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "requisicoes": 3,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.034",
+      "resposta_sha256": "5fad5151f85f9b593a7a0b94ee64a1f13b5fbe4cd458643b9f8eec5843da0315",
+      "consultado_em": "2026-09-07T15:19:56.303Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.035",
+      "resposta_sha256": "9246dc1e7b429eab8b3d4520f09fe694a0285f0220f37560e6dcb0a06c1906c9",
+      "consultado_em": "2026-09-07T15:19:58.107Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.037",
+      "resposta_sha256": "6ac7c937dad1ec186f7fb786ffe0d22945adeeec928b65e016a84aed880933a0",
+      "consultado_em": "2026-09-07T15:19:59.919Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.038",
+      "resposta_sha256": "63c029b49e7266b3d027df22d5ffb0e5fc310255b720231c2ab656643c13476b",
+      "consultado_em": "2026-09-07T15:20:01.742Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.046",
+      "resposta_sha256": "d8ef013b31f664ab14bd954074dad42f70e3002144fffbff70988accc634dff0",
+      "consultado_em": "2026-09-07T15:20:03.520Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.014.047",
+      "resposta_sha256": "16e2cae9f546b9be826ad757f60a79e554cb36cf8f85ef3aed5be871daecad01",
+      "consultado_em": "2026-09-07T15:20:05.328Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.016.012",
+      "resposta_sha256": "427bb35b06ff63ffb08ccfb63cb697900a5856fcc67ea1e1c24594fb5488839c",
+      "consultado_em": "2026-09-07T15:20:07.134Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.016.019",
+      "resposta_sha256": "48ba4c8c6376d929ff2b941077e976b83cbb58f3f9612b06461fd5ee89d03c57",
+      "consultado_em": "2026-09-07T15:20:08.986Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "PC",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.016.062",
+      "resposta_sha256": "a3e307ac5e9090ef176516460e838a59c3458b86127da7aaca63f10627ba41eb",
+      "consultado_em": "2026-09-07T15:20:10.780Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.016.085",
+      "resposta_sha256": "31d17b33e22b00dd5ee467c45762699f9c4abb3dbf6788a568b16853ba4dc255",
+      "consultado_em": "2026-09-07T15:20:12.528Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.005",
+      "resposta_sha256": "7f2bfbeb17c836128e20f1cc9c2224ed16a39002a2590c42dc1680bfb39e9a74",
+      "consultado_em": "2026-09-07T15:20:14.326Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.011",
+      "resposta_sha256": "b0e9508d7d476bea2a808217f8e1095fe5b73e2503139b49bee13c8f75edbee8",
+      "consultado_em": "2026-09-07T15:20:16.093Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.056",
+      "resposta_sha256": "0230333dc82941ae692e9eec53a81819fe50ca8a0538ccc86e4084aa78d3e1f4",
+      "consultado_em": "2026-09-07T15:20:17.890Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "requisicoes": 4,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.062",
+      "resposta_sha256": "5cd9720954428fd83709985f14abce6d509aa788af79166e640d40d5effc10a2",
+      "consultado_em": "2026-09-07T15:20:19.690Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.064",
+      "resposta_sha256": "93e1bb21dd7d8f2a7e92dc5df36d0e9dd8ee411fb05e15749e4cabc2815e55f1",
+      "consultado_em": "2026-09-07T15:20:21.496Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "KG",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.068",
+      "resposta_sha256": "a810f346a8592dae6409236492de2eb3d4e88737ff2ba4e935ac150c7d9c9af4",
+      "consultado_em": "2026-09-07T15:20:23.295Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.076",
+      "resposta_sha256": "f19f6aa0df4528cb92c6af4ea97b9154d04b01c55cd813765a0872c78ddec4b9",
+      "consultado_em": "2026-09-07T15:20:25.113Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.079",
+      "resposta_sha256": "5d5b3365970da10b54784aafdfa7fb3bd9b948c7fb021d184f8c3747a0e01e9f",
+      "consultado_em": "2026-09-07T15:20:26.877Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.080",
+      "resposta_sha256": "4811243649e2a0f3fecd8e809fa2a4b15066ee7fb4ad84341b7a4c93582e0285",
+      "consultado_em": "2026-09-07T15:20:28.721Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.092",
+      "resposta_sha256": "16fa66b58416f637881fe28b18d4df75debba309e6e87ad1186af461c705b899",
+      "consultado_em": "2026-09-07T15:20:30.581Z",
+      "classificacao": "parcial",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "M3",
+          "posicao": 2,
+          "peso": 10,
+          "tipo": "Divisor",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "bloqueada",
+          "motivo": "CONVERSAO_NAO_COMPROVADA: Divisor exige Produto/Load e Insert nativo"
+        },
+        {
+          "codigo": "M3",
+          "posicao": 3,
+          "peso": 10,
+          "tipo": "Divisor",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "bloqueada",
+          "motivo": "CONVERSAO_NAO_COMPROVADA: Divisor exige Produto/Load e Insert nativo"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.107",
+      "resposta_sha256": "a25170c9badc7c67f866574f262b88a9c3334a2b269848ec95b34975d148268b",
+      "consultado_em": "2026-09-07T15:20:32.390Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.110",
+      "resposta_sha256": "44036ea94214a62fd51e531d4785f7c2e2956138ca52f352ed078f3ea7f36d40",
+      "consultado_em": "2026-09-07T15:20:34.217Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.196",
+      "resposta_sha256": "318506d02b3fab1481d42c4ca5ccb24a4f15da0204c5ef2ce0026e9f5d907dcb",
+      "consultado_em": "2026-09-07T15:20:36.007Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.208",
+      "resposta_sha256": "3ff610d94b64353f5f86ea73d49152e29562ddf0ba1f44f7e457b93a0b6abdcf",
+      "consultado_em": "2026-09-07T15:20:37.794Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.209",
+      "resposta_sha256": "7f091887e725dc2555a10c0c14f672505d9a6a3c5586adc7fe0f640c6177116a",
+      "consultado_em": "2026-09-07T15:20:39.621Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.248",
+      "resposta_sha256": "d5b7eac48acc599270e965f3b836efbe51624cf7eeac7a52690f3deb8e6d0bbc",
+      "consultado_em": "2026-09-07T15:20:41.424Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.293",
+      "resposta_sha256": "ce1653bc9dc849442cd0edd3fe98daef07a994043a946a44967b30043a2c7c3c",
+      "consultado_em": "2026-09-07T15:20:43.181Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.326",
+      "resposta_sha256": "d35a4b64bedca608ce1aadd20cf29cfaa4ef68d8a69d623b39465e637445e73f",
+      "consultado_em": "2026-09-07T15:20:45.004Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 12,
+          "requisicoes": 12,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.338",
+      "resposta_sha256": "c5c1e993c3c7587746d7d2ff0bd21ff185d6b351c3af8b9173591440bbeaadd1",
+      "consultado_em": "2026-09-07T15:20:46.778Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.345",
+      "resposta_sha256": "cbf971749f50123075bd87b52cc599deb5dccdb5f5ce5789bd8dd3f1bab7745d",
+      "consultado_em": "2026-09-07T15:20:48.603Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.349",
+      "resposta_sha256": "b859318efc13d999baf32a8a675e5aeb9676d1f7387cfae83ecf5f6e3400e62e",
+      "consultado_em": "2026-09-07T15:20:50.436Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.350",
+      "resposta_sha256": "1f5b0aea502ebd87276f8319d0a669fec80e58faaa3a226a54aec76c0e68303d",
+      "consultado_em": "2026-09-07T15:20:52.244Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.358",
+      "resposta_sha256": "6d0982dc403d3919db4097532a3490c3b66c4b98251bda7eb2fb8d61185fa831",
+      "consultado_em": "2026-09-07T15:20:54.024Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.368",
+      "resposta_sha256": "a116f295c5b69784f07f80883656ce1323dba3fe2eb57885cbba8efd31eea121",
+      "consultado_em": "2026-09-07T15:20:55.853Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "requisicoes": 3,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.443",
+      "resposta_sha256": "9d33bbcd26519bb1daaac031e0efd3615fe629fa785f51acd6d231a04dca276b",
+      "consultado_em": "2026-09-07T15:20:57.633Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.463",
+      "resposta_sha256": "8fba2f8f5749270b1a6a0bb4c3dcae3600d40a8c493d827e9bbbee27c7500f18",
+      "consultado_em": "2026-09-07T15:20:59.408Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "PC",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "PC",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.481",
+      "resposta_sha256": "7e642409ff49b180893a33a938066caf5025a9d2ae0273264892873c679b7152",
+      "consultado_em": "2026-09-07T15:21:01.242Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "PC",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 3,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "KG",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.534",
+      "resposta_sha256": "8b262c69418992b95d4f1c6319ddb1dc2f6f3a5f41118850c63b57b89b14fd1d",
+      "consultado_em": "2026-09-07T15:21:03.077Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UN",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UN",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.550",
+      "resposta_sha256": "dae03e54bde11ec92faee3121d2d4082fa7b2568a450243c4fd1b014bbc268c0",
+      "consultado_em": "2026-09-07T15:21:04.852Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.564",
+      "resposta_sha256": "c9d5a85bf4544e8dc95c63d6e8e3bde2fe2d4a4b0f51c8da442759e9f72400b1",
+      "consultado_em": "2026-09-07T15:21:06.649Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.575",
+      "resposta_sha256": "23a6e55fd026cd0f4f8bf19daad7f9c50e52e3900b5f256050fc2e404911cdf0",
+      "consultado_em": "2026-09-07T15:21:08.427Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.577",
+      "resposta_sha256": "f5306f630a604526413fc732ceab41237fbd7b7a3bd5a20774902ff5db64ee6c",
+      "consultado_em": "2026-09-07T15:21:10.192Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.579",
+      "resposta_sha256": "9fbe2e8ceee79bc69ecf376a18280fd4d3c5e0159b7502d05f2781644ead56fe",
+      "consultado_em": "2026-09-07T15:21:12.029Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.588",
+      "resposta_sha256": "c9c7eadcb98ea12f5abb0e27cfee6f98e61b268e26cc5261e560bcb8fe2546c9",
+      "consultado_em": "2026-09-07T15:21:13.825Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "PC",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.600",
+      "resposta_sha256": "b1e206875de466a198223ef3a237c74b600783afea4c7faad79c475bcd3978e3",
+      "consultado_em": "2026-09-07T15:21:15.642Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.608",
+      "resposta_sha256": "c8a88a6d9cab1d4ea36670014a1289041e88ddffe4e476cb40fbfdac43bf83e7",
+      "consultado_em": "2026-09-07T15:21:17.475Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.617",
+      "resposta_sha256": "c08eba4bbb98bf573630e7a175de22903fe190ff53d0257d70cdce3fddca8b4c",
+      "consultado_em": "2026-09-07T15:21:19.238Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.638",
+      "resposta_sha256": "2df6a90d9d4dfbd6954c671c979170c74dfe841dd28a224a762fb7d666bca081",
+      "consultado_em": "2026-09-07T15:21:21.094Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.645",
+      "resposta_sha256": "bd04e5a779fe3921f55ba0032b18d97381f6f7eeb291e4db92ad9735140013db",
+      "consultado_em": "2026-09-07T15:21:22.867Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.651",
+      "resposta_sha256": "2e2e44523664d95bbeb5347402cdbe64a222f90e0b6445051044203927f6d15b",
+      "consultado_em": "2026-09-07T15:21:24.685Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.652",
+      "resposta_sha256": "79aed2643dfdf4c9a5d7e130ebfe63f2e7d766ac1a310adc327d2872fef8ca3c",
+      "consultado_em": "2026-09-07T15:21:26.437Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.653",
+      "resposta_sha256": "d96df57a322ddafb36588e7684088be46e5a1f4ee7760956d77f2674f04f5c3f",
+      "consultado_em": "2026-09-07T15:21:28.261Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.654",
+      "resposta_sha256": "189e175b4ca7fdd4684cadd5ab484f3d047ebbac15fe1f0ddd0b8b7cfda71024",
+      "consultado_em": "2026-09-07T15:21:30.043Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.655",
+      "resposta_sha256": "ea215e6b88cec86b8a7018d259d6eb21a23a14c0a28c52d741322cbd7fb84196",
+      "consultado_em": "2026-09-07T15:21:31.867Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.656",
+      "resposta_sha256": "ebc58fced891c6b2915fbc30291783f8f0795bf6853b0f110cf0e9b4dafb240e",
+      "consultado_em": "2026-09-07T15:21:33.678Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.657",
+      "resposta_sha256": "c68fc5d8ba510982801a93fd57ee8018c0be602868760eea32596cf0a9c66f41",
+      "consultado_em": "2026-09-07T15:21:35.492Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.658",
+      "resposta_sha256": "a5ff49d77b2530c6a08c4a89756bf5e68de196776fa5ad64c71c094853788251",
+      "consultado_em": "2026-09-07T15:21:37.263Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.659",
+      "resposta_sha256": "42376f3eab3862e5216a012071f584d462f66ffebac28889c61a5bab174215c2",
+      "consultado_em": "2026-09-07T15:21:39.082Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.660",
+      "resposta_sha256": "7274c1d407859534891a1358a70a7b2c5f3522ccdf428e500e09c10e50f67238",
+      "consultado_em": "2026-09-07T15:21:40.848Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.661",
+      "resposta_sha256": "225b49fb00bfa18487d9575b5f32cdd6fc56a79eb5aa059aab57e4e8a58cceab",
+      "consultado_em": "2026-09-07T15:21:42.680Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.662",
+      "resposta_sha256": "d9ca8bcf2158579b1b0fb42fca1310b082cdf1e9dbe8df196c5dc3a81840454a",
+      "consultado_em": "2026-09-07T15:21:44.498Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.663",
+      "resposta_sha256": "898a3b39ea581fa765e97590d02d4b7ce716725b91a6431ab5d75e63beb05139",
+      "consultado_em": "2026-09-07T15:21:46.293Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.667",
+      "resposta_sha256": "ca67bbd7641f386bd16f8db40478e19089225ba0bd54094a2621c8feef33257f",
+      "consultado_em": "2026-09-07T15:21:48.107Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.668",
+      "resposta_sha256": "a3412b3f20f16a83b57181cb8f93e0526be76ca0fe510aa4095002c4a624e292",
+      "consultado_em": "2026-09-07T15:21:49.902Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.669",
+      "resposta_sha256": "2846694d3c2fddb29d1e91b40992f030e54950ae764b2f51af7c3fc7c68f485a",
+      "consultado_em": "2026-09-07T15:21:51.688Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.671",
+      "resposta_sha256": "9df53242d471f37ac99660a67fcae352cd08668c48f1c9de90477e1f9ce50dec",
+      "consultado_em": "2026-09-07T15:21:53.459Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.676",
+      "resposta_sha256": "b79095e93e72b7c739074eeb1f5f444afe44682df32e3a36d8a04068e6922639",
+      "consultado_em": "2026-09-07T15:21:55.297Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.677",
+      "resposta_sha256": "db0495084268ba6b131a95d2b587c8289cdb551290b25495ec772e571cb72f65",
+      "consultado_em": "2026-09-07T15:21:57.053Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.678",
+      "resposta_sha256": "2eda472daf473770a9546762439b57d03b2048d49ec2a07b64ce25a0fd4704f7",
+      "consultado_em": "2026-09-07T15:21:58.833Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.679",
+      "resposta_sha256": "0450060ebf9bb11c830671870c8dafffd7880e0d7af86a081025f2f44a4ae0f9",
+      "consultado_em": "2026-09-07T15:22:00.671Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.680",
+      "resposta_sha256": "9cd623375e12ef0a42044ba549b1b3b1cbaf43c9c41790a38843d34b5d9ee864",
+      "consultado_em": "2026-09-07T15:22:02.416Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.681",
+      "resposta_sha256": "33bf228385461baea781d1943b4f0e803b5cce98a656a0d708c03b93f5ffd968",
+      "consultado_em": "2026-09-07T15:22:04.162Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.688",
+      "resposta_sha256": "72e4aea10cd386c619b423339c56ccad1be5d78004359139d4fc9227fbaaba53",
+      "consultado_em": "2026-09-07T15:22:05.933Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.689",
+      "resposta_sha256": "a6efabfa8fde2f7eb02d5ea86f9d3d1d3fe381658746554a8e7a0f7a8440dbac",
+      "consultado_em": "2026-09-07T15:22:07.695Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.690",
+      "resposta_sha256": "4026e3a8da7f9079a828bf072d243c70e7d5a2e1e9ab349e43dedf450313cd83",
+      "consultado_em": "2026-09-07T15:22:09.489Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.691",
+      "resposta_sha256": "15f1542d5bf6d9bb1c01f006cda2d3a8c89f2395443897247c24e55f4dbd9688",
+      "consultado_em": "2026-09-07T15:22:11.303Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.693",
+      "resposta_sha256": "56fe24f79712e9dae78b3d7820c858db32ec3c8363f31f7e3c99f45d418ac40f",
+      "consultado_em": "2026-09-07T15:22:13.098Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "PC",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.017.699",
+      "resposta_sha256": "2708a35aab55c30918e34fd84dcc4c790b39e0372d2094238d902543c4439da8",
+      "consultado_em": "2026-09-07T15:22:14.897Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        },
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.018.022",
+      "resposta_sha256": "20322ff4ef20e2ffdc4fc8f4015447247ecffaac861ce7257bebad5746e522c4",
+      "consultado_em": "2026-09-07T15:22:16.669Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.018.070",
+      "resposta_sha256": "821261655f5fd9242dba5dc8ab98e53388e2574948ed1b8666c7ddee184ae8a7",
+      "consultado_em": "2026-09-07T15:22:18.473Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.018.071",
+      "resposta_sha256": "34434bbb9c2f5e62464880987673c393ef40fed618141a681a5309e516778915",
+      "consultado_em": "2026-09-07T15:22:20.243Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.018.072",
+      "resposta_sha256": "13d0f3c5c1cdce92962da911c6af6172546a3bfdd8d7359dca5fe29120b31715",
+      "consultado_em": "2026-09-07T15:22:22.034Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.018.075",
+      "resposta_sha256": "5c6ccc1a84cbc0dbbb4ba4613fcda1954d66ea2a322219352a3ffbb0fa013927",
+      "consultado_em": "2026-09-07T15:22:23.795Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.018.076",
+      "resposta_sha256": "9c87335b300a574928f878fcee8f1ab13a217d980ff03e0294485f0578055a0d",
+      "consultado_em": "2026-09-07T15:22:25.609Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "001.018.083",
+      "resposta_sha256": "c9a1493621252397e54b293b78b3ac3b1b25dfc63ac11c7a0d4e7f921b300e27",
+      "consultado_em": "2026-09-07T15:22:27.389Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.005",
+      "resposta_sha256": "b21712df96f38d36622ded245c4b16bce8cb7505fa098c2835ae27bae9f3106f",
+      "consultado_em": "2026-09-07T15:22:29.168Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 55,
+          "requisicoes": 52,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.007",
+      "resposta_sha256": "7905863ef5f7f963c39d2ad30e30ee830264f5df7bb22e253211bf3a7d6e7b8e",
+      "consultado_em": "2026-09-07T15:22:30.934Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.009",
+      "resposta_sha256": "7c02b47fa6625d5454ceff5334d41dcbdeccb9499a0809e2e00c25950aeb1f4e",
+      "consultado_em": "2026-09-07T15:22:32.769Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "requisicoes": 3,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.010",
+      "resposta_sha256": "3b57aace36264a1b5284e098a151fe92de91473bbca8ed629a6e74ef97c86614",
+      "consultado_em": "2026-09-07T15:22:34.586Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.012",
+      "resposta_sha256": "c4c9e8dcfceca0696e2945b82d914c4231aae6d367dc17f0e3effe38c67fcbf7",
+      "consultado_em": "2026-09-07T15:22:36.421Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.015",
+      "resposta_sha256": "b424443a22f6d97e603230162f59f5195be2fb8c26413607aadb35907c595476",
+      "consultado_em": "2026-09-07T15:22:38.240Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.023",
+      "resposta_sha256": "e557085a55b43aed2055f75c9a7da5f02c71bf9eb5e85636b77cef838acc43b5",
+      "consultado_em": "2026-09-07T15:22:40.010Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "requisicoes": 3,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.025",
+      "resposta_sha256": "29d054bc9dc24351597db50cbfa2d8a39671ac71f3c24e079fb8d3a231416b16",
+      "consultado_em": "2026-09-07T15:22:41.838Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "requisicoes": 4,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.027",
+      "resposta_sha256": "04f09d164f5335425b411d39955c131b7f3a8852127f395ee600929648556646",
+      "consultado_em": "2026-09-07T15:22:43.619Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.030",
+      "resposta_sha256": "90b8635e0f95f8d020a2be9b5cb09d1bd713a383c4152143406c85c28f2a3e59",
+      "consultado_em": "2026-09-07T15:22:45.443Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.031",
+      "resposta_sha256": "7a0ce860b634fe467613681cdee578767e90033ba88cdd7d185789abca8c5748",
+      "consultado_em": "2026-09-07T15:22:47.193Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.036",
+      "resposta_sha256": "76558ca3befb3acbba1e1a31c3b90fcdbbf9644d9a79fa1c120fb1fc785907a4",
+      "consultado_em": "2026-09-07T15:22:48.975Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.038",
+      "resposta_sha256": "a7e7bb5f46bbf23c52c4bd54798ddb8a7edba1fee2f72704301d75eaee7bae8e",
+      "consultado_em": "2026-09-07T15:22:50.743Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.040",
+      "resposta_sha256": "f3b00f0b069a8ee5985feb1831b355757fbe5db6c9f3f4f1811448634301b983",
+      "consultado_em": "2026-09-07T15:22:52.557Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.042",
+      "resposta_sha256": "ff0a1144282814fe1f9c7b249de9e8a8b85eda1b421b94ac3226cc5c6f1eb5fe",
+      "consultado_em": "2026-09-07T15:22:54.313Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.043",
+      "resposta_sha256": "30f29f316afd01c8138f29a748b7ba0dde27a2368092d1168266a5f3d59175b4",
+      "consultado_em": "2026-09-07T15:22:56.082Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.046",
+      "resposta_sha256": "a1f0d3e00fde1a11f0d247e02dda9583b70310785501e6c4db04ab074f5bfb3f",
+      "consultado_em": "2026-09-07T15:22:57.904Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.047",
+      "resposta_sha256": "8de197393ca286ecb88b06a72850bc3f90876e651101f0dddc7f24701b6d2333",
+      "consultado_em": "2026-09-07T15:22:59.720Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.049",
+      "resposta_sha256": "93da4b4b74e2a45b4357403f56942668d91503ccdc6b111c00f209151328a7bb",
+      "consultado_em": "2026-09-07T15:23:01.541Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "requisicoes": 2,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.050",
+      "resposta_sha256": "74b73ea91ccddc26a64d1e869d414405006c0e1896a4e56dc0d56b84d5f1126f",
+      "consultado_em": "2026-09-07T15:23:03.347Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.054",
+      "resposta_sha256": "0cef7b5ba000624f5aae6d9c001aa6ce40677d03d4d5847d6497368894c52965",
+      "consultado_em": "2026-09-07T15:23:05.132Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "requisicoes": 3,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.057",
+      "resposta_sha256": "448e928dc7d4ab373d5ca6e08ffce75c9c1420fe6a761ee8a4e107e10c1a3ba1",
+      "consultado_em": "2026-09-07T15:23:06.955Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.058",
+      "resposta_sha256": "a8bd429487d2f4f084c081fb1ccc3816c2863a3e2cba68c1ad424ff2f2fc7248",
+      "consultado_em": "2026-09-07T15:23:08.766Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    },
+    {
+      "codigo": "002.059",
+      "resposta_sha256": "7a4071f2e156ab62d15d2def2e8b0e281c819478ec45020c6ce84955b4d41cac",
+      "consultado_em": "2026-09-07T15:23:10.603Z",
+      "classificacao": "todas_suportadas",
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada"
+        }
+      ],
+      "historico": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "requisicoes": 1,
+          "posicao_historica": null,
+          "posicoes_no_cadastro": [
+            1
+          ],
+          "situacao": "suportada"
+        }
+      ]
+    }
+  ]
+}

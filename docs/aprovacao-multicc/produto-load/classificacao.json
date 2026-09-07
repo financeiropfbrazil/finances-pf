@@ -1,0 +1,4372 @@
+{
+  "data": "2026-09-07T15:23:11.374Z",
+  "somente_get": true,
+  "concorrencia": 1,
+  "intervalo_ms": 750,
+  "chamadas_nesta_execucao": 171,
+  "validador_sha256": "c981812b38bd01979363fc75d315bb6bc787e3aa807cd786a2cc7664f4b87233",
+  "produtos": 171,
+  "conclusivas": 171,
+  "inconclusivas": 0,
+  "unidades_suportadas": 194,
+  "unidades_bloqueadas": 2,
+  "bloqueio": null,
+  "resultados": [
+    {
+      "codigo": "001.002.00051",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:02.189Z"
+    },
+    {
+      "codigo": "001.002.00077",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:04.507Z"
+    },
+    {
+      "codigo": "001.003.00001",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:07.160Z"
+    },
+    {
+      "codigo": "001.004.00005",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:08.954Z"
+    },
+    {
+      "codigo": "001.004.00034",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:10.837Z"
+    },
+    {
+      "codigo": "001.005.00191",
+      "usadas_no_espelho": [
+        {
+          "codigo": "PC",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "PC",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:12.674Z"
+    },
+    {
+      "codigo": "001.006.00016",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:14.475Z"
+    },
+    {
+      "codigo": "001.006.00029",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:16.383Z"
+    },
+    {
+      "codigo": "001.006.00031",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:18.167Z"
+    },
+    {
+      "codigo": "001.006.00036",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:19.977Z"
+    },
+    {
+      "codigo": "001.006.00054",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:21.770Z"
+    },
+    {
+      "codigo": "001.006.00057",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:23.543Z"
+    },
+    {
+      "codigo": "001.006.00068",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:25.313Z"
+    },
+    {
+      "codigo": "001.006.00093",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 0.1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:27.133Z"
+    },
+    {
+      "codigo": "001.006.00094",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:28.985Z"
+    },
+    {
+      "codigo": "001.006.00096",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:30.785Z"
+    },
+    {
+      "codigo": "001.007.00018",
+      "usadas_no_espelho": [
+        {
+          "codigo": "M",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "M",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:32.551Z"
+    },
+    {
+      "codigo": "001.007.00025",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 0.005,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:34.427Z"
+    },
+    {
+      "codigo": "001.009.00068",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:36.180Z"
+    },
+    {
+      "codigo": "001.009.00079",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:37.943Z"
+    },
+    {
+      "codigo": "001.009.00089",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:39.692Z"
+    },
+    {
+      "codigo": "001.009.00162",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:41.495Z"
+    },
+    {
+      "codigo": "001.009.00164",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:43.295Z"
+    },
+    {
+      "codigo": "001.009.00165",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:45.083Z"
+    },
+    {
+      "codigo": "001.012.003",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 7,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:46.889Z"
+    },
+    {
+      "codigo": "001.012.004",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 9,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:48.682Z"
+    },
+    {
+      "codigo": "001.012.005",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:50.439Z"
+    },
+    {
+      "codigo": "001.012.006",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 17,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:52.210Z"
+    },
+    {
+      "codigo": "001.012.022",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 5,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:53.988Z"
+    },
+    {
+      "codigo": "001.013.00036",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:55.762Z"
+    },
+    {
+      "codigo": "001.013.00050",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:57.532Z"
+    },
+    {
+      "codigo": "001.013.00062",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "GALAO",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:18:59.443Z"
+    },
+    {
+      "codigo": "001.013.00089",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:01.262Z"
+    },
+    {
+      "codigo": "001.013.00124",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:03.043Z"
+    },
+    {
+      "codigo": "001.013.00127",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 6,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "M",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:04.894Z"
+    },
+    {
+      "codigo": "001.013.00136",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:06.671Z"
+    },
+    {
+      "codigo": "001.013.00167",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:08.513Z"
+    },
+    {
+      "codigo": "001.013.00168",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:10.381Z"
+    },
+    {
+      "codigo": "001.013.00185",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UN",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:12.226Z"
+    },
+    {
+      "codigo": "001.013.00199",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:13.992Z"
+    },
+    {
+      "codigo": "001.013.00208",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "FARDO",
+          "posicao": 2,
+          "peso": 25,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:15.823Z"
+    },
+    {
+      "codigo": "001.013.00249",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:17.630Z"
+    },
+    {
+      "codigo": "001.013.00259",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:19.518Z"
+    },
+    {
+      "codigo": "001.013.00358",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:21.304Z"
+    },
+    {
+      "codigo": "001.013.00382",
+      "usadas_no_espelho": [
+        {
+          "codigo": "PACOTE",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "PACOTE",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 2,
+          "peso": 0.1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:22.990Z"
+    },
+    {
+      "codigo": "001.013.00418",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:24.911Z"
+    },
+    {
+      "codigo": "001.013.00509",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 10,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:26.704Z"
+    },
+    {
+      "codigo": "001.013.00512",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 13,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:28.522Z"
+    },
+    {
+      "codigo": "001.013.00521",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:30.442Z"
+    },
+    {
+      "codigo": "001.013.00522",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:32.330Z"
+    },
+    {
+      "codigo": "001.013.00529",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:34.346Z"
+    },
+    {
+      "codigo": "001.013.00546",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:36.064Z"
+    },
+    {
+      "codigo": "001.013.00551",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "PACOTE",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:37.904Z"
+    },
+    {
+      "codigo": "001.014.001",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 10,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:39.790Z"
+    },
+    {
+      "codigo": "001.014.002",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:41.595Z"
+    },
+    {
+      "codigo": "001.014.003",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:43.423Z"
+    },
+    {
+      "codigo": "001.014.005",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 9,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:45.272Z"
+    },
+    {
+      "codigo": "001.014.006",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:47.055Z"
+    },
+    {
+      "codigo": "001.014.007",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:48.520Z"
+    },
+    {
+      "codigo": "001.014.015",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:50.965Z"
+    },
+    {
+      "codigo": "001.014.024",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:52.739Z"
+    },
+    {
+      "codigo": "001.014.031",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:54.529Z"
+    },
+    {
+      "codigo": "001.014.034",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:56.303Z"
+    },
+    {
+      "codigo": "001.014.035",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:58.107Z"
+    },
+    {
+      "codigo": "001.014.037",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:19:59.919Z"
+    },
+    {
+      "codigo": "001.014.038",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:01.742Z"
+    },
+    {
+      "codigo": "001.014.046",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:03.520Z"
+    },
+    {
+      "codigo": "001.014.047",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:05.328Z"
+    },
+    {
+      "codigo": "001.016.012",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:07.134Z"
+    },
+    {
+      "codigo": "001.016.019",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "PC",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:08.986Z"
+    },
+    {
+      "codigo": "001.016.062",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:10.780Z"
+    },
+    {
+      "codigo": "001.016.085",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:12.528Z"
+    },
+    {
+      "codigo": "001.017.005",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:14.326Z"
+    },
+    {
+      "codigo": "001.017.011",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:16.093Z"
+    },
+    {
+      "codigo": "001.017.056",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:17.890Z"
+    },
+    {
+      "codigo": "001.017.062",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:19.690Z"
+    },
+    {
+      "codigo": "001.017.064",
+      "usadas_no_espelho": [
+        {
+          "codigo": "KG",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:21.496Z"
+    },
+    {
+      "codigo": "001.017.068",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:23.295Z"
+    },
+    {
+      "codigo": "001.017.076",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:25.113Z"
+    },
+    {
+      "codigo": "001.017.079",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:26.877Z"
+    },
+    {
+      "codigo": "001.017.080",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:28.721Z"
+    },
+    {
+      "codigo": "001.017.092",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "M3",
+          "posicao": 2,
+          "peso": 10,
+          "tipo": "Divisor",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "bloqueada",
+          "motivo": "CONVERSAO_NAO_COMPROVADA: Divisor exige Produto/Load e Insert nativo",
+          "categoria": "Divisor"
+        },
+        {
+          "codigo": "M3",
+          "posicao": 3,
+          "peso": 10,
+          "tipo": "Divisor",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "bloqueada",
+          "motivo": "CONVERSAO_NAO_COMPROVADA: Divisor exige Produto/Load e Insert nativo",
+          "categoria": "Divisor"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:30.581Z"
+    },
+    {
+      "codigo": "001.017.107",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:32.390Z"
+    },
+    {
+      "codigo": "001.017.110",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:34.217Z"
+    },
+    {
+      "codigo": "001.017.196",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:36.007Z"
+    },
+    {
+      "codigo": "001.017.208",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:37.794Z"
+    },
+    {
+      "codigo": "001.017.209",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:39.621Z"
+    },
+    {
+      "codigo": "001.017.248",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:41.424Z"
+    },
+    {
+      "codigo": "001.017.293",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:43.181Z"
+    },
+    {
+      "codigo": "001.017.326",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 12,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:45.004Z"
+    },
+    {
+      "codigo": "001.017.338",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:46.778Z"
+    },
+    {
+      "codigo": "001.017.345",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:48.603Z"
+    },
+    {
+      "codigo": "001.017.349",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:50.436Z"
+    },
+    {
+      "codigo": "001.017.350",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:52.244Z"
+    },
+    {
+      "codigo": "001.017.358",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:54.024Z"
+    },
+    {
+      "codigo": "001.017.368",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:55.853Z"
+    },
+    {
+      "codigo": "001.017.443",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:57.633Z"
+    },
+    {
+      "codigo": "001.017.463",
+      "usadas_no_espelho": [
+        {
+          "codigo": "PC",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "PC",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:20:59.408Z"
+    },
+    {
+      "codigo": "001.017.481",
+      "usadas_no_espelho": [
+        {
+          "codigo": "KG",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "PC",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 3,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:01.242Z"
+    },
+    {
+      "codigo": "001.017.534",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UN",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UN",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:03.077Z"
+    },
+    {
+      "codigo": "001.017.550",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:04.852Z"
+    },
+    {
+      "codigo": "001.017.564",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:06.649Z"
+    },
+    {
+      "codigo": "001.017.575",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:08.427Z"
+    },
+    {
+      "codigo": "001.017.577",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:10.192Z"
+    },
+    {
+      "codigo": "001.017.579",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:12.029Z"
+    },
+    {
+      "codigo": "001.017.588",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "PC",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:13.825Z"
+    },
+    {
+      "codigo": "001.017.600",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:15.642Z"
+    },
+    {
+      "codigo": "001.017.608",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 0.01,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:17.475Z"
+    },
+    {
+      "codigo": "001.017.617",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:19.238Z"
+    },
+    {
+      "codigo": "001.017.638",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:21.094Z"
+    },
+    {
+      "codigo": "001.017.645",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:22.867Z"
+    },
+    {
+      "codigo": "001.017.651",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:24.685Z"
+    },
+    {
+      "codigo": "001.017.652",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:26.437Z"
+    },
+    {
+      "codigo": "001.017.653",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:28.261Z"
+    },
+    {
+      "codigo": "001.017.654",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:30.043Z"
+    },
+    {
+      "codigo": "001.017.655",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:31.867Z"
+    },
+    {
+      "codigo": "001.017.656",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:33.678Z"
+    },
+    {
+      "codigo": "001.017.657",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:35.492Z"
+    },
+    {
+      "codigo": "001.017.658",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:37.263Z"
+    },
+    {
+      "codigo": "001.017.659",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:39.082Z"
+    },
+    {
+      "codigo": "001.017.660",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:40.848Z"
+    },
+    {
+      "codigo": "001.017.661",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:42.680Z"
+    },
+    {
+      "codigo": "001.017.662",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:44.498Z"
+    },
+    {
+      "codigo": "001.017.663",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:46.293Z"
+    },
+    {
+      "codigo": "001.017.667",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:48.107Z"
+    },
+    {
+      "codigo": "001.017.668",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:49.902Z"
+    },
+    {
+      "codigo": "001.017.669",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:51.688Z"
+    },
+    {
+      "codigo": "001.017.671",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:53.459Z"
+    },
+    {
+      "codigo": "001.017.676",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:55.297Z"
+    },
+    {
+      "codigo": "001.017.677",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:57.053Z"
+    },
+    {
+      "codigo": "001.017.678",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:21:58.833Z"
+    },
+    {
+      "codigo": "001.017.679",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:00.671Z"
+    },
+    {
+      "codigo": "001.017.680",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:02.416Z"
+    },
+    {
+      "codigo": "001.017.681",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:04.162Z"
+    },
+    {
+      "codigo": "001.017.688",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:05.933Z"
+    },
+    {
+      "codigo": "001.017.689",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:07.695Z"
+    },
+    {
+      "codigo": "001.017.690",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:09.489Z"
+    },
+    {
+      "codigo": "001.017.691",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:11.303Z"
+    },
+    {
+      "codigo": "001.017.693",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "PC",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:13.098Z"
+    },
+    {
+      "codigo": "001.017.699",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "KG",
+          "posicao": 2,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": false,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        },
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:14.897Z"
+    },
+    {
+      "codigo": "001.018.022",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:16.669Z"
+    },
+    {
+      "codigo": "001.018.070",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:18.473Z"
+    },
+    {
+      "codigo": "001.018.071",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:20.243Z"
+    },
+    {
+      "codigo": "001.018.072",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:22.034Z"
+    },
+    {
+      "codigo": "001.018.075",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": true,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:23.795Z"
+    },
+    {
+      "codigo": "001.018.076",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:25.609Z"
+    },
+    {
+      "codigo": "001.018.083",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:27.389Z"
+    },
+    {
+      "codigo": "002.005",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 55,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:29.168Z"
+    },
+    {
+      "codigo": "002.007",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:30.934Z"
+    },
+    {
+      "codigo": "002.009",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:32.769Z"
+    },
+    {
+      "codigo": "002.010",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:34.586Z"
+    },
+    {
+      "codigo": "002.012",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:36.421Z"
+    },
+    {
+      "codigo": "002.015",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:38.240Z"
+    },
+    {
+      "codigo": "002.023",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:40.010Z"
+    },
+    {
+      "codigo": "002.025",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:41.838Z"
+    },
+    {
+      "codigo": "002.027",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:43.619Z"
+    },
+    {
+      "codigo": "002.030",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:45.443Z"
+    },
+    {
+      "codigo": "002.031",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:47.193Z"
+    },
+    {
+      "codigo": "002.036",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:48.975Z"
+    },
+    {
+      "codigo": "002.038",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:50.743Z"
+    },
+    {
+      "codigo": "002.040",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 4,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:52.557Z"
+    },
+    {
+      "codigo": "002.042",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:54.313Z"
+    },
+    {
+      "codigo": "002.043",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:56.082Z"
+    },
+    {
+      "codigo": "002.046",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:57.904Z"
+    },
+    {
+      "codigo": "002.047",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:22:59.720Z"
+    },
+    {
+      "codigo": "002.049",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 2,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:23:01.541Z"
+    },
+    {
+      "codigo": "002.050",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:23:03.347Z"
+    },
+    {
+      "codigo": "002.054",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 3,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:23:05.132Z"
+    },
+    {
+      "codigo": "002.057",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:23:06.955Z"
+    },
+    {
+      "codigo": "002.058",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:23:08.766Z"
+    },
+    {
+      "codigo": "002.059",
+      "usadas_no_espelho": [
+        {
+          "codigo": "UNID",
+          "itens": 1,
+          "posicao": "ausente no espelho; não inferida"
+        }
+      ],
+      "unidades": [
+        {
+          "codigo": "UNID",
+          "posicao": 1,
+          "peso": 1,
+          "tipo": "Fator",
+          "compras": false,
+          "usada_por_codigo": true,
+          "classificacao": "suportada",
+          "limite": "Formato validado com quantidade 1; quantidade concreta ainda deve passar pela precisão de 9 casas"
+        }
+      ],
+      "consulta": "concluida",
+      "consultado_em": "2026-09-07T15:23:10.603Z"
+    }
+  ]
+}

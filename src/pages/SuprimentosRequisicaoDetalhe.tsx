@@ -1,3 +1,5 @@
+import { carregarAprovacaoCC } from "@/services/requisicoesService";
+import { AprovacoesCC } from "@/components/compras/AprovacoesCC";
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { applyCnpjMask } from "@/lib/cnpj";
@@ -5,7 +7,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
-import { carregarEscopoRequisicoes } from "@/services/escopoComprasService";
 import { PERMISSIONS } from "@/constants/permissions";
 import {
   reenviarRequisicao,
@@ -87,7 +88,7 @@ const STATUS_MAP: Record<string, { label: string; className: string }> = {
     label: "Pendente aprovação",
     className: "bg-amber-500/15 text-amber-600 border-amber-500/30",
   },
-  aprovada: { label: "Aprovada — enviando", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
+  aprovada: { label: "Aprovada — aguardando envio", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
   rejeitada: { label: "Rejeitada", className: "bg-slate-500/15 text-slate-600 border-slate-500/30" },
   pendente_envio: { label: "Pendente de envio", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
   sincronizada: { label: "Enviada ao ERP", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
@@ -158,54 +159,10 @@ export default function SuprimentosRequisicaoDetalhe() {
           (profile as any)?.funcionario_alvo_codigo &&
           data.codigo_funcionario === (profile as any).funcionario_alvo_codigo;
 
-        // CARD B1 (decisão D4) — o líder do CC precisa LER o que aprova. Até aqui o
-        // escopo só conhecia dono e funcionário vinculado: quem decidia pela fila
-        // (/suprimentos/aprovacoes) abria o detalhe e via "Requisição não encontrada".
-        //
-        // A consulta mora DENTRO desta queryFn, e não num useQuery próprio, por dois
-        // motivos:
-        //   1. `isLiderDoCC` (mais abaixo) só liga quando `req` já existe — e `req`
-        //      seria `null` justamente para o líder. A checagem tem de acontecer com
-        //      `data.codigo_centro_ctrl` em mãos e ANTES do `return null`;
-        //   2. resolvendo na mesma query, o `isLoading` já cobre a espera — o líder
-        //      legítimo nunca vê o flash de "Requisição não encontrada".
-        //
-        // CC EXATO da requisição + vínculo ATIVO: líder de outro CC ou revogado não vê
-        // nada. Rascunho alheio segue invisível (D4) — é trabalho ainda não submetido
-        // do requisitante; dono e funcionário continuam vendo como antes.
         let isLiderDoCcDaReq = false;
-        if (!isOwner && !isFuncionario && user?.id && data.codigo_centro_ctrl && data.status !== "rascunho") {
-          // AJUSTE 7.2 — FONTE ÚNICA DE VERDADE do escopo. O ramo do 7.1 lia
-          // `compras_lideres_cc` direto daqui; agora quem responde é a mesma RPC
-          // que decide a listagem — então o acesso passa pelo gate de permissão
-          // (`compras.requisicoes.view_cc`), e não só pelo mapeamento. Cache
-          // compartilhado com a lista: `fetchQuery` na mesma chave.
-          const escopo = await queryClient.fetchQuery({
-            queryKey: ["escopo_requisicoes", user.id],
-            queryFn: carregarEscopoRequisicoes,
-            staleTime: 5 * 60_000,
-          });
-
-          if (!escopo.indisponivel) {
-            isLiderDoCcDaReq = escopo.escopo === "cc" && escopo.ccs.includes(data.codigo_centro_ctrl);
-          } else {
-            // RPC ainda não instalada (ou falhou): mantém EXATAMENTE o ramo do
-            // Ajuste 7.1 — o líder não pode perder o acesso que já tem hoje.
-            // O serviço já avisou no console; nada aqui é silencioso.
-            const { data: vinculo, error: errLider } = await (supabase as any)
-              .from("compras_lideres_cc")
-              .select("id")
-              .eq("codigo_centro_ctrl", data.codigo_centro_ctrl)
-              .eq("lider_user_id", user.id)
-              .eq("ativo", true)
-              .maybeSingle();
-            // Falha (rede/RLS) NUNCA libera: sem resposta, não é líder. Fica no console
-            // para o caso ser diagnosticável em vez de virar "sumiu do nada".
-            if (errLider) {
-              console.error("[requisicao_detalhe] falha ao verificar liderança do CC:", errLider);
-            }
-            isLiderDoCcDaReq = !!vinculo;
-          }
+        if (!isOwner && !isFuncionario && user?.id && data.status !== "rascunho") {
+          const grupos = await carregarAprovacaoCC(data.id);
+          isLiderDoCcDaReq = grupos.some((g) => g.lider_atual);
         }
 
         if (!isOwner && !isFuncionario && !isLiderDoCcDaReq) return null;
@@ -291,21 +248,13 @@ export default function SuprimentosRequisicaoDetalhe() {
   // FASE 3 — a mesma resposta decide se as ações APROVAR/REJEITAR aparecem aqui,
   // então a consulta passa a valer também em 'pendente_aprovacao'. Lista positiva:
   // fora desses dois estados a resposta é irrelevante e o banco não é consultado.
-  const { data: isLiderDoCC = false } = useQuery({
-    queryKey: ["requisicao_lider_cc", req?.codigo_centro_ctrl, user?.id],
-    queryFn: async () => {
-      const { data } = await (supabase as any)
-        .from("compras_lideres_cc")
-        .select("id")
-        .eq("codigo_centro_ctrl", req.codigo_centro_ctrl)
-        .eq("lider_user_id", user!.id)
-        .eq("ativo", true)
-        .maybeSingle();
-      return !!data;
-    },
-    enabled:
-      !!user && !!req?.codigo_centro_ctrl && ["aprovada", "pendente_aprovacao"].includes(req?.status as string),
+  const { data: gruposAprovacao = [], error: erroAprovacao } = useQuery({
+    queryKey: ["requisicao_aprovacao_cc", id, user?.id],
+    queryFn: () => carregarAprovacaoCC(id!),
+    enabled: !!user && !!req,
   });
+  const isLiderDoCC = gruposAprovacao.some((g) => g.lider_atual);
+  const aguardandoMinhaAprovacao = gruposAprovacao.some((g) => g.lider_atual && g.situacao === "pendente");
 
   const handleSyncStatus = async (silencioso: boolean = false) => {
     if (!user || !req) return;
@@ -402,7 +351,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   const statusInfo = STATUS_MAP[req.status] || { label: req.status, className: "bg-muted text-muted-foreground" };
   // Requisição aprovada cujo envio ao Alvo falhou também pode ser reenviada — por um
   // caminho próprio (registrar_envio_requisicao), que não rebaixa a req a rascunho.
-  const aguardandoReenvioPosAprovacao = req.status === "aprovada" && !!req.erro_ultimo_envio;
+  const aguardandoReenvioPosAprovacao = req.status === "aprovada" && !req.numero_alvo && !req.envio_token;
 
   // Condição de STATUS do bloco Editar / Reenviar / Excluir — a de sempre.
   // O gate de permissão do AJUSTE 1.2 vale só para o botão Reenviar: Editar e
@@ -415,7 +364,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   const isRequisitante = !!user && req.requisitante_user_id === user.id;
   const podeReenviar = aguardandoReenvioPosAprovacao
     ? // Pós-aprovação: mesma autorização que a RPC R4 aplica no servidor.
-      isAdmin || isRequisitante || isLiderDoCC
+      isAdmin || (isRequisitante && podeReenviarOwn) || isLiderDoCC
     : // Rascunho / pendente de envio: dono da req + permissão de reenvio.
       statusPermiteAcoesDeRascunho && (isAdmin || (isRequisitante && podeReenviarOwn));
 
@@ -486,6 +435,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   };
 
   const invalidarFilaDeAprovacoes = () => {
+    queryClient.invalidateQueries({ queryKey: ["requisicao_aprovacao_cc", id] });
     queryClient.invalidateQueries({ queryKey: ["aprovacoes_pendentes_count"] });
     queryClient.invalidateQueries({ queryKey: ["requisicoes_pendentes_aprovacao"] });
   };
@@ -506,6 +456,13 @@ export default function SuprimentosRequisicaoDetalhe() {
           refetch();
           invalidarFilaDeAprovacoes();
         }
+        return;
+      }
+
+      if (!decisao.final) {
+        toast({ title: "Aprovação registrada", description: decisao.mensagem });
+        refetch();
+        invalidarFilaDeAprovacoes();
         return;
       }
 
@@ -633,6 +590,8 @@ export default function SuprimentosRequisicaoDetalhe() {
 
   return (
     <div className="space-y-6 p-6">
+      {req.aprovacao_submetida_em && <AprovacoesCC grupos={gruposAprovacao} erro={erroAprovacao?.message} />}
+      {req.envio_token && !req.numero_alvo && <p role="alert" className="rounded-lg border p-4 text-sm">Envio em andamento ou sem confirmação. O reenvio está bloqueado até reconciliar com o Alvo.</p>}
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
@@ -679,7 +638,7 @@ export default function SuprimentosRequisicaoDetalhe() {
               >
                 <Ban className="mr-1 h-3 w-3" /> Rejeitar
               </Button>
-              <Button size="sm" className="shrink-0" onClick={handleAprovar} disabled={!!decisaoEmCurso}>
+              <Button size="sm" className="shrink-0" onClick={handleAprovar} disabled={!!decisaoEmCurso || (!isAdmin && !aguardandoMinhaAprovacao)}>
                 {decisaoEmCurso === "aprovando" || decisaoEmCurso === "enviando" ? (
                   <>
                     <Loader2 className="mr-1 h-3 w-3 animate-spin" />
@@ -967,7 +926,7 @@ export default function SuprimentosRequisicaoDetalhe() {
                   </Badge>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {item.quantidade} {item.produto_unidade} · {item.codigo_produto}
+                  {item.quantidade_solicitada == null ? "Solicitada não disponível" : `${item.quantidade_solicitada} ${item.codigo_prod_unid_med}`} · principal: {item.quantidade} · posição: {item.posicao_prod_unid_med ?? "não disponível"} · {item.codigo_produto}
                 </p>
                 {item.observacao && <p className="mt-2 text-xs italic text-muted-foreground">"{item.observacao}"</p>}
                 {item.rateio?.length > 0 && (

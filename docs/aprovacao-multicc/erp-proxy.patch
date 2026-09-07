@@ -1,0 +1,281 @@
+diff --git a/src/index.ts b/src/index.ts
+index 6774f13..8b05992 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -12,6 +12,7 @@ import express, { Request, Response, NextFunction } from "express";
+ import cors from "cors";
+ import { requireSupabaseAuth } from "./middleware/auth";
+ import reqCompRouter from "./routes/req-comp";
++import reqAprovadaRouter from "./routes/req-aprovada";
+ import excelRouter from "./routes/excel";
+ import estoqueRouter from "./routes/estoque";
+ import entidadeRouter from "./routes/entidade";
+@@ -118,6 +119,8 @@ app.get("/health", (_req: Request, res: Response) => {
+     service: "erp-proxy",
+     timestamp: new Date().toISOString(),
+     env: NODE_ENV,
++    revision: process.env.RENDER_GIT_COMMIT || null,
++    requisicoes: "multicc-20260907-aceite-1",
+   });
+ });
+ 
+@@ -133,7 +136,7 @@ app.get("/", (_req: Request, res: Response) => {
+ // ─────────────────────────────────────────────────────────────
+ // Rotas protegidas (exigem JWT do Supabase)
+ // ─────────────────────────────────────────────────────────────
+-app.use("/req-comp", requireSupabaseAuth, reqCompRouter);
++app.use("/req-comp", requireSupabaseAuth, reqAprovadaRouter, reqCompRouter);
+ app.use("/excel", requireSupabaseAuth, excelRouter);
+ app.use("/estoque", requireSupabaseAuth, estoqueRouter);
+ app.use("/entidade", requireSupabaseAuth, entidadeRouter);
+diff --git a/src/routes/req-aprovada-payload.ts b/src/routes/req-aprovada-payload.ts
+new file mode 100644
+index 0000000..7e0dc7f
+--- /dev/null
++++ b/src/routes/req-aprovada-payload.ts
+@@ -0,0 +1,55 @@
++import { exigirQuantidadesCompletas } from "./req-unidades";
++// Este mapper recebe exclusivamente o snapshot retornado pela RPC service_role.
++export interface SnapshotEnvio {
++  token: string;
++  codigo_usuario: string;
++  requisicao: {
++    codigo_empresa_filial: string; codigo_centro_ctrl: string; codigo_funcionario: string;
++    codigo_finalidade_compra: string; data_necessidade: string; descricao: string; texto: string;
++  };
++  itens: Array<{
++    codigo_centro_ctrl: string; codigo_produto: string; codigo_alternativo_produto: string | null;
++    codigo_prod_unid_med: string; quantidade_solicitada: number; posicao_prod_unid_med: number; quantidade: number; item_servico: boolean; observacao: string;
++  }>;
++  rateio: Array<{ codigo_classe_rec_desp: string; percentual: number;
++    ccs: Array<{ codigo_centro_ctrl: string; percentual: number }> }>;
++  arquivos: Array<{ upload_identify_guid: string; storage_path: string; nome_original: string; conteudo_sha256?: string }>;
++}
++
++// O mapper só preserva a tupla congelada. O handler valida com Produto/Load fresco.
++export function quantidadeUnidade(i: SnapshotEnvio["itens"][number]) {
++  exigirQuantidadesCompletas(i);
++  return { PosicaoProdUnidMed: i.posicao_prod_unid_med, Quantidade2: Number(i.quantidade_solicitada), QuantidadeProdUnidMedPrincipal: Number(i.quantidade) };
++}
++
++export function montarReqAprovada(s: SnapshotEnvio) {
++  const r = s.requisicao;
++  if (!s.itens?.length) throw new Error("Requisição sem itens");
++  const data = `${r.data_necessidade.substring(0, 10)}T00:00:00-03:00`;
++  return {
++    CodigoEmpresaFilial: r.codigo_empresa_filial, CodigoEmpresaFilialOrigem: r.codigo_empresa_filial,
++    CodigoUsuario: s.codigo_usuario, UsuarioLogado: s.codigo_usuario, Numero: "",
++    CodigoCentroCtrl: r.codigo_centro_ctrl, CodigoFuncionario: r.codigo_funcionario,
++    CodigoFinalidadeCompra: r.codigo_finalidade_compra, DataNecessidade: data,
++    Descricao: (r.descricao || "").slice(0, 100), Texto: r.texto || "",
++    ItemReqCompChildList: s.itens.map((i, n) => ({
++      CodigoEmpresaFilial: "", NumeroReqComp: "", Sequencia: n + 1,
++      ItemServico: i.item_servico ? "Sim" : "Não", CodigoProduto: i.codigo_produto,
++      CodigoAlternativoProduto: i.codigo_alternativo_produto || "", DataNecessidade: data,
++      CodigoCentroCtrl: i.codigo_centro_ctrl || r.codigo_centro_ctrl,
++      ...quantidadeUnidade(i),
++      CodigoProdUnidMed: i.codigo_prod_unid_med, Observacao: i.observacao || "",
++    })),
++    ReqCompClasseRecDespChildList: s.rateio.map((c) => ({
++      CodigoClasseRecDesp: c.codigo_classe_rec_desp, Percentual: Number(c.percentual),
++      RateioReqCompChildList: c.ccs.map((cc) => ({
++        CodigoClasseRecDesp: c.codigo_classe_rec_desp, CodigoCentroCtrl: cc.codigo_centro_ctrl, Percentual: Number(cc.percentual),
++      })),
++    })),
++    MensagemRetorno: null, TextoHistoricoNovo: null, TipoFormulario: "Normal", UploadIdentify: "",
++    ...(s.arquivos.length ? {
++      ReqCompDocChildList: s.arquivos.map((a, n) => ({ CodigoEmpresaFilial: "-1", NumeroReqComp: "-1", Sequencia: n, UploadIdentify: a.upload_identify_guid })),
++      filesToUpload: s.arquivos.map((a) => ({ key: `${a.upload_identify_guid}#Arquivo`, file: {} })),
++    } : {}),
++  };
++}
+diff --git a/src/routes/req-aprovada.ts b/src/routes/req-aprovada.ts
+new file mode 100644
+index 0000000..95664d7
+--- /dev/null
++++ b/src/routes/req-aprovada.ts
+@@ -0,0 +1,100 @@
++import { callAlvo } from "../alvo-client";
++import { unidadesProduto, validarItemCadastro } from "./req-unidades";
++// Copiar para erp-proxy/src/routes/req-aprovada.ts na futura aplicação do patch.
++import { createHash } from "node:crypto";
++import { Router } from "express";
++import { getSupabaseAdmin } from "../supabase-client";
++import { getAlvoToken } from "../alvo-auth";
++import { montarReqAprovada, type SnapshotEnvio } from "./req-aprovada-payload";
++
++const router = Router();
++
++// Bloqueia as DUAS rotas livres antes dos handlers legados e antes do multer.
++router.post(["/insert", "/insert-multipart"], (_req, res) => {
++  res.status(409).json({ error: "Criação exige aprovação por todos os CCs. Atualize o Hub e use /req-comp/enviar-aprovada." });
++});
++
++router.post("/enviar-aprovada", async (req, res) => {
++  if (req.user?.source !== "financial_hub" || !req.user?.id) {
++    res.status(403).json({ error: "Exige usuário autenticado do Financial Hub." });
++    return;
++  }
++  const id = req.body?.requisicao_id;
++  if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
++    res.status(400).json({ error: "requisicao_id inválido." });
++    return;
++  }
++  let snapshot: SnapshotEnvio | undefined;
++  let chamadaIniciada = false;
++  let numeroConfirmado: string | null = null;
++  try {
++    if (process.env.SUPABASE_URL?.replace(/\/$/, "") !== "https://hbtggrbauguukewiknew.supabase.co") throw new Error("Projeto Supabase incorreto no gateway");
++    const db = getSupabaseAdmin();
++    const { data, error } = await db.rpc("iniciar_envio_requisicao", { p_req_id: id, p_user_id: req.user.id });
++    if (error) { res.status(409).json({ error: error.message }); return; }
++    snapshot = data as SnapshotEnvio;
++    const cadastros = new Map<string, ReturnType<typeof unidadesProduto>>();
++    for (const item of snapshot.itens) {
++      if (!cadastros.has(item.codigo_produto)) {
++        const produto = await callAlvo(`Produto/Load?codigo=${encodeURIComponent(item.codigo_produto)}&loadChild=All`, "GET");
++        if (!produto.ok) throw new Error(`Não foi possível conferir unidades do produto ${item.codigo_produto}`);
++        cadastros.set(item.codigo_produto, unidadesProduto(produto.data, item.codigo_produto));
++      }
++      validarItemCadastro(item, cadastros.get(item.codigo_produto)!);
++    }
++    const payload = montarReqAprovada(snapshot);
++    const arquivos = snapshot.arquivos;
++    let body: string | FormData = JSON.stringify(payload);
++    if (arquivos.length) {
++      const form = new FormData();
++      form.append("obj", JSON.stringify(payload));
++      for (const a of arquivos) {
++        if (!a.storage_path.startsWith(`${id}/`)) throw new Error("Anexo fora da pasta da requisição");
++        const { data: blob, error: erroArquivo } = await db.storage.from("compras-requisicoes").download(a.storage_path);
++        if (erroArquivo || !blob) throw new Error(`Não foi possível baixar ${a.nome_original}`);
++        const digest = createHash("sha256").update(Buffer.from(await blob.arrayBuffer())).digest("hex");
++        if (!a.conteudo_sha256 || digest !== a.conteudo_sha256) throw new Error(`Integridade do anexo divergente: ${a.nome_original}`);
++        form.append(`${a.upload_identify_guid}#Arquivo`, blob, a.nome_original);
++      }
++      body = form;
++    }
++    const token = await getAlvoToken();
++    const base = process.env.ALVO_BASE_URL;
++    if (!base) throw new Error("ALVO_BASE_URL não configurado");
++    // Uma única chamada. Nem 409 nem timeout autorizam repetir um Insert.
++    chamadaIniciada = true;
++    const response = await fetch(`${base.replace(/\/$/, "")}/ReqComp/${arquivos.length ? "SaveMultiPart" : "SavePartial"}?action=Insert`, {
++      method: "POST", headers: { "riosoft-token": token, ...(typeof body === "string" ? { "Content-Type": "application/json" } : {}) },
++      body, signal: AbortSignal.timeout(120_000),
++    });
++    const result = await response.json() as { Numero?: string; Message?: string };
++    if (response.ok && typeof result.Numero === "string" && result.Numero.trim()) numeroConfirmado = result.Numero.trim();
++    // Só validação explícita do Alvo (412) prova ausência de criação após o HTTP.
++    const definitiva = response.status === 412 && !result.Numero;
++    const mensagem = numeroConfirmado ? null : (result.Message || `Envio sem confirmação (HTTP ${response.status}). Reconciliar antes de reenviar.`);
++    const { error: erroFim } = await db.rpc("concluir_envio_requisicao", {
++      p_req_id: id, p_token: snapshot.token, p_numero: numeroConfirmado, p_erro: mensagem, p_falha_definitiva: definitiva,
++    });
++    if (erroFim) throw new Error(`Falha ao registrar desfecho: ${erroFim.message}`);
++    if (!numeroConfirmado) { res.status(definitiva ? 422 : 502).json({ error: mensagem }); return; }
++    res.status(200).json({ Numero: numeroConfirmado });
++  } catch (err) {
++    const mensagem = err instanceof Error ? err.message : String(err);
++    if (snapshot) {
++      // Se o ERP confirmou, repetir somente a persistência é seguro (RPC idempotente).
++      try {
++        const { error } = await getSupabaseAdmin().rpc("concluir_envio_requisicao", {
++          p_req_id: id, p_token: snapshot.token, p_numero: numeroConfirmado,
++          p_erro: mensagem, p_falha_definitiva: !chamadaIniciada,
++        });
++        if (error) console.error("[req-aprovada] desfecho não registrado", id, error.message);
++        else if (numeroConfirmado) { res.status(200).json({ Numero: numeroConfirmado }); return; }
++      } catch (persistError) { console.error("[req-aprovada] desfecho incerto", id, persistError); }
++    }
++    res.status(502).json({ error: numeroConfirmado
++      ? `Requisição criada no Alvo (${numeroConfirmado}), mas sem confirmação no Hub. NÃO reenvie; reconciliar. ${mensagem}`
++      : mensagem });
++  }
++});
++
++export default router;
+diff --git a/src/routes/req-unidades.ts b/src/routes/req-unidades.ts
+new file mode 100644
+index 0000000..013c397
+--- /dev/null
++++ b/src/routes/req-unidades.ts
+@@ -0,0 +1,78 @@
++// Contrato Fator comprovado por Produto/Load + ReqComp/Insert nativo (0001480).
++// Sem inferência de Divisor, unidades dependentes ou arredondamento implícito.
++export interface UnidadeRequisicao {
++  codigo: string; posicao: number; peso: number; tipo: string; compras: boolean;
++}
++type Json = Record<string, unknown>;
++export function objetoAlvo(raw: unknown, campo: string): Json {
++  if (!raw || typeof raw !== "object") throw new Error(`Load sem ${campo}`);
++  const r = raw as Json;
++  if (Array.isArray(r[campo])) return r;
++  for (const k of ["data", "Data", "result", "Result", "Produto", "ReqComp", "listaReqComp"]) {
++    if (r[k]) { try { return objetoAlvo(r[k], campo); } catch { /* outro envelope */ } }
++  }
++  if (Array.isArray(raw) && raw.length === 1) return objetoAlvo(raw[0], campo);
++  throw new Error(`Load sem ${campo}`);
++}
++export function unidadesProduto(raw: unknown, codigo: string): UnidadeRequisicao[] {
++  const p = objetoAlvo(raw, "ProdUnidMedChildList");
++  if (p.Codigo !== codigo) throw new Error("Produto/Load não corresponde ao produto solicitado");
++  const rows = p.ProdUnidMedChildList as Json[];
++  const posicoes = new Set<number>();
++  const unidades = rows.map(u => {
++    if (u.CodigoProduto != null && u.CodigoProduto !== codigo) throw new Error("Unidade pertence a outro produto");
++    const posicao = Number(u.Posicao);
++    if (!Number.isInteger(posicao) || posicao <= 0 || posicoes.has(posicao)) throw new Error("Posição ausente ou duplicada no Produto/Load");
++    posicoes.add(posicao);
++    if (u.Dependente === "Sim" || [u.ExibeCampoComprimentoVenda, u.ExibeCampoLarguraVenda, u.ExibeCampoAlturaVenda].includes("Sim"))
++      throw new Error("CONVERSAO_NAO_COMPROVADA: unidade dependente/dimensional exige captura de Insert");
++    const codigoUnidade = String(u.CodigoUnidMedida ?? "");
++    if (!codigoUnidade) throw new Error("Unidade sem código");
++    return { codigo: codigoUnidade, posicao, peso: Number(u.Peso), tipo: String(u.PesoFatorDivisor ?? ""), compras: u.UnidadeMedidaCompras === "Sim" };
++  });
++  const base = unidades.find(u => u.posicao === 1);
++  if (!base || base.peso !== 1 || base.tipo !== "Fator") throw new Error("CONVERSAO_NAO_COMPROVADA: base diferente de Fator 1 exige captura de Insert");
++  return unidades;
++}
++const ESCALA = BigInt(1_000_000_000);
++function decimal(v: number): bigint {
++  if (!Number.isFinite(v) || v <= 0 || v >= 1_000_000_000 || Number(v.toFixed(9)) !== v)
++    throw new Error("Quantidade/fator fora da precisão suportada (9 casas decimais)");
++  return BigInt(v.toFixed(9).replace(".", ""));
++}
++export function converterSolicitada(solicitada: number, unidade: UnidadeRequisicao): number {
++  if (unidade.tipo !== "Fator") throw new Error(`CONVERSAO_NAO_COMPROVADA: ${unidade.tipo || "tipo ausente"} exige Produto/Load e Insert nativo`);
++  const produto = decimal(solicitada) * decimal(unidade.peso);
++  if (produto % ESCALA !== BigInt(0)) throw new Error("Conversão exige mais de 9 casas: falta contrato de arredondamento do Alvo");
++  const principal = Number(produto / ESCALA) / Number(ESCALA);
++  decimal(principal);
++  return principal;
++}
++export interface QuantidadesItem {
++  codigo_prod_unid_med: string; posicao_prod_unid_med: number | null;
++  quantidade_solicitada: number | null; quantidade: number;
++}
++export function quantidadesLoad(i: Json): QuantidadesItem {
++  const principal = Number(i.QuantidadeProdUnidMedPrincipal);
++  if (i.QuantidadeProdUnidMedPrincipal == null || !Number.isFinite(principal) || principal <= 0) throw new Error("Quantidade principal ausente/inválida no ReqComp/Load");
++  const solicitada = i.Quantidade2 == null ? null : Number(i.Quantidade2);
++  const posicao = i.PosicaoProdUnidMed == null ? null : Number(i.PosicaoProdUnidMed);
++  if (solicitada !== null && (!Number.isFinite(solicitada) || solicitada <= 0)) throw new Error("Quantidade2 inválida no ReqComp/Load");
++  if (posicao !== null && (!Number.isInteger(posicao) || posicao <= 0)) throw new Error("PosicaoProdUnidMed inválida no ReqComp/Load");
++  if (!i.CodigoProdUnidMed) throw new Error("Unidade ausente no ReqComp/Load");
++  return { codigo_prod_unid_med: String(i.CodigoProdUnidMed), posicao_prod_unid_med: posicao, quantidade_solicitada: solicitada, quantidade: principal };
++}
++export function exigirQuantidadesCompletas(i: QuantidadesItem): void {
++  if (i.quantidade_solicitada == null || i.posicao_prod_unid_med == null || !i.codigo_prod_unid_med)
++    throw new Error("HISTORICO_UNIDADE_INCOMPLETO: recuperar ReqComp/Load original com Quantidade2, QuantidadeProdUnidMedPrincipal, CodigoProdUnidMed e PosicaoProdUnidMed");
++  decimal(Number(i.quantidade_solicitada)); decimal(Number(i.quantidade));
++  if (!Number.isInteger(i.posicao_prod_unid_med) || i.posicao_prod_unid_med <= 0) throw new Error("Posição inválida");
++}
++export function validarItemCadastro(i: QuantidadesItem, unidades: UnidadeRequisicao[]): UnidadeRequisicao {
++  exigirQuantidadesCompletas(i);
++  const u = unidades.find(u => u.posicao === i.posicao_prod_unid_med && u.codigo === i.codigo_prod_unid_med);
++  if (!u) throw new Error("Unidade/posição do item não existe mais no cadastro: revisar em nova requisição");
++  const principal = converterSolicitada(Number(i.quantidade_solicitada), u);
++  if (principal !== Number(i.quantidade)) throw new Error("Conversão do cadastro diverge da quantidade principal preservada: revisar em nova requisição");
++  return u;
++}

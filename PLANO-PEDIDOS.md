@@ -260,6 +260,46 @@ Frontend nunca `.update()` (CORS bloqueia PATCH) → upsert/RPC POST · `CREATE 
 
 | 2026-07-31 | **AJUSTE A-1 — Data do Pedido não editável (frontend)** | **Motivação:** o Pedro notou `data_pedido` **25/08/2026** no pedido **0004495** (SKA AUTOMAÇÃO, R$ 110.000,00, 36X, req. 0001275, criado por elisangela.silva) — um mês no FUTURO. **Causa confirmada no dado, não presumida:** o pedido foi criado no Hub em **23/07/2026 11:06 BRT** (`created_at` 2026-07-23 14:06 UTC, `enviado_em` 16s depois, `texto` do stamp bate) — logo não foi o sync nem o ERP; a data saiu do calendário do modal, escolhida a mão. O campo era um `Popover`+`Calendar` **sem `disabled`**, seleção livre de qualquer data — enquanto os vizinhos Entrega e Validade já tinham trava (`disabled={(d) => d < dataPedido}`). **Impacto (data_pedido é raiz de 4 derivações, não campo de exibição):** `data_cadastro` (`pedidosService.ts:1177,1213`) · `DataCompetencia` = 1º dia do mês (`SuprimentosPedidoNovo.tsx:962`) → competência **08/2026** em vez de 07/2026 = **mês contábil errado** · `DataBaseVencimento` (`pedidosService.ts:794,1356`) · cronograma de parcelas — o 0004495 ficou com **36 parcelas, 1º vencimento 25/08**, série inteira deslocada ~1 mês, e como o payload manda `DataCadastro: dataPedido` o erro **já está no Alvo**. **Solução (1 arquivo, `src/pages/SuprimentosPedidoNovo.tsx`, +51/−45):** (1) campo virou **read-only**, reusando o visual da Data da Competência ao lado (caixa `bg-muted/30` + badge "automática"); (2) **recarimbo no envio** — helper `hojeNormalizado()` em escopo de módulo, `dataPedidoEnvio`/`dataCompetenciaEnvio` calculados dentro do `handleEnviarPedido` e usados no payload (cobre wizard aberto atravessando a meia-noite, que gravaria ontem); (3) **rascunho não restaura mais a data** — `setDataPedido(parseLocalDate(dados.data_pedido))` removido do carregamento; (4) `dataPedidoPopoverOpen` removido, `datasNoPadrao`/`resetarDatasParaPadrao` passam a reger só entrega/validade, subtítulo da etapa corrigido (prometia "você pode editar conforme necessário"). **Decisões do Pedro:** rascunho/`erro_envio` retomado = **data do envio efetivo** (o pedido só existe no ERP quando enviado; evita competência caindo em mês já fechado) · **escopo só o modal** (sem guarda no `pedidosService`) · **sem data-fix** dos casos existentes — 0004495 segue errado no Alvo com as 36 parcelas emitidas, a trava só impede novos. **Verificações:** `bun run build` limpo (32s) · `tsc --noEmit -p tsconfig.app.json` exit 0 · `eslint` = **14 problemas idênticos ao HEAD** (conferido com stash A/B: 13 `no-explicit-any` + 1 `exhaustive-deps`, todos pré-existentes fora das faixas alteradas) → zero introduzido. **ACHADO que corrige o CLAUDE.md:** o projeto **NÃO** tem a rede de proteção documentada — `tsconfig.json` e `tsconfig.app.json` têm `noUnusedLocals: false`, `noUnusedParameters: false`, `strict: false`, e o script `build` é só `vite build` (**não type-checka**). A afirmação "TS estrito, import órfão quebra o build" é **falsa hoje**: código morto e erro de tipo passam batido. Type-check exige `tsc --noEmit -p tsconfig.app.json` à mão (`tsc --noEmit` na raiz não serve — `"files": []`, config solution-style, checa zero arquivos e sai 0 enganosamente). **Efeito colateral esperado:** rascunho antigo com `data_entrega` anterior a hoje trava na Etapa 3 na validação já existente ("Data da Entrega não pode ser anterior à Data do Pedido") até a operadora ajustar — correto, mas avisar a Elisangela. Push = preview; **app publicado exige Publish manual no Lovable**. |
 
+### 07/09/2026 — Aprovação por todos os CCs, preparada localmente
+
+Nova tarefa autorizada: grupos distintos de cabeçalho/itens/rateio, dispensa parcial
+do autor, decisões concorrentes serializadas e envio condicionado no gateway.
+Entrega: [docs/aprovacao-multicc/ENTREGA.md](docs/aprovacao-multicc/ENTREGA.md).
+Fingerprint 3 tabelas/2.038 pedidos; acesso Supabase somente SELECT.
+61 testes SQL não-admin/concorrência e 87 testes frontend/gateway passaram; type-check
+frontend/gateway e build aprovados. Nenhuma aplicação em produção, push ou publicação.
+Patch externo preparado para revisão do Pedro; o gateway é pré-requisito obrigatório.
+
+
+## Continuação de 07/09/2026 — correções da revisão multi-CC (somente local)
+
+Reproduzida a constraint real: eventos CC sumiam e envio falhava com 23514. Migração
+agora preserva os 17 eventos antigos e permite os sete novos, com auditoria obrigatória.
+Guards de Storage limitam escrita ao rascunho e serializam com submissão; SHA-256
+congelado é conferido pelo gateway. 93 testes SQL e 94 frontend/gateway passaram;
+mesmas sete falhas antigas de sidebar. TypeScript/build e compilação do patch passaram.
+Unidades alternativas permanecem bloqueadas por falta de contrato de escrita:
+001.013.00382 tem PACOTE no catálogo, sem escala e sem itens da 0001480 no espelho.
+Não aplicar fator 10. Capturas e limites em docs/aprovacao-multicc/REVISAO.md.
+Storage HTTP/S3 e Alvo real ainda não validados. Nada aplicado, enviado ou publicado.
+
+
+## Continuação — unidades por cadastro do produto (07/09/2026, somente local)
+
+Produto/Load anexado + Insert confirmado pelo usuário comprovam o formato Fator.
+Implementado peso por produto/unidade/posição, sem fator fixo; preservados solicitada,
+principal, unidade e posição na criação, clone, detalhe/cron de sync e envio pelo gateway.
+Histórico incompleto recupera ReqComp/Load ou exige recriar itens, sem backfill presumido.
+Casos 10/1 e 20/2 em UNID posição 2 passaram: 100 verificações SQL e 111 testes de
+frontend/gateway/cron, com as mesmas sete falhas antigas de sidebar. TypeScript frontend,
+gateway e build passaram. Deno 2.9.6: check integral aprovado. Docker 29.1.3/Compose 2.40.3 instalados no WSL.
+26 testes HTTP com file e 26 com S3 MinIO passaram (Auth real, não-admin, ERP simulado).
+111 testes passaram novamente com sidebar excluído. Relatório/reprodução em ENTREGA.md.
+Levantamento somente SELECT: 171 produtos recentes, 3 com escala em cache, 168 sem escala;
+não inferido suporte nem histórico. Aceite no Alvo real continua pendente.
+Divisor/dimensões/base não normalizada/arredondamento seguem bloqueados por falta de
+contrato. Ver REVISAO.md. Nada aplicado em produção, enviado por push ou publicado.
+
 ## 9. Fora do escopo (não perder)
 `alvo_comprador_codigo` (Pedro/Mirlene) · backfill `data_abertura_alvo` ~141 reqs + reqs históricas ausentes · elo perdido req↔ped (mitigado pela reconciliação) · paginação Inventory geral · cadastro de produto NO Alvo via Hub (descartado pela simplificação do delta; retomar se necessário) · validação funcional FH41 (absorvida no L6).
 
@@ -270,3 +310,26 @@ Frontend nunca `.update()` (CORS bloqueia PATCH) → upsert/RPC POST · `CREATE 
 **Cron de entidades (NOVO — 19/07):** o cadastro de fornecedores **não tem cron** — só atualiza quando alguém clica em `/suprimentos/cadastros` (ou `/entidades`). Foi assim que ficou 18 dias congelado com 43 fornecedores invisíveis. Agora a operadora se desbloqueia sozinha, mas o ideal é não depender de clique. **Ficou barato depois do LD:** com as rotas `/entidade/list` e `/entidade/cidade-list` no proxy, basta portar as 3 fases do `syncEntidades` para uma Edge (`sync-entidades-cron`) chamando o gateway, criar `call_sync_entidades_cron` (cópia da de produtos) e agendar. **Sugestão de horário: `0 22 * * 1-5` (19h BRT)** — antes do de produtos (23h), para não disputarem o token do Alvo. A RPC `marcar_fornecedores` já existe e é reutilizável.
 
 **Senha do Alvo em localStorage (NOVO — 19/07):** `alvoService.authenticateAlvo()` lê `alvo_username`/`alvo_password` do localStorage em **texto plano** e autentica direto no Alvo (`pef.it4you.inf.br`), sem passar pelo gateway. Risco: exposição a XSS, extensões de navegador e persistência em disco; efeito colateral funcional: só funciona para quem configurou as credenciais (o admin). O sync de **entidades** saiu desse caminho em 19/07, mas **outras telas seguem usando o `alvoService`** — inclusive o open-load de pedidos (`alvoPedCompLoadService`), o enriquecimento de unidades e o Laboratório de API. **Próximo passo:** mapear todos os consumidores (`grep authenticateAlvo`) e migrar os que forem de uso não-administrativo para o erp-proxy, onde as credenciais vivem no Render.
+
+
+## Continuação — leitura Produto/Load e Express real (07/09/2026)
+
+Coleta dos 171 produtos bloqueada no primeiro GET ao gateway (401); 170 não consultados.
+Coletor sequencial com cache e falhas separadas preparado, sem deduzir incompatibilidade.
+Origin/main erp-proxy confirmado por fetch em 76f67b2; patch aplica. 20 testes de
+Express/CORS/body parser/JWKS reais passaram. Render health 200 não expõe SHA; falta
+acesso autenticado ao painel/API para identificar deploy live. Bloqueios em
+docs/aprovacao-multicc/ACESSO-E-GATEWAY.md; roteiro em ACEITE-ALVO.md.
+Sem Insert real, alterações de cadastro, backfill, migrações em produção, push ou publicação.
+
+
+## Aceite preenchido — 07/09/2026, somente local/SELECT
+
+Caio (Engenharia) autor + Ana (Marketing) aprovadora final: configuração disponível.
+Mirlene autora + Caio/Ana: duas decisões disponíveis. Nenhum CC tem dois líderes
+ativos; alternativa exige atribuição autorizada, não executada. Login explícito de
+Ana permite envio final sem fallback; Caio/Guilherme sem login em profiles.
+Aviso M3 antecipado no seletor e botões bloqueados, sem troca automática por UNID.
+113 testes passaram com sidebar excluído; type-check/build aprovados. Checklist e
+caso 1 preenchidos em docs/aprovacao-multicc/ACEITE-PREENCHIDO.md. Sem Insert,
+backfill, migration em produção, push ou publicação.

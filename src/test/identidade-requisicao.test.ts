@@ -1,359 +1,108 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { enviarRequisicaoAlvo, aprovarRequisicao, criarRequisicao, type NovaRequisicaoInput } from "@/services/requisicoesService";
+import { montarReqAprovada, type SnapshotEnvio } from "../../docs/aprovacao-multicc/gateway/req-aprovada-payload";
 
-// ══════════════════════════════════════════════════════════════════════
-// D-17 no módulo de REQUISIÇÕES — e o hotfix que a destravou
-// ══════════════════════════════════════════════════════════════════════
-//
-// Medido na série completa em 28/08/2026 (compras_requisicoes_auditoria, evento
-// `envio_tentado`): 226 payloads, 32 pessoas distintas do Hub, UM único
-// `CodigoUsuario` — `PEDRO.SCRIGNOLI` em todos. Entre eles, 3 requisições da
-// ana.sanches, que tinha login próprio e foi descartado.
-//
-// A D-17 (PLANO-PROJETOS) mandava PARAR o envio de quem não tivesse login próprio.
-// Foi publicada em 02/09/2026 SEM o pré-requisito dela — o backfill dos ~30
-// `profiles.alvo_usuario` — e travou o módulo inteiro: em 06/09/2026, 5 de 58
-// perfis tinham login; 31 requisitantes ativos e 2 dos 4 líderes estavam sem. Como
-// o envio pós-aprovação roda na sessão do LÍDER, aprovar travou junto.
-//
-// HOTFIX de 06/09/2026 (o que estes testes fixam agora):
-//   · sem `alvo_usuario` → o envio SEGUE com o LOGIN DE SERVIÇO, com warn explícito;
-//   · login próprio com formato inválido → continua PARANDO (erro de cadastro
-//     precisa aparecer, não virar envio silencioso com identidade trocada);
-//   · a identidade REAL do requisitante nunca dependeu deste login: ela está em
-//     `CodigoFuncionario` e no carimbo "[Hub] Requisitante:" do campo `Texto`.
-//
-// Estes testes exercitam `enviarRequisicaoAlvo` de ponta a ponta com um duplo do
-// Supabase, porque o que precisa ser garantido não é uma função pura — é o que
-// chega (ou não chega) ao gateway em cada um desses três casos.
-
-// Contrato duplicado DE PROPÓSITO: o service não exporta a constante, e o valor
-// aqui é a trava. Trocar o login de serviço no service (pelo `HUB.REQUISICOES`
-// definitivo, por exemplo) tem de quebrar este arquivo e ser uma decisão, não um
-// efeito colateral.
-const LOGIN_SERVICO = "PEDRO.SCRIGNOLI";
-
-// Logins pessoais de OUTRAS pessoas do Hub. O fallback jamais pode resolver para
-// um deles — seria de novo a identidade emprestada que a D-17 veio fechar.
-const LOGINS_PESSOAIS_DE_TERCEIROS = ["ANA.SANCHES", "GUILHERME.OLIVEIRA", "CAIO.SANTOS"];
-
-// ── Duplo do client do Supabase ──────────────────────────────────────
-// Um holder mutável: o módulo captura `supabase` no import, então o objeto
-// precisa ser o mesmo em todos os testes e ter o conteúdo trocado por dentro.
-const estado: {
-  tabelas: Record<string, unknown[]>;
-  upserts: Array<{ tabela: string; linha: Record<string, unknown> }>;
-  rpcs: Array<{ nome: string; args: Record<string, unknown> }>;
-} = { tabelas: {}, upserts: [], rpcs: [] };
-
-vi.mock("@/integrations/supabase/client", () => {
-  const primeira = (t: string) => (estado.tabelas[t] ?? [])[0] ?? null;
-
-  const query = (tabela: string) => {
-    const q: Record<string, unknown> = {};
-    const eu = () => q;
-    Object.assign(q, {
-      select: eu,
-      eq: eu,
-      // `.order()` fecha as consultas de lista; `.single()`/`.maybeSingle()` as de linha.
-      order: () => Promise.resolve({ data: estado.tabelas[tabela] ?? [], error: null }),
-      single: () => Promise.resolve({ data: primeira(tabela), error: null }),
-      maybeSingle: () => Promise.resolve({ data: primeira(tabela), error: null }),
-      upsert: (linha: Record<string, unknown>) => {
-        estado.upserts.push({ tabela, linha });
-        return Promise.resolve({ data: null, error: null });
-      },
-      insert: (linha: Record<string, unknown>) => {
-        estado.upserts.push({ tabela, linha });
-        return Promise.resolve({ data: null, error: null });
-      },
-    });
-    return q;
-  };
-
-  return {
-    supabase: {
-      from: (tabela: string) => query(tabela),
-      rpc: (nome: string, args: Record<string, unknown>) => {
-        estado.rpcs.push({ nome, args });
-        return Promise.resolve({
-          data: args?.p_numero_alvo ? "SINCRONIZADA" : "ERRO_REGISTRADO",
-          error: null,
-        });
-      },
-      auth: {
-        getSession: () =>
-          Promise.resolve({
-            data: { session: { access_token: "jwt-fake", user: { id: "user-1", email: "quem.clicou@pfbrazil.com" } } },
-          }),
-      },
-      storage: { from: () => ({ download: () => Promise.resolve({ data: null, error: { message: "n/a" } }) }) },
-    },
-  };
-});
-
-import { enviarRequisicaoAlvo } from "@/services/requisicoesService";
-
-const REQ_ID = "req-uuid-1";
-
-function montarBase(alvoUsuario: string | null) {
-  estado.tabelas = {
-    compras_requisicoes: [
-      {
-        id: REQ_ID,
-        requisitante_user_id: "user-1",
-        codigo_empresa_filial: "1.01",
-        codigo_funcionario: "0000142",
-        codigo_centro_ctrl: "00010.00004.00003",
-        codigo_finalidade_compra: "0000001",
-        data_necessidade: "2026-09-10",
-        total_itens: 1,
-        descricao: "Cabo HDMI",
-        texto: "[Hub] Requisitante: fulano",
-      },
-    ],
-    compras_requisicoes_itens: [
-      {
-        item_servico: false,
-        codigo_produto: "001.014.001",
-        codigo_alternativo_produto: null,
-        codigo_prod_unid_med: "UNID",
-        quantidade: 2,
-        observacao: "",
-        sequencia: 1,
-      },
-    ],
-    compras_requisicoes_arquivos: [],
-    profiles: [{ alvo_usuario: alvoUsuario }],
-  };
-  estado.upserts = [];
-  estado.rpcs = [];
-}
-
-let fetchSpy: ReturnType<typeof vi.fn>;
-/** Tudo que o service mandou para `console.warn` no teste corrente. */
-let avisos: string[];
-
-/** Payload JSON efetivamente entregue ao gateway na primeira (e única) chamada. */
-function payloadEnviado(): Record<string, unknown> {
-  expect(fetchSpy).toHaveBeenCalledTimes(1);
-  const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
-  return JSON.parse(String(init.body));
-}
-
+// Resolução de login (pessoal/fallback/inválido) agora é testada nas RPCs reais:
+// docs/aprovacao-multicc/tests/run.mjs. Aqui se verifica a fronteira de confiança.
+const mock = vi.hoisted(() => ({ rpc: vi.fn(), getSession: vi.fn(), from: vi.fn() }));
+vi.mock("@/integrations/supabase/client", () => ({ supabase: { ...mock, auth: { getSession: mock.getSession } } }));
+const options = { userId: "identidade-forjada", userName: "forjado", persistencia: "rpc" as const };
 beforeEach(() => {
-  fetchSpy = vi.fn(() =>
-    Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ Numero: "0001500" }) } as Response),
-  );
-  vi.stubGlobal("fetch", fetchSpy);
-  avisos = [];
-  vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
-    avisos.push(args.map((a) => String(a)).join(" "));
+  vi.clearAllMocks();
+  mock.getSession.mockResolvedValue({ data: { session: { access_token: "jwt-real-da-sessao" } } });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Numero: "123" }) }));
+});
+afterEach(() => vi.unstubAllGlobals());
+
+describe("conclusão da criação", () => {
+  const input: NovaRequisicaoInput = {
+    user_id: "autor", requisitante_nome: "Autor", codigo_funcionario: "FUNC", funcionario_nome: "Autor",
+    codigo_centro_ctrl: "A", codigo_finalidade_compra: "F", finalidade_compra_label: "Finalidade",
+    descricao: "teste", data_necessidade: "2026-09-10", observacao_livre: "",
+    itens: [{ item_servico: false, codigo_produto: "P", codigo_alternativo_produto: null,
+      codigo_prod_unid_med: "UN", produto_nome: "Produto", produto_unidade: "UN", quantidade: 1, quantidade_solicitada: 1, posicao_prod_unid_med: 1,
+      observacao: "", rateio: [{ codigo_classe_rec_desp: "CL", classe_rec_desp_label: "Classe", percentual: 100 }] }],
+  };
+  it.each([false, true])("falha de classe=%s só permite finalizar gravação completa", async (falha) => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ Codigo: "P", ProdUnidMedChildList: [{ CodigoUnidMedida: "UN", Posicao: 1, Peso: 1, PesoFatorDivisor: "Fator" }] }) } as Response);
+    mock.rpc.mockResolvedValue({ error: null });
+    mock.from.mockImplementation((table: string) => ({
+      upsert: () => table === "compras_requisicoes_itens_classe_rec_desp"
+        ? Promise.resolve({ error: falha ? { message: "falha de classe" } : null })
+        : { select: () => ({ single: async () => ({ data: { id: "req-1" }, error: null }) }) },
+      insert: async () => ({ error: null }),
+    }));
+    if (falha) await expect(criarRequisicao(input)).rejects.toMatchObject({ message: expect.stringContaining("falha de classe") });
+    else await expect(criarRequisicao(input)).resolves.toBe("req-1");
+    expect(mock.rpc.mock.calls.some(([name]) => name === "finalizar_rascunho_requisicao")).toBe(!falha);
+    expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).includes("/produto/load"))).toBe(true);
   });
 });
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+describe("envio autorizado pelo gateway", () => {
+  it("envia somente ID e JWT; identidade/payload do navegador não são confiados", async () => {
+    expect((await enviarRequisicaoAlvo("req-1", options)).sucesso).toBe(true);
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("https://erp-proxy.onrender.com/req-comp/enviar-aprovada");
+    expect(JSON.parse(String(init?.body))).toEqual({ requisicao_id: "req-1" });
+    expect(init?.headers).toMatchObject({ Authorization: "Bearer jwt-real-da-sessao" });
+    expect(mock.rpc).not.toHaveBeenCalled();
+    expect(mock.from).not.toHaveBeenCalled();
+  });
+  it("recusa do backend preserva ID para recuperar no detalhe", async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: "APROVACAO_INCOMPLETA" }) } as Response);
+    expect(await enviarRequisicaoAlvo("req-1", options)).toMatchObject({ sucesso: false, requisicao_id: "req-1", erro: "APROVACAO_INCOMPLETA" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("sessão expirada não chama gateway", async () => {
+    mock.getSession.mockResolvedValue({ data: { session: null } });
+    expect((await enviarRequisicaoAlvo("req-1", options)).sucesso).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("resposta sem número nunca vira sucesso nem retry", async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
+    expect((await enviarRequisicaoAlvo("req-1", options)).sucesso).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each([["PARCIAL", true, false], ["FINAL", true, true], ["OK", false, undefined]])("aprovação %s controla envio final", async (retorno, ok, final) => {
+    mock.rpc.mockResolvedValue({ data: retorno, error: null });
+    expect(await aprovarRequisicao("req-1")).toMatchObject({ ok, ...(final === undefined ? {} : { final }) });
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
-describe("identidade no envio de requisição ao Alvo (D-17 + hotfix 06/09/2026)", () => {
-  describe("sem login próprio, o envio usa o login de SERVIÇO", () => {
-    it("chega ao gateway — o módulo não para mais por falta de cadastro", async () => {
-      montarBase(null);
-      const r = await enviarRequisicaoAlvo(REQ_ID, {
-        userId: "user-1",
-        userName: "Quem Clicou",
-        persistencia: "legado",
-      });
-
-      expect(r.sucesso).toBe(true);
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-      const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain("/req-comp/insert");
-    });
-
-    it("o payload sai com o login de SERVIÇO — e com o de nenhuma outra pessoa", async () => {
-      montarBase(null);
-      await enviarRequisicaoAlvo(REQ_ID, { userId: "user-1", userName: "Quem Clicou", persistencia: "legado" });
-
-      const payload = payloadEnviado();
-      // Asserção central: é EXATAMENTE a constante de serviço...
-      expect(payload.CodigoUsuario).toBe(LOGIN_SERVICO);
-      expect(payload.UsuarioLogado).toBe(LOGIN_SERVICO);
-      // ...e não o login pessoal de um terceiro qualquer (o que seria a identidade
-      // emprestada de volta, agora por outra porta).
-      expect(LOGINS_PESSOAIS_DE_TERCEIROS).not.toContain(payload.CodigoUsuario);
-    });
-
-    it("a identidade REAL do requisitante continua no payload (CodigoFuncionario + carimbo)", async () => {
-      montarBase(null);
-      await enviarRequisicaoAlvo(REQ_ID, { userId: "user-1", userName: "Quem Clicou", persistencia: "legado" });
-
-      const payload = payloadEnviado();
-      // O login trocado é o do DIGITADOR. Quem pediu está nestes dois eixos, que o
-      // fallback não toca — é o que torna o envio com login de serviço rastreável.
-      expect(payload.CodigoFuncionario).toBe("0000142");
-      expect(String(payload.Texto)).toContain("[Hub] Requisitante:");
-    });
-
-    it("o fallback NUNCA é silencioso: o warn cita o user_id e o e-mail (é a fila de cadastro)", async () => {
-      montarBase(null);
-      await enviarRequisicaoAlvo(REQ_ID, { userId: "user-1", userName: "Quem Clicou", persistencia: "legado" });
-
-      expect(avisos.length).toBeGreaterThan(0);
-      const texto = avisos.join("\n");
-      expect(texto).toContain("alvo_usuario");
-      expect(texto).toContain("user-1");
-      expect(texto).toContain("quem.clicou@pfbrazil.com");
-      expect(texto).toContain(LOGIN_SERVICO);
-    });
-
-    it("o `envio_tentado` registra EM NOME DE QUEM o documento saiu (login de serviço)", async () => {
-      montarBase(null);
-      await enviarRequisicaoAlvo(REQ_ID, { userId: "user-1", userName: "Quem Clicou", persistencia: "legado" });
-
-      const tentado = estado.upserts.find(
-        (u) => u.tabela === "compras_requisicoes_auditoria" && u.linha.evento === "envio_tentado",
-      );
-      expect(tentado).toBeTruthy();
-      const payloadAuditado = tentado!.linha.payload_enviado as Record<string, unknown>;
-      expect(payloadAuditado.CodigoUsuario).toBe(LOGIN_SERVICO);
-      // A trilha tem de permitir reconstruir os dois lados: quem digitou e quem pediu.
-      expect(payloadAuditado.CodigoFuncionario).toBe("0000142");
-    });
+describe("payload construído com snapshot do banco", () => {
+  const snapshot: SnapshotEnvio = {
+    token: "token", codigo_usuario: "ANA.SANCHES",
+    requisicao: { codigo_empresa_filial: "1.01", codigo_centro_ctrl: "A", codigo_funcionario: "FUNC-AUTOR", codigo_finalidade_compra: "FINALIDADE", data_necessidade: "2026-09-10", descricao: "teste", texto: "[Hub] Requisitante: autor" },
+    itens: [{ codigo_centro_ctrl: "B", codigo_produto: "P", codigo_alternativo_produto: null, codigo_prod_unid_med: "UN", quantidade_solicitada: 2, posicao_prod_unid_med: 1, quantidade: 2, item_servico: false, observacao: "item" }],
+    rateio: [{ codigo_classe_rec_desp: "CL", percentual: 100, ccs: [{ codigo_centro_ctrl: "A", percentual: 1 }, { codigo_centro_ctrl: "C", percentual: 99 }] }], arquivos: [],
+  };
+  it("preserva identidade do operador e do requisitante separadamente", () => {
+    expect(montarReqAprovada(snapshot)).toMatchObject({ CodigoUsuario: "ANA.SANCHES", UsuarioLogado: "ANA.SANCHES", CodigoFuncionario: "FUNC-AUTOR", Texto: "[Hub] Requisitante: autor" });
   });
-
-  describe("login próprio MAL CADASTRADO continua parando o envio", () => {
-    // Estes testes eram do caso "sem login". Depois do hotfix, o caso que ainda para
-    // é o do valor sujo — e as garantias que eles davam (nada de payload de uma
-    // tentativa que não houve; rascunho com o erro registrado; desfecho pela RPC sem
-    // número do Alvo) valem inteiras aqui. `profiles.alvo_usuario` é TEXTO LIVRE
-    // preenchido à mão, e o backfill pendente prevê ~30 cadastros de uma vez.
-
-    it("um login mal cadastrado (minúscula) PARA antes do ERP", async () => {
-      montarBase("Ana.Sanches");
-      const r = await enviarRequisicaoAlvo(REQ_ID, {
-        userId: "user-1",
-        userName: "Ana",
-        persistencia: "legado",
-      });
-      expect(r.sucesso).toBe(false);
-      expect(r.erro).toContain("formato");
-      expect(fetchSpy).not.toHaveBeenCalled();
-    });
-
-    it("a mensagem diz O QUE corrigir e que NADA foi enviado", async () => {
-      montarBase("Ana.Sanches");
-      const r = await enviarRequisicaoAlvo(REQ_ID, {
-        userId: "user-1",
-        userName: "Ana",
-        persistencia: "legado",
-      });
-
-      expect(r.erro).toContain("login do ERP Alvo");
-      expect(r.erro).toContain("administrador");
-      expect(r.erro).toContain("NÃO foi enviada");
-    });
-
-    it("valor sujo NÃO cai para o login de serviço — erro de cadastro tem de aparecer", async () => {
-      montarBase("Ana.Sanches");
-      const r = await enviarRequisicaoAlvo(REQ_ID, { userId: "user-1", userName: "Ana", persistencia: "legado" });
-
-      expect(r.sucesso).toBe(false);
-      expect(fetchSpy).not.toHaveBeenCalled();
-      const tentado = estado.upserts.find(
-        (u) => u.tabela === "compras_requisicoes_auditoria" && u.linha.evento === "envio_tentado",
-      );
-      expect(tentado).toBeUndefined();
-    });
-
-    it("espaço sobrando é aparado, não recusado", async () => {
-      montarBase("  ANA.SANCHES  ");
-      const r = await enviarRequisicaoAlvo(REQ_ID, {
-        userId: "user-1",
-        userName: "Ana",
-        persistencia: "legado",
-      });
-      expect(r.sucesso).toBe(true);
-      expect(payloadEnviado().CodigoUsuario).toBe("ANA.SANCHES");
-    });
-
-    it("não grava `envio_tentado`: não existe payload de uma tentativa que não houve", async () => {
-      montarBase("Ana.Sanches");
-      await enviarRequisicaoAlvo(REQ_ID, { userId: "user-1", userName: "Ana", persistencia: "legado" });
-
-      const auditorias = estado.upserts.filter((u) => u.tabela === "compras_requisicoes_auditoria");
-      expect(auditorias.map((a) => a.linha.evento)).toEqual(["envio_falha"]);
-      expect(auditorias.every((a) => a.linha.payload_enviado === undefined)).toBe(true);
-    });
-
-    it("no modo legado a requisição volta a rascunho com o erro registrado", async () => {
-      montarBase("Ana.Sanches");
-      await enviarRequisicaoAlvo(REQ_ID, { userId: "user-1", userName: "Ana", persistencia: "legado" });
-
-      const req = estado.upserts.find((u) => u.tabela === "compras_requisicoes");
-      expect(req?.linha.status).toBe("rascunho");
-      expect(String(req?.linha.erro_ultimo_envio)).toContain("formato");
-      // Nunca marca `pendente_envio`: o envio não começou.
-      expect(estado.upserts.filter((u) => u.linha.status === "pendente_envio")).toHaveLength(0);
-    });
-
-    it("no modo RPC o desfecho vai pela `registrar_envio_requisicao`, sem número do Alvo", async () => {
-      montarBase("Ana.Sanches");
-      const r = await enviarRequisicaoAlvo(REQ_ID, {
-        userId: "user-1",
-        userName: "Ana",
-        persistencia: "rpc",
-      });
-
-      expect(r.sucesso).toBe(false);
-      const rpc = estado.rpcs.find((x) => x.nome === "registrar_envio_requisicao");
-      expect(rpc).toBeTruthy();
-      expect(rpc!.args.p_numero_alvo).toBeNull();
-      expect(String(rpc!.args.p_erro)).toContain("formato");
-    });
+  it("preserva CC divergente de item e todo rateio, inclusive 1%", () => {
+    const p = montarReqAprovada(snapshot);
+    expect(p.CodigoCentroCtrl).toBe("A");
+    expect(p.ItemReqCompChildList[0].CodigoCentroCtrl).toBe("B");
+    expect(p.ReqCompClasseRecDespChildList[0].RateioReqCompChildList).toEqual([
+      { CodigoClasseRecDesp: "CL", CodigoCentroCtrl: "A", Percentual: 1 },
+      { CodigoClasseRecDesp: "CL", CodigoCentroCtrl: "C", Percentual: 99 },
+    ]);
   });
-
-  describe("com login próprio, o payload leva a identidade de quem operou", () => {
-    it("CodigoUsuario e UsuarioLogado são o login da pessoa, não a constante antiga", async () => {
-      montarBase("GUILHERME.OLIVEIRA");
-      const r = await enviarRequisicaoAlvo(REQ_ID, {
-        userId: "user-1",
-        userName: "Guilherme",
-        persistencia: "legado",
-      });
-
-      expect(r.sucesso).toBe(true);
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-
-      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain("/req-comp/insert");
-      const payload = JSON.parse(String(init.body));
-      expect(payload.CodigoUsuario).toBe("GUILHERME.OLIVEIRA");
-      expect(payload.UsuarioLogado).toBe("GUILHERME.OLIVEIRA");
-      // Quem TEM login próprio não é atropelado pelo fallback de serviço.
-      expect(payload.CodigoUsuario).not.toBe(LOGIN_SERVICO);
-      expect(avisos).toHaveLength(0);
-    });
-
-    it("o requisitante continua no CodigoFuncionario — os dois eixos são independentes", async () => {
-      montarBase("GUILHERME.OLIVEIRA");
-      await enviarRequisicaoAlvo(REQ_ID, { userId: "user-1", userName: "Guilherme", persistencia: "legado" });
-
-      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      const payload = JSON.parse(String(init.body));
-      // 34 códigos distintos nos 226 envios medidos: este eixo NUNCA esteve emprestado.
-      expect(payload.CodigoFuncionario).toBe("0000142");
-    });
-
-    it("o `envio_tentado` guarda o payload com a identidade certa", async () => {
-      montarBase("ANA.SANCHES");
-      await enviarRequisicaoAlvo(REQ_ID, { userId: "user-1", userName: "Ana", persistencia: "legado" });
-
-      const tentado = estado.upserts.find(
-        (u) => u.tabela === "compras_requisicoes_auditoria" && u.linha.evento === "envio_tentado",
-      );
-      expect((tentado?.linha.payload_enviado as Record<string, unknown>).CodigoUsuario).toBe("ANA.SANCHES");
-    });
+  it("unidade-base explícita usa posição 1 e quantidades iguais", () => {
+    expect(montarReqAprovada(snapshot).ItemReqCompChildList[0]).toMatchObject({ PosicaoProdUnidMed: 1, Quantidade2: 2, QuantidadeProdUnidMedPrincipal: 2 });
+  });
+  it.each([1, 2])("0001480 principal=%s preserva Quantidade2 e posição capturadas", (quantidade) => {
+    const i = { ...snapshot.itens[0], codigo_produto: "001.013.00382", codigo_prod_unid_med: "UNID", posicao_prod_unid_med: 2, quantidade_solicitada: quantidade === 1 ? 10 : 20, quantidade };
+    expect(montarReqAprovada({ ...snapshot, itens: [i] }).ItemReqCompChildList[0]).toMatchObject({ CodigoProdUnidMed: "UNID", PosicaoProdUnidMed: 2, Quantidade2: quantidade === 1 ? 10 : 20, QuantidadeProdUnidMedPrincipal: quantidade });
+  });
+  it("cadastro ausente não supõe equivalência", () => {
+    expect(() => montarReqAprovada({ ...snapshot, itens: [{ ...snapshot.itens[0], quantidade_solicitada: undefined }] })).toThrow("HISTORICO_UNIDADE_INCOMPLETO");
+  });
+  it("anexos usam os GUIDs persistidos no snapshot", () => {
+    const p = montarReqAprovada({ ...snapshot, arquivos: [{ upload_identify_guid: "guid", storage_path: "req/guid.pdf", nome_original: "arquivo.pdf" }] });
+    expect(p.ReqCompDocChildList?.[0].UploadIdentify).toBe("guid");
+    expect(p.filesToUpload?.[0].key).toBe("guid#Arquivo");
   });
 });

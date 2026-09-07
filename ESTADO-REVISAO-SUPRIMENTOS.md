@@ -1961,3 +1961,75 @@ O que faltou não foi medir; foi **amarrar a medição ao gatilho**.
 ---
 
 *Atualizar este arquivo ao fim de cada card concluído.*
+
+
+## Sessão de 07/09/2026 — aprovação por todos os CCs (preparação local)
+
+Solicitação nova do Pedro: dispensa do autor limitada aos CCs que lidera, inclusive
+em multi-CC, substituindo R5 antiga. Implementação e decisões em
+[docs/aprovacao-multicc/ENTREGA.md](docs/aprovacao-multicc/ENTREGA.md).
+União distinta de cabeçalho, itens e rateio; snapshot na submissão; decisões parciais,
+rejeição terminal, líderes alternativos, dispensa sem líder e admin preservados.
+Gateway exige alteração: as rotas antigas aceitam payload sem consultar o gate.
+Patch preparado neste repo, sem editar o erp-proxy original, sem deploy.
+
+Fingerprint SELECT: 3 tabelas, 2.038 pedidos. Definições atuais consultadas e salvas.
+61 testes SQL locais com usuários sintéticos não-admin e duas conexões concorrentes;
+87 testes frontend/gateway passaram. Baseline HEAD: 77 passam e 7 falhas antigas na
+barra lateral. Type-check/build frontend e type-check do patch do gateway passaram.
+Não houve migration em produção, commit, push, publicação ou envio ao Alvo.
+A entrega depende da instalação coordenada de SQL + gateway + frontend; não publicar
+isoladamente. Aceite com pessoas reais/Alvo permanece para a etapa autorizada de rollout.
+
+
+## Continuação de 07/09/2026 — correções da revisão multi-CC (somente local)
+
+Reproduzida a constraint real: eventos CC sumiam e envio falhava com 23514. Migração
+agora preserva os 17 eventos antigos e permite os sete novos, com auditoria obrigatória.
+Guards de Storage limitam escrita ao rascunho e serializam com submissão; SHA-256
+congelado é conferido pelo gateway. 93 testes SQL e 94 frontend/gateway passaram;
+mesmas sete falhas antigas de sidebar. TypeScript/build e compilação do patch passaram.
+Unidades alternativas permanecem bloqueadas por falta de contrato de escrita:
+001.013.00382 tem PACOTE no catálogo, sem escala e sem itens da 0001480 no espelho.
+Não aplicar fator 10. Capturas e limites em docs/aprovacao-multicc/REVISAO.md.
+Storage HTTP/S3 e Alvo real ainda não validados. Nada aplicado, enviado ou publicado.
+
+
+## Continuação — unidades por cadastro do produto (07/09/2026, somente local)
+
+Produto/Load anexado + Insert confirmado pelo usuário comprovam o formato Fator.
+Implementado peso por produto/unidade/posição, sem fator fixo; preservados solicitada,
+principal, unidade e posição na criação, clone, detalhe/cron de sync e envio pelo gateway.
+Histórico incompleto recupera ReqComp/Load ou exige recriar itens, sem backfill presumido.
+Casos 10/1 e 20/2 em UNID posição 2 passaram: 100 verificações SQL e 111 testes de
+frontend/gateway/cron, com as mesmas sete falhas antigas de sidebar. TypeScript frontend,
+gateway e build passaram. Deno 2.9.6: check integral aprovado. Docker 29.1.3/Compose 2.40.3 instalados no WSL.
+26 testes HTTP com file e 26 com S3 MinIO passaram (Auth real, não-admin, ERP simulado).
+111 testes passaram novamente com sidebar excluído. Relatório/reprodução em ENTREGA.md.
+Levantamento somente SELECT: 171 produtos recentes, 3 com escala em cache, 168 sem escala;
+não inferido suporte nem histórico. Aceite no Alvo real continua pendente.
+Divisor/dimensões/base não normalizada/arredondamento seguem bloqueados por falta de
+contrato. Ver REVISAO.md. Nada aplicado em produção, enviado por push ou publicado.
+
+
+## Continuação — leitura Produto/Load e Express real (07/09/2026)
+
+Coleta dos 171 produtos bloqueada no primeiro GET ao gateway (401); 170 não consultados.
+Coletor sequencial com cache e falhas separadas preparado, sem deduzir incompatibilidade.
+Origin/main erp-proxy confirmado por fetch em 76f67b2; patch aplica. 20 testes de
+Express/CORS/body parser/JWKS reais passaram. Render health 200 não expõe SHA; falta
+acesso autenticado ao painel/API para identificar deploy live. Bloqueios em
+docs/aprovacao-multicc/ACESSO-E-GATEWAY.md; roteiro em ACEITE-ALVO.md.
+Sem Insert real, alterações de cadastro, backfill, migrações em produção, push ou publicação.
+
+
+## Aceite preenchido — 07/09/2026, somente local/SELECT
+
+Caio (Engenharia) autor + Ana (Marketing) aprovadora final: configuração disponível.
+Mirlene autora + Caio/Ana: duas decisões disponíveis. Nenhum CC tem dois líderes
+ativos; alternativa exige atribuição autorizada, não executada. Login explícito de
+Ana permite envio final sem fallback; Caio/Guilherme sem login em profiles.
+Aviso M3 antecipado no seletor e botões bloqueados, sem troca automática por UNID.
+113 testes passaram com sidebar excluído; type-check/build aprovados. Checklist e
+caso 1 preenchidos em docs/aprovacao-multicc/ACEITE-PREENCHIDO.md. Sem Insert,
+backfill, migration em produção, push ou publicação.

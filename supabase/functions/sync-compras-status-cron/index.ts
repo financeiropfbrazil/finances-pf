@@ -1,3 +1,4 @@
+import { quantidadesLoad } from "../_shared/requisicao-unidades.ts";
 // =====================================================================
 // Edge Function: sync-compras-status-cron
 // =====================================================================
@@ -178,6 +179,7 @@ interface CrossCheckPedidos {
 
 // Cabeçalho leve do PedComp retornado por /ped-comp/list
 interface PedidoLeve {
+  DataHoraDigitacao?: string | null;
   CodigoEmpresaFilial: string;
   Numero: string;
   Status: string | null;
@@ -838,6 +840,8 @@ interface ItemRequisicaoAlvoNormalizado {
   codigo_alternativo_produto: string | null;
   codigo_prod_unid_med: string;
   quantidade: number;
+  quantidade_solicitada: number | null;
+  posicao_prod_unid_med: number | null;
   data_necessidade: string;
   codigo_centro_ctrl: string;
   observacao: string | null;
@@ -941,8 +945,7 @@ function extrairItensRequisicaoAlvo(alvo: any, req: RequisicaoHub): ItemRequisic
       item_servico: item?.ItemServico === "Sim",
       codigo_produto: textoObrigatorioAlvo(item?.CodigoProduto, `REQ_ITEM_${sequencia}_PRODUTO`),
       codigo_alternativo_produto: item?.CodigoAlternativoProduto ?? null,
-      codigo_prod_unid_med: textoObrigatorioAlvo(item?.CodigoProdUnidMed, `REQ_ITEM_${sequencia}_UNIDADE`),
-      quantidade,
+      ...quantidadesLoad(item),
       data_necessidade: dataNecessidade,
       // Fonte canônica é o ITEM. Ausência é erro: nunca cai para o CC do
       // cabeçalho, pois isso apagaria justamente a divergência que o R1 mede.
@@ -966,11 +969,11 @@ async function espelharDetalheRequisicao(
 
   const { data: itensHub, error: errItensHub } = await supabase
     .from("compras_requisicoes_itens")
-    .select("id, sequencia, codigo_centro_ctrl")
+    .select("id, sequencia, codigo_centro_ctrl, codigo_produto")
     .eq("requisicao_id", req.id);
   if (errItensHub) throw new Error(`REQ_ITENS_HUB_SELECT: ${errItensHub.message}`);
 
-  const itensPorSequencia = new Map<number, { id: string; codigo_centro_ctrl: string }>();
+  const itensPorSequencia = new Map<number, { id: string; codigo_centro_ctrl: string; codigo_produto: string }>();
   for (const item of itensHub || []) {
     const sequencia = Number(item.sequencia);
     if (itensPorSequencia.has(sequencia)) {
@@ -979,6 +982,7 @@ async function espelharDetalheRequisicao(
     itensPorSequencia.set(sequencia, {
       id: item.id,
       codigo_centro_ctrl: item.codigo_centro_ctrl,
+      codigo_produto: item.codigo_produto,
     });
   }
 
@@ -1000,16 +1004,17 @@ async function espelharDetalheRequisicao(
       itensNovos.push({ requisicao_id: req.id, ...item });
       continue;
     }
-    if (existente.codigo_centro_ctrl === item.codigo_centro_ctrl) continue;
+    if (existente.codigo_produto !== item.codigo_produto) throw new Error(`REQ_ITEM_${item.sequencia}_PRODUTO_DIVERGENTE: revisar espelho antes de converter unidades`);
+    const mudouCc = existente.codigo_centro_ctrl !== item.codigo_centro_ctrl;
 
     const { error: errUpdateCc } = await supabase
       .from("compras_requisicoes_itens")
-      .update({ codigo_centro_ctrl: item.codigo_centro_ctrl })
+      .update({ codigo_centro_ctrl: item.codigo_centro_ctrl, produto_unidade: item.codigo_prod_unid_med, codigo_prod_unid_med: item.codigo_prod_unid_med, quantidade: item.quantidade, quantidade_solicitada: item.quantidade_solicitada, posicao_prod_unid_med: item.posicao_prod_unid_med, conversao_unidade: null })
       .eq("id", existente.id);
     if (errUpdateCc) {
       throw new Error(`REQ_ITEM_${item.sequencia}_UPDATE_CC: ${errUpdateCc.message}`);
     }
-    itensCcAtualizados++;
+    if (mudouCc) itensCcAtualizados++;
   }
 
   if (itensNovos.length > 0) {

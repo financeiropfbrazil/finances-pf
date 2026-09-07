@@ -1,0 +1,11 @@
+{
+  "data": "2026-09-07T14:49:38.117Z",
+  "url": "https://erp-proxy.onrender.com/health",
+  "status": 200,
+  "body": {
+    "status": "ok",
+    "service": "erp-proxy",
+    "timestamp": "2026-09-07T14:49:31.894Z",
+    "env": "production"
+  }
+}

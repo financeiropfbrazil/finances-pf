@@ -1,0 +1,136 @@
+{
+  "checked_at": "2026-09-07",
+  "finances_sha": "8f1e315b898e5164d22dca96e7c8acc79d77c946",
+  "gateway_sha": "76f67b2843061e7e9fb846ba8bac876901773585",
+  "edge": {
+    "version": 50,
+    "verify_jwt": false,
+    "sha256": "4c82f610a06fc7b1f4ffbcfa664bd2d50bc38267318099ce8b871baa56d7b125"
+  },
+  "database": [
+    {
+      "preflight": {
+        "status": [
+          {
+            "total": 72,
+            "status": "cancelada",
+            "sem_numero": 0
+          },
+          {
+            "total": 253,
+            "status": "convertida_pedido",
+            "sem_numero": 0
+          },
+          {
+            "total": 24,
+            "status": "rascunho",
+            "sem_numero": 24
+          },
+          {
+            "total": 4,
+            "status": "rejeitada",
+            "sem_numero": 4
+          },
+          {
+            "total": 52,
+            "status": "sincronizada",
+            "sem_numero": 0
+          }
+        ],
+        "settings": [
+          {
+            "enabled": true,
+            "job_name": "sync-compras-status-cron",
+            "paused_at": "2026-05-26T14:57:05.713794+00:00",
+            "paused_by": "0b52e262-2fd2-4e84-b414-456b8eb6df65",
+            "updated_at": "2026-05-26T14:57:05.713794+00:00",
+            "paused_reason": null,
+            "schedule_cron": "0 11-20 * * 1-5"
+          },
+          {
+            "enabled": true,
+            "job_name": "sync-nfe",
+            "paused_at": null,
+            "paused_by": null,
+            "updated_at": "2026-06-06T00:52:31.537792+00:00",
+            "paused_reason": null,
+            "schedule_cron": "0 1 * * 1-6 / 45 8,13,15 * * 1-6 (BRT)"
+          },
+          {
+            "enabled": true,
+            "job_name": "sync-intercompany",
+            "paused_at": null,
+            "paused_by": null,
+            "updated_at": "2026-06-09T01:40:04.915369+00:00",
+            "paused_reason": null,
+            "schedule_cron": "30 10,15,19 * * 1-5"
+          },
+          {
+            "enabled": true,
+            "job_name": "sync-lote-cron",
+            "paused_at": null,
+            "paused_by": null,
+            "updated_at": "2026-06-11T20:10:58.293791+00:00",
+            "paused_reason": null,
+            "schedule_cron": "0 6 * * *"
+          },
+          {
+            "enabled": true,
+            "job_name": "sync-produtos-cron",
+            "paused_at": null,
+            "paused_by": null,
+            "updated_at": "2026-06-30T16:45:28.207826+00:00",
+            "paused_reason": null,
+            "schedule_cron": "0 23 * * 1-5"
+          },
+          {
+            "enabled": true,
+            "job_name": "sync-docfin-despesas",
+            "paused_at": null,
+            "paused_by": null,
+            "updated_at": "2026-06-02T12:00:23.08276+00:00",
+            "paused_reason": null,
+            "schedule_cron": "10 10,15,19 * * 1-5"
+          },
+          {
+            "enabled": true,
+            "job_name": "sync-despesas",
+            "paused_at": null,
+            "paused_by": null,
+            "updated_at": "2026-05-29T03:02:36.379011+00:00",
+            "paused_reason": null,
+            "schedule_cron": "0 10,15,19 * * 1-5"
+          },
+          {
+            "enabled": true,
+            "job_name": "sync-laudos",
+            "paused_at": null,
+            "paused_by": null,
+            "updated_at": "2026-07-28T15:05:04.523837+00:00",
+            "paused_reason": null,
+            "schedule_cron": "45 11,14,17,20 * * 1-5"
+          },
+          {
+            "enabled": true,
+            "job_name": "sync-reqmat",
+            "paused_at": null,
+            "paused_by": null,
+            "updated_at": "2026-08-05T14:11:51.836965+00:00",
+            "paused_reason": null,
+            "schedule_cron": "25 12,15,18,21 * * 1-5"
+          },
+          {
+            "enabled": true,
+            "job_name": "sync-estoque",
+            "paused_at": null,
+            "paused_by": null,
+            "updated_at": "2026-09-06T13:18:56.397424+00:00",
+            "paused_reason": null,
+            "schedule_cron": "50 10,15,19 * * 1-5"
+          }
+        ],
+        "transicoes": null
+      }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
+import { unidadesProduto, validarItemCadastro, quantidadesLoad, exigirQuantidadesCompletas, objetoAlvo, type UnidadeRequisicao } from "../../supabase/functions/_shared/requisicao-unidades";
+import { validarRateioCC } from "@/lib/requisicaoCC";
 import { supabase } from "@/integrations/supabase/client";
-import { resolverUsuarioAlvoOuNull } from "./pedidosService";
 
 const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 const EMPRESA_FILIAL = "1.01";
@@ -20,6 +21,8 @@ export interface ItemInput {
   produto_nome: string;
   produto_unidade: string;
   quantidade: number;
+  quantidade_solicitada?: number;
+  posicao_prod_unid_med?: number;
   observacao: string;
   rateio: RateioInput[];
 }
@@ -43,6 +46,7 @@ export interface NovaRequisicaoInput {
   observacao_livre: string;
   itens: ItemInput[];
   arquivos?: ArquivoInput[];
+  rateio_cc?: RateioCCClasseInput[];
 }
 
 export interface EnvioResult {
@@ -81,116 +85,6 @@ async function getSupabaseJWT(): Promise<string> {
   return session.access_token;
 }
 
-/**
- * Login de SERVIÇO usado quando o perfil de quem opera não tem `alvo_usuario`.
- *
- * ⚠️ PROVISÓRIO — é o login de uma PESSOA (Pedro), escolhido só porque é o único
- * que existe no Alvo hoje com o perfil necessário. Deve ser trocado por um usuário
- * NÃO-PESSOA do ERP (ex.: `HUB.REQUISICOES`) assim que ele for criado no Alvo;
- * enquanto isso, um documento enviado com este login diz "o Hub digitou", não "o
- * Pedro pediu". Quem pediu está em `CodigoFuncionario` e no carimbo do `Texto`.
- */
-const LOGIN_SERVICO_REQCOMP = "PEDRO.SCRIGNOLI";
-
-/**
- * Login do ERP Alvo de QUEM ESTÁ OPERANDO — com fallback para o login de SERVIÇO
- * quando a pessoa ainda não tem o dela cadastrada.
- *
- * 🔴 POR QUE ISTO EXISTE (a D-17). Até 28/08/2026 o payload da requisição mandava
- * `CodigoUsuario`/`UsuarioLogado` com a constante literal `"PEDRO.SCRIGNOLI"`.
- * Medido na série completa (`compras_requisicoes_auditoria`, evento
- * `envio_tentado`, 28/08/2026 10:5x UTC): **226 payloads, 32 pessoas distintas do
- * Hub, 1 único `CodigoUsuario`** — todos os 225 que trazem a chave dizem
- * PEDRO.SCRIGNOLI (o 226º, de 10/04/2026, é anterior ao campo). Entre eles, 3
- * requisições da `ana.sanches`, que **tinha login próprio disponível** e foi
- * descartado. É a TERCEIRA ocorrência do mesmo padrão, em três módulos e por três
- * campos diferentes: A-8 (Projetos, `alvo_usuario`) · A-10 (Suprimentos,
- * `funcionario_alvo_codigo` — `nfe@` e `pedro.scrignoli@` compartilhavam o `0000149`,
- * conferido em 28/08/2026) · e este (requisições, `CodigoUsuario`).
- *
- * 🔴 O QUE DEU ERRADO NA D-17 (não apagar esta parte). A regra escrita era "sem
- * identidade própria, falha com mensagem clara — nunca cai para a identidade de
- * outra pessoa", e ela foi publicada em 02/09/2026 (~17:53 UTC, commits e5c500f +
- * 7091c09) **sem o pré-requisito dela**: preencher os ~30 `profiles.alvo_usuario`
- * que faltavam. Resultado medido em 06/09/2026: **5 de 58 perfis** têm login; **31
- * requisitantes ativos** e **2 dos 4 líderes** (caio.santos, guilherme.oliveira)
- * estão sem. E como o envio pós-aprovação roda na SESSÃO DO LÍDER, **aprovar também
- * parou** — não só criar. O módulo ficou travado do dia 02 ao dia 06. A lição não é
- * "a regra estava errada": é que um gate de identidade só pode ser publicado DEPOIS
- * do backfill que ele pressupõe.
- *
- * 🩹 O QUE ESTE CÓDIGO FAZ HOJE (hotfix, 06/09/2026). Sem `alvo_usuario`, o envio
- * NÃO para mais: segue com `LOGIN_SERVICO_REQCOMP`, sempre com um `console.warn`
- * explícito que serve de fila de cadastro (user id + e-mail). Isto troca uma parada
- * total por uma identidade de OPERADOR genérica — é dívida assumida, não a regra
- * final. A saída definitiva tem duas metades, e as duas continuam pendentes:
- * (1) criar o usuário não-pessoa no Alvo e apontar `LOGIN_SERVICO_REQCOMP` para ele;
- * (2) fazer o backfill dos ~30 logins e então reavaliar se o gate volta a barrar.
- *
- * ⚠️ O que o fallback NÃO apaga: `CodigoUsuario`/`UsuarioLogado` é o DIGITADOR, e
- * nunca foi o único eixo de identidade do payload. A identidade REAL do requisitante
- * continua em **dois** lugares independentes deste login:
- *   · `CodigoFuncionario` — o código do requisitante (34 códigos distintos nos
- *     mesmos 226 envios: este eixo NUNCA esteve emprestado);
- *   · o carimbo `"[Hub] Requisitante: <nome> | <data/hora> | ID: <uuid curto>"` no
- *     campo `Texto` (montado em `montarTexto`, gravado em `compras_requisicoes.texto`).
- * Por isso um envio com o login de serviço é rastreável; o que se perde é saber pelo
- * ERP QUEM clicou, não a favor de quem o documento foi criado.
- *
- * ✋ O que continua PARANDO o envio: login próprio cadastrado com formato inválido.
- * Valor sujo é erro de CADASTRO e precisa aparecer — cair para o login de serviço
- * nesse caso transformaria um erro visível em envio silencioso com identidade
- * trocada. Sessão expirada também continua lançando.
- *
- * ℹ️ A identidade vem da SESSÃO, não do `opts.userId`: quem opera é quem está
- * logado. É a mesma resolução usada pelo módulo de Projetos
- * (`alvoProjetoPedidoService`), pela MESMA função — a lógica de busca vive em
- * `pedidosService.resolverUsuarioAlvoOuNull` e não é copiada.
- */
-async function resolverCodigoUsuarioAlvo(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session?.user?.id) {
-    throw new Error("Sessão expirada — faça login novamente antes de enviar ao ERP.");
-  }
-
-  const login = (await resolverUsuarioAlvoOuNull(session.user.id, session.user.email))?.trim();
-  if (!login) {
-    // HOTFIX 06/09/2026 — cai para o login de serviço em vez de parar o módulo.
-    // Nunca silencioso: este warn É a fila de cadastro (id + e-mail de quem faltou).
-    // O documento continua carregando a identidade real do requisitante em
-    // `CodigoFuncionario` e no carimbo "[Hub] Requisitante:" do `Texto`; o login
-    // diz apenas QUEM DIGITOU.
-    console.warn(
-      `[requisicoes] perfil SEM 'alvo_usuario' (user_id=${session.user.id} email=${session.user.email ?? "?"}). ` +
-        `A requisição vai ao ERP com o LOGIN DE SERVIÇO "${LOGIN_SERVICO_REQCOMP}" (provisório). ` +
-        "A identidade real do requisitante segue no CodigoFuncionario e no carimbo " +
-        '"[Hub] Requisitante:" do campo Texto. Cadastre o login próprio desta pessoa em profiles.alvo_usuario.',
-    );
-    return LOGIN_SERVICO_REQCOMP;
-  }
-
-  // ⚠️ Daqui para baixo, a pessoa TEM login próprio cadastrado — e por isso este
-  // caminho continua PARANDO, sem fallback: `profiles.alvo_usuario` é TEXTO LIVRE
-  // preenchido à mão, e o backfill pendente prevê cadastrar ~30 logins de uma vez.
-  // Um espaço sobrando ou uma letra minúscula só apareceria como recusa do Alvo —
-  // DEPOIS de o `envio_tentado` já ter sido gravado, o que faz a auditoria registrar
-  // uma tentativa com um payload que o ERP nunca teve chance de aceitar. E cair para
-  // o login de serviço aqui esconderia um erro de cadastro atrás de um envio bem
-  // sucedido com identidade trocada. Barrar é barato e a mensagem diz o que corrigir.
-  if (!/^[A-Z0-9][A-Z0-9._-]*$/.test(login)) {
-    throw new Error(
-      `O login do ERP Alvo cadastrado no seu perfil ("${login}") não tem o formato que o ERP usa ` +
-        "(maiúsculas, sem espaços — por exemplo ANA.SANCHES). Peça ao administrador para corrigir. " +
-        "A requisição NÃO foi enviada ao ERP.",
-    );
-  }
-
-  return login;
-}
-
 async function callGatewayReqComp(path: string, method: "GET" | "POST", body?: unknown): Promise<any> {
   const jwt = await getSupabaseJWT();
   const url = `${ERP_PROXY_URL}${path}`;
@@ -222,41 +116,6 @@ async function callGatewayReqComp(path: string, method: "GET" | "POST", body?: u
   return data;
 }
 
-async function callGatewayReqCompMultipart(path: string, formData: FormData): Promise<any> {
-  const jwt = await getSupabaseJWT();
-  const url = `${ERP_PROXY_URL}${path}`;
-
-  // NÃO setar Content-Type — o browser seta automaticamente o boundary do multipart
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${jwt}`,
-    },
-    body: formData,
-  });
-
-  let data: any = null;
-  try {
-    data = await resp.json();
-  } catch {
-    // resposta sem body ou inválida
-  }
-
-  if (!resp.ok) {
-    const msg = data?.error || `HTTP ${resp.status}`;
-    const err = new Error(msg) as Error & { status?: number; details?: any };
-    err.status = resp.status;
-    err.details = data?.details;
-    throw err;
-  }
-
-  return data;
-}
-
-function formatarDataISO(dataYMD: string): string {
-  return `${dataYMD.substring(0, 10)}T00:00:00-03:00`;
-}
-
 function formatarDataHoraBR(): string {
   const now = new Date();
   const dd = String(now.getDate()).padStart(2, "0");
@@ -278,84 +137,6 @@ function montarTexto(input: NovaRequisicaoInput): string {
  * Usado tanto por enviarRequisicao (formato NovaRequisicaoInput)
  * quanto por reenviarRequisicao (formato já persistido no Supabase).
  */
-interface PayloadReqCompParams {
-  /**
-   * Login do ERP Alvo de quem está DIGITANDO. OBRIGATÓRIO e sem default de
-   * propósito: quem decide este valor é `resolverCodigoUsuarioAlvo` e mais ninguém
-   * — inclusive a escolha do login de serviço, que lá é explícita e logada. Um
-   * default aqui criaria um segundo lugar capaz de emprestar identidade, sem aviso.
-   */
-  codigo_usuario: string;
-  codigo_centro_ctrl: string;
-  codigo_finalidade_compra: string;
-  codigo_funcionario: string;
-  data_necessidade_ymd: string;
-  descricao: string;
-  texto: string;
-  itens: Array<{
-    item_servico: boolean;
-    codigo_produto: string;
-    codigo_alternativo_produto: string | null;
-    codigo_prod_unid_med: string;
-    quantidade: number;
-    observacao: string;
-  }>;
-  arquivos_guids?: string[]; // GUIDs dos arquivos (só para modo multipart)
-}
-
-function montarPayloadReqComp(params: PayloadReqCompParams): any {
-  const dataNec = formatarDataISO(params.data_necessidade_ymd);
-
-  const payload: any = {
-    CodigoEmpresaFilial: EMPRESA_FILIAL,
-    CodigoEmpresaFilialOrigem: EMPRESA_FILIAL,
-    CodigoUsuario: params.codigo_usuario,
-    Numero: "",
-    CodigoCentroCtrl: params.codigo_centro_ctrl,
-    CodigoFinalidadeCompra: params.codigo_finalidade_compra,
-    CodigoFuncionario: params.codigo_funcionario,
-    DataNecessidade: dataNec,
-    Descricao: params.descricao || "",
-    Texto: params.texto,
-    ItemReqCompChildList: params.itens.map((item, idx) => ({
-      CodigoEmpresaFilial: "",
-      NumeroReqComp: "",
-      Sequencia: idx + 1,
-      ItemServico: item.item_servico ? "Sim" : "Não",
-      CodigoProduto: item.codigo_produto,
-      CodigoAlternativoProduto: item.codigo_alternativo_produto || "",
-      DataNecessidade: dataNec,
-      CodigoCentroCtrl: params.codigo_centro_ctrl,
-      Quantidade2: Number(item.quantidade),
-      QuantidadeProdUnidMedPrincipal: Number(item.quantidade),
-      CodigoProdUnidMed: item.codigo_prod_unid_med,
-      Observacao: item.observacao || "",
-    })),
-    ReqCompClasseRecDespChildList: [],
-    MensagemRetorno: null,
-    TextoHistoricoNovo: null,
-    TipoFormulario: "Normal",
-    UploadIdentify: "",
-    UsuarioLogado: params.codigo_usuario,
-  };
-
-  // Se houver arquivos, adiciona ReqCompDocChildList e filesToUpload
-  if (params.arquivos_guids && params.arquivos_guids.length > 0) {
-    payload.ReqCompDocChildList = params.arquivos_guids.map((guid, idx) => ({
-      CodigoEmpresaFilial: "-1",
-      NumeroReqComp: "-1",
-      Sequencia: idx,
-      UploadIdentify: guid,
-    }));
-    payload.filesToUpload = params.arquivos_guids.map((guid) => ({
-      key: `${guid}#Arquivo`,
-      file: {},
-    }));
-  }
-
-  return payload;
-}
-
 /**
  * Faz upload de um arquivo para o Storage e grava a linha em compras_requisicoes_arquivos.
  * Usado durante a criação de requisição com anexos.
@@ -368,6 +149,8 @@ async function salvarArquivoNoStorage(
   const extensao = arquivo.file.name.split(".").pop()?.toLowerCase() || "bin";
   const storagePath = `${requisicaoId}/${arquivo.upload_identify_guid}.${extensao}`;
 
+  const digest = await crypto.subtle.digest("SHA-256", await arquivo.file.arrayBuffer());
+  const conteudoSha256 = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
   const { error: uploadErr } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, arquivo.file, {
     contentType: arquivo.file.type,
     upsert: false,
@@ -386,6 +169,7 @@ async function salvarArquivoNoStorage(
       storage_path: storagePath,
       mime_type: arquivo.file.type,
       tamanho_bytes: arquivo.file.size,
+      conteudo_sha256: conteudoSha256,
       uploaded_by_user_id: userId,
     })
     .select("*")
@@ -401,21 +185,6 @@ async function salvarArquivoNoStorage(
 }
 
 /**
- * Monta o FormData para enviar ao gateway /req-comp/insert-multipart.
- * Recebe os blobs (já baixados do Storage ou direto do estado local) + o payload JSON.
- */
-function montarFormDataMultipart(payload: any, arquivos: Array<{ guid: string; blob: Blob; nome: string }>): FormData {
-  const formData = new FormData();
-  formData.append("obj", JSON.stringify(payload));
-  for (const arq of arquivos) {
-    formData.append(`${arq.guid}#Arquivo`, arq.blob, arq.nome);
-  }
-  return formData;
-}
-
-// ─── Funções principais ───
-
-/**
  * Grava a mensagem de erro na requisição SEM mexer no status (a linha já está em
  * 'rascunho'). Se por algum motivo ela estiver num estado protegido pelo trigger
  * `trg_req_protege_aprovacao` (pendente_aprovacao/aprovada/rejeitada), o banco
@@ -424,122 +193,12 @@ function montarFormDataMultipart(payload: any, arquivos: Array<{ guid: string; b
  */
 async function tentarRegistrarErroNoRascunho(requisicaoId: string, mensagem: string): Promise<void> {
   try {
-    const { error } = await (supabase as any).from("compras_requisicoes").upsert(
-      {
-        id: requisicaoId,
-        status: "rascunho",
-        erro_ultimo_envio: mensagem,
-        tentativa_envio_em: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
+    const { error } = await (supabase as any).rpc("registrar_erro_rascunho_requisicao", { p_req_id: requisicaoId, p_erro: mensagem });
     if (error) {
       console.warn(`[requisicoes] erro não registrado na requisição ${requisicaoId}: ${error.message}`);
     }
   } catch (err: any) {
     console.warn(`[requisicoes] erro não registrado na requisição ${requisicaoId}: ${err?.message || err}`);
-  }
-}
-
-/**
- * Persiste o desfecho do envio pela RPC `registrar_envio_requisicao` (Fase 1, R4).
- * Devolve `null` quando registrou; senão, a descrição do problema — nunca engole.
- */
-async function registrarDesfechoViaRpc(
-  requisicaoId: string,
-  numeroAlvo: string | null,
-  erro: string | null,
-): Promise<string | null> {
-  const { data, error } = await (supabase as any).rpc("registrar_envio_requisicao", {
-    p_req_id: requisicaoId,
-    p_numero_alvo: numeroAlvo,
-    p_erro: erro,
-  });
-
-  if (error) return error.message;
-
-  const retorno = String(data ?? "");
-  const esperado = numeroAlvo !== null ? "SINCRONIZADA" : "ERRO_REGISTRADO";
-  return retorno === esperado ? null : `retorno inesperado "${retorno}"`;
-}
-
-/**
- * Desfecho local de um envio que NÃO chegou ao ERP, no modo de persistência legado:
- * volta a requisição para `rascunho` com a mensagem, e audita `envio_falha`.
- *
- * Extraído porque agora há TRÊS caminhos que precisam dele — a falha do ERP em
- * `enviarRequisicaoAlvo`, a falha do ERP em `reenviarRequisicao`, e a recusa por
- * falta de identidade, que acontece ANTES de qualquer chamada. Duplicar o bloco
- * deixaria os desfechos divergirem com o tempo.
- */
-interface RequisicaoParaDesfecho {
-  requisitante_user_id: string | null;
-  codigo_empresa_filial: string | null;
-  codigo_funcionario: string | null;
-  codigo_centro_ctrl: string | null;
-  codigo_finalidade_compra: string | null;
-  data_necessidade: string | null;
-  total_itens: number | null;
-}
-
-async function registrarFalhaEnvioLegado(
-  requisicaoId: string,
-  req: RequisicaoParaDesfecho,
-  userId: string,
-  userName: string,
-  msgErro: string,
-): Promise<void> {
-  const { error: errStatus } = await (supabase as any).from("compras_requisicoes").upsert(
-    {
-      id: requisicaoId,
-      requisitante_user_id: req.requisitante_user_id,
-      status: "rascunho",
-      erro_ultimo_envio: msgErro,
-      tentativa_envio_em: new Date().toISOString(),
-      codigo_empresa_filial: req.codigo_empresa_filial,
-      codigo_funcionario: req.codigo_funcionario,
-      codigo_centro_ctrl: req.codigo_centro_ctrl,
-      codigo_finalidade_compra: req.codigo_finalidade_compra,
-      data_necessidade: req.data_necessidade,
-      total_itens: req.total_itens,
-    },
-    { onConflict: "id" },
-  );
-
-  // 🔴 POR QUE `.insert` E NÃO `.upsert` — vale para os 9 sites de auditoria deste
-  // arquivo, não repito o comentário nos outros oito.
-  // O PostgREST traduz `.upsert()` para `INSERT ... ON CONFLICT DO UPDATE`, e isso
-  // exige privilégio **UPDATE** na tabela. O card B4 (19/08/2026) tornou
-  // `compras_requisicoes_auditoria` append-only revogando UPDATE/DELETE de
-  // `authenticated` (ACL medido em 06/09/2026: `authenticated=arDxtm` — tem `a`
-  // (INSERT) e `r` (SELECT), NÃO tem `w`). Desde então todo upsert de auditoria vindo
-  // do navegador voltava **42501 "permission denied"** (14 vezes só em 04/09), e como
-  // ninguém checava o `error` a falha sumia: a trilha escrita pelo frontend ficou
-  // congelada em **19/08/2026 19:06 UTC** ('criada', 'envio_tentado', 'envio_sucesso').
-  // O upsert nunca teve função aqui — `id` é `gen_random_uuid()`, então nunca houve
-  // conflito a resolver. `.insert()` usa só o privilégio que a tabela concede.
-  const { error: errAudit } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
-    requisicao_id: requisicaoId,
-    evento: "envio_falha",
-    user_id: userId,
-    user_nome: userName,
-    sucesso: false,
-    mensagem_erro: msgErro,
-  });
-
-  // 🔴 O supabase-js devolve `{data, error}` em vez de lançar, então sem esta
-  // conferência uma escrita rejeitada some. Isto importa mais aqui do que nos blocos
-  // de onde a função foi extraída: este é o ÚNICO desfecho do caminho de recusa por
-  // identidade. Com a D-17 publicada em 02/09 ele era o que ~30 pessoas percorriam no
-  // primeiro clique; desde o hotfix de 06/09 sobrou o login próprio mal cadastrado —
-  // menos frequente, mesma exigência. Se falhar em silêncio, a tela diz "salvo como
-  // rascunho com o erro registrado" e nada foi gravado.
-  // Não lança: o que vale para a pessoa é a mensagem do fluxo, que nunca é silenciosa.
-  if (errStatus) {
-    console.error(`[requisicoes] desfecho de falha NÃO gravado em ${requisicaoId}: ${errStatus.message}`);
-  }
-  if (errAudit) {
-    console.error(`[requisicoes] auditoria 'envio_falha' NÃO gravada em ${requisicaoId}: ${errAudit.message}`);
   }
 }
 
@@ -551,10 +210,16 @@ async function registrarFalhaEnvioLegado(
  * `status='rascunho'`, e devolve o id. Nada vai ao ERP aqui.
  *
  * Por que 'rascunho' e não o antigo 'pendente_envio': a RPC `submeter_requisicao`
- * (R1) exige rascunho. O estado transitório 'pendente_envio' continua existindo —
- * quem passa a gravá-lo é `enviarRequisicaoAlvo` no modo de persistência legado.
+ * (R1) exige rascunho. A conclusão da criação só é registrada depois de todas
+ * as gravações; uma falha parcial impede a submissão do conteúdo incompleto.
  */
+export async function carregarUnidadesProduto(codigo: string): Promise<UnidadeRequisicao[]> {
+  return unidadesProduto(await callGatewayReqComp(`/produto/load?codigo=${encodeURIComponent(codigo)}`, "GET"), codigo);
+}
+
 export async function criarRequisicao(input: NovaRequisicaoInput): Promise<string> {
+  const erroRateio = validarRateioCC(input.codigo_centro_ctrl, input.rateio_cc || []);
+  if (erroRateio) throw new Error(erroRateio);
   const itemComObservacaoLonga = input.itens.findIndex((item) => Array.from(item.observacao || "").length > 255);
   if (itemComObservacaoLonga >= 0) {
     throw new Error(`A observação do item ${itemComObservacaoLonga + 1} deve ter no máximo 255 caracteres.`);
@@ -564,6 +229,11 @@ export async function criarRequisicao(input: NovaRequisicaoInput): Promise<strin
     throw new Error("Máximo de 3 arquivos por requisição.");
   }
 
+  const cadastros = new Map<string, UnidadeRequisicao[]>();
+  for (const item of input.itens) {
+    if (!cadastros.has(item.codigo_produto)) cadastros.set(item.codigo_produto, await carregarUnidadesProduto(item.codigo_produto));
+    validarItemCadastro({ ...item, quantidade_solicitada: item.quantidade_solicitada ?? null, posicao_prod_unid_med: item.posicao_prod_unid_med ?? null }, cadastros.get(item.codigo_produto)!);
+  }
   const textoCompleto = montarTexto(input);
   let requisicaoId: string | null = null;
 
@@ -607,6 +277,9 @@ export async function criarRequisicao(input: NovaRequisicaoInput): Promise<strin
           codigo_alternativo_produto: item.codigo_alternativo_produto,
           codigo_prod_unid_med: item.codigo_prod_unid_med,
           quantidade: item.quantidade,
+          quantidade_solicitada: item.quantidade_solicitada,
+          posicao_prod_unid_med: item.posicao_prod_unid_med,
+          conversao_unidade: validarItemCadastro({ ...item, quantidade_solicitada: item.quantidade_solicitada ?? null, posicao_prod_unid_med: item.posicao_prod_unid_med ?? null }, cadastros.get(item.codigo_produto)!),
           data_necessidade: input.data_necessidade,
           codigo_centro_ctrl: item.codigo_centro_ctrl || input.codigo_centro_ctrl,
           observacao: item.observacao || null,
@@ -621,15 +294,20 @@ export async function criarRequisicao(input: NovaRequisicaoInput): Promise<strin
       }
 
       for (const r of item.rateio) {
-        await (supabase as any).from("compras_requisicoes_itens_classe_rec_desp").upsert({
+        const { error: erroClasse } = await (supabase as any).from("compras_requisicoes_itens_classe_rec_desp").upsert({
           item_id: itemCriado.id,
           codigo_classe_rec_desp: r.codigo_classe_rec_desp,
           classe_rec_desp_label: r.classe_rec_desp_label,
           percentual: r.percentual,
         });
+        if (erroClasse) throw new Error(`Erro ao salvar classe do item ${idx + 1}: ${erroClasse.message}`);
       }
     }
 
+    if (input.rateio_cc?.length) {
+      const { error } = await (supabase as any).rpc("salvar_rateio_requisicao", { p_req_id: requisicaoId, p_rateio: input.rateio_cc });
+      if (error) throw new Error(`Erro ao salvar rateio por CC: ${error.message}`);
+    }
     if (input.arquivos && input.arquivos.length > 0) {
       for (const arquivo of input.arquivos) {
         await salvarArquivoNoStorage(requisicaoId, arquivo, input.user_id);
@@ -650,6 +328,8 @@ export async function criarRequisicao(input: NovaRequisicaoInput): Promise<strin
       );
     }
 
+    const { error: erroFinalizar } = await (supabase as any).rpc("finalizar_rascunho_requisicao", { p_req_id: requisicaoId });
+    if (erroFinalizar) throw new Error(`Erro ao finalizar criação: ${erroFinalizar.message}`);
     return requisicaoId;
   } catch (errCriacao: any) {
     // Erro no meio da persistência (itens, rateios, upload). Se a linha já existe,
@@ -687,19 +367,7 @@ export async function criarRequisicao(input: NovaRequisicaoInput): Promise<strin
   }
 }
 
-/**
- * Como o desfecho do envio é persistido:
- *
- * - `legado`: exatamente o que o app faz desde sempre — upsert direto
- *   ('pendente_envio' antes; 'sincronizada' + numero_alvo + enviado_em no sucesso;
- *   'rascunho' + erro_ultimo_envio + tentativa_envio_em na falha). Válido só para
- *   requisição fora do gate (SEM_GATE), que nunca está em estado protegido.
- * - `rpc`: desfecho EXCLUSIVAMENTE via `registrar_envio_requisicao`. Obrigatório
- *   quando a req está 'aprovada' — o trigger `trg_req_protege_aprovacao` recusa
- *   qualquer escrita direta nesse estado (e é por design: escrita direta rebaixaria
- *   a req a rascunho e apagaria a decisão do líder). A auditoria desse caminho é
- *   gravada pela própria RPC (`envio_pos_aprovacao_sucesso` / `_falha`).
- */
+/** Compatibilidade de assinatura. O gateway persiste todos os envios. */
 export type PersistenciaEnvio = "legado" | "rpc";
 
 export interface EnvioAlvoOptions {
@@ -708,226 +376,17 @@ export interface EnvioAlvoOptions {
   persistencia: PersistenciaEnvio;
 }
 
-/**
- * Caminho de envio ao Alvo (o de hoje, isolado numa função própria): lê a requisição
- * já persistida, monta o ReqComp, escolhe a rota (JSON puro ou multipart, conforme
- * haja anexos) e persiste o desfecho no modo pedido em `opts.persistencia`.
- *
- * ⚠️ Homônimo: existe outra `enviarRequisicaoAlvo` em `alvoProjetoPedidoService.ts`
- * (módulo de Projetos, outra entidade). São funções distintas, em módulos distintos.
- */
-export async function enviarRequisicaoAlvo(requisicaoId: string, opts: EnvioAlvoOptions): Promise<EnvioResult> {
-  const { data: req, error: errReq } = await (supabase as any)
-    .from("compras_requisicoes")
-    .select("*")
-    .eq("id", requisicaoId)
-    .single();
-
-  if (errReq || !req) throw new Error(`Requisição não encontrada: ${errReq?.message}`);
-
-  const { data: itens } = await (supabase as any)
-    .from("compras_requisicoes_itens")
-    .select("*")
-    .eq("requisicao_id", requisicaoId)
-    .order("sequencia", { ascending: true });
-
-  if (!itens || itens.length === 0) throw new Error("Requisição sem itens.");
-
-  const { data: arquivos } = await (supabase as any)
-    .from("compras_requisicoes_arquivos")
-    .select("*")
-    .eq("requisicao_id", requisicaoId)
-    .order("created_at", { ascending: true });
-
-  const temArquivos = !!arquivos && arquivos.length > 0;
-
-  const itensNormalizados = itens.map((item: any) => ({
-    item_servico: item.item_servico,
-    codigo_produto: item.codigo_produto,
-    codigo_alternativo_produto: item.codigo_alternativo_produto,
-    codigo_prod_unid_med: item.codigo_prod_unid_med,
-    quantidade: Number(item.quantidade),
-    observacao: item.observacao || "",
-  }));
-
-  const guids: string[] | undefined = temArquivos
-    ? arquivos.map((a: any) => a.upload_identify_guid as string)
-    : undefined;
-
-  // ── D-17: identidade do operador no ERP, ANTES de montar o payload e ANTES de
-  // qualquer escrita. Desde o hotfix de 06/09/2026, a falta de `alvo_usuario` NÃO
-  // cai mais aqui — segue com o login de serviço. Ainda falham: sessão expirada e
-  // login próprio com formato inválido. Falhando, nada foi ao ERP e nada de enganoso
-  // fica gravado: não há `envio_tentado` com um payload que nunca existiu.
-  let codigoUsuarioAlvo: string;
+/** Envia o ID ao gateway; conteúdo e autorização são resolvidos no backend. */
+export async function enviarRequisicaoAlvo(requisicaoId: string, _opts: EnvioAlvoOptions): Promise<EnvioResult> {
+  // O gateway lê o documento aprovado no banco, reivindica a tentativa e persiste
+  // o desfecho. Nenhum payload/estado de aprovação vindo do navegador é confiado.
   try {
-    codigoUsuarioAlvo = await resolverCodigoUsuarioAlvo();
-  } catch (errIdentidade) {
-    const msgErro = errIdentidade instanceof Error ? errIdentidade.message : String(errIdentidade);
-
-    if (opts.persistencia === "rpc") {
-      const problema = await registrarDesfechoViaRpc(requisicaoId, null, msgErro);
-      return {
-        sucesso: false,
-        requisicao_id: requisicaoId,
-        erro: problema ? `${msgErro} (o Hub também não conseguiu registrar o erro: ${problema})` : msgErro,
-      };
-    }
-
-    await registrarFalhaEnvioLegado(requisicaoId, req, opts.userId, opts.userName, msgErro);
-    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
+    const data = await callGatewayReqComp("/req-comp/enviar-aprovada", "POST", { requisicao_id: requisicaoId });
+    if (!data?.Numero) throw new Error("Envio sem confirmação do ERP. Recarregue o detalhe; não repita sem reconciliar.");
+    return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: data.Numero };
+  } catch (error) {
+    return { sucesso: false, requisicao_id: requisicaoId, erro: error instanceof Error ? error.message : String(error) };
   }
-
-  const payload = montarPayloadReqComp({
-    codigo_usuario: codigoUsuarioAlvo,
-    codigo_centro_ctrl: req.codigo_centro_ctrl,
-    codigo_finalidade_compra: req.codigo_finalidade_compra,
-    codigo_funcionario: req.codigo_funcionario,
-    data_necessidade_ymd: String(req.data_necessidade),
-    descricao: req.descricao || "",
-    texto: req.texto || "",
-    itens: itensNormalizados,
-    arquivos_guids: guids,
-  });
-
-  const { error: errAuditTentado } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
-    requisicao_id: requisicaoId,
-    evento: "envio_tentado",
-    user_id: opts.userId,
-    user_nome: opts.userName,
-    payload_enviado: payload,
-    sucesso: true,
-  });
-  // Não lança: auditoria perdida não pode impedir um envio que ainda vai acontecer.
-  if (errAuditTentado) {
-    console.error(
-      `[auditoria] falhou ao gravar evento "envio_tentado" da requisição ${requisicaoId}: ${errAuditTentado.message}`,
-    );
-  }
-
-  if (opts.persistencia === "legado") {
-    await (supabase as any).from("compras_requisicoes").upsert(
-      {
-        id: requisicaoId,
-        requisitante_user_id: req.requisitante_user_id,
-        status: "pendente_envio",
-        codigo_empresa_filial: req.codigo_empresa_filial,
-        codigo_funcionario: req.codigo_funcionario,
-        codigo_centro_ctrl: req.codigo_centro_ctrl,
-        codigo_finalidade_compra: req.codigo_finalidade_compra,
-        data_necessidade: req.data_necessidade,
-        total_itens: req.total_itens,
-        tentativa_envio_em: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
-  }
-
-  // A chamada ao ERP fica isolada: um erro de PERSISTÊNCIA depois do sucesso no
-  // Alvo não pode ser confundido com falha de envio (a req já existe no ERP).
-  let respData: any = null;
-  let msgErro: string | null = null;
-
-  try {
-    if (temArquivos) {
-      const arquivosParaUpload: Array<{ guid: string; blob: Blob; nome: string }> = [];
-      for (const arq of arquivos) {
-        const { data: blob, error: dlErr } = await supabase.storage.from(STORAGE_BUCKET).download(arq.storage_path);
-        if (dlErr || !blob) {
-          throw new Error(`Erro ao baixar arquivo "${arq.nome_original}" do Storage: ${dlErr?.message}`);
-        }
-        arquivosParaUpload.push({ guid: arq.upload_identify_guid, blob, nome: arq.nome_original });
-      }
-
-      const formData = montarFormDataMultipart(payload, arquivosParaUpload);
-      respData = await callGatewayReqCompMultipart("/req-comp/insert-multipart", formData);
-    } else {
-      respData = await callGatewayReqComp("/req-comp/insert", "POST", payload);
-    }
-  } catch (errEnvio: any) {
-    msgErro = errEnvio?.message || String(errEnvio);
-  }
-
-  // ── Sucesso no Alvo ──
-  if (msgErro === null) {
-    const numeroAlvo = respData?.Numero || "";
-
-    if (opts.persistencia === "rpc") {
-      const problema = await registrarDesfechoViaRpc(requisicaoId, numeroAlvo, null);
-      if (problema) {
-        return {
-          sucesso: false,
-          requisicao_id: requisicaoId,
-          numero_alvo: numeroAlvo,
-          erro:
-            `A requisição FOI criada no ERP (nº ${numeroAlvo}), mas o Hub não conseguiu registrar o desfecho: ` +
-            `${problema}. NÃO reenvie — isso duplicaria a requisição no ERP. Avise o suporte.`,
-        };
-      }
-    } else {
-      await (supabase as any).from("compras_requisicoes").upsert(
-        {
-          id: requisicaoId,
-          requisitante_user_id: req.requisitante_user_id,
-          status: "sincronizada",
-          numero_alvo: numeroAlvo,
-          enviado_em: new Date().toISOString(),
-          erro_ultimo_envio: null,
-          codigo_empresa_filial: req.codigo_empresa_filial,
-          codigo_funcionario: req.codigo_funcionario,
-          codigo_centro_ctrl: req.codigo_centro_ctrl,
-          codigo_finalidade_compra: req.codigo_finalidade_compra,
-          data_necessidade: req.data_necessidade,
-          total_itens: req.total_itens,
-        },
-        { onConflict: "id" },
-      );
-
-      const { error: errAuditSucesso } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
-        requisicao_id: requisicaoId,
-        evento: "envio_sucesso",
-        user_id: opts.userId,
-        user_nome: opts.userName,
-        resposta_alvo: respData,
-        sucesso: true,
-      });
-      // Não lança: a requisição JÁ existe no ERP; derrubar aqui viraria falso negativo
-      // e convidaria a um reenvio, que duplicaria o documento no Alvo.
-      if (errAuditSucesso) {
-        console.error(
-          `[auditoria] falhou ao gravar evento "envio_sucesso" da requisição ${requisicaoId}: ` +
-            errAuditSucesso.message,
-        );
-      }
-    }
-
-    // Marcar arquivos com o número do Alvo (RPC — PATCH direto é bloqueado por CORS)
-    if (guids) {
-      for (const guid of guids) {
-        const { error: errMarcar } = await (supabase as any).rpc("marcar_arquivo_req_enviado", {
-          p_guid: guid,
-          p_numero_alvo: numeroAlvo,
-        });
-        if (errMarcar) {
-          console.warn(`Aviso: falha ao marcar arquivo ${guid} como enviado:`, errMarcar.message);
-        }
-      }
-    }
-
-    return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo };
-  }
-
-  // ── Falha no envio ──
-  if (opts.persistencia === "rpc") {
-    const problema = await registrarDesfechoViaRpc(requisicaoId, null, msgErro);
-    if (problema) {
-      msgErro = `${msgErro} (o Hub também não conseguiu registrar o erro: ${problema})`;
-    }
-  } else {
-    await registrarFalhaEnvioLegado(requisicaoId, req, opts.userId, opts.userName, msgErro);
-  }
-
-  return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro };
 }
 
 /** Rotas devolvidas pela RPC `submeter_requisicao` que seguem o fluxo adiante. */
@@ -953,6 +412,18 @@ function mensagemRecusaSubmissao(retorno: string): string {
   }
 
   switch (retorno) {
+    case "UNIDADE_INCOMPLETA_OU_DIVERGENTE":
+      return "Quantidade/unidade incompleta ou divergente. Clone recuperando o Load original ou recrie o item com o cadastro atual.";
+    case "ANEXO_SEM_INTEGRIDADE":
+      return "Anexo antigo ou incompleto: clone a requisição e anexe novamente os arquivos antes de submeter.";
+    case "CRIACAO_INCOMPLETA":
+      return "A criação ficou incompleta. Clone a requisição, confira os itens e o rateio e anexe novamente os arquivos antes de submeter.";
+    case "RATEIO_INVALIDO":
+      return "Confira os percentuais do rateio: cada nível deve somar 100%.";
+    case "CABECALHO_FORA_RATEIO":
+      return "O CC principal precisa fazer parte do rateio por CC.";
+    case "SEM_ITENS":
+      return "Adicione ao menos um item antes de submeter.";
     case "SEM_CENTRO_CUSTO":
       return "Requisição sem centro de custo — não é possível determinar o aprovador. Nada foi enviado ao ERP.";
     case "SEM_PERMISSAO":
@@ -974,8 +445,8 @@ function mensagemRecusaSubmissao(retorno: string): string {
  * Recebe uma requisição JÁ PERSISTIDA em 'rascunho', pede o roteamento à RPC
  * `submeter_requisicao` e segue a rota:
  *
- *   SEM_GATE       → CC sem líder mapeado: envio ao Alvo com a persistência legada.
- *   AUTO_APROVADA  → quem submete é líder do CC: envio ao Alvo, desfecho só via RPC R4.
+ *   SEM_GATE       → todos os CCs sem líder: envio autorizado no backend.
+ *   AUTO_APROVADA  → autor lidera os CCs exigidos: envio autorizado no backend.
  *   PENDENTE       → para aqui: a req espera a decisão do líder (não vai ao ERP).
  *   qualquer outro → recusa com mensagem visível. Nunca cai no envio por omissão.
  */
@@ -1013,7 +484,7 @@ export async function rotearSubmissao(
   const retorno = String(data ?? "");
 
   if (retorno === "SEM_GATE") {
-    const result = await enviarRequisicaoAlvo(requisicaoId, { ...envio, persistencia: "legado" });
+    const result = await enviarRequisicaoAlvo(requisicaoId, { ...envio, persistencia: "rpc" });
     return { ...result, rota: "SEM_GATE" };
   }
 
@@ -1133,175 +604,13 @@ export async function reenviarRequisicao(
     return rotearSubmissao(requisicaoId, { userId, userName });
   }
 
-  const { data: itens } = await (supabase as any)
-    .from("compras_requisicoes_itens")
-    .select("*")
-    .eq("requisicao_id", requisicaoId)
-    .order("sequencia", { ascending: true });
-
-  if (!itens || itens.length === 0) throw new Error("Requisição sem itens.");
-
-  // Verificar se tem arquivos
-  const { data: arquivos } = await (supabase as any)
-    .from("compras_requisicoes_arquivos")
-    .select("*")
-    .eq("requisicao_id", requisicaoId)
-    .order("created_at", { ascending: true });
-
-  const temArquivos = arquivos && arquivos.length > 0;
-
-  const itensNormalizados = itens.map((item: any) => ({
-    item_servico: item.item_servico,
-    codigo_produto: item.codigo_produto,
-    codigo_alternativo_produto: item.codigo_alternativo_produto,
-    codigo_prod_unid_med: item.codigo_prod_unid_med,
-    quantidade: Number(item.quantidade),
-    observacao: item.observacao || "",
-  }));
-
-  const guids = temArquivos ? arquivos.map((a: any) => a.upload_identify_guid) : undefined;
-
-  // ── D-17: mesma regra do envio. Este caminho só trata `pendente_envio` (o
-  // 'rascunho' foi re-roteado acima), e a persistência aqui é sempre a legada.
-  let codigoUsuarioAlvo: string;
-  try {
-    codigoUsuarioAlvo = await resolverCodigoUsuarioAlvo();
-  } catch (errIdentidade) {
-    const msgErro = errIdentidade instanceof Error ? errIdentidade.message : String(errIdentidade);
-    await registrarFalhaEnvioLegado(requisicaoId, req, userId, userName, msgErro);
-    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro, rota: null };
-  }
-
-  const payload = montarPayloadReqComp({
-    codigo_usuario: codigoUsuarioAlvo,
-    codigo_centro_ctrl: req.codigo_centro_ctrl,
-    codigo_finalidade_compra: req.codigo_finalidade_compra,
-    codigo_funcionario: req.codigo_funcionario,
-    data_necessidade_ymd: String(req.data_necessidade),
-    descricao: req.descricao || "",
-    texto: req.texto || "",
-    itens: itensNormalizados,
-    arquivos_guids: guids,
-  });
-
-  const { error: errAuditReenvioTentado } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
-    requisicao_id: requisicaoId,
-    evento: "envio_tentado",
-    user_id: userId,
-    user_nome: userName,
-    payload_enviado: payload,
-    sucesso: true,
-  });
-  // Não lança: auditoria perdida não pode impedir um reenvio que ainda vai acontecer.
-  if (errAuditReenvioTentado) {
-    console.error(
-      `[auditoria] falhou ao gravar evento "envio_tentado" (reenvio) da requisição ${requisicaoId}: ` +
-        errAuditReenvioTentado.message,
-    );
-  }
-
-  await (supabase as any).from("compras_requisicoes").upsert(
-    {
-      id: requisicaoId,
-      requisitante_user_id: req.requisitante_user_id,
-      status: "pendente_envio",
-      codigo_empresa_filial: req.codigo_empresa_filial,
-      codigo_funcionario: req.codigo_funcionario,
-      codigo_centro_ctrl: req.codigo_centro_ctrl,
-      codigo_finalidade_compra: req.codigo_finalidade_compra,
-      data_necessidade: req.data_necessidade,
-      total_itens: req.total_itens,
-      tentativa_envio_em: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
-
-  try {
-    let respData: any;
-
-    if (temArquivos) {
-      // Baixar os arquivos do Storage e montar FormData
-      const arquivosParaUpload: Array<{ guid: string; blob: Blob; nome: string }> = [];
-      for (const arq of arquivos) {
-        const { data: blob, error: dlErr } = await supabase.storage.from(STORAGE_BUCKET).download(arq.storage_path);
-        if (dlErr || !blob) {
-          throw new Error(`Erro ao baixar arquivo "${arq.nome_original}" do Storage: ${dlErr?.message}`);
-        }
-        arquivosParaUpload.push({
-          guid: arq.upload_identify_guid,
-          blob,
-          nome: arq.nome_original,
-        });
-      }
-
-      const formData = montarFormDataMultipart(payload, arquivosParaUpload);
-      respData = await callGatewayReqCompMultipart("/req-comp/insert-multipart", formData);
-    } else {
-      respData = await callGatewayReqComp("/req-comp/insert", "POST", payload);
-    }
-
-    const numeroAlvo = respData?.Numero || "";
-
-    await (supabase as any).from("compras_requisicoes").upsert(
-      {
-        id: requisicaoId,
-        requisitante_user_id: req.requisitante_user_id,
-        status: "sincronizada",
-        numero_alvo: numeroAlvo,
-        enviado_em: new Date().toISOString(),
-        erro_ultimo_envio: null,
-        codigo_empresa_filial: req.codigo_empresa_filial,
-        codigo_funcionario: req.codigo_funcionario,
-        codigo_centro_ctrl: req.codigo_centro_ctrl,
-        codigo_finalidade_compra: req.codigo_finalidade_compra,
-        data_necessidade: req.data_necessidade,
-        total_itens: req.total_itens,
-      },
-      { onConflict: "id" },
-    );
-
-    // Marcar arquivos com o número do Alvo (se houver, via RPC)
-    if (temArquivos) {
-      for (const guid of guids!) {
-        const { error: errMarcar } = await (supabase as any).rpc("marcar_arquivo_req_enviado", {
-          p_guid: guid,
-          p_numero_alvo: numeroAlvo,
-        });
-        if (errMarcar) {
-          console.warn(`Aviso: falha ao marcar arquivo ${guid} como enviado:`, errMarcar.message);
-        }
-      }
-    }
-
-    const { error: errAuditReenvioSucesso } = await (supabase as any).from("compras_requisicoes_auditoria").insert({
-      requisicao_id: requisicaoId,
-      evento: "envio_sucesso",
-      user_id: userId,
-      user_nome: userName,
-      resposta_alvo: respData,
-      sucesso: true,
-    });
-    // Não lança: um throw aqui cairia no `catch` desta função, que chama
-    // `registrarFalhaEnvioLegado` e voltaria a requisição para 'rascunho' — depois de
-    // ela já ter sido criada no ERP. Auditoria falha, o desfecho fica de pé.
-    if (errAuditReenvioSucesso) {
-      console.error(
-        `[auditoria] falhou ao gravar evento "envio_sucesso" (reenvio) da requisição ${requisicaoId}: ` +
-          errAuditReenvioSucesso.message,
-      );
-    }
-
-    return { sucesso: true, requisicao_id: requisicaoId, numero_alvo: numeroAlvo, rota: null };
-  } catch (err: any) {
-    const msgErro = err?.message || String(err);
-    await registrarFalhaEnvioLegado(requisicaoId, req, userId, userName, msgErro);
-    return { sucesso: false, requisicao_id: requisicaoId, erro: msgErro, rota: null };
-  }
+  throw new Error("Envio legado em andamento: reconcilie com o ERP antes de reenviar.");
 }
 
 // ─── FASE 3 — fila do líder (aprovar / rejeitar) ───
 
 export interface RequisicaoPendente {
+  aguardando_voce: boolean;
   id: string;
   numero_alvo: string | null;
   descricao: string | null;
@@ -1318,6 +627,7 @@ export interface RequisicaoPendente {
 
 /** Resultado padronizado das RPCs de decisão. `ok=false` sempre traz mensagem. */
 export interface DecisaoResult {
+  final?: boolean;
   ok: boolean;
   /** true quando a requisição saiu de `pendente_aprovacao` por decisão de outra pessoa. */
   jaDecidida?: boolean;
@@ -1347,19 +657,8 @@ export async function listarCentrosDeCustoDoLider(userId: string): Promise<strin
  * `admin` conta todas (é o bypass do Hub, consistente com as RPCs R2/R3).
  */
 export async function contarRequisicoesPendentes(userId: string, isAdmin: boolean): Promise<number> {
-  let query = (supabase as any)
-    .from("compras_requisicoes")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "pendente_aprovacao");
-
-  if (!isAdmin) {
-    const ccs = await listarCentrosDeCustoDoLider(userId);
-    if (ccs.length === 0) return 0;
-    query = query.in("codigo_centro_ctrl", ccs);
-  }
-
-  const { count, error } = await query;
-  if (error) throw new Error(`Erro ao contar aprovações pendentes: ${error.message}`);
+  const { count, error } = await (supabase as any).rpc("requisicoes_fila_aprovacao", {}, { count: "exact", head: true }).eq("aguardando_voce", true);
+  if (error) throw new Error(error.message);
   return count ?? 0;
 }
 
@@ -1373,27 +672,10 @@ export async function listarRequisicoesPendentes(
   opts?: { offset?: number; limit?: number },
 ): Promise<RequisicaoPendente[]> {
   const offset = opts?.offset ?? 0;
-  // PostgREST do Supabase hospedado tem max-rows=1000.
   const limit = Math.min(opts?.limit ?? 200, 1000);
-
-  let query = (supabase as any)
-    .from("compras_requisicoes")
-    .select(
-      "id, numero_alvo, descricao, codigo_centro_ctrl, centro_ctrl_nome, funcionario_nome, codigo_funcionario, requisitante_user_id, data_necessidade, total_itens, created_at, updated_at",
-    )
-    .eq("status", "pendente_aprovacao")
-    .order("created_at", { ascending: true })
-    .range(offset, offset + limit - 1);
-
-  if (!isAdmin) {
-    const ccs = await listarCentrosDeCustoDoLider(userId);
-    if (ccs.length === 0) return [];
-    query = query.in("codigo_centro_ctrl", ccs);
-  }
-
-  const { data, error } = await query;
-  if (error) throw new Error(`Erro ao carregar a fila de aprovações: ${error.message}`);
-  return (data || []) as RequisicaoPendente[];
+  const { data, error } = await (supabase as any).rpc("requisicoes_fila_aprovacao").range(offset, offset + limit - 1);
+  if (error) throw new Error(`Erro ao carregar aprovações: ${error.message}`);
+  return (data || []).map((row: { requisicao: RequisicaoPendente; aguardando_voce: boolean }) => ({ ...row.requisicao, aguardando_voce: row.aguardando_voce }));
 }
 
 /**
@@ -1401,7 +683,9 @@ export async function listarRequisicoesPendentes(
  * Nenhum retorno cai no vazio — desconhecido vira mensagem explícita.
  */
 function traduzirDecisao(retorno: string, acao: "aprovar" | "rejeitar"): DecisaoResult {
-  if (retorno === "OK") return { ok: true };
+  if (retorno === "PARCIAL") return { ok: true, final: false, mensagem: "Sua aprovação foi registrada. Aguardando os demais centros de custo." };
+  if (retorno === "FINAL") return { ok: true, final: true };
+  if (retorno === "OK" && acao === "rejeitar") return { ok: true };
 
   if (retorno.startsWith("STATUS_INVALIDO:")) {
     const statusAtual = retorno.slice("STATUS_INVALIDO:".length) || "?";
@@ -1500,6 +784,7 @@ export async function rejeitarRequisicao(
 // ─── FASE 3 — clonar para nova requisição ───
 
 export interface RequisicaoClonada {
+  rateio_cc: RateioCCClasseInput[];
   codigo_funcionario: string;
   funcionario_nome: string | null;
   codigo_centro_ctrl: string;
@@ -1509,6 +794,7 @@ export interface RequisicaoClonada {
   cnpj_sugestao_requisicao: string | null;
   data_necessidade: string | null;
   itens: Array<{
+    codigo_centro_ctrl?: string;
     item_servico: boolean;
     codigo_produto: string;
     codigo_alternativo_produto: string | null;
@@ -1516,6 +802,8 @@ export interface RequisicaoClonada {
     produto_nome: string | null;
     produto_unidade: string | null;
     quantidade: number;
+    quantidade_solicitada: number;
+    posicao_prod_unid_med: number;
     observacao: string | null;
     rateio: Array<{ codigo_classe_rec_desp: string; classe_rec_desp_label: string | null; percentual: number }>;
   }>;
@@ -1552,6 +840,18 @@ export async function carregarRequisicaoParaClonar(requisicaoId: string): Promis
   if (errItens) throw new Error(`Erro ao carregar os itens da requisição: ${errItens.message}`);
   if (!itens || itens.length === 0) throw new Error("A requisição de origem não tem itens para copiar.");
 
+  if (itens.some((i: any) => i.quantidade_solicitada == null || i.posicao_prod_unid_med == null)) {
+    if (!req.numero_alvo) throw new Error("HISTORICO_UNIDADE_INCOMPLETO: rascunho sem Load original. Recrie os itens informando quantidade e unidade; não é seguro deduzir.");
+    const original = objetoAlvo(await callGatewayReqComp(`/req-comp/${encodeURIComponent(req.codigo_empresa_filial)}/${encodeURIComponent(req.numero_alvo)}`, "GET"), "ItemReqCompChildList");
+    const lista = original.ItemReqCompChildList as any[];
+    for (const item of itens) {
+      const matches = lista.filter(i => Number(i.Sequencia) === Number(item.sequencia));
+      if (matches.length !== 1 || matches[0].CodigoProduto !== item.codigo_produto) throw new Error("Load original não corresponde aos itens do espelho; sincronize e confira antes de clonar.");
+      Object.assign(item, quantidadesLoad(matches[0]));
+    }
+  }
+  for (const item of itens) exigirQuantidadesCompletas(item);
+
   const itensIds = itens.map((i: any) => i.id);
   const { data: rateios } = await (supabase as any)
     .from("compras_requisicoes_itens_classe_rec_desp")
@@ -1569,6 +869,7 @@ export async function carregarRequisicaoParaClonar(requisicaoId: string): Promis
   const dataAindaValida = dataNecessidade && !isNaN(dataNecessidade.getTime()) && dataNecessidade >= hoje;
 
   return {
+    rateio_cc: await carregarRateioCC(requisicaoId),
     codigo_funcionario: req.codigo_funcionario,
     funcionario_nome: req.funcionario_nome,
     codigo_centro_ctrl: req.codigo_centro_ctrl,
@@ -1578,13 +879,16 @@ export async function carregarRequisicaoParaClonar(requisicaoId: string): Promis
     cnpj_sugestao_requisicao: req.cnpj_sugestao_requisicao,
     data_necessidade: dataAindaValida ? String(req.data_necessidade).substring(0, 10) : null,
     itens: itens.map((item: any) => ({
+      codigo_centro_ctrl: item.codigo_centro_ctrl,
       item_servico: !!item.item_servico,
       codigo_produto: item.codigo_produto,
       codigo_alternativo_produto: item.codigo_alternativo_produto,
       codigo_prod_unid_med: item.codigo_prod_unid_med,
       produto_nome: item.produto_nome,
-      produto_unidade: item.produto_unidade,
-      quantidade: Number(item.quantidade) || 0,
+      produto_unidade: item.codigo_prod_unid_med,
+      quantidade: Number(item.quantidade),
+      quantidade_solicitada: Number(item.quantidade_solicitada),
+      posicao_prod_unid_med: Number(item.posicao_prod_unid_med),
       observacao: item.observacao,
       rateio: (rateios || [])
         .filter((r: any) => r.item_id === item.id)
@@ -1699,7 +1003,7 @@ export async function excluirRequisicao(requisicaoId: string): Promise<void> {
  * catálogo local (stock_products). Sem correspondência, fica null e a tela cai
  * no código.
  */
-async function persistirItensRequisicao(requisicaoId: string, respData: any): Promise<number> {
+export async function persistirItensRequisicao(requisicaoId: string, respData: any): Promise<number> {
   const { count, error: errCount } = await (supabase as any)
     .from("compras_requisicoes_itens")
     .select("id", { count: "exact", head: true })
@@ -1709,7 +1013,21 @@ async function persistirItensRequisicao(requisicaoId: string, respData: any): Pr
     console.error("[persistirItensRequisicao] erro ao contar itens:", errCount);
     return 0;
   }
-  if ((count ?? 0) > 0) return 0; // já tem itens — não mexe
+  if ((count ?? 0) > 0) {
+    const { data: existentes, error } = await (supabase as any).from("compras_requisicoes_itens").select("id,sequencia,codigo_produto").eq("requisicao_id", requisicaoId);
+    if (error) throw error;
+    const lista = objetoAlvo(respData, "ItemReqCompChildList").ItemReqCompChildList as any[];
+    const updates = (existentes || []).map((item: any) => {
+      const matches = lista.filter(i => Number(i.Sequencia) === Number(item.sequencia));
+      if (matches.length !== 1 || matches[0].CodigoProduto !== item.codigo_produto) throw new Error("Load não corresponde ao espelho: confira produto e sequência");
+      return { id: item.id, valores: quantidadesLoad(matches[0]) };
+    });
+    for (const item of updates) {
+      const { error: erroUpdate } = await (supabase as any).from("compras_requisicoes_itens").update({ ...item.valores, produto_unidade: item.valores.codigo_prod_unid_med, conversao_unidade: null }).eq("id", item.id);
+      if (erroUpdate) throw erroUpdate;
+    }
+    return 0;
+  }
 
   const lista = (respData?.ItemReqCompChildList || []) as any[];
   if (lista.length === 0) return 0;
@@ -1732,9 +1050,7 @@ async function persistirItensRequisicao(requisicaoId: string, respData: any): Pr
     codigo_produto: it?.CodigoProduto,
     codigo_alternativo_produto: it?.CodigoAlternativoProduto ?? null,
     codigo_prod_unid_med: it?.CodigoProdUnidMed,
-    // Mesma lição dos pedidos: a quantidade canônica é a da unidade PRINCIPAL
-    // (Quantidade2 diverge em parte dos itens).
-    quantidade: Number(it?.QuantidadeProdUnidMedPrincipal) || 0,
+    ...quantidadesLoad(it),
     data_necessidade: it?.DataNecessidade ?? null,
     codigo_centro_ctrl: it?.CodigoCentroCtrl ?? null,
     observacao: it?.Observacao ?? null,
@@ -1913,4 +1229,35 @@ export async function sincronizarStatusRequisicao(
     statusNovo: novoStatusHub,
     motivo,
   };
+}
+
+export interface RateioCCClasseInput {
+  codigo_classe_rec_desp: string;
+  classe_rec_desp_label?: string;
+  percentual: number;
+  ccs: Array<{ codigo_centro_ctrl: string; centro_ctrl_label?: string; percentual: number }>;
+}
+
+export interface AprovacaoCC {
+  codigo_centro_ctrl: string;
+  situacao: "aprovado" | "dispensado_autor" | "sem_lider" | "pendente" | "rejeitado";
+  aprovado_nome?: string;
+  aprovado_por: string | null;
+  aprovado_em: string | null;
+  automatica: boolean;
+  lider_atual: boolean;
+  lideres: Array<{ user_id: string; nome: string }>;
+}
+
+export async function carregarAprovacaoCC(id: string): Promise<AprovacaoCC[]> {
+  const { data, error } = await (supabase as any).rpc("requisicao_aprovacao_cc", { p_req_id: id });
+  if (error) throw new Error(`Não foi possível consultar as aprovações por CC: ${error.message}`);
+  return data || [];
+}
+
+export async function carregarRateioCC(id: string): Promise<RateioCCClasseInput[]> {
+  const { data, error } = await (supabase as any).from("compras_requisicoes_rateio_classes")
+    .select("codigo_classe_rec_desp,classe_rec_desp_label,percentual,ccs:compras_requisicoes_rateio_cc(codigo_centro_ctrl,centro_ctrl_label,percentual)").eq("requisicao_id", id);
+  if (error) throw new Error(`Não foi possível carregar o rateio por CC: ${error.message}`);
+  return data || [];
 }

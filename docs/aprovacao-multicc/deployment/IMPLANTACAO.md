@@ -1,0 +1,86 @@
+# Implantação autorizada — 07/09/2026
+
+Autorização explícita do usuário: SQL, gateway, Edge, commits/pushes e frontend.
+Somente Financial Hub hbtggrbauguukewiknew. Nenhum Insert no Alvo nem requisição
+de teste criada pelo agente. Operação geral e cron permanecem suspensos até aceite.
+
+## Pré-validação e cópias
+
+- finances-pf: baseline 8f1e315b898e5164d22dca96e7c8acc79d77c946.
+- erp-proxy: baseline 76f67b2843061e7e9fb846ba8bac876901773585; Live anteriormente
+  confirmado pelo usuário no Render, deploy 06/09 às 17h28.
+- Edge sync-compras-status-cron: v50, verify_jwt=false preservado; fonte salva em
+  antes/edge-v50.ts. Funções SQL, ACLs, constraints e policies em antes/.
+- Zero transições e zero últimos eventos de envio sem confirmação; 24 rascunhos e
+  4 rejeitadas sem número. Nenhum desses registros reconciliado ou descartado.
+- Cron real jobid 1: `0 11-20 * * 1-5`, active=true; sync_settings.enabled=true.
+  Valores anteriores completos em antes/preflight.json. O horário antigo do roteiro
+  não era o vigente. Demais crons e lideranças não foram alterados.
+
+## Janela e versões
+
+- 16:24:27 UTC: PAUSAR.sql aplicado com nova verificação dentro da transação.
+  Trigger de suspensão confirmado; cron jobid 1 inactive, sync_settings.enabled=false.
+- Gateway: commit 4ef34d50383343d2673b6dd702bccf26afeb3fda enviado a origin/main.
+  Publicação Render ainda em conferência; push isolado não é confirmação.
+- SQL-INTEGRAL.sql reúne as migrações multi-CC e janela numa única transação.
+  Janela inicia fechada, sem usuários autorizados. Não usa supabase db push.
+- Frontend inclui marcador público /multicc-version.json, release
+  `multicc-20260907-aceite-1`; conferir o artefato publicado e o JavaScript efetivo.
+- Publicação SQL/Edge/frontend e abertura restrita: registrar desfechos abaixo.
+
+### Ponto de espera: Render
+
+Até a consulta de 16:50:35 UTC, health ainda retorna apenas status/service/timestamp/env,
+sem revision/requisicoes. GitHub API: statuses=[], check_runs=[], deployments=[] para
+4ef34d5. Não há confirmação de deployment, e não se presume que auto-deploy esteja ligado.
+Navegador da sessão retorna lista vazia; sem acesso de painel Render/Lovable.
+
+**Ação do usuário:** Render → erp-proxy → Manual Deploy → Deploy latest commit.
+Conferir main/4ef34d50383343d2673b6dd702bccf26afeb3fda e aguardar Live. Se falhar,
+registrar erro do build sem credenciais. Agente confere /health com revision igual ao
+SHA e requisicoes=multicc-20260907-aceite-1 antes de prosseguir.
+
+Durante essa espera: apenas PAUSAR.sql foi aplicado em produção; migração principal
+e tabela da janela ainda ausentes; Edge permanece v50; frontend não publicado.
+Cron e sync continuam desativados, trigger de suspensão presente, zero transições.
+Ainda não executar o caso Caio/Ana. Após Render: SQL integral, verificações, Edge,
+push frontend, publicação Lovable efetiva e abertura restrita aos participantes.
+No Lovable, abrir o projeto ligado a financeiropfbrazil/finances-pf (finance-pf.lovable.app),
+aguardar sincronização do commit informado e usar Publish → Update. Não escolher IA Hub.
+Push sozinho não conclui essa etapa, conforme documentação oficial:
+https://docs.lovable.dev/features/publish ; https://render.com/docs/deploys .
+
+## Verificações executadas nesta janela
+
+- PostgreSQL nativo: 112 verificações passaram, incluindo 12 do bloqueio temporário.
+- Express real aplicado: 20 passaram; type-check integral do gateway passou.
+- Frontend: 113 testes passaram; sete falhas antigas de sidebar excluídas, como na
+  revisão. Type-check e Deno integral passaram novamente.
+- Build frontend passou novamente (28,27s); avisos anteriores de bundle/imports/
+  Browserslist mantidos. Nenhuma conversão adicional foi liberada.
+- Storage HTTP/S3: 26+26 testes aprovados na preparação anterior, não repetidos nesta
+  janela. O aceite real permanece com o usuário.
+
+## Restrição do aceite e recuperação
+
+Tabela privada compras_requisicoes_janela: fechada → aceite → aberta. Nenhum cliente
+ou service_role pode editar a tabela nem chamar o corpo original de envio diretamente.
+No aceite, apenas participantes explicitamente cadastrados na janela podem criar/
+alterar cabeçalhos e iniciar envio; documentos devem ter prefixo ACEITE-MULTICC-.
+O gateway exige documento novo da janela e autor participante. As lideranças e RBAC
+continuam sendo verificadas pelo contrato original. Admin não ignora a janela.
+
+Participantes previstos: Pedro (acompanhamento), Caio, Ana e Mirlene. IDs e caso 1 em
+ACEITE-PREENCHIDO.md e tests/participantes-existentes.json. Sem novos vínculos de CC.
+Ativar modo aceite somente após confirmar compatibilidade das três publicações.
+
+Se falhar antes do SQL, manter PAUSAR e gateway fechado. Se SQL falhar, rollback
+integral; não abrir inserts antigos. Se publicação de UI depender do painel, manter
+janela fechada até conferência. Após primeiro envio, preservar grupos/auditoria;
+nunca restaurar SQL antigo isoladamente, limpar tokens ou repetir Insert incerto.
+Procedimento completo de recuperação: ../ACEITE-ALVO.md.
+
+Para liberar operação geral, aguardar confirmação explícita do aceite, conferir zero
+tokens sem número e só então mudar modo para aberta e restaurar enabled=true e cron
+active=true, mantendo schedule original. Registrar retomada; não apagar histórico de pausa.

@@ -1,0 +1,1435 @@
+{
+  "data": "2026-09-07",
+  "projeto": "hbtggrbauguukewiknew",
+  "somente_leitura": true,
+  "janela": "coalesce(data_abertura_alvo,created_at) >= date '2026-09-07' - 90",
+  "consulta": "with recentes as (select * from compras_requisicoes where coalesce(data_abertura_alvo,created_at)>=date '2026-09-07'-90), produtos as (select distinct i.codigo_produto from recentes r join compras_requisicoes_itens i on i.requisicao_id=r.id), agregado as (select p.codigo_produto,count(u.posicao)::int unidades,count(*) filter(where u.posicao=1 and u.peso=1 and u.peso_fator_divisor='Fator')::int base_normalizada,count(*) filter(where u.posicao is not null and (u.peso_fator_divisor is distinct from 'Fator' or u.peso is null or u.peso<=0))::int nao_suportadas,min(u.sincronizado_em) as cache_mais_antigo,max(u.sincronizado_em) as cache_mais_novo from produtos p left join stock_produto_unidades u using(codigo_produto) group by p.codigo_produto) select (select count(*) from recentes)::int requisicoes,(select count(*) from recentes r where not exists(select 1 from compras_requisicoes_itens i where i.requisicao_id=r.id))::int requisicoes_sem_itens,(select count(*) from recentes r join compras_requisicoes_itens i on i.requisicao_id=r.id)::int itens,count(*)::int produtos,count(*) filter(where unidades=0)::int produtos_sem_escala,count(*) filter(where unidades>0)::int produtos_com_escala,count(*) filter(where unidades>0 and base_normalizada=0)::int escala_sem_base_normalizada,count(*) filter(where nao_suportadas>0)::int produtos_com_formato_nao_suportado,min(cache_mais_antigo) as cache_mais_antigo,max(cache_mais_novo) as cache_mais_novo from agregado",
+  "consulta_detalhes": "with usados as (select i.codigo_produto,i.codigo_prod_unid_med,count(*)::int itens,count(distinct r.id)::int requisicoes from compras_requisicoes r join compras_requisicoes_itens i on i.requisicao_id=r.id where coalesce(r.data_abertura_alvo,r.created_at)>=date '2026-09-07'-90 group by i.codigo_produto,i.codigo_prod_unid_med) select a.*,p.unidade_medida as unidade_catalogo_geral,coalesce((select jsonb_agg(to_jsonb(u) order by posicao) from stock_produto_unidades u where u.codigo_produto=a.codigo_produto),'[]'::jsonb) as escala_disponivel from usados a left join stock_products p using(codigo_produto) order by a.codigo_produto,a.codigo_prod_unid_med",
+  "resultado_agregado": [
+    {
+      "requisicoes": 286,
+      "requisicoes_sem_itens": 11,
+      "itens": 363,
+      "produtos": 171,
+      "produtos_sem_escala": 168,
+      "produtos_com_escala": 3,
+      "escala_sem_base_normalizada": 0,
+      "produtos_com_formato_nao_suportado": 0,
+      "cache_mais_antigo": "2026-08-10 14:56:56.804316+00",
+      "cache_mais_novo": "2026-08-10 14:59:54.963938+00"
+    }
+  ],
+  "produtos_unidades": [
+    {
+      "codigo_produto": "001.002.00051",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.002.00077",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.003.00001",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": [
+        {
+          "peso": 1,
+          "posicao": 1,
+          "codigo_produto": "001.003.00001",
+          "codigo_unid_med": "UNID",
+          "sincronizado_em": "2026-08-10T14:56:56.804316+00:00",
+          "peso_fator_divisor": "Fator"
+        },
+        {
+          "peso": 1,
+          "posicao": 2,
+          "codigo_produto": "001.003.00001",
+          "codigo_unid_med": "UN",
+          "sincronizado_em": "2026-08-10T14:56:56.804316+00:00",
+          "peso_fator_divisor": "Fator"
+        }
+      ]
+    },
+    {
+      "codigo_produto": "001.004.00005",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.004.00034",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.005.00191",
+      "codigo_prod_unid_med": "PC",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "PC",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00016",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00029",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00031",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 3,
+      "requisicoes": 3,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00036",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00054",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00057",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00068",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00093",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00094",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.006.00096",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.007.00018",
+      "codigo_prod_unid_med": "M",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "M",
+      "escala_disponivel": [
+        {
+          "peso": 1,
+          "posicao": 1,
+          "codigo_produto": "001.007.00018",
+          "codigo_unid_med": "M",
+          "sincronizado_em": "2026-08-10T14:59:40.958094+00:00",
+          "peso_fator_divisor": "Fator"
+        }
+      ]
+    },
+    {
+      "codigo_produto": "001.007.00025",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": [
+        {
+          "peso": 1,
+          "posicao": 1,
+          "codigo_produto": "001.007.00025",
+          "codigo_unid_med": "UNID",
+          "sincronizado_em": "2026-08-10T14:59:54.963938+00:00",
+          "peso_fator_divisor": "Fator"
+        },
+        {
+          "peso": 0.005,
+          "posicao": 2,
+          "codigo_produto": "001.007.00025",
+          "codigo_unid_med": "KG",
+          "sincronizado_em": "2026-08-10T14:59:54.963938+00:00",
+          "peso_fator_divisor": "Fator"
+        }
+      ]
+    },
+    {
+      "codigo_produto": "001.009.00068",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.009.00079",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.009.00089",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.009.00162",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.009.00164",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.009.00165",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.012.003",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 7,
+      "requisicoes": 7,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.012.004",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 9,
+      "requisicoes": 9,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.012.005",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.012.006",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 17,
+      "requisicoes": 16,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.012.022",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 5,
+      "requisicoes": 5,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00036",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00050",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00062",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00089",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 4,
+      "requisicoes": 4,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00124",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00127",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 6,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00136",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00167",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00168",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00185",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00199",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00208",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00249",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00259",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00358",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00382",
+      "codigo_prod_unid_med": "PACOTE",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "PACOTE",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00418",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00509",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 10,
+      "requisicoes": 10,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00512",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 13,
+      "requisicoes": 13,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00521",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00522",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00529",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00546",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.013.00551",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.001",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 10,
+      "requisicoes": 10,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.002",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 4,
+      "requisicoes": 4,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.003",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 3,
+      "requisicoes": 3,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.005",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 9,
+      "requisicoes": 9,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.006",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.007",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.015",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.024",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.031",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 3,
+      "requisicoes": 3,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.034",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.035",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.037",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.038",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.046",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.014.047",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.016.012",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.016.019",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.016.062",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.016.085",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.005",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.011",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.056",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 4,
+      "requisicoes": 4,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.062",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.064",
+      "codigo_prod_unid_med": "KG",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "KG",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.068",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.076",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.079",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.080",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.092",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.107",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.110",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.196",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.208",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.209",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.248",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.293",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.326",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 12,
+      "requisicoes": 12,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.338",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.345",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.349",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.350",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.358",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.368",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 3,
+      "requisicoes": 3,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.443",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.463",
+      "codigo_prod_unid_med": "PC",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "PC",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.481",
+      "codigo_prod_unid_med": "KG",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "KG",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.534",
+      "codigo_prod_unid_med": "UN",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UN",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.550",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.564",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.575",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.577",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.579",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.588",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.600",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.608",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.617",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.638",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.645",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.651",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.652",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.653",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.654",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.655",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.656",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.657",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.658",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.659",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.660",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.661",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.662",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.663",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.667",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.668",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.669",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.671",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.676",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.677",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.678",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.679",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.680",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.681",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.688",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.689",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.690",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.691",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.693",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.017.699",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.018.022",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.018.070",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.018.071",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.018.072",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.018.075",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.018.076",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "001.018.083",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.005",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 55,
+      "requisicoes": 52,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.007",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.009",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 3,
+      "requisicoes": 3,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.010",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.012",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.015",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.023",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 3,
+      "requisicoes": 3,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.025",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 4,
+      "requisicoes": 4,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.027",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.030",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.031",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.036",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.038",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.040",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 4,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.042",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.043",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.046",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.047",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.049",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 2,
+      "requisicoes": 2,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.050",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.054",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 3,
+      "requisicoes": 3,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.057",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": "UNID",
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.058",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    },
+    {
+      "codigo_produto": "002.059",
+      "codigo_prod_unid_med": "UNID",
+      "itens": 1,
+      "requisicoes": 1,
+      "unidade_catalogo_geral": null,
+      "escala_disponivel": []
+    }
+  ]
+}

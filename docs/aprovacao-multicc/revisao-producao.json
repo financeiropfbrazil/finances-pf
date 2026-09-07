@@ -1,0 +1,132 @@
+{
+  "project_id": "hbtggrbauguukewiknew",
+  "date": "2026-09-07",
+  "mode": "SELECT only",
+  "auditoria_constraint": "CHECK ((evento = ANY (ARRAY['criada'::text, 'editada'::text, 'envio_tentado'::text, 'envio_sucesso'::text, 'envio_falha'::text, 'cancelada_alvo'::text, 'convertida_pedido'::text, 'vinculado_pedido'::text, 'desvinculado_pedido'::text, 'enviada_aprovacao'::text, 'aprovada_lider'::text, 'rejeitada_lider'::text, 'submetida_sem_gate'::text, 'envio_pos_aprovacao_sucesso'::text, 'envio_pos_aprovacao_falha'::text, 'descoberta_alvo'::text, 'sync_status'::text])))",
+  "storage_objects_policies": [
+    {
+      "policyname": "Public read access",
+      "permissive": "PERMISSIVE",
+      "roles": "{public}",
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'email-nfe-attachments'::text)",
+      "with_check": null
+    },
+    {
+      "policyname": "Service role insert",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(bucket_id = 'email-nfe-attachments'::text)"
+    },
+    {
+      "policyname": "auth read intercompany reembolso pdfs",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "SELECT",
+      "qual": "(bucket_id = ANY (ARRAY['intercompany-reembolso-manual'::text, 'intercompany-reembolso-nf'::text]))",
+      "with_check": null
+    },
+    {
+      "policyname": "compras_pedidos_storage_delete",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "DELETE",
+      "qual": "(bucket_id = 'compras-pedidos'::text)",
+      "with_check": null
+    },
+    {
+      "policyname": "compras_pedidos_storage_insert",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(bucket_id = 'compras-pedidos'::text)"
+    },
+    {
+      "policyname": "compras_pedidos_storage_select",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'compras-pedidos'::text)",
+      "with_check": null
+    },
+    {
+      "policyname": "compras_pedidos_storage_update",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "UPDATE",
+      "qual": "(bucket_id = 'compras-pedidos'::text)",
+      "with_check": null
+    },
+    {
+      "policyname": "compras_req_storage_delete",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "DELETE",
+      "qual": "(bucket_id = 'compras-requisicoes'::text)",
+      "with_check": null
+    },
+    {
+      "policyname": "compras_req_storage_insert",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(bucket_id = 'compras-requisicoes'::text)"
+    },
+    {
+      "policyname": "compras_req_storage_select",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'compras-requisicoes'::text)",
+      "with_check": null
+    },
+    {
+      "policyname": "ic importado insert",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((bucket_id = 'intercompany-importado'::text) AND user_has_permission(auth.uid(), 'intercompany.access'::text))"
+    },
+    {
+      "policyname": "ic importado select",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'intercompany-importado'::text)",
+      "with_check": null
+    },
+    {
+      "policyname": "imob_auditoria_fotos_insert_all",
+      "permissive": "PERMISSIVE",
+      "roles": "{public}",
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(bucket_id = 'imob-auditoria-fotos'::text)"
+    },
+    {
+      "policyname": "imob_auditoria_fotos_select_all",
+      "permissive": "PERMISSIVE",
+      "roles": "{public}",
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'imob-auditoria-fotos'::text)",
+      "with_check": null
+    }
+  ],
+  "bucket": {
+    "id": "compras-requisicoes",
+    "public": false
+  },
+  "produto": {
+    "codigo_produto": "001.013.00382",
+    "unidade_medida": "PACOTE",
+    "cadastro_alvo_em": null,
+    "cadastro_alvo_raw": null,
+    "stock_produto_unidades": [],
+    "requisicao_0001480_itens_no_espelho": []
+  }
+}

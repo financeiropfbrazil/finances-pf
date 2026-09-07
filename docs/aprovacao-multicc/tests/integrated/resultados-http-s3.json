@@ -1,0 +1,112 @@
+{
+  "date": "2026-09-07T14:24:01.200Z",
+  "storageBackend": "S3 MinIO (volume Docker real)",
+  "auth": "GoTrue real, JWT sintético",
+  "erp": "HTTP simulado; nenhum Alvo real",
+  "results": [
+    {
+      "name": "Todos os usuários HTTP são não-admin",
+      "pass": true
+    },
+    {
+      "name": "Upload rascunho preserva bytes físicos",
+      "pass": true
+    },
+    {
+      "name": "Upload adicional em rascunho",
+      "pass": true
+    },
+    {
+      "name": "DELETE do autor remove objeto de rascunho",
+      "pass": true
+    },
+    {
+      "name": "DELETE por terceiro não remove bytes",
+      "pass": true
+    },
+    {
+      "name": "Terceiro não cria objeto em pasta alheia",
+      "pass": true
+    },
+    {
+      "name": "Submissão mantém B pendente",
+      "pass": true
+    },
+    {
+      "name": "Gateway HTTP bloqueia envio parcial",
+      "pass": true
+    },
+    {
+      "name": "Nenhum Insert prematuro",
+      "pass": true
+    },
+    {
+      "name": "DELETE após submissão mantém bytes",
+      "pass": true
+    },
+    {
+      "name": "Upsert após submissão recusado",
+      "pass": true
+    },
+    {
+      "name": "PUT após submissão recusado",
+      "pass": true
+    },
+    {
+      "name": "Novo objeto após submissão recusado",
+      "pass": true
+    },
+    {
+      "name": "Service role lê bytes congelados",
+      "pass": true
+    },
+    {
+      "name": "Líder B não-admin fecha aprovação",
+      "pass": true
+    },
+    {
+      "name": "Gateway envia multipart pelo HTTP",
+      "pass": true
+    },
+    {
+      "name": "Um único Insert no ERP simulado",
+      "pass": true
+    },
+    {
+      "name": "ERP recebeu bytes exatos",
+      "pass": true
+    },
+    {
+      "name": "ERP recebeu tuplas reais 10/1 e 20/2",
+      "pass": true
+    },
+    {
+      "name": "Reenvio não duplica Insert",
+      "pass": true
+    },
+    {
+      "name": "Insert continua único",
+      "pass": true
+    },
+    {
+      "name": "DELETE HTTP aguarda transação da submissão",
+      "pass": true
+    },
+    {
+      "name": "Corrida HTTP não remove objeto submetido",
+      "pass": true
+    },
+    {
+      "name": "Gateway recusa bytes alterados por serviço",
+      "pass": true
+    },
+    {
+      "name": "Hash divergente não chega ao ERP",
+      "pass": true
+    },
+    {
+      "name": "Auditoria efetiva do envio",
+      "pass": true
+    }
+  ]
+}

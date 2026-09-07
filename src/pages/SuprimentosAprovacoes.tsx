@@ -70,6 +70,7 @@ export default function SuprimentosAprovacoes() {
   const {
     data: pendentes = [],
     isLoading,
+    error: erroFila,
     refetch,
   } = useQuery({
     queryKey: ["requisicoes_pendentes_aprovacao", user?.id, isAdmin],
@@ -109,6 +110,12 @@ export default function SuprimentosAprovacoes() {
       }
 
       // 1º tempo: a decisão está gravada e é irreversível por esta tela.
+      if (!decisao.final) {
+        toast({ title: "Aprovação registrada", description: decisao.mensagem });
+        recarregarTudo();
+        return;
+      }
+
       toast({ title: "Aprovada ✓", description: "Enviando ao ERP…" });
       setEtapa("enviando");
 
@@ -186,7 +193,7 @@ export default function SuprimentosAprovacoes() {
         </p>
       </div>
 
-      {isLoading ? (
+      {erroFila ? <p role="alert" className="text-destructive">Não foi possível carregar as aprovações: {erroFila.message}</p> : isLoading ? (
         <div className="flex min-h-[40vh] items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -266,6 +273,7 @@ export default function SuprimentosAprovacoes() {
                         <span className="flex items-center gap-1">
                           <Building2 className="h-3 w-3" />
                           {req.centro_ctrl_nome || req.codigo_centro_ctrl || "—"}
+                          <Badge variant="outline">{req.aguardando_voce ? "Aguardando você" : "Seus CCs satisfeitos · aguardando outros"}</Badge>
                         </span>
                         <span className="flex items-center gap-1">
                           <Package className="h-3 w-3" />
@@ -297,7 +305,7 @@ export default function SuprimentosAprovacoes() {
                       >
                         <X className="mr-1 h-3 w-3" /> Rejeitar
                       </Button>
-                      <Button size="sm" onClick={() => handleAprovar(req)} disabled={ocupado}>
+                      <Button size="sm" onClick={() => handleAprovar(req)} disabled={ocupado || !req.aguardando_voce}>
                         {ocupado && (etapa === "aprovando" || etapa === "enviando") ? (
                           <>
                             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
