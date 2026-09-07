@@ -2,6 +2,17 @@
 
 ## Estado vigente — SQL e Edge publicados, frontend em publicação
 
+**Última etapa pendente:** frontend enviado e origin/main conferido em
+74915a19f6899b94c16a63b42fb249cd1a84428f. O site público consultado retornou Not found
+em /multicc-version.json. Solicitado Publish → Update no Lovable e confirmação da
+URL efetiva. Sem browser disponível nesta sessão. Ainda não liberar o teste.
+ABRIR-SOMENTE-ACEITE.sql está preparado, mas **não executado**; janela segue fechada.
+
+VERIFY adicional: histórico de migrações registra 20260907184223 para o SQL integral;
+zero requisições liberadas sem todos os grupos satisfeitos. Existem 7 arquivos de
+rascunhos sem hash e 50 itens sem tupla histórica completa; não houve backfill.
+Esses dados legados exigem reanexo/Load original conforme o contrato, não inferência.
+
 - Render Live 4ef34d5 às 15h37 BRT confirmado pelo usuário. Health às 18:41:52 UTC
   confirmou revision=4ef34d50383343d2673b6dd702bccf26afeb3fda e
   requisicoes=multicc-20260907-aceite-1. Build: npm install && npm run build;

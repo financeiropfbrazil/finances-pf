@@ -1,5 +1,10 @@
 # Aceite com cadastros existentes — preparado em 07/09/2026
 
+**Estado vigente da implantação:** gateway 4ef34d5 confirmado por health, SQL integral
+aplicado e Edge v51 publicada. Frontend enviado em 74915a1; falta publicação efetiva
+no Lovable. Janela fechada e cron parado. Ainda não executar o caso abaixo. O registro
+de preparação seguinte é histórico; consulte deployment/IMPLANTACAO.md para o atual.
+
 **Somente SELECT em produção; nenhuma atribuição, contato com participantes, Insert,
 migração, push ou publicação executados.** Fingerprint: projeto hbtggrbauguukewiknew,
 2.038 pedidos. Conferidos profiles ativos, role lider_departamento não revogado,
