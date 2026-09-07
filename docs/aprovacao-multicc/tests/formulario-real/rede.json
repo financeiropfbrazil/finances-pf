@@ -1,0 +1,111 @@
+{
+  "release": "multicc-20260907-aceite-2",
+  "usuario": "Pedro Scrignoli (admin); sem teste não-admin nesta sessão",
+  "atraso_controlado_ids": [
+    "27036.71",
+    "74DBC261D445C60A68476D6B2572A77A"
+  ],
+  "eventos": [
+    {
+      "id": "27036.55",
+      "event": "request",
+      "method": "GET",
+      "url": "/produto/load?codigo=001.001.00051",
+      "time": 40705.603912
+    },
+    {
+      "id": "0B61E9C5D24F5AEF652F9CAF62341C75",
+      "event": "request",
+      "method": "OPTIONS",
+      "url": "/produto/load?codigo=001.001.00051",
+      "time": 40705.606975
+    },
+    {
+      "id": "0B61E9C5D24F5AEF652F9CAF62341C75",
+      "event": "response",
+      "status": 204,
+      "time": 40705.927889
+    },
+    {
+      "id": "27036.55",
+      "event": "response",
+      "status": 200,
+      "time": 40716.061264
+    },
+    {
+      "id": "27036.70",
+      "event": "request",
+      "method": "GET",
+      "url": "/produto/load?codigo=001.013.00382",
+      "time": 46052.459818
+    },
+    {
+      "id": "3E616FA4943C1870D6352FD55F8FB889",
+      "event": "request",
+      "method": "OPTIONS",
+      "url": "/produto/load?codigo=001.013.00382",
+      "time": 46052.464201
+    },
+    {
+      "id": "3E616FA4943C1870D6352FD55F8FB889",
+      "event": "response",
+      "status": 204,
+      "time": 46053.211625
+    },
+    {
+      "id": "27036.70",
+      "event": "response",
+      "status": 200,
+      "time": 46062.908039
+    },
+    {
+      "id": "27036.71",
+      "event": "request",
+      "method": "GET",
+      "url": "/produto/load?codigo=001.001.00051",
+      "time": 46383.821039
+    },
+    {
+      "id": "74DBC261D445C60A68476D6B2572A77A",
+      "event": "request",
+      "method": "OPTIONS",
+      "url": "/produto/load?codigo=001.001.00051",
+      "time": 46383.82418
+    },
+    {
+      "id": "27036.71",
+      "event": "failed",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "id": "27036.76",
+      "event": "request",
+      "method": "GET",
+      "url": "/produto/load?codigo=001.001.00051",
+      "time": 48167.781603
+    },
+    {
+      "id": "34C2D065BDBF709812D3C40E364530B9",
+      "event": "request",
+      "method": "OPTIONS",
+      "url": "/produto/load?codigo=001.001.00051",
+      "time": 48167.790094
+    },
+    {
+      "id": "34C2D065BDBF709812D3C40E364530B9",
+      "event": "response",
+      "status": 204,
+      "time": 48168.135119
+    },
+    {
+      "id": "27036.76",
+      "event": "failed",
+      "error": "net::ERR_ABORTED"
+    }
+  ],
+  "notas": [
+    "Somente metadados HTTP; sem headers, cookies ou tokens.",
+    "A consulta 27036.76 ocorreu após Fetch.disable e expirou naturalmente.",
+    "Não houve persistência de item/requisição nem Insert no Alvo."
+  ]
+}

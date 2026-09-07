@@ -1,5 +1,5 @@
 import { converterSolicitada, type UnidadeRequisicao } from "../../../supabase/functions/_shared/requisicao-unidades";
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
@@ -28,9 +28,18 @@ export function UnidadeRequisicaoSelect({ unidades, posicao, onChange, carregand
   erro?: Error | null; onRetry?: () => void; produtoSelecionado?: boolean; pausado?: boolean;
 }) {
   const avisoId = useId();
+  const [demorada, setDemorada] = useState(false);
+  useEffect(() => {
+    setDemorada(false);
+    if (!carregando) return;
+    const timer = setTimeout(() => setDemorada(true), 15_000);
+    return () => clearTimeout(timer);
+  }, [carregando]);
   const restricao = restricaoUnidadeRequisicao(unidades.find(u => u.posicao === posicao));
   const mensagem = !produtoSelecionado ? "Selecione um produto para consultar as unidades."
-    : carregando ? "Consultando unidades no Alvo…"
+    : carregando ? (demorada
+      ? "Ainda aguardando o Alvo. A conexão pode precisar renovar a sessão; a consulta pode levar até 2 minutos. Você pode aguardar ou cancelar e escolher outro produto."
+      : "Consultando unidades no Alvo…")
     : pausado ? "Consulta pausada por falta de conexão. Reconecte-se e tente novamente."
     : erro ? `Não foi possível consultar as unidades: ${erro.message}`
     : !unidades.length ? "O Produto/Load retornou nenhuma unidade cadastrada. Confira o cadastro com Suprimentos ou tente novamente."

@@ -242,3 +242,13 @@ Ver CORRECAO-SELETORES.md: reprodução do componente anterior em consulta pende
 menus em Chrome local nos dois temas (contraste mínimo 11,86:1), 10→1/20→2 preservados.
 Sem alterações SQL/gateway/Edge, sem Inserts. Falta resposta autenticada de Produto/Load
 para concluir o diagnóstico específico de 001.001.00051. Publicação Lovable requerida.
+
+
+## Correção do timeout de unidades — continuação autorizada do aceite
+
+Log Render: autenticação Alvo levou 48,59s em 07/09/2026 às 23:37 UTC,
+excedendo os antigos 45s totais do formulário. Leitura Financial Hub agora tem
+120s no gateway e 135s no frontend, aviso de espera e cancelamento sem GET tardio.
+Sem alterar conversões, envios, SQL/Edge, cadastros ou novo IA Hub.
+Diagnóstico, testes e publicação: docs/aprovacao-multicc/CORRECAO-TIMEOUT.md.
+Operação restrita a quatro participantes; cron e sync de requisições suspensos.

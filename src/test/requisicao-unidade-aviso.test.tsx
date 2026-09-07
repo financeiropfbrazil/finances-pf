@@ -17,8 +17,19 @@ function mount(posicao: number, change: (n: number) => void) {
   if (!root) { container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container); }
   act(() => root.render(<UnidadeRequisicaoSelect unidades={unidades} posicao={posicao} onChange={change} carregando={false} />));
 }
-afterEach(() => { act(() => root?.unmount()); container?.remove(); root = undefined; });
+afterEach(() => { act(() => root?.unmount()); container?.remove(); root = undefined; vi.useRealTimers(); });
 describe("restrição antecipada de unidade", () => {
+  it("explica espera prolongada e limpa o aviso ao concluir a consulta", () => {
+    vi.useFakeTimers();
+    mount(1, () => {});
+    act(() => root.render(<UnidadeRequisicaoSelect unidades={[]} posicao={null} onChange={() => {}} carregando />));
+    expect(container.textContent).toContain("Consultando unidades no Alvo");
+    act(() => vi.advanceTimersByTime(15_000));
+    expect(container.textContent).toContain("pode levar até 2 minutos");
+    act(() => root.render(<UnidadeRequisicaoSelect unidades={unidades} posicao={1} onChange={() => {}} carregando={false} />));
+    expect(container.textContent).not.toContain("Ainda aguardando");
+    expect(container.querySelector('button[aria-label="Unidade solicitada"]')).not.toHaveAttribute("disabled");
+  });
   it("reproduz no componente anterior uma consulta pendente com seletor bloqueado sem explicação", () => {
     const antes = renderToStaticMarkup(<SeletorAntes unidades={[]} posicao={null} onChange={() => {}} carregando />);
     expect(antes).toContain('disabled=""');

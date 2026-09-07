@@ -1,5 +1,10 @@
 # Correção do aceite: seletores e consulta de unidades — 07/09/2026
 
+Atualização posterior: timeout real reproduzido no formulário autenticado; log do
+Render comprovou 48,59s de autenticação, acima dos antigos 45s totais. Correção e
+estado de publicação em [CORRECAO-TIMEOUT.md](CORRECAO-TIMEOUT.md). As seções
+abaixo preservam as evidências anteriores da entrega aceite-2.
+
 ## Atualização: captura real DRYPATCH e publicação confirmadas
 
 Recebido produto-load/20260907-191432.txt, obtido pelo usuário no Laboratório de API.

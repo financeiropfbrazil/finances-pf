@@ -27,6 +27,22 @@ const prefix=index.slice(index.indexOf('const app = express();'),index.indexOf('
 const js=ts.transpileModule(prefix,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 const legacy=express.Router();legacy.use((_req,res)=>{legacyCalls++;res.json({legacy:true});});
 const app=new Function('express','cors','requireSupabaseAuth','reqAprovadaRouter','reqCompRouter',js+'\nreturn app;')(express,cors,auth.requireSupabaseAuth,router,legacy);
+// Produto/Load: router e leitor novos reais, JWT/JWKS/Express reais; somente ERP simulado.
+let produtoGets=0;
+process.env.ALVO_BASE_URL=issuerBase+'/erp';
+keyApp.get('/erp/Produto/Load',(req,res)=>{
+  produtoGets++;
+  assert.equal(req.query.codigo,'001.001.00051'); assert.equal(req.query.loadChild,'All');
+  res.json(JSON.parse(readFileSync('docs/aprovacao-multicc/produto-load/20260907-191432.txt','utf8')));
+});
+const leitorProduto=compile(readFileSync('../erp-proxy/src/routes/produto-leitura.ts','utf8'),{
+  '../alvo-auth':{getAlvoToken:async()=>'somente-local',invalidateAlvoToken:()=>{}},
+});
+const produtoRouter=compile(readFileSync('../erp-proxy/src/routes/produto.ts','utf8'),{
+  '../alvo-client':{callAlvo:()=>{throw Error('Cliente genérico não esperado neste teste');}},
+  './produto-leitura':leitorProduto,
+}).default;
+app.use('/produto',auth.requireSupabaseAuth,produtoRouter);
 // Match the real final error handler without printing full exception objects/tokens.
 app.use((err,_req,res,_next)=>res.status(500).json({error:err.message}));
 const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
@@ -37,6 +53,13 @@ function check(name,actual,expected){assert.deepEqual(actual,expected,name);resu
 let failure;
 try {
  const user=await token();const valid={Authorization:`Bearer ${user}`};
+ check('Produto sem JWT não alcança ERP',(await fetch(base+'/produto/load?codigo=001.001.00051')).status,401);
+ check('Sem consulta antes da autenticação',produtoGets,0);
+ const produtoResposta=await fetch(base+'/produto/load?codigo=001.001.00051',{headers:{...valid,Origin:'https://finance-pf.lovable.app'}});
+ check('Produto por não-admin: HTTP 200',produtoResposta.status,200);
+ const produtoData=await produtoResposta.json();
+ check('Produto real preserva unidade e posição',[produtoData.Codigo,produtoData.ProdUnidMedChildList[0].CodigoUnidMedida,produtoData.ProdUnidMedChildList[0].Posicao],['001.001.00051','UNID',1]);
+ check('Uma única leitura ERP',produtoGets,1);
  check('Sem JWT: 401',(await post('enviar-aprovada')).status,401);
  check('JWT inválido: 401',(await post('enviar-aprovada',{Authorization:'Bearer invalid'})).status,401);
  check('JWT expirado: 401',(await post('enviar-aprovada',{Authorization:`Bearer ${await token({expires:'-1h'})}`})).status,401);

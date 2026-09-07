@@ -5,13 +5,24 @@ import { converterSolicitada } from "../../supabase/functions/_shared/requisicao
 import { posicaoInicialUnidade } from "@/components/compras/UnidadeRequisicaoSelect";
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { auth: { getSession: async () => ({ data: { session: { access_token: "teste-local" } } }) } } }));
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
-it("requisição pendente termina em 45s e cancela o transporte, sem alegar incompatibilidade", async () => {
+it("formulário aceita o tempo real de autenticação mais Load, superior a 45s", async () => {
+  vi.useFakeTimers();
+  const real = JSON.parse(readFileSync("docs/aprovacao-multicc/produto-load/20260907-191432.txt", "utf8"));
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    await new Promise(resolve => setTimeout(resolve, 59_100));
+    return { ok: true, json: async () => real };
+  }));
+  const request = carregarUnidadesProduto("001.001.00051");
+  await vi.advanceTimersByTimeAsync(59_100);
+  expect(posicaoInicialUnidade(await request)).toBe(1);
+});
+it("requisição pendente termina em 135s e cancela o transporte, sem alegar incompatibilidade", async () => {
   vi.useFakeTimers();
   let signal: AbortSignal;
   vi.stubGlobal("fetch", vi.fn((_url, options) => { signal = options.signal; return new Promise(() => {}); }));
   const request = carregarUnidadesProduto("001.001.00051");
-  const result = expect(request).rejects.toThrow("excedeu 45 segundos");
-  await vi.advanceTimersByTimeAsync(45_000);
+  const result = expect(request).rejects.toThrow("excedeu 135 segundos");
+  await vi.advanceTimersByTimeAsync(135_000);
   await result;
   expect(signal.aborted).toBe(true);
   expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/produto/load?codigo=001.001.00051"), expect.objectContaining({ method: "GET" }));

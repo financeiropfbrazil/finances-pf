@@ -258,3 +258,13 @@ sem inventar conversões. Validação visual local e testes em CORRECAO-SELETORE
 Resposta real de 001.001.00051 ainda necessária; não declarar incompatibilidade ou
 teste funcional desse produto como comprovados. Exige nova atualização no Lovable.
 Aceite permanece restrito aos quatro participantes e cron continua suspenso.
+
+
+## Correção do timeout de unidades — continuação autorizada do aceite
+
+Log Render: autenticação Alvo levou 48,59s em 07/09/2026 às 23:37 UTC,
+excedendo os antigos 45s totais do formulário. Leitura Financial Hub agora tem
+120s no gateway e 135s no frontend, aviso de espera e cancelamento sem GET tardio.
+Sem alterar conversões, envios, SQL/Edge, cadastros ou novo IA Hub.
+Diagnóstico, testes e publicação: docs/aprovacao-multicc/CORRECAO-TIMEOUT.md.
+Operação restrita a quatro participantes; cron e sync de requisições suspensos.

@@ -223,9 +223,9 @@ export async function carregarUnidadesProduto(codigo: string, signal?: AbortSign
   let timer: ReturnType<typeof setTimeout>;
   const limite = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      reject(new Error(`A consulta das unidades de ${codigo} excedeu 45 segundos. Tente novamente.`));
+      reject(new Error(`A consulta das unidades de ${codigo} excedeu 135 segundos. Tente novamente.`));
       controller.abort();
-    }, 45_000);
+    }, 135_000);
   });
   try {
     return await Promise.race([limite, (async () => {

@@ -1,10 +1,30 @@
 {
-  "data": "2026-09-07T16:17:59.126Z",
+  "data": "2026-09-07T23:50:25.651Z",
   "middleware_sha256": "aefd0109e6c0542ae69f15e999f306d30420ef0f95a6f75affce0f5c2ccc286d",
-  "index_sha256": "68e7395abcf2acded2ba0683776f4844dc5dfc9a212d93c2a29a1e1c5754e458",
+  "index_sha256": "58f33403411543515bcbd886dd9e322f3e995872527046dddd48ea59c6767369",
   "express": "4.22.2",
   "jose": "5.10.0",
   "results": [
+    {
+      "name": "Produto sem JWT não alcança ERP",
+      "pass": true
+    },
+    {
+      "name": "Sem consulta antes da autenticação",
+      "pass": true
+    },
+    {
+      "name": "Produto por não-admin: HTTP 200",
+      "pass": true
+    },
+    {
+      "name": "Produto real preserva unidade e posição",
+      "pass": true
+    },
+    {
+      "name": "Uma única leitura ERP",
+      "pass": true
+    },
     {
       "name": "Sem JWT: 401",
       "pass": true
