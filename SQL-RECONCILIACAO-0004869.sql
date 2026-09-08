@@ -1,198 +1,101 @@
 -- =====================================================================
 -- SQL-RECONCILIACAO-0004869.sql
--- Pedido 0004869 (Elisangela) x requisição 0001464
+-- ⛔ NÃO COLE OS BLOCOS DE ESCRITA — ESTE ARQUIVO FICOU OBSOLETO
 -- =====================================================================
--- Gerado em 08/09/2026, ~14h30 BRT. MCP read-only: NADA executado por mim.
+-- Reescrito em 08/09/2026 ~14h25 BRT, depois que o estado mudou.
 --
--- ⚠️ ANTES DE COLAR ISTO: PUBLIQUE A CORREÇÃO.
--- A trilha deste pedido mostra que o código em produção ainda é o ANTIGO:
---   14:08:11  envio_falha  "Erro ao vincular o pedido 0004869 à requisição:
---                           PROTEGIDO_APROVACAO"
--- O commit cd31e11 está no origin/main, mas o Publish do Lovable é manual.
--- Enquanto não publicar, TODA nova tentativa de criar pedido a partir de
--- requisição continua criando documento no ERP e falhando — reconciliar sem
--- publicar é enxugar gelo.
+-- A versão anterior deste arquivo (commit dc1c979) fazia
+--   update compras_pedidos ... where numero='0004869'
+-- e isso **não funciona mais**: a linha do pedido 0004869 foi EXCLUÍDA do Hub.
+-- Colar aquele SQL afetaria 0 linhas — inofensivo, mas inútil.
 --
 -- =====================================================================
--- O QUE ACONTECEU (trilha completa, compras_pedidos_auditoria)
+-- 1. O QUE MUDOU
 -- =====================================================================
---   14:07:03  criado_hub      pedido nasce como rascunho
---   14:07:07  envio_tentado   1ª tentativa
---   14:07:25  envio_falha     Default_CommandTimeout  ← 18 s, timeout DO ALVO
---   14:07:59  editado_hub     a pessoa editou e tentou de novo
---   14:08:02  envio_tentado   2ª tentativa
---   14:08:10  req_baixada     baixa da requisição no ERP: OK
---   14:08:11  envio_falha     PROTEGIDO_APROVACAO  ← o defeito antigo, de novo
+-- O pedido 0004869 foi apagado do Hub pela tela (a lista permite excluir
+-- pedidos em `rascunho` / `erro_envio`). No ERP ele **continua existindo** —
+-- confirmado pelo Pedro: é o pedido criado a partir da requisição 0001464,
+-- R$ 3.880, fornecedor OLIVEIRA E OLIVEIRA, e o timeout estourou depois de o
+-- Alvo gravar.
 --
--- Estado atual: pedido 0004869, status_local='erro_envio', numero preservado,
--- status no Alvo 'Aberto', valor 3.880,00, fornecedor OLIVEIRA E OLIVEIRA.
--- Requisição 0001464: 'sincronizada', numero_pedido_compra_alvo NULL.
+-- 🔴 **A exclusão levou a auditoria junto.** A FK é
+--    `compras_pedidos_auditoria.pedido_id … ON DELETE CASCADE`,
+-- e os 7 eventos do pedido (incluindo o `Default_CommandTimeout` das 14:07:25 e
+-- o `PROTEGIDO_APROVACAO` das 14:08:11) **não existem mais no banco**. Medido:
+-- 0 linhas de auditoria mencionando 0004869, 0 linhas órfãs.
+-- É o mesmo risco que fez a reconciliação do 0001480 preservar a linha fantasma
+-- em vez de apagá-la. **Excluir pedido no Hub destrói a trilha — inclusive de
+-- pedido que existe no ERP.**
 --
--- ⚠️ O NÚMERO 0004868 NÃO EXISTE NO HUB. A 1ª tentativa (a do timeout)
--- consumiu esse número no Alvo. Duas leituras possíveis, e nenhuma informação
--- no Hub as separa:
---   (a) o Alvo CRIOU o documento 0004868 e o timeout ocorreu depois de gravar
---       → há um pedido fantasma de R$ 3.880 no ERP, a cancelar;
---   (b) o Alvo abortou e apenas consumiu a numeração
---       → buraco na sequência, sem documento.
--- **Confira 0004868 no ERP antes de encerrar o caso.** O próximo ciclo do sync
--- também responde sozinho: se o documento existir, o Job 3 vai descobri-lo
--- (foi o que aconteceu com o 0004867 às 13:00).
--- Este SQL NÃO mexe no 0004868 — só no 0004869, que é certo.
 -- =====================================================================
-
-
+-- 2. NÃO É PRECISO SQL: O SYNC SE REPARA SOZINHO
 -- =====================================================================
--- BLOCO 0 — PRÉ-VOO (somente leitura)
+-- O Job 3 (descoberta de pedidos) vai encontrar 0004869 no `/ped-comp/list` e
+-- recriar a linha. E, como a baixa da requisição foi feita no ERP às 14:08:10,
+-- o list traz `NumeroReqComp = 0001464` — então o vínculo volta dos DOIS lados,
+-- sem intervenção:
+--
+--   • lado do pedido   → `index.ts:1473-1477`: grava `numero_req_comp`,
+--     `codigo_empresa_filial_req_comp` e `vinculo_requisicao = 'com_vinculo'`;
+--   • lado da requisição → `index.ts:1524-1541`: se
+--     `numero_pedido_compra_alvo` estiver NULL (é o caso), grava '0004869'.
+--
+-- ⚠️ Detalhe que explica por que isso funciona no sync e falhava na tela: o Job 3
+-- usa **o mesmo `upsert`** que causou o PROTEGIDO_APROVACAO no navegador. Ele
+-- passa porque a Edge roda como `service_role`, e `fn_req_protege_aprovacao` só
+-- atua sobre `authenticated`/`anon`. O defeito sempre foi exclusivo do caminho do
+-- navegador — por isso o sync vinha vinculando 257 requisições sem problema.
+--
 -- =====================================================================
--- Esperado:
---   ped_status='erro_envio' · ped_numero='0004869' · req_status='sincronizada'
---   req_vinculo=NULL · ped_0004868_no_hub=0 · duplicidade_numero=0
--- Se `req_vinculo` já vier preenchido, PARE: alguém reconciliou antes.
+-- 3. O QUE FAZER
+-- =====================================================================
+-- a) **Publique a correção** (commit cd31e11, já em origin/main). Sem isso, toda
+--    nova criação de pedido a partir de requisição continua falhando.
+-- b) **Não cole SQL de escrita para este caso.** Espere um ciclo do cron
+--    (hora cheia, 08h–17h BRT) e rode a conferência abaixo.
+-- c) Se depois de dois ciclos o pedido não voltar, aí sim me chame: aí é
+--    problema de descoberta, e o SQL será outro.
+--
+-- =====================================================================
+-- CONFERÊNCIA (somente leitura) — rodar depois do próximo ciclo
+-- =====================================================================
+-- Esperado quando o sync tiver rodado:
+--   ped_status = 'sincronizado' · ped_origem = false (descoberto)
+--   ped_req = '0001464' · ped_vinculo = 'com_vinculo'
+--   req_vinculo = '0004869'   ← o elo dos dois lados, restaurado sozinho
+--
+-- Enquanto vier tudo NULL, o ciclo ainda não passou pelo pedido.
 
 select
-  (select status_local::text from public.compras_pedidos where numero='0004869')      as ped_status,
-  (select numero from public.compras_pedidos where numero='0004869')                  as ped_numero,
-  (select numero_req_comp from public.compras_pedidos where numero='0004869')         as ped_req,
-  (select status from public.compras_requisicoes where numero_alvo='0001464')         as req_status,
+  (select status_local::text  from public.compras_pedidos where numero='0004869') as ped_status,
+  (select criado_no_hub       from public.compras_pedidos where numero='0004869') as ped_origem,
+  (select numero_req_comp     from public.compras_pedidos where numero='0004869') as ped_req,
+  (select vinculo_requisicao  from public.compras_pedidos where numero='0004869') as ped_vinculo,
+  (select valor_total         from public.compras_pedidos where numero='0004869') as ped_valor,
   (select numero_pedido_compra_alvo from public.compras_requisicoes
-    where numero_alvo='0001464')                                                      as req_vinculo,
-  (select count(*) from public.compras_pedidos where numero='0004868')                as ped_0004868_no_hub,
-  (select count(*) from (select codigo_empresa_filial, numero from public.compras_pedidos
-                          group by 1,2 having count(*)>1) d)                          as duplicidade_numero;
+    where numero_alvo='0001464')                                                  as req_vinculo,
+  (select status from public.compras_requisicoes where numero_alvo='0001464')     as req_status,
+  (select to_char(max(started_at) at time zone 'America/Sao_Paulo','DD/MM HH24:MI')
+     from public.sync_runs where job_type='bicephalous')                          as ultimo_ciclo;
 
 
 -- =====================================================================
--- BLOCO 1 — RECONCILIAÇÃO (transação única)
+-- VIGIAR O 0004868 (somente leitura)
 -- =====================================================================
--- Não usa a RPC `vincular_pedido_requisicao`: ela recusa pedido que já tenha
--- `numero_req_comp` ("Este pedido já está vinculado à requisição %"), e este
--- tem '0001464' desde a criação. Escrita direta é segura aqui — no SQL Editor
--- você é `postgres`, e `fn_req_protege_aprovacao` só atua sobre
--- authenticated/anon; `fn_req_congelar_conteudo` exige
--- `aprovacao_submetida_em` não nulo, que nesta requisição é NULL.
--- `compras_pedidos` não tem trigger nenhum.
+-- Este continua em aberto e é o único ponto que exige o ERP.
+-- A PRIMEIRA tentativa (a do `Default_CommandTimeout`, 14:07:25) consumiu o
+-- número 0004868. O 0004869 saiu da SEGUNDA tentativa, que falhou por
+-- PROTEGIDO_APROVACAO — ou seja, a confirmação de que "o timeout estourou depois
+-- de gravar" se aplica ao 0004869, mas **não responde pelo 0004868**.
 --
--- NENHUM Insert é repetido no ERP: o documento 0004869 já existe lá.
+-- Se 0004868 existir no ERP, é um pedido fantasma de R$ 3.880 — duplicata do
+-- 0004869 — e precisa ser cancelado lá. Se não existir, o Alvo só consumiu a
+-- numeração.
 --
--- Esperado: 1 linha em cada returning; resultado final no BLOCO 2.
-
-begin;
-
--- 1.1 — conclui o pedido: sai de erro_envio, limpa o erro, marca o vínculo
-update public.compras_pedidos
-   set status_local = 'enviado_alvo',
-       erro_envio = null,
-       vinculo_requisicao = 'com_vinculo',
-       vinculo_atualizado_em = now(),
-       vinculo_atualizado_por = 'Reconciliação manual — Pedro',
-       vinculo_ultima_acao = 'vinculado',
-       updated_at = now()
- where numero = '0004869'
-   and codigo_empresa_filial = '1.01'
-   and status_local::text = 'erro_envio'
-returning numero, status_local, numero_req_comp, vinculo_requisicao;
-
--- 1.2 — grava o vínculo do lado da requisição (o que o PROTEGIDO_APROVACAO impediu)
-update public.compras_requisicoes
-   set numero_pedido_compra_alvo = '0004869',
-       vinculo_atualizado_em = now(),
-       vinculo_atualizado_por = 'Reconciliação manual — Pedro',
-       vinculo_ultima_acao = 'vinculado',
-       updated_at = now()
- where numero_alvo = '0001464'
-   and numero_pedido_compra_alvo is null
-returning id, numero_alvo, status, numero_pedido_compra_alvo;
-
--- 1.3 — auditoria do lado do pedido
-insert into public.compras_pedidos_auditoria
-  (pedido_id, evento, user_id, user_nome, sucesso, payload_enviado, mensagem_erro)
-select p.id, 'vinculado_requisicao', null, 'Reconciliação manual — Pedro', true,
-       jsonb_build_object(
-         'acao','reconciliacao manual',
-         'pedido','0004869','requisicao','0001464',
-         'causa','Insert concluido no Alvo (documento Aberto, R$ 3.880). O Hub falhou ao gravar o vinculo com PROTEGIDO_APROVACAO, porque a versao em producao ainda usa upsert em compras_requisicoes (corrigido em cd31e11, pendente de Publish).',
-         'primeira_tentativa','Default_CommandTimeout as 14:07:25; numero 0004868 consumido no Alvo e NAO presente no Hub — conferir no ERP',
-         'sem_novo_insert', true),
-       'Reconciliacao manual: vinculo gravado sem repetir Insert no ERP.'
-  from public.compras_pedidos p
- where p.numero = '0004869' and p.codigo_empresa_filial = '1.01';
-
--- 1.4 — auditoria do lado da requisição
-insert into public.compras_requisicoes_auditoria
-  (requisicao_id, evento, user_id, user_nome, sucesso, payload_enviado, mensagem_erro)
-select r.id, 'vinculado_pedido', null, 'Reconciliação manual — Pedro', true,
-       jsonb_build_object(
-         'acao','reconciliacao manual',
-         'pedido','0004869','requisicao','0001464','sem_novo_insert', true),
-       'Reconciliacao manual do pedido 0004869, que ja existia no ERP.'
-  from public.compras_requisicoes r
- where r.numero_alvo = '0001464';
-
-commit;
-
-
--- =====================================================================
--- BLOCO 2 — CONFERÊNCIA (somente leitura)
--- =====================================================================
--- Esperado:
---   ped_status='enviado_alvo' · ped_erro=NULL · ped_vinculo='com_vinculo'
---   req_vinculo='0004869' · req_status='sincronizada' (inalterado)
---   auditoria_pedido = 8 eventos (eram 7)
---   pedidos_em_erro_envio = 0  — os casos da manhã já foram tratados por você
---   (0004865 e RASCUNHO-a28ae319 excluídos; 0004867 marcado 'sem_vinculo'),
---   então este era o último em erro_envio.
-
-select
-  (select status_local::text from public.compras_pedidos where numero='0004869')        as ped_status,
-  (select erro_envio from public.compras_pedidos where numero='0004869')                as ped_erro,
-  (select vinculo_requisicao from public.compras_pedidos where numero='0004869')        as ped_vinculo,
-  (select numero_pedido_compra_alvo from public.compras_requisicoes
-    where numero_alvo='0001464')                                                        as req_vinculo,
-  (select status from public.compras_requisicoes where numero_alvo='0001464')           as req_status,
-  (select count(*) from public.compras_pedidos_auditoria a
-     join public.compras_pedidos p on p.id=a.pedido_id where p.numero='0004869')        as auditoria_pedido,
-  (select count(*) from public.compras_pedidos where status_local::text='erro_envio')   as pedidos_em_erro_envio;
-
--- Trilha final do pedido, em ordem.
-select to_char(a.created_at at time zone 'America/Sao_Paulo','DD/MM HH24:MI:SS') as brt,
-       a.evento, a.sucesso, coalesce(a.user_nome,'(sistema)') as quem,
-       left(coalesce(a.mensagem_erro,''),90) as mensagem
-  from public.compras_pedidos_auditoria a
-  join public.compras_pedidos p on p.id = a.pedido_id
- where p.numero = '0004869'
- order by a.created_at;
-
-
--- =====================================================================
--- BLOCO 3 — VIGIAR O 0004868 (somente leitura, rodar depois de um ciclo)
--- =====================================================================
--- Se voltar 1 linha, o documento EXISTE no Alvo e foi criado pela tentativa que
--- deu timeout: é pedido fantasma de R$ 3.880 a cancelar no ERP (decisão sua).
--- Se continuar 0 depois de alguns ciclos, o Alvo só consumiu a numeração.
+-- Se esta query devolver 1 linha, o documento existe e o sync o descobriu.
 
 select numero, status_local::text, criado_no_hub, valor_total,
        to_char(created_at at time zone 'America/Sao_Paulo','DD/MM HH24:MI') as descoberto_brt,
-       left(coalesce(nome_entidade,''),35) as fornecedor
+       left(coalesce(nome_entidade,''),35) as fornecedor, numero_req_comp
   from public.compras_pedidos
  where numero = '0004868';
-
-
--- =====================================================================
--- ROLLBACK
--- =====================================================================
--- O BLOCO 1 é atômico. Se precisar desfazer depois de aplicado:
---
---   update public.compras_pedidos
---      set status_local='erro_envio', vinculo_requisicao='nao_verificado',
---          vinculo_atualizado_em=null, vinculo_atualizado_por=null,
---          vinculo_ultima_acao=null, updated_at=now()
---    where numero='0004869';
---
---   update public.compras_requisicoes
---      set numero_pedido_compra_alvo=null, vinculo_atualizado_em=null,
---          vinculo_atualizado_por=null, vinculo_ultima_acao=null, updated_at=now()
---    where numero_alvo='0001464';
---
--- Não apague os eventos de auditoria: a trilha do que foi feito deve sobreviver.
--- =====================================================================
