@@ -5,7 +5,7 @@
 > Documentos da missão: `MISSAO-SYNC-PEDIDOS.md` (espec-mãe) · `PROMPT-S0-SYNC-PEDIDOS.md`
 > (substitui a §4 da espec) · `DISCOVERY-SYNC-RATEIO-PEDIDOS.md` (achados, revisão 2).
 
-**Criado em:** 03/09/2026 · **Última atualização:** 08/09/2026 (a S1.1 **rodou**; religamento do cron)
+**Criado em:** 03/09/2026 · **Última atualização:** 08/09/2026 (fidelidade conferida campo a campo — diário §12 e `CONFERENCIA-FIDELIDADE-PEDIDOS.md`)
 
 ---
 
@@ -17,9 +17,13 @@ com efeito medido: 6 ciclos reais em 07/09** (§11). Restam **1.174 pedidos / R$
 normalizado para o backfill, cujo desenho mudou: o jsonb sozinho **não basta** (9,5% está
 desatualizado — §5.1).
 
-⚠️ **O cron está desligado desde 07/09 13h24 BRT** (pausa da implantação multi-CC, alheia a esta
-missão) e a Edge foi para **v51** às 15h43 daquele dia. A v51 preserva a S1.1, mas **nenhum ciclo
-rodou nela** — o primeiro será depois do religamento. Ver §11.
+✅ **O cron foi religado em 08/09** (fim da janela de aceite multi-CC) e a **v51 já rodou** —
+ciclos às 10h00 e 12h00 BRT, sem erro. A v51 preserva a S1.1. Ver §11.
+
+⚠️ **Novo achado de 08/09, e é o mais sério desta missão:** o cabeçalho é 100% fiel ao Alvo, mas
+**o detalhe (itens, rateio, parcelas) não é reconciliado quando o pedido muda no ERP** — 41
+pedidos com R$ 411.694,55 de divergência nos itens. Mesmo defeito que produz os 9,5% de jsonb
+desatualizado da §10, medido por outro caminho. Detalhe em `CONFERENCIA-FIDELIDADE-PEDIDOS.md`.
 
 ---
 
@@ -30,7 +34,7 @@ rodou nela** — o primeiro será depois do religamento. Ver §11.
 | **S0 — Discovery** | ✅ **concluída** (rev. 1 em 14/08, rev. 2 em 03/09) | `DISCOVERY-SYNC-RATEIO-PEDIDOS.md` |
 | **S1 — Correção do sync** | ✅ **em produção desde 20–24/08** (cards C3, C3.2, C3.3, D4) | **Não foi executada por esta missão** — chegou pela trilha de Suprimentos. Ver §4 |
 | **S1.1 — Gate + instrumentação** | ✅ **publicada 06/09 e executada 07/09** — efeito medido | 6 ciclos na v50; rateio 863 → **1.123** linhas (+230 em 07/09). Republicada na v51 sem rodar. Ver §9, §10.4 e **§11** |
-| **S2 — Backfill** | 🔴 **aberto — desenho a revisar** | A pré-condição §5.1 reprovou parcialmente: o jsonb é fiel mas **desatualizado em 9,5%**. Ver §10 |
+| **S2 — Backfill** | 🔴 **aberto — desenho a revisar** | A pré-condição §5.1 reprovou parcialmente: o jsonb é fiel mas **desatualizado em 9,5%**. Ver §10. **A conferência de 08/09 confirmou a causa por outro caminho** (detalhe não reconciliado): o desenho precisa cobrir desatualização, não só ausência |
 | **S3 — Convenção de percentual** | 🔴 aberto | T4 do Ajuste |
 
 ---
@@ -448,6 +452,38 @@ executou um ciclo. Ela **preserva a S1.1** (`BUILD_TAG = "S1.1-GATE-EVIDENCIA-DI
 Nada disso é defeito conhecido: é **caminho feliz que nunca rodou**, na acepção do CLAUDE.md.
 
 ## 12. Diário
+
+### 08/09/2026 — Conferência de fidelidade do sync (read-only)
+
+Sessão de duas frentes; a A foi a correção da criação de pedido (ver
+`DISCOVERY-PEDIDOS-CONFIABILIDADE.md` e commit da FRENTE A). Esta entrada é da frente B.
+100% leitura: nenhuma escrita no banco, nenhum pedido de teste, nenhum deploy.
+
+- **`CONFERENCIA-FIDELIDADE-PEDIDOS.md`** entregue: comparação campo a campo do Hub contra o
+  payload cru do Alvo (`compras_pedidos_auditoria.resposta_alvo`), em 5 pedidos e depois em
+  toda a população com payload disponível (1.343).
+- **Cabeçalho é 100% fiel:** `valor_total` bate em **1.343 de 1.343**. Os 7 campos de valor e a
+  soma dos componentes fecham em 5 de 5 na amostra.
+- **O detalhe não é reconciliado.** Itens, rateio e parcelas são carregados uma vez e não
+  acompanham alterações do pedido no ERP: **41 pedidos com soma de itens divergente,
+  R$ 411.694,55**; **85 de 1.307 parcelas com valor divergente** e **84 com vencimento
+  divergente** (40 pedidos). Em agosto, **22 de 22** divergentes têm `detalhes_carregados_em`
+  anterior ao payload mais recente — o mecanismo está provado, não inferido.
+- **Isto é o mesmo defeito da §10, medido por outro caminho.** O backfill do S2 encontrou 9,5%
+  de jsonb desatualizado; a causa é a mesma: o Hub não revisita um pedido cujo detalhe já
+  existe. O gate da S1.1 resolve **ausência** de rateio, não **desatualização** — um critério
+  adicional por mudança de cabeçalho traria esses 41 de volta à fila. **Isso reforça a decisão
+  pendente da §6 e deve entrar no desenho do S2.**
+- **Cobertura melhorou muito desde 03/09:** rateio no coorte ago/set passou de **72% → 87%**,
+  compatível com o efeito medido da S1.1. CC 54%→89%, classe 38%→85%, CNPJ 25%→84% (§B3 do
+  arquivo novo).
+- **Os 140 presos em `enviado_alvo` estão completos** — 140/140 com itens, rateio, parcelas e
+  status do Alvo, e 140/140 ressincronizados depois do envio. É só o rótulo que não conclui.
+- **Correção ao meu próprio discovery de hoje de manhã:** eu havia classificado o sync como
+  confiável com base em cobertura e taxa de erro do cron. Vale para o cabeçalho; **cobertura
+  mede o que está nulo, não o que está errado**. Os R$ 411 mil de divergência eram invisíveis
+  em todas as métricas que eu tinha usado.
+
 
 ### 08/09/2026 — Liberação da operação geral e religamento do cron
 

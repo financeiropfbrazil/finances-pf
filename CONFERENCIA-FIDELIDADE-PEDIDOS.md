@@ -1,0 +1,216 @@
+# CONFERÊNCIA DE FIDELIDADE — Pedidos de Compra
+
+> Read-only, 08/09/2026, 13h–14h BRT. Projeto `hbtggrbauguukewiknew`.
+> Nenhuma escrita no banco, nenhum pedido de teste, nenhuma alteração de código nesta frente.
+> Complementa `DISCOVERY-PEDIDOS-CONFIABILIDADE.md` (commit 2403d84), que provou que o cron
+> **roda**. Este arquivo responde se o que ele **grava é fiel ao Alvo**.
+>
+> Fonte da verdade usada: `compras_pedidos_auditoria.resposta_alvo` — payload cru do ERP,
+> escrito direto de `resp.data`, sem passar pelos mapeadores. Comparação contra o payload
+> **mais recente** de cada pedido. 1.343 pedidos têm payload cru disponível.
+
+---
+
+## B5 — VEREDITO (a resposta curta)
+
+**(i) Os VALORES do Hub são confiáveis?**
+O **cabeçalho sim, sem exceção** — `valor_total` bate com o Alvo em **1.343 de 1.343 pedidos
+(100%)**. O **detalhe não**: 41 pedidos têm soma de itens divergente, num total de
+**R$ 411.694,55**, e 85 de 1.307 parcelas têm valor divergente.
+
+**(ii) Os pedidos estão COMPLETOS?**
+Não todos, mas está melhorando rápido: cobertura de rateio subiu de 18,5% (março) para **87%
+(agosto/setembro)** — acima dos 72% medidos em 03/09. Hoje ~4% dos pedidos de agosto não têm
+rateio e 31 pedidos não têm nenhum item no Hub.
+
+**(iii) O que um Controller NÃO deve usar do Hub hoje sem conferir no ERP?**
+**Qualquer análise por item, por parcela ou por centro de custo do cabeçalho.** Valor total de
+pedido e contagem de pedidos podem ser usados com confiança. Gasto por produto, por CC, por
+classe e previsão de vencimento, não.
+
+---
+
+## O achado que explica quase tudo: o detalhe é carregado uma vez e nunca reconciliado
+
+O cabeçalho é reescrito a cada ciclo do cron. **Os filhos — itens, rateio e parcelas — são
+carregados uma vez e não são atualizados quando o pedido muda no ERP.** Quem edita um pedido no
+Alvo depois que o Hub carregou o detalhe deixa o Hub num estado misto: cabeçalho novo, filhos
+velhos. E o mais perigoso é que **o cabeçalho continua batendo** — a divergência é invisível em
+qualquer conferência de totais.
+
+### Caso completo: pedido 0004495
+
+Histórico dos payloads crus do próprio Hub (`compras_pedidos_auditoria`):
+
+| payload | cabeçalho | item seq | qtd | unitário | total do item |
+|---|---:|---:|---:|---:|---:|
+| 23/07 11:07 → 28/07 09:00 (6 payloads) | 110.000 | 1 | 2 | 55.000 | 110.000 |
+| **13/08 11:00 → 27/08 12:01 (3 payloads)** | **55.000** | **2** | **18** | **3.055,5555** | **55.000** |
+
+O pedido foi alterado no ERP entre 28/07 e 13/08. O que o Hub tem **hoje**:
+
+| | Hub | Alvo (payload atual) |
+|---|---|---|
+| `valor_total` (cabeçalho) | 55.000 ✅ | 55.000 |
+| item: sequência | **1** ❌ | 2 |
+| item: quantidade | **2** ❌ | 18 |
+| item: valor unitário | **55.000** ❌ | 3.055,5555 |
+| item: valor total | **110.000** ❌ | 55.000 |
+| parcelas | **36** ❌ | 18 |
+| rateio (linhas) | **1** ❌ | 2 |
+
+**R$ 55.000 de valor fantasma em um único pedido**, e ninguém veria olhando o total.
+
+---
+
+## B1 — Prova de fogo: 5 pedidos, campo a campo
+
+Seleção conforme pedido: criado no Hub × descoberto pelo sync; multi-CC × sem rateio; com
+parcelas e anexo.
+
+| pedido | origem | perfil | resultado |
+|---|---|---|---|
+| **0004795** | Hub | multi-CC (3 CCs), 1 item, 1 parcela | ✅ **tudo bate** |
+| **0004776** | sync | 1 item, rateio, 3 parcelas | ✅ valores, itens, rateio e 3/3 parcelas batem |
+| **0004769** | Hub | 3 itens, 3 anexos | ⚠️ itens e rateio batem; **vencimento da parcela diverge** |
+| **0004495** | Hub | 36 parcelas, 1 anexo | ❌ **detalhe congelado** (tabela acima) |
+| **0004815** | sync | sem rateio (CC no cabeçalho) | ❌ **vazio no Hub**: 0 itens, 0 parcelas, 0 rateio |
+
+### Cabeçalho — 7 campos de valor, 5 de 5 pedidos
+
+`valor_total`, `valor_mercadoria`, `valor_servico`, `valor_frete`, `valor_ipi`,
+`valor_outras_despesas`, `valor_desconto`: **"ok" em todos os 30 pares comparados.**
+`codigo_entidade`, `nome_entidade`, `status`, `aprovado`: idem.
+**A soma dos componentes fecha com `valor_total` em 5 de 5.**
+
+### O `centro_custo` do cabeçalho não vem do cabeçalho do Alvo
+
+| pedido | `CodigoCentroCtrl` no Alvo | `centro_custo` no Hub | CCs no rateio |
+|---|---|---|---|
+| 0004495 | **(nulo)** | 00008.00002.00005 | **00008.00001.00005** ← diferente! |
+| 0004769 | (nulo) | 00010.00002.00002 | 00010.00002.00002 |
+| 0004776 | (nulo) | 00010.00002.00007.00002 | 00010.00002.00007.00002 |
+| 0004795 | (nulo) | 00010.00002.00001 | **3 CCs** (só o 1º aparece no cabeçalho) |
+| 0004815 | 00010.00001.00005 | 00010.00001.00005 | (sem rateio) |
+
+Em 4 de 5, o Alvo **não traz CC no cabeçalho** — o Hub preenche por derivação. Duas
+consequências: no `0004495` o cabeçalho aponta um CC **diferente** do rateio; no `0004795`, um
+pedido rateado entre 3 CCs aparece inteiro sob um só. É a mesma armadilha LIVRO × ESPELHO do
+CLAUDE.md: filtrar "gasto por CC" pelo cabeçalho dá um número plausível e errado.
+
+### Parcelas: valor bate, vencimento não
+
+Pedido 0004769, parcela 1: valor **R$ 1.178 nos dois**, vencimento **01/08/2026 no Alvo** e
+**27/08/2026 no Hub** — 26 dias de diferença (não é fuso horário).
+
+---
+
+## B2 — A comparação estendida à população
+
+```sql
+-- 1.343 pedidos com payload cru; comparação contra o payload mais recente de cada um
+select count(*), count(*) filter (where round(hub_cab,2)=round(alvo_cab,2)) ...
+```
+
+| conferência | resultado |
+|---|---|
+| **`valor_total` do cabeçalho bate** | **1.343 de 1.343 — 100%** |
+| cabeçalho diverge | **0** |
+| quantidade de itens diverge | 55 pedidos |
+| pedidos sem nenhum item no Hub (Alvo tem) | 31 |
+| **soma dos itens diverge** | **41 pedidos** |
+| **valor total divergente nos itens** | **R$ 411.694,55** |
+
+### Onde a divergência se concentra — e a prova do mecanismo
+
+| mês do pedido | pedidos divergentes | valor divergente | com detalhe mais velho que o payload |
+|---|---:|---:|---:|
+| 2026-03 | 3 | 117.597,00 | 0 |
+| 2026-04 | 2 | 2.889,00 | 1 |
+| 2026-05 | 1 | 195,50 | 1 |
+| 2026-07 | 13 | 56.090,70 | 9 |
+| **2026-08** | **22** | **234.922,35** | **22 de 22** |
+
+Em agosto, **100% dos pedidos divergentes têm `detalhes_carregados_em` anterior ao payload mais
+recente** — o pedido mudou no ERP depois que o Hub carregou o detalhe, e o Hub nunca recarregou.
+A tendência é de **piora em volume** (3 → 22 casos/mês), acompanhando o crescimento do módulo.
+
+### Parcelas na população
+
+| conferência | resultado |
+|---|---|
+| parcelas comparáveis | 1.307 |
+| **valor da parcela diverge** | **85 (6,5%)** |
+| **data de vencimento diverge** | **84 (6,4%)**, em **40 pedidos** |
+
+---
+
+## B3 — O que falta hoje, por período (atualiza a medição de 03/09)
+
+| mês | pedidos | itens | **rateio** | parcelas | CC | classe | CNPJ | cond. pag. | 1º venc. |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2026-03 | 195 | 100% | 18,5% | 18,5% | 99,0% | 100% | 95,9% | 25,6% | 100% |
+| 2026-04 | 214 | 98,6% | 21,5% | 21,0% | 53,7% | 38,8% | 35,5% | 22,0% | 38,3% |
+| 2026-05 | 187 | 97,3% | 26,7% | 26,7% | 74,3% | 73,8% | 62,0% | 74,9% | 73,8% |
+| 2026-06 | 233 | 97,9% | 24,9% | 25,3% | 54,5% | 37,8% | 25,3% | 39,5% | 37,8% |
+| 2026-07 | 214 | 97,7% | 48,1% | 46,7% | 63,6% | 57,0% | 41,1% | 58,9% | 55,6% |
+| **2026-08** | 228 | 96,1% | **86,8%** | 85,5% | 86,4% | 85,1% | 84,2% | 89,5% | 83,8% |
+| 2026-09 | 54 | 88,9% | **87,0%** | 87,0% | 88,9% | 85,2% | 85,2% | 90,7% | 85,2% |
+
+**Tendência: melhora forte e consistente.** O rateio saiu de 18,5% para 87%; o
+`ESTADO-SYNC-PEDIDOS` registrava 72% para o coorte ago/set em 03/09 — subiu **15 pontos**, o que
+é compatível com o efeito medido da S1.1 (+230 linhas de rateio nos 6 ciclos de 07/09).
+
+Setembro tem `itens` e `detalhe` mais baixos (88,9% / 87,0%) porque os pedidos mais recentes
+ainda estão na fila do Job 2 — coerente com a mediana de 18 h para o detalhe carregar.
+
+---
+
+## B4 — Os 140 presos em `enviado_alvo`: é só o rótulo
+
+| conferência | resultado |
+|---|---|
+| total | 140 |
+| com `detalhes_carregados` | **140** |
+| com itens | **140** |
+| com rateio | **140** |
+| com parcelas | **140** |
+| com status do Alvo | **140** |
+| **ressincronizados depois do envio** (`synced_at > enviado_em`) | **140** |
+| com número real (não `RASCUNHO-`) | **140** |
+| com CC / classe | 123 |
+| com CNPJ | 136 |
+
+**O dado está completo e o sync continua tratando-os normalmente.** O `status_local` não migra
+para `sincronizado`, mas isso não afeta nada além da aparência na lista. As lacunas de CC/classe
+(17 casos) são as mesmas da base geral, não específicas desse grupo. **Cosmético — confirmado
+por medição, não por suposição.**
+
+---
+
+## O que contradisse o meu próprio discovery
+
+1. **"O sync é confiável" precisa de qualificação.** Eu havia medido que o cron roda (686
+   ciclos, 0–2% de erro) e que 96,6% dos pedidos ganham detalhe — e classifiquei o sync como
+   confiável, em (c) ruído/percepção. **Isso vale para o cabeçalho, não para o detalhe.**
+   Cobertura mede o que está nulo; só a comparação campo a campo revela o que está errado — e
+   41 pedidos com R$ 411 mil de diferença estavam invisíveis em toda métrica que usei antes.
+2. **`centro_custo` não é um campo espelhado.** Tratei-o como dado do pedido; é derivado, e o
+   Alvo em geral nem o preenche no cabeçalho. Em pedido multi-CC ele é enganoso por construção.
+3. **A latência de 18 h para o detalhe é mais séria do que "higiene".** Ela não é só espera: o
+   detalhe que chega depois **não é reconciliado**, então o atraso vira divergência permanente
+   se o pedido for editado no ERP nesse intervalo.
+
+---
+
+## Recomendação (fora do escopo desta sessão)
+
+A correção de fundo é **reconciliar o detalhe quando o cabeçalho muda**: hoje o gate do Job 2
+decide reprocessar por "o Alvo tem rateio e o Hub não tem" (S1.1, evidência direta). Isso resolve
+ausência, não desatualização — um pedido que já tem rateio no Hub nunca é revisitado, mesmo que
+o ERP o tenha alterado. Um critério adicional por mudança de cabeçalho (`valor_total`,
+`data_pedido` ou contagem de itens diferente do payload) traria esses 41 de volta à fila.
+
+Isso conversa diretamente com o desenho da FASE S2 (`ESTADO-SYNC-PEDIDOS` §10): o backfill por
+jsonb tem 9,5% de dado desatualizado pelo mesmo motivo. **É o mesmo defeito, medido por dois
+caminhos independentes.**
