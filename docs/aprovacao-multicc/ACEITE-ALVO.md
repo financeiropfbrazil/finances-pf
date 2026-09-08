@@ -1,18 +1,36 @@
-# Roteiro de aceite — preparado, não executado
+# Roteiro de aceite — implantação concluída; caso Caio/Ana não iniciado
+
+Gateway **fc505e2**, SQL integral **20260907184223**, Edge **v51** e frontend
+**multicc-20260907-aceite-3** publicados e conferidos. Carregamento das unidades,
+seleção automática, avanço local e bloqueio M3 validados no formulário real na sessão
+de Pedro (admin), sem persistência. Evidências do commit **519739b** em
+[resultado.json](tests/formulario-aceite-3/resultado.json) e capturas no mesmo diretório.
+
+**O teste Caio/Ana ainda não começou. A operação geral permanece suspensa.**
+Somente Pedro, Caio, Ana e Mirlene estão habilitados para o aceite; cron jobid 1
+inativo e sync-compras-status-cron desabilitado em sync_settings. Não repetir a
+implantação nem reabrir a janela: modo atual é aceite. Estado e versões completos em
+[IMPLANTACAO.md](deployment/IMPLANTACAO.md). Nenhum cadastro de liderança foi alterado.
 
 Matriz de participantes existentes, primeiro caso preenchido e checklist final em
 `ACEITE-PREENCHIDO.md`; os nomes R/LA/LB abaixo são a especificação geral dos cenários.
 
 ## Pré-condições e identidades
 
-Não executar este roteiro sem autorização posterior para implantação e Inserts.
+Implantação e abertura restrita já foram autorizadas e concluídas. O usuário fará os
+ensaios de requisição/aprovação e os Inserts correspondentes; o agente não criou nem
+enviou requisições de teste. Antes do primeiro caso, preencher data/hora da retomada,
+confirmar campos comerciais e presença dos participantes conforme ACEITE-PREENCHIDO.md.
+A validação do carregamento não é aceite do fluxo completo.
 Consulta e classificação dos 171 produtos concluídas, sem nova rede na análise:
 194 unidades suportadas e M3/2 e M3/3 Divisor de 001.017.092 bloqueadas; M3/3 é compras.
 Manter esse bloqueio até captura nativa do contrato; ver `CLASSIFICACAO-UNIDADES.md`.
-O usuário
-confirmou no Render o Live `76f67b2`, branch main, deploy 06/09/2026 às 17h28, mesmo
-commit contra o qual o patch aplica. Reconfirmar Live antes da janela para detectar
-novo deploy. Registrar responsáveis por gateway, SQL, frontend e Alvo.
+O Live atual do Render foi confirmado por /health em **fc505e2**, com
+`unidades=multicc-aceite-3-leitura-120s`; o frontend usa 135s e aviso de espera.
+`76f67b2` é apenas o baseline anterior à implantação; `4ef34d5` foi a primeira
+publicação multi-CC, substituída pela correção de leitura. Na retomada, conferir
+somente por leitura se versões e restrições permanecem iguais, registrando qualquer
+divergência antes de iniciar o ensaio.
 
 Reservar dois CCs válidos **A e B** e um CC **C** para rateio; usar códigos reais conferidos
 no cadastro. Não criar nem alterar líderes de produção para fabricar cenários sem plano
@@ -44,6 +62,11 @@ Anexo pequeno conhecido, SHA-256 registrado antes da criação; não usar dados 
 
 ## Casos e resultados esperados
 
+**Todos os casos de submissão/aprovação/envio abaixo permanecem pendentes no Alvo
+real.** A parte de leitura/seleção do caso J já foi validada em 519739b, mas payload
+de Insert, resposta de criação, anexo enviado, ReqComp/Load do novo documento e
+aprovações não foram ensaiados. LA=Caio e LB=Ana no primeiro caso preenchido.
+
 | Caso | Passos | Resultado esperado |
 |---|---|---|
 | A: autor líder parcial | LA cria cabeçalho A, itens A/B; submete | A dispensado_autor, B pendente; zero Insert até LB aprovar |
@@ -71,30 +94,36 @@ token de envio em registro operacional restrito, número Alvo, request/response 
 credenciais, ReqComp/Load final, SHA dos anexos e horários. Sucesso visual sozinho não
 é aceite. Consultar quantidade de Inserts nos logs do gateway/ERP e correlacionar IDs.
 
-## Sequência futura de implantação coordenada
+## Implantação realizada e sequência de retomada
 
-1. Revisão conjunta do diff, contratos não suportados e relatório de cobertura. Fixar
-   SHA do frontend/Edge/gateway e SHA do deploy live anterior. Conferir dependências
-   efetivas no Render (repo não tem lockfile) e testar o patch contra o SHA confirmado.
-2. Janela autorizada com criação/envio suspensos operacionalmente; afastar os crons
-   07h30/12h30/16h30 BRT conforme configuração vigente. Se necessário, kill-switch de
-   sync somente sob autorização explícita, anotando valor anterior e responsável.
-3. Instalar gateway protegido durante a janela, fechando ambos os Inserts antigos.
-   Até o SQL estar aplicado, nova rota pode recusar; manter usuários fora do fluxo.
-   Conferir health, SHA implantado e bloqueio das rotas antes de prosseguir.
-4. Executar PREVIEW de VERIFY.sql. Se houver requisições em transição sem número,
-   interromper; reconciliar caso a caso antes da migração. Salvar definições prévias.
-5. Aplicar migração versionada inteira numa única transação por conexão direta.
-   Nunca `supabase db push`, nunca fracionar SQL. Rodar VERIFY e conferir constraint,
-   ACLs, policies, funções e tabelas; erro implica rollback transacional.
-6. Instalar Edge de sync com shared de unidades e frontend correspondente. Type-check
-   Deno/frontend, build e verificações locais são pré-requisitos, não comandos em produção.
-   Manter bloqueio operacional até todas as versões estarem conferidas.
-7. Executar primeiro A/J com não-admin, conferir Alvo/bytes/auditoria, depois demais
-   casos aplicáveis. Só então liberar usuários e retomar cron com valor anterior.
-   Monitorar primeiro ciclo de sync e desfechos de envio; erro silencioso não é sucesso.
+1. **Concluído:** revisão, testes locais, baselines e cópias das definições em
+   deployment/antes/. Contratos não comprovados continuam bloqueados.
+2. **Concluído:** pausa autorizada da criação/envio e do cron de requisições, com
+   estado anterior registrado. Schedule real preservado: 0 11-20 * * 1-5 UTC;
+   cron jobid 1 e sync_settings do job seguem desativados. Outros crons não foram alterados.
+3. **Concluído:** gateway multi-CC publicado, incluindo bloqueio dos Inserts antigos;
+   correção de leitura fc505e2 também publicada e conferida pelo /health.
+4. **Concluído:** pré-voo sem transições ou envios sem confirmação, com cópias prévias.
+   Nenhum registro foi reconciliado ou descartado por suposição.
+5. **Concluído:** SQL-INTEGRAL.sql aplicado inteiro em transação no projeto
+   hbtggrbauguukewiknew, histórico 20260907184223; verificados grupos, auditoria,
+   ACLs e guards de dados/Storage. Não foi usado supabase db push.
+6. **Concluído:** Edge v51 e frontend aceite-3 publicados, abertura restrita para
+   quatro participantes e validação real do formulário registrada em 519739b.
+7. **Próximo passo, ainda não iniciado:** preencher data/hora, confirmar campos e
+   presença de Caio/Ana, conferir somente por leitura versões/restrições e executar
+   A/J conforme ACEITE-PREENCHIDO.md. Depois, casos aplicáveis de Mirlene e demais
+   cenários; líderes alternativos dependem de configuração adicional autorizada.
+8. **Pendente de confirmação explícita do usuário após o aceite:** liberar operação
+   geral e restaurar cron/sync ao estado anterior. Não reativar automaticamente ao
+   terminar um caso; registrar decisão e acompanhar o primeiro ciclo quando autorizado.
 
 ## Recuperação em caso de falha
+
+O SQL já está aplicado e a janela está em aceite. Os dois primeiros itens abaixo
+são referências para falha em uma eventual nova troca; não instruem desfazer a
+implantação concluída. Para qualquer falha do aceite, preservar restrições, grupos,
+auditoria e tokens, e aplicar o cenário correspondente sem supor ausência de Insert.
 
 - Antes do SQL: manter Inserts fechados e corrigir gateway/configuração; não abrir rotas
   antigas para contornar o gate. Sem transações novas, pode encerrar janela e reagendar
@@ -115,4 +144,6 @@ credenciais, ReqComp/Load final, SHA dos anexos e horários. Sucesso visual sozi
   isoladamente. Bloquear novos envios, reconciliar todos os tokens e preparar correção
   compatível. Reverter somente o frontend/SQL reabriria o defeito multi-CC.
 
-Este documento não autoriza nenhuma dessas ações em produção.
+Este documento registra a implantação autorizada e os ensaios ainda pendentes.
+Sua atualização não altera produção nem autoriza liberação geral, atribuições novas,
+limpeza de tokens ou Inserts pelo agente. A retomada dos ensaios fica com o usuário.
