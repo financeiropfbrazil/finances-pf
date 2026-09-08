@@ -1,5 +1,17 @@
 # Implantação autorizada — 07/09/2026
 
+## Estado vigente — aceite-3 publicado e formulário validado
+
+Lovable: marcador aceite-3 e JavaScript index-D_wmRFC0.js confirmados. Render:
+fc505e2 Live, leitura limitada a 120s. DRYPATCH retornou 200 em 54,794s e selecionou
+UNID/1 automaticamente; AMOSTRA retornou 200 em 2,626s com UNID/2 e avanço local
+para quantidades 10 e 20. M3/3 compras continua bloqueada por Divisor (200 em 1,624s).
+Temas claro/escuro conferidos no formulário publicado; nenhum item/requisição persistido.
+Detalhes e limites em ../CORRECAO-TIMEOUT.md e tests/formulario-aceite-3/resultado.json.
+Operação restrita a 4 participantes; cron e sync de requisições suspensos. Usuário pode
+retomar o caso Caio/Ana; nenhuma publicação adicional necessária para testes/evidências.
+Os estados de espera de publicação abaixo são históricos.
+
 ## Correção do aceite publicada — aceite-2
 
 Confirmados marcador multicc-20260907-aceite-2 e JS /assets/index-xkRUjpn6.js com

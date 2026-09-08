@@ -2043,3 +2043,12 @@ excedendo os antigos 45s totais do formulário. Leitura Financial Hub agora tem
 Sem alterar conversões, envios, SQL/Edge, cadastros ou novo IA Hub.
 Diagnóstico, testes e publicação: docs/aprovacao-multicc/CORRECAO-TIMEOUT.md.
 Operação restrita a quatro participantes; cron e sync de requisições suspensos.
+
+
+## Encerramento da correção de unidades — aceite-3
+
+Publicação e formulário real confirmados: DRYPATCH HTTP 200 em 54,794s, acima
+do limite antigo, com UNID/1 automática; AMOSTRA UNID/2 e M3/3 bloqueada preservadas.
+Temas conferidos e respostas reais validadas; sem persistência ou Insert. Operação
+continua restrita aos quatro participantes e cron suspenso. Aceite de requisição/
+aprovação será feito pelo usuário. Relatório: docs/aprovacao-multicc/CORRECAO-TIMEOUT.md.

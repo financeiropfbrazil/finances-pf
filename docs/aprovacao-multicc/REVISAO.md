@@ -252,3 +252,15 @@ excedendo os antigos 45s totais do formulário. Leitura Financial Hub agora tem
 Sem alterar conversões, envios, SQL/Edge, cadastros ou novo IA Hub.
 Diagnóstico, testes e publicação: docs/aprovacao-multicc/CORRECAO-TIMEOUT.md.
 Operação restrita a quatro participantes; cron e sync de requisições suspensos.
+
+
+## Aceite-3 publicado e validação autenticada concluída
+
+Marcador e JS index-D_wmRFC0.js confirmados; gateway fc505e2 Live. Formulário real
+na sessão Pedro: DRYPATCH 200/54,794s UNID1 automática; AMOSTRA 200/2,626s UNID2
+compras, avanço local com 10 e 20; M3/3 200/1,624s, bloqueada antes de adicionar.
+Respostas salvas e conferidas pelo mesmo validador. Temas claro/escuro inspecionados.
+Sem itens/requisições persistidos ou Insert no Alvo. Build final 32,42s passou.
+Relatório atual: CORRECAO-TIMEOUT.md; evidências: tests/formulario-aceite-3/.
+Usuário pode retomar aceite Caio/Ana; operação geral/cron permanecem suspensos.
+Nenhuma nova publicação necessária para esta atualização de testes/evidências.

@@ -34,3 +34,7 @@ CORS, autenticação ou cold start sem a evidência correspondente.
 Os eventos de rede registram apenas método, caminho, status e tempo; não contêm
 headers nem credenciais. Os dois Loads são evidências desta validação, sem repetir
 a coleta dos 171 produtos e sem alterar cadastros ou reconstruir histórico.
+
+Diagnóstico posteriormente encerrado: log Render confirmou 48,59s de autenticação,
+acima do prazo antigo. Aceite-3 foi publicado e validado com leitura real em 54,794s.
+Ver ../../CORRECAO-TIMEOUT.md e ../formulario-aceite-3/resultado.json.

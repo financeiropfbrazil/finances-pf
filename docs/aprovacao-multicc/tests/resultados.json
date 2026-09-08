@@ -206,8 +206,8 @@
     "typecheck_gateway": "passou",
     "build_frontend": "passou 33,30s",
     "build_gateway": "npm run build passou",
-    "live_confirmado": false,
-    "ultima_verificacao": "Render fc505e2 Live confirmado; Lovable ainda aceite-2. Falta Publish → Update de aceite-3.",
+    "live_confirmado": true,
+    "ultima_verificacao": "Render fc505e2 e Lovable aceite-3 confirmados; formulário real validado com sessão Pedro (admin), sem gravação.",
     "operacao": "aceite 4 participantes; cron e sync de requisições suspensos; zero transições/tokens sem confirmação",
     "insert_alvo": false,
     "relatorio": "../CORRECAO-TIMEOUT.md",
@@ -215,6 +215,62 @@
       "sha": "fc505e2ee0d69deb306c8aaef3e1de8f901bcfdc",
       "verificado_em": "2026-09-08T00:04:29.768Z",
       "marcador": "multicc-aceite-3-leitura-120s"
-    }
+    },
+    "formulario_real": {
+      "release": "multicc-20260907-aceite-3",
+      "gateway": "fc505e2ee0d69deb306c8aaef3e1de8f901bcfdc",
+      "javascript": "/assets/index-D_wmRFC0.js",
+      "javascript_sha256": "1b8e182b26f3cfc8f0f0eb5f65d824333c40266f80041079f27401fc3a560c68",
+      "usuario": "Pedro Scrignoli (admin)",
+      "ambiente": "formulário publicado, sessão real, gateway e ERP reais; sem interceptação de resposta",
+      "leituras": [
+        {
+          "produto": "001.001.00051",
+          "http": 200,
+          "duracao_ms": 54794.026,
+          "inicio_utc": "2026-09-08T00:13:45.560Z",
+          "unidade": "UNID",
+          "posicao": 1,
+          "preenchimento_automatico": true,
+          "habilitada": true
+        },
+        {
+          "produto": "001.013.00382",
+          "http": 200,
+          "duracao_ms": 2626.243,
+          "inicio_utc": "2026-09-08T00:32:22.371Z",
+          "unidade": "UNID",
+          "posicao": 2,
+          "compras": true,
+          "avanco_rateio_quantidades": [
+            10,
+            20
+          ]
+        },
+        {
+          "produto": "001.017.092",
+          "http": 200,
+          "duracao_ms": 1624.371,
+          "inicio_utc": "2026-09-08T00:34:20.595Z",
+          "unidade": "M3",
+          "posicao": 3,
+          "compras": true,
+          "bloqueio": "Divisor",
+          "aviso_antecipado": true,
+          "proximo_desabilitado": true,
+          "substituicao_automatica": false
+        }
+      ],
+      "conversoes": "conversoes.json; mesmo validador aplicado às respostas reais salvas, não persistência de requisição",
+      "visual": "temas claro e escuro pelo controle nativo do Hub; capturas inspecionadas, tema original restaurado",
+      "persistencias": 0,
+      "inserts_alvo": 0,
+      "limites": [
+        "Não substitui aceite de submissão/aprovação com pessoas reais.",
+        "Sessão real admin; não-admin coberto anteriormente por HTTP Express/JWKS local.",
+        "Demora do ERP não foi eliminada; prazo prematuro foi corrigido e leitura acima de 45s concluiu."
+      ]
+    },
+    "build_final": "passou 32,42s; mesmo bundle publicado"
   }
 }

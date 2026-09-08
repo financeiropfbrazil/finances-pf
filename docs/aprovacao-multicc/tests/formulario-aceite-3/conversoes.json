@@ -1,0 +1,50 @@
+[
+  {
+    "codigo": "001.001.00051",
+    "unidade": {
+      "codigo": "UNID",
+      "posicao": 1,
+      "peso": 1,
+      "tipo": "Fator",
+      "compras": false
+    },
+    "solicitadas": [
+      10,
+      20
+    ],
+    "principais": [
+      10,
+      20
+    ]
+  },
+  {
+    "codigo": "001.013.00382",
+    "unidade": {
+      "codigo": "UNID",
+      "posicao": 2,
+      "peso": 0.1,
+      "tipo": "Fator",
+      "compras": true
+    },
+    "solicitadas": [
+      10,
+      20
+    ],
+    "principais": [
+      1,
+      2
+    ]
+  },
+  {
+    "codigo": "001.017.092",
+    "compras": {
+      "codigo": "M3",
+      "posicao": 3,
+      "peso": 10,
+      "tipo": "Divisor",
+      "compras": true
+    },
+    "bloqueada": true,
+    "motivo": "Divisor"
+  }
+]

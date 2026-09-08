@@ -1,5 +1,32 @@
 # Correção do prazo da consulta autenticada de unidades
 
+## Estado vigente: publicado e validado no formulário real
+
+Aceite-3 confirmado no marcador e no JS `/assets/index-D_wmRFC0.js` (SHA-256
+1b8e182b26f3cfc8f0f0eb5f65d824333c40266f80041079f27401fc3a560c68).
+Gateway fc505e2 Live confirmado. Sessão real de Pedro, autenticada pelo próprio Chrome:
+
+| Produto | HTTP / duração até cabeçalhos | Resultado |
+|---|---|---|
+| 001.001.00051 | 200 / 54,794s | UNID/1 automática, seletor e avanço habilitados |
+| 001.013.00382 | 200 / 2,626s | UNID/2 compras automática; avanço ao rateio com 10 e 20 |
+| 001.017.092 | 200 / 1,624s | M3/3 compras preservada e bloqueada por Divisor antes de adicionar |
+
+A primeira leitura excedeu o limite antigo de 45s e concluiu normalmente: evidência
+real da correção, sem simulação/interceptação. Isso não elimina a lentidão do ERP.
+As três respostas reais salvas foram passadas ao mesmo validador: DRYPATCH 10→10 e
+20→20; AMOSTRA 10→1 e 20→2; M3/3 recusada. Não foram persistidas requisições.
+
+Temas claro/escuro e menus do Hub conferidos, com capturas inspecionadas. Tema original
+restaurado; formulário fechado vazio. Evidências em `tests/formulario-aceite-3/` e
+reprodução da validação das capturas em `tests/validar-capturas-aceite-3.mjs`.
+
+Build final passou em 32,42s. Nesta etapa só testes/launcher/evidências foram alterados;
+não é necessário publicar novamente. Operação segue restrita a 4 participantes e cron
+e sync de requisições suspensos. O aceite de criação/aprovação/envio permanece com o
+usuário; a sessão real usada aqui é admin, não substitui esse teste não-admin.
+As pendências de publicação descritas abaixo são históricas e foram superadas.
+
 ## Causa comprovada pelo log fornecido pelo usuário
 
 Em 07/09/2026 (UTC), `GET /produto/load` entrou às 23:37:48.339.
