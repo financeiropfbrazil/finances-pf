@@ -191,6 +191,97 @@ select 'sync_settings',
 
 
 -- =====================================================================
+-- BLOCO E — ACOMPANHAMENTO DO PRIMEIRO CICLO (somente leitura)
+-- =====================================================================
+-- Colar logo após o primeiro ciclo (a cada hora cheia entre 08h e 17h BRT).
+-- Nada aqui escreve.
+
+-- E1. O ciclo rodou? Como terminou?
+-- Esperado: 1+ linha nova job_type='bicephalous', orfa=false, total_erros=0,
+--           seg entre ~40 e ~120, observacao "Job2 elegíveis(sem limit)=...".
+-- ALERTA: orfa=true (morreu no meio) · total_erros>0 · observacao
+--         "Sync pausado" (faltou o BLOCO C) · nenhuma linha (cron não disparou).
+select to_char(started_at at time zone 'America/Sao_Paulo','DD/MM HH24:MI') as inicio_brt,
+       (finished_at is null)            as orfa,
+       total_candidatos, total_mudaram, total_erros,
+       round(duracao_ms/1000.0,1)       as seg,
+       left(coalesce(observacao,''),90) as observacao
+  from public.sync_runs
+ where job_type = 'bicephalous'
+   and started_at >= current_date
+ order by started_at desc;
+
+-- E2. Se houve erro: qual, e de que tipo (req x ped)?
+-- ALERTA ESPECÍFICO DA v51 — estes três nunca rodaram em produção:
+--   REQ_ITEM_<n>_PRODUTO_DIVERGENTE .... espelho x Alvo divergem no produto
+--   Quantidade principal ausente/inválida no ReqComp/Load
+--   Unidade ausente no ReqComp/Load
+-- Erro "Falha na autenticação do Alvo" / HTTP 502 = gateway/ERP fora, não é a v51.
+select to_char(r.started_at at time zone 'America/Sao_Paulo','DD/MM HH24:MI') as brt,
+       e->>'tipo' as tipo, left(e->>'erro',140) as erro, count(*) as qtd
+  from public.sync_runs r, jsonb_array_elements(r.detalhes) e
+ where r.job_type = 'bicephalous' and r.started_at >= current_date and (e ? 'erro')
+ group by 1,2,3
+ order by 4 desc;
+
+-- E3. O backfill implícito de unidades da v51 está avançando?
+-- Esperado: `incompletos` CAINDO a cada ciclo (parte dos 462 de 468).
+-- ALERTA: `divergentes_produto` > 0, ou `quantidade` mudando em requisição
+--         antiga sem que ninguém tenha mexido nela.
+-- (a tabela de itens não tem updated_at; a métrica é `incompletos` caindo)
+select count(*)                                                                as itens_espelhados,
+       count(*) filter (where i.quantidade_solicitada is null
+                           or i.posicao_prod_unid_med is null)                 as incompletos,
+       count(*) filter (where i.quantidade_solicitada is not null
+                          and i.posicao_prod_unid_med is not null)             as completos,
+       count(*) filter (where i.conversao_unidade is not null)                 as com_conversao
+  from public.compras_requisicoes_itens i
+  join public.compras_requisicoes r on r.id = i.requisicao_id
+ where nullif(btrim(r.numero_alvo),'') is not null;
+
+-- E4. O sync voltou a inserir requisições (o guard da janela saiu do caminho)?
+-- Esperado: nenhuma exceção; requisições novas do Alvo entram normalmente.
+-- ALERTA: 0 requisição nova por vários ciclos + erro tipo 'req' no E2 com a
+--         mensagem "Sincronização de requisições suspensa" = BLOCO A não foi aplicado.
+select count(*) filter (where created_at >= current_date) as requisicoes_novas_hoje,
+       count(*) filter (where updated_at >= current_date) as requisicoes_tocadas_hoje,
+       max(updated_at) at time zone 'America/Sao_Paulo'   as ultima_escrita_brt
+  from public.compras_requisicoes;
+
+-- E5. Âncora anti-wipe de agosto/2026 — a conferência que não pode falhar.
+-- Esperado: 228 pedidos. Valor em 08/09 antes do religamento: 2.739.159,50
+--           (congelado em 03/09: 2.739.015,00; +R$ 144,50, variação legítima do ERP).
+-- ALERTA: contagem <> 228, ou valor CAINDO — queda é o padrão de wipe.
+select count(*)                              as pedidos,
+       round(sum(valor_total)::numeric,2)    as total,
+       count(*) filter (where coalesce(valor_total,0) = 0) as zerados
+  from public.compras_pedidos
+ where data_pedido >= date '2026-08-01' and data_pedido < date '2026-09-01';
+
+-- E6. O gate da S1.1 seguiu drenando rateio?
+-- Esperado: linhas crescendo (era 1.123 em 08/09, antes do religamento).
+select count(*)                                                          as linhas_rateio,
+       count(distinct item_id)                                           as itens_com_rateio,
+       count(*) filter (where created_at >= current_date)                as criadas_hoje
+  from public.compras_pedidos_itens_rateio;
+
+-- E7. Primeira requisição multi-CC de produção — o caminho NUNCA exercitado.
+-- Esperado enquanto ninguém criar uma: 0 linhas.
+-- Quando aparecer a primeira, é a estreia real do multi-CC: acompanhar de perto
+-- (grupos abertos x decididos, um único envio ao final, nenhum Insert antes do
+-- fechamento de todos os grupos).
+select g.requisicao_id,
+       count(*)                                                as grupos,
+       count(*) filter (where g.aprovado_em is not null)       as decididos,
+       count(*) filter (where g.automatica)                    as automaticos,
+       count(*) filter (where g.sem_lider_na_submissao)        as sem_lider,
+       max(g.aprovado_em) at time zone 'America/Sao_Paulo'     as ultima_decisao_brt
+  from public.compras_requisicoes_aprovacao_grupos g
+ group by g.requisicao_id
+ order by 6 desc nulls last;
+
+
+-- =====================================================================
 -- ROLLBACK (se o primeiro ciclo der errado)
 -- =====================================================================
 -- Repausa tudo, sem desfazer a implantação multi-CC e sem tocar em
