@@ -178,3 +178,7 @@ fc505e2 enviados ao main. Builds e 125 regressões frontend, 3 testes Node e
 25 HTTP Express passaram. Aguardam atualização efetiva nos painéis; última leitura
 publicada ainda aceite-2/4ef34d5. Nenhuma SQL/Edge nova. Aceite restrito e cron
 suspenso permanecem. Zero requisições em transição ou envios sem confirmação.
+
+Atualização: gateway fc505e2 Live confirmado por /health em 08/09 00:04 UTC
+(07/09 21:04 BRT), com marcador unidades=multicc-aceite-3-leitura-120s.
+Lovable ainda aceite-2; falta publicar aceite-3. Operação/cron permanecem restritos.

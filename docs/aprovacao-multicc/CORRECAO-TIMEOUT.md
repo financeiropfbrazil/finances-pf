@@ -70,3 +70,11 @@ Lovable Financial Hub → Publish → Update, main com 2e6d39f. A validação po
 no formulário será retomada após essas publicações; não declarar Live por push.
 
 Patches: correcao-timeout-frontend.patch e correcao-timeout-gateway.patch.
+
+
+## Gateway Live confirmado
+
+Em 2026-09-08T00:04:29.768Z (07/09 21:04 BRT), /health confirmou
+fc505e2ee0d69deb306c8aaef3e1de8f901bcfdc e unidades=multicc-aceite-3-leitura-120s.
+Não é mais necessário acionar deploy no Render. Lovable ainda serve aceite-2;
+falta Publish → Update de aceite-3 e validação final do formulário autenticado.

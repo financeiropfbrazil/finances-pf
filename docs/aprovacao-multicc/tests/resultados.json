@@ -207,9 +207,14 @@
     "build_frontend": "passou 33,30s",
     "build_gateway": "npm run build passou",
     "live_confirmado": false,
-    "ultima_verificacao": "Render ainda 4ef34d5; Lovable ainda aceite-2. Ações concretas solicitadas ao usuário.",
+    "ultima_verificacao": "Render fc505e2 Live confirmado; Lovable ainda aceite-2. Falta Publish → Update de aceite-3.",
     "operacao": "aceite 4 participantes; cron e sync de requisições suspensos; zero transições/tokens sem confirmação",
     "insert_alvo": false,
-    "relatorio": "../CORRECAO-TIMEOUT.md"
+    "relatorio": "../CORRECAO-TIMEOUT.md",
+    "gateway_live": {
+      "sha": "fc505e2ee0d69deb306c8aaef3e1de8f901bcfdc",
+      "verificado_em": "2026-09-08T00:04:29.768Z",
+      "marcador": "multicc-aceite-3-leitura-120s"
+    }
   }
 }
