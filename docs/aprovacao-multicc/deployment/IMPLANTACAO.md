@@ -169,3 +169,12 @@ Procedimento completo de recuperação: ../ACEITE-ALVO.md.
 Para liberar operação geral, aguardar confirmação explícita do aceite, conferir zero
 tokens sem número e só então mudar modo para aberta e restaurar enabled=true e cron
 active=true, mantendo schedule original. Registrar retomada; não apagar histórico de pausa.
+
+
+## Correção de timeout — aceite-3 preparado
+
+Causa, mudanças e rollout em ../CORRECAO-TIMEOUT.md. Frontend 2e6d39f e gateway
+fc505e2 enviados ao main. Builds e 125 regressões frontend, 3 testes Node e
+25 HTTP Express passaram. Aguardam atualização efetiva nos painéis; última leitura
+publicada ainda aceite-2/4ef34d5. Nenhuma SQL/Edge nova. Aceite restrito e cron
+suspenso permanecem. Zero requisições em transição ou envios sem confirmação.

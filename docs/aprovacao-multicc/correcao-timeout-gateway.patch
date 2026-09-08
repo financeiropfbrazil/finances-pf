@@ -1,0 +1,120 @@
+diff --git a/src/index.ts b/src/index.ts
+index 8b05992..f3a270f 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -121,6 +121,7 @@ app.get("/health", (_req: Request, res: Response) => {
+     env: NODE_ENV,
+     revision: process.env.RENDER_GIT_COMMIT || null,
+     requisicoes: "multicc-20260907-aceite-1",
++    unidades: "multicc-aceite-3-leitura-120s",
+   });
+ });
+ 
+diff --git a/src/routes/produto-leitura.ts b/src/routes/produto-leitura.ts
+new file mode 100644
+index 0000000..3879e46
+--- /dev/null
++++ b/src/routes/produto-leitura.ts
+@@ -0,0 +1,44 @@
++import { getAlvoToken, invalidateAlvoToken } from "../alvo-auth";
++
++export type EtapaProduto = "autenticacao" | "consulta" | "resposta";
++
++// Cancela apenas este leitor. A autenticação compartilhada continua disponível
++// para os demais clientes e pode preencher seu cache normalmente.
++function aguardar<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
++  return new Promise((resolve, reject) => {
++    const abort = () => reject(signal.reason || new Error("Consulta cancelada"));
++    if (signal.aborted) { abort(); return; }
++    signal.addEventListener("abort", abort, { once: true });
++    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
++  });
++}
++
++// Somente Produto/Load GET: não altera o cliente genérico nem retries de escrita.
++export async function carregarProdutoLeitura(
++  codigo: string, signal: AbortSignal, etapa: (value: EtapaProduto) => void,
++): Promise<{ ok: boolean; status: number; data: any; error?: string }> {
++  const base = process.env.ALVO_BASE_URL;
++  if (!base) throw new Error("ALVO_BASE_URL não configurado");
++  for (let tentativa = 0; tentativa < 2; tentativa++) {
++    signal.throwIfAborted();
++    etapa("autenticacao");
++    const token = await aguardar(getAlvoToken(tentativa > 0), signal);
++    signal.throwIfAborted();
++    etapa("consulta");
++    const response = await fetch(`${base.replace(/\/$/, "")}/Produto/Load?codigo=${encodeURIComponent(codigo)}&loadChild=All`, {
++      method: "GET", signal,
++      headers: { "Content-Type": "application/json", "riosoft-token": token },
++    });
++    etapa("resposta");
++    const text = await response.text();
++    signal.throwIfAborted();
++    let data: any;
++    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
++    if (tentativa === 0 && [401, 403, 409].includes(response.status)) {
++      invalidateAlvoToken();
++      continue;
++    }
++    return { ok: response.ok, status: response.status, data, error: response.ok ? undefined : `HTTP ${response.status}` };
++  }
++  throw new Error("Não foi possível consultar o produto");
++}
+diff --git a/src/routes/produto.ts b/src/routes/produto.ts
+index 3127df4..2bf381b 100644
+--- a/src/routes/produto.ts
++++ b/src/routes/produto.ts
+@@ -15,6 +15,9 @@
+ import { Router, Request, Response } from "express";
+ import { callAlvo } from "../alvo-client";
+ 
++import { randomUUID } from "node:crypto";
++import { carregarProdutoLeitura, type EtapaProduto } from "./produto-leitura";
++
+ const router = Router();
+ 
+ // ─────────────────────────────────────────────────────────────
+@@ -200,7 +203,42 @@ router.get("/load", async (req: Request, res: Response) => {
+     codigo
+   )}&loadChild=All`;
+ 
+-  const result = await callAlvo(endpoint, "GET");
++  // Fluxo Financial Hub: 48,59s de autenticação observados em produção já
++  // excediam os antigos 45s do navegador. Orçamento total limitado, inclusive body.
++  let result;
++  if (req.user?.source === "financial_hub") {
++    const requestId = randomUUID();
++    const controller = new AbortController();
++    const inicio = Date.now();
++    let fase: EtapaProduto = "autenticacao";
++    let inicioEtapa = inicio;
++    let expirou = false;
++    const cancelar = () => { if (!res.writableEnded) controller.abort(); };
++    res.once("close", cancelar);
++    const timer = setTimeout(() => { expirou = true; controller.abort(); }, 120_000);
++    const registrar = (evento: string) => console.log(JSON.stringify({
++      evento, requestId, codigo, etapa: fase, etapa_ms: Date.now() - inicioEtapa, total_ms: Date.now() - inicio,
++    }));
++    try {
++      result = await carregarProdutoLeitura(codigo, controller.signal, proxima => {
++        registrar("produto_leitura_etapa"); fase = proxima; inicioEtapa = Date.now();
++      });
++      registrar("produto_leitura_concluida");
++    } catch {
++      registrar(expirou ? "produto_leitura_timeout" : controller.signal.aborted ? "produto_leitura_cancelada" : "produto_leitura_falha");
++      if (!res.destroyed) res.status(expirou ? 504 : 502).json({
++        error: expirou
++          ? "O Alvo não concluiu a consulta do produto em 120 segundos. Tente novamente."
++          : "Falha de comunicação ao consultar o produto no Alvo. Tente novamente.",
++        etapa: fase, requestId,
++      });
++      return;
++    } finally {
++      clearTimeout(timer); res.off("close", cancelar);
++    }
++  } else {
++    result = await callAlvo(endpoint, "GET");
++  }
+ 
+   if (!result.ok) {
+     const msg =

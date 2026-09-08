@@ -3,7 +3,10 @@
     "release": "multicc-20260907-aceite-2",
     "relatorio": "../CORRECAO-SELETORES.md",
     "suite_regressao": "120 passaram; sidebar excluído (7 falhas antigas)",
-    "testes_finais": {"avisos_com_repro_baseline": 5, "consulta_unidades": 6},
+    "testes_finais": {
+      "avisos_com_repro_baseline": 5,
+      "consulta_unidades": 6
+    },
     "visual": "Chrome headless isolado, temas claro/escuro, componentes reais com Load salvo e falhas de rede simuladas",
     "evidencia_visual": "visual/resultados.json",
     "produto_aceite": "Load real 001.013.00382: UNID/2, 10→1 e 20→2",
@@ -23,7 +26,15 @@
     "edge_publicada": 51,
     "frontend_publicado": "multicc-20260907-aceite-1; marcador 200 e JS index-BvubHJN_ conferidos",
     "aceite_restrito_aberto": "2026-09-07T18:59:31.536119Z; Pedro, Caio, Ana, Mirlene; zero não participantes permitidos",
-    "testes_nesta_janela": {"sql": 112, "express": 20, "vitest": 113, "tsc_frontend": "passou", "tsc_gateway": "passou", "deno_check": "passou", "vite_build": "passou"},
+    "testes_nesta_janela": {
+      "sql": 112,
+      "express": 20,
+      "vitest": 113,
+      "tsc_frontend": "passou",
+      "tsc_gateway": "passou",
+      "deno_check": "passou",
+      "vite_build": "passou"
+    },
     "storage": "52 testes anteriores, não repetidos nesta janela",
     "aceite_alvo": "aguardando publicação coordenada; nenhum Insert executado"
   },
@@ -177,5 +188,28 @@
       "build": "passed com avisos existentes"
     },
     "browser_visual": "não executado nesta etapa"
+  },
+  "correcao_timeout": {
+    "release": "multicc-20260907-aceite-3",
+    "frontend_commit": "2e6d39f",
+    "gateway_commit": "fc505e2",
+    "causa": "48,59s entre entrada do handler e conclusão da autenticação Alvo, acima dos antigos 45s totais do formulário",
+    "limites_segundos": {
+      "gateway": 120,
+      "frontend": 135
+    },
+    "regressao_frontend": 125,
+    "exclusao": "sidebar-ordem.test.tsx: sete falhas preexistentes",
+    "node_gateway": 3,
+    "express_jwks": 25,
+    "typecheck_frontend": "passou",
+    "typecheck_gateway": "passou",
+    "build_frontend": "passou 33,30s",
+    "build_gateway": "npm run build passou",
+    "live_confirmado": false,
+    "ultima_verificacao": "Render ainda 4ef34d5; Lovable ainda aceite-2. Ações concretas solicitadas ao usuário.",
+    "operacao": "aceite 4 participantes; cron e sync de requisições suspensos; zero transições/tokens sem confirmação",
+    "insert_alvo": false,
+    "relatorio": "../CORRECAO-TIMEOUT.md"
   }
 }

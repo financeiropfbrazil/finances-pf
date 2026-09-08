@@ -56,3 +56,17 @@ Recuperação: `git revert` do commit desta correção em cada repo, build/push 
 republicação correspondente. Não reverter migração multi-CC nem abrir operação ou
 cron. Reverter o frontend restaura o timeout insuficiente de 45s; registrar esse limite.
 Nenhuma requisição foi criada ou submetida e nenhum Insert real foi realizado pelo agente.
+
+
+## Resultado da preparação e ações de painel
+
+Frontend enviado ao main em **2e6d39f**. Regressão final: **125 testes passaram**,
+excluídas somente as sete falhas antigas de sidebar. Suítes específicas: 14 frontend,
+3 Node gateway e 25 Express/JWKS. Build do gateway (`npm run build`) também passou.
+
+Última conferência pública desta etapa: Render ainda 4ef34d5 e Lovable ainda aceite-2.
+Solicitado ao usuário Render → Manual Deploy → Deploy latest commit fc505e2 e
+Lovable Financial Hub → Publish → Update, main com 2e6d39f. A validação posterior
+no formulário será retomada após essas publicações; não declarar Live por push.
+
+Patches: correcao-timeout-frontend.patch e correcao-timeout-gateway.patch.

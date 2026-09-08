@@ -1,0 +1,111 @@
+diff --git a/public/multicc-version.json b/public/multicc-version.json
+index 1a6a079..b17bcfb 100644
+--- a/public/multicc-version.json
++++ b/public/multicc-version.json
+@@ -1 +1 @@
+-{"release":"multicc-20260907-aceite-2","approval":"todos-ccs","units":"Fator-validado","operation":"aceite-restrito","fix":"seletores-tema-e-estados-produto-load"}
++{"release":"multicc-20260907-aceite-3","approval":"todos-ccs","units":"Fator-validado","operation":"aceite-restrito","fix":"leitura-autenticada-120s-gateway-135s-formulario"}
+diff --git a/src/components/compras/UnidadeRequisicaoSelect.tsx b/src/components/compras/UnidadeRequisicaoSelect.tsx
+index fcac064..260b4a4 100644
+--- a/src/components/compras/UnidadeRequisicaoSelect.tsx
++++ b/src/components/compras/UnidadeRequisicaoSelect.tsx
+@@ -1,5 +1,5 @@
+ import { converterSolicitada, type UnidadeRequisicao } from "../../../supabase/functions/_shared/requisicao-unidades";
+-import { useId } from "react";
++import { useEffect, useId, useState } from "react";
+ import { Button } from "@/components/ui/button";
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+ import { Loader2 } from "lucide-react";
+@@ -28,9 +28,18 @@ export function UnidadeRequisicaoSelect({ unidades, posicao, onChange, carregand
+   erro?: Error | null; onRetry?: () => void; produtoSelecionado?: boolean; pausado?: boolean;
+ }) {
+   const avisoId = useId();
++  const [demorada, setDemorada] = useState(false);
++  useEffect(() => {
++    setDemorada(false);
++    if (!carregando) return;
++    const timer = setTimeout(() => setDemorada(true), 15_000);
++    return () => clearTimeout(timer);
++  }, [carregando]);
+   const restricao = restricaoUnidadeRequisicao(unidades.find(u => u.posicao === posicao));
+   const mensagem = !produtoSelecionado ? "Selecione um produto para consultar as unidades."
+-    : carregando ? "Consultando unidades no Alvo…"
++    : carregando ? (demorada
++      ? "Ainda aguardando o Alvo. A conexão pode precisar renovar a sessão; a consulta pode levar até 2 minutos. Você pode aguardar ou cancelar e escolher outro produto."
++      : "Consultando unidades no Alvo…")
+     : pausado ? "Consulta pausada por falta de conexão. Reconecte-se e tente novamente."
+     : erro ? `Não foi possível consultar as unidades: ${erro.message}`
+     : !unidades.length ? "O Produto/Load retornou nenhuma unidade cadastrada. Confira o cadastro com Suprimentos ou tente novamente."
+diff --git a/src/services/requisicoesService.ts b/src/services/requisicoesService.ts
+index 1f6043b..d288574 100644
+--- a/src/services/requisicoesService.ts
++++ b/src/services/requisicoesService.ts
+@@ -223,9 +223,9 @@ export async function carregarUnidadesProduto(codigo: string, signal?: AbortSign
+   let timer: ReturnType<typeof setTimeout>;
+   const limite = new Promise<never>((_, reject) => {
+     timer = setTimeout(() => {
+-      reject(new Error(`A consulta das unidades de ${codigo} excedeu 45 segundos. Tente novamente.`));
++      reject(new Error(`A consulta das unidades de ${codigo} excedeu 135 segundos. Tente novamente.`));
+       controller.abort();
+-    }, 45_000);
++    }, 135_000);
+   });
+   try {
+     return await Promise.race([limite, (async () => {
+diff --git a/src/test/requisicao-unidade-aviso.test.tsx b/src/test/requisicao-unidade-aviso.test.tsx
+index 9f62626..028f160 100644
+--- a/src/test/requisicao-unidade-aviso.test.tsx
++++ b/src/test/requisicao-unidade-aviso.test.tsx
+@@ -17,8 +17,19 @@ function mount(posicao: number, change: (n: number) => void) {
+   if (!root) { container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container); }
+   act(() => root.render(<UnidadeRequisicaoSelect unidades={unidades} posicao={posicao} onChange={change} carregando={false} />));
+ }
+-afterEach(() => { act(() => root?.unmount()); container?.remove(); root = undefined; });
++afterEach(() => { act(() => root?.unmount()); container?.remove(); root = undefined; vi.useRealTimers(); });
+ describe("restrição antecipada de unidade", () => {
++  it("explica espera prolongada e limpa o aviso ao concluir a consulta", () => {
++    vi.useFakeTimers();
++    mount(1, () => {});
++    act(() => root.render(<UnidadeRequisicaoSelect unidades={[]} posicao={null} onChange={() => {}} carregando />));
++    expect(container.textContent).toContain("Consultando unidades no Alvo");
++    act(() => vi.advanceTimersByTime(15_000));
++    expect(container.textContent).toContain("pode levar até 2 minutos");
++    act(() => root.render(<UnidadeRequisicaoSelect unidades={unidades} posicao={1} onChange={() => {}} carregando={false} />));
++    expect(container.textContent).not.toContain("Ainda aguardando");
++    expect(container.querySelector('button[aria-label="Unidade solicitada"]')).not.toHaveAttribute("disabled");
++  });
+   it("reproduz no componente anterior uma consulta pendente com seletor bloqueado sem explicação", () => {
+     const antes = renderToStaticMarkup(<SeletorAntes unidades={[]} posicao={null} onChange={() => {}} carregando />);
+     expect(antes).toContain('disabled=""');
+diff --git a/src/test/requisicao-unidades-consulta.test.ts b/src/test/requisicao-unidades-consulta.test.ts
+index a8e0201..01f73bd 100644
+--- a/src/test/requisicao-unidades-consulta.test.ts
++++ b/src/test/requisicao-unidades-consulta.test.ts
+@@ -5,13 +5,24 @@ import { converterSolicitada } from "../../supabase/functions/_shared/requisicao
+ import { posicaoInicialUnidade } from "@/components/compras/UnidadeRequisicaoSelect";
+ vi.mock("@/integrations/supabase/client", () => ({ supabase: { auth: { getSession: async () => ({ data: { session: { access_token: "teste-local" } } }) } } }));
+ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+-it("requisição pendente termina em 45s e cancela o transporte, sem alegar incompatibilidade", async () => {
++it("formulário aceita o tempo real de autenticação mais Load, superior a 45s", async () => {
++  vi.useFakeTimers();
++  const real = JSON.parse(readFileSync("docs/aprovacao-multicc/produto-load/20260907-191432.txt", "utf8"));
++  vi.stubGlobal("fetch", vi.fn(async () => {
++    await new Promise(resolve => setTimeout(resolve, 59_100));
++    return { ok: true, json: async () => real };
++  }));
++  const request = carregarUnidadesProduto("001.001.00051");
++  await vi.advanceTimersByTimeAsync(59_100);
++  expect(posicaoInicialUnidade(await request)).toBe(1);
++});
++it("requisição pendente termina em 135s e cancela o transporte, sem alegar incompatibilidade", async () => {
+   vi.useFakeTimers();
+   let signal: AbortSignal;
+   vi.stubGlobal("fetch", vi.fn((_url, options) => { signal = options.signal; return new Promise(() => {}); }));
+   const request = carregarUnidadesProduto("001.001.00051");
+-  const result = expect(request).rejects.toThrow("excedeu 45 segundos");
+-  await vi.advanceTimersByTimeAsync(45_000);
++  const result = expect(request).rejects.toThrow("excedeu 135 segundos");
++  await vi.advanceTimersByTimeAsync(135_000);
+   await result;
+   expect(signal.aborted).toBe(true);
+   expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/produto/load?codigo=001.001.00051"), expect.objectContaining({ method: "GET" }));
