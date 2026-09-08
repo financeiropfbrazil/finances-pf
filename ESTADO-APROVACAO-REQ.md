@@ -3,8 +3,9 @@
 > Missão: **Aprovação de Requisições pelo Líder de Departamento**.
 > Documentos-mãe (imutáveis por convenção): `CLAUDE_APROVACAO_REQ.md` (guia v2) e `AJUSTE-1.1-APROVACAO-REQ.md` (manda em caso de conflito).
 > Este arquivo é o **único mutável** da missão: guarda status e ponto de retomada. Atualizar ao fim de cada prompt.
-> Última atualização: **02/09/2026** (PROMPT 7.2 — escopo `view_cc`: SQL pronto para executar e
-> frontend entregue, **§16**. Antes dele, PROMPT 7.1 — §15).
+> Última atualização: **08/09/2026** — liberação da operação geral (fim da janela de aceite
+> multi-CC), com o teste Caio/Ana dispensado por decisão do Pedro: **última seção do arquivo**.
+> Antes dela, 02/09/2026 (PROMPT 7.2 — escopo `view_cc`, **§16**) e PROMPT 7.1 (§15).
 
 ## 0. 🏁 MISSÃO CONCLUÍDA (11/08/2026)
 
@@ -1349,3 +1350,84 @@ Levantamento somente SELECT: 171 produtos recentes, 3 com escala em cache, 168 s
 não inferido suporte nem histórico. Aceite no Alvo real continua pendente.
 Divisor/dimensões/base não normalizada/arredondamento seguem bloqueados por falta de
 contrato. Ver REVISAO.md. Nada aplicado em produção, enviado por push ou publicado.
+
+
+## 08/09/2026 — Liberação da operação geral (fim da janela de aceite multi-CC)
+
+**Decisão do Pedro, explícita e registrada:** liberar a operação geral **sem executar o teste
+Caio/Ana**. Ele entende e aceita o risco. Consequência a manter à vista: **o caminho multi-CC
+— rateio entre CCs + aprovação de vários líderes — nunca foi exercitado com dado real.** A
+primeira requisição multi-CC de produção será a primeira execução real desse caminho. O fluxo
+single-CC está validado (formulário autenticado, três produtos, commit `519739b`).
+
+**Nenhum caso do `ACEITE-ALVO.md` foi executado.** Os casos A a M seguem pendentes; A e J tiveram
+só a parte de leitura/seleção validada. Payload de Insert, resposta de criação, anexo enviado,
+ReqComp/Load do documento novo e as aprovações continuam sem ensaio no Alvo real.
+
+### Passo 1 — reconferência de envios incertos: **LIMPO** (08/09/2026, 09h09 BRT)
+
+Pré-requisito não-pulável do `ACEITE-ALVO.md`, refeito por leitura no projeto
+`hbtggrbauguukewiknew` (fingerprint: `compras_requisicoes_janela` presente, 405 requisições —
+exatamente a soma do pré-voo de 07/09: 72+253+24+4+52).
+
+| Conferência | Resultado |
+|---|---:|
+| Token de envio sem confirmação (`envio_token` sem `numero_alvo`) | **0** |
+| Tokens de envio existentes, em qualquer estado | **0** |
+| Requisições em transição (`pendente_aprovacao`/`aprovada`/`pendente_envio`/`erro_envio`) | **0** |
+| `enviado_em` preenchido sem `numero_alvo` | **0** |
+| Último evento de auditoria = `envio_tentado`/`envio_sucesso` sem número | **0** |
+| `numero_alvo` duplicado | **0** |
+| Escritas em `compras_requisicoes` desde a pausa (07/09 16:24 UTC) | **0** |
+| Grupos de aprovação multi-CC existentes (`..._aprovacao_grupos`) | **0** |
+
+**Os 25 casos com `tentativa_envio_em` sem `numero_alvo` foram caracterizados um a um** — não são
+envios incertos, são falhas determinísticas, e nenhum é 409/timeout/5xx/resposta ambígua:
+
+- 15× falha **pré-HTTP** ao gravar metadados de arquivo (`duplicate key ... upload_identify_guid`);
+- 6× "Seu usuário não tem login do ERP Alvo configurado — **a requisição NÃO foi enviada ao ERP**";
+- 1× erro local de constraint no roteamento ("Nada foi enviado");
+- 3× **validação explícita do Alvo**, com mensagem determinística: `Descricao can not exceed 100
+  characters`, `Validade final é menor que a data atual`, `Observacao can not exceed 255 characters`.
+
+Só 4 requisições chegaram a ter evento de envio, e **toda sequência termina em `envio_falha`**,
+2 a 7 s depois do `envio_tentado` — nenhum `envio_tentado` órfão. A última tentativa de envio da
+base é de **30/06/2026**. Nenhuma resposta do Alvo guardada contém número para requisição hoje sem
+`numero_alvo`. Nada foi reconciliado, nenhum token foi limpo, nenhum Insert foi repetido.
+
+### Passo 2 — SQL entregue, não executado
+
+`SQL-LIBERACAO-GERAL.sql` na raiz, para o Pedro colar. MCP em modo leitura nesta sessão: nenhuma
+escrita foi feita por mim. Blocos: **0** (pré-voo que repete o gate acima e devolve
+`LIBERAR`/`PARAR`), **A** (`janela.modo` → `aberta`), **C** (`sync_settings.enabled` → true),
+**B** (`cron.alter_job(1, active := true)`), **D** (conferência final), mais rollback.
+
+**A ordem A → C → B é obrigatória e foi medida, não suposta:**
+- `trg_req_janela` barra o INSERT de requisições por `service_role` enquanto `modo <> 'aberta'`
+  ("Sincronização de requisições suspensa durante o aceite multi-CC") — religar o cron com a
+  janela em `aceite` produziria erro no sync;
+- com `sync_settings.enabled = false` a Edge grava linha `"Sync pausado: ..."` em `sync_runs` e
+  sai (`index.ts:2716`) — por isso C antes de B, para não sujar o primeiro ciclo.
+
+O `usuarios` da janela **não é apagado**: em modo `aberta` a função o ignora, e preservá-lo mantém
+o registro de quem participou do aceite. `paused_at`/`paused_by` também ficam, como histórico da
+pausa. Todos os blocos de leitura do arquivo foram executados aqui para validar sintaxe e
+resultado esperado; o pré-voo devolveu `LIBERAR / aceite | cron=false | sync=false`.
+
+### Estado dos controles no momento da entrega (ainda não alterado)
+
+| Controle | Valor |
+|---|---|
+| `compras_requisicoes_janela.modo` | `aceite`, 4 usuários, aberta 07/09 15:59:31 BRT |
+| cron jobid 1 | `sync-compras-status-cron-hourly`, **active=false**, `0 11-20 * * 1-5` |
+| `sync_settings` (`sync-compras-status-cron`) | **enabled=false**, pausado 07/09 13:24:27 BRT |
+| Trigger de suspensão da implantação | removido pelo SQL integral (0 ocorrências), como previsto |
+| Demais syncs | intactos e rodando — 6 execuções hoje (lote, despesas, docfin, intercompany, estoque, laudos) |
+
+### O que segue não exercitado depois desta liberação
+
+1. **Multi-CC com dado real** — rateio entre CCs e aprovação de vários líderes. Zero grupos de
+   aprovação criados na história do módulo.
+2. **Permissão sem bypass** — o Pedro é o único `is_admin` de 52 e nunca vê erro de permissão.
+   Nenhuma tela ou RPC nova foi testada por usuário sem a flag.
+3. **A Edge v51 nunca executou um ciclo** — ver `ESTADO-SYNC-PEDIDOS.md`, entrada de 08/09.

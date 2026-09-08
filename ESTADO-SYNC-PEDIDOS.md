@@ -5,17 +5,21 @@
 > Documentos da missão: `MISSAO-SYNC-PEDIDOS.md` (espec-mãe) · `PROMPT-S0-SYNC-PEDIDOS.md`
 > (substitui a §4 da espec) · `DISCOVERY-SYNC-RATEIO-PEDIDOS.md` (achados, revisão 2).
 
-**Criado em:** 03/09/2026 · **Última atualização:** 06/09/2026 (deploy da S1.1)
+**Criado em:** 03/09/2026 · **Última atualização:** 08/09/2026 (a S1.1 **rodou**; religamento do cron)
 
 ---
 
 ## 1. Situação em uma linha
 
 A correção do sync (**FASE S1**) **já foi ao ar** entre 20 e 24/08 e funciona. A **S1.1** corrigiu o
-gate que barrava 122 pedidos e instrumentou as execuções órfãs — **publicada em 06/09/2026**, ainda
-**sem ciclo real** (o primeiro é segunda 08/09 08h00 BRT — ver §10.4). Restam **1.174 pedidos /
-R$ 12,19 M** sem rateio normalizado para o backfill, cujo desenho mudou: o jsonb sozinho **não
-basta** (9,5% está desatualizado — §5.1).
+gate que barrava 122 pedidos e instrumentou as execuções órfãs — publicada em 06/09 e **já executada
+com efeito medido: 6 ciclos reais em 07/09** (§11). Restam **1.174 pedidos / R$ 12,19 M** sem rateio
+normalizado para o backfill, cujo desenho mudou: o jsonb sozinho **não basta** (9,5% está
+desatualizado — §5.1).
+
+⚠️ **O cron está desligado desde 07/09 13h24 BRT** (pausa da implantação multi-CC, alheia a esta
+missão) e a Edge foi para **v51** às 15h43 daquele dia. A v51 preserva a S1.1, mas **nenhum ciclo
+rodou nela** — o primeiro será depois do religamento. Ver §11.
 
 ---
 
@@ -25,7 +29,7 @@ basta** (9,5% está desatualizado — §5.1).
 |---|---|---|
 | **S0 — Discovery** | ✅ **concluída** (rev. 1 em 14/08, rev. 2 em 03/09) | `DISCOVERY-SYNC-RATEIO-PEDIDOS.md` |
 | **S1 — Correção do sync** | ✅ **em produção desde 20–24/08** (cards C3, C3.2, C3.3, D4) | **Não foi executada por esta missão** — chegou pela trilha de Suprimentos. Ver §4 |
-| **S1.1 — Gate + instrumentação** | 🟡 **publicada em 06/09/2026, aguardando 1º ciclo** | Deploy confirmado (v50, `BUILD_TAG` S1.1). Efeito só é observável na 2ª-feira 08/09. Ver §9 e §10.4 |
+| **S1.1 — Gate + instrumentação** | ✅ **publicada 06/09 e executada 07/09** — efeito medido | 6 ciclos na v50; rateio 863 → **1.123** linhas (+230 em 07/09). Republicada na v51 sem rodar. Ver §9, §10.4 e **§11** |
 | **S2 — Backfill** | 🔴 **aberto — desenho a revisar** | A pré-condição §5.1 reprovou parcialmente: o jsonb é fiel mas **desatualizado em 9,5%**. Ver §10 |
 | **S3 — Convenção de percentual** | 🔴 aberto | T4 do Ajuste |
 
@@ -75,6 +79,14 @@ from compras_pedidos
 where data_pedido >= date '2026-08-01' and data_pedido < date '2026-09-01';
 -- esperado: 228 | 2739015.00
 ```
+
+⚠️ **Medido em 08/09/2026: 228 | 2.739.159,50** — contagem exata, valor **+R$ 144,50 (+0,005%)**.
+Não é wipe (wipe derruba o valor) e não é o pedido zerado de agosto: o `0004628` tem
+`ValorTotal = 0` **no próprio Alvo** desde 13/08, conferido nos payloads crus de
+`compras_pedidos_auditoria`. É a mesma propagação legítima de `ValorTotal` descrita acima, agora
+entre 03/09 e 08/09. **Reconferir depois do primeiro ciclo pós-religamento e, se estável,
+recongelar a âncora com o valor novo** — em vez de tratar a diferença como falso positivo
+recorrente. Ver §11.2.
 
 ---
 
@@ -372,7 +384,89 @@ Mesmo CC, mesmo valor, **classe reclassificada no ERP**. `detalhes_carregados_em
 
 ---
 
-## 11. Diário
+## 11. A S1.1 rodou — e a v51 ainda não (medido em 08/09/2026)
+
+### 11.1 Correção factual: o "primeiro ciclo" não estava pendente
+
+A §1 dizia que a S1.1 seguia **sem ciclo real**, "o primeiro é segunda 08/09 08h00 BRT". Está
+errado por um dia da semana: **08/09/2026 é terça; a segunda era 07/09**, e o cron rodou nela.
+`sync_runs` mostra **6 ciclos `bicephalous` em 07/09**, 08h00 a 13h00 BRT, antes de o cron ser
+desligado às 13h24 pela pausa da implantação multi-CC.
+
+**Lição de método, irmã da §1.1:** "o primeiro ciclo é segunda" é uma data derivada de cabeça, não
+uma medição. Bastava consultar `sync_runs`. Uma pendência foi carregada como aberta por dois dias
+enquanto já tinha resultado no banco — e o resultado era bom.
+
+### 11.2 Efeito medido do gate corrigido
+
+| Métrica | 03/09 | 08/09 | Δ |
+|---|---:|---:|---:|
+| `compras_pedidos_itens_rateio` — linhas | 863 | **1.123** | **+260** |
+| …itens distintos | 796 | **1.037** | **+241** |
+| Linhas criadas em 07/09 (os 6 ciclos) | — | **230** | — |
+| Linhas criadas depois da pausa | — | **0** | coerente com o cron desligado |
+
+O gate deixou de barrar: os ciclos de 09h e 10h sozinhos registraram 50 e 102 mudanças, contra as
+0–6 típicas de um ciclo normal. **A S1.1 fez o que prometia.**
+
+**Um ciclo com 152 erros (07/09 11h00) — causa identificada, não é da S1.1.** Todos os 152 são
+`Falha na autenticação do Alvo (HTTP 404)` devolvidos como HTTP 502 pelo gateway, em chamadas de
+**leitura** (`/ped-comp/list`, `/req-comp/list`, consultas de status). Coincide com a troca do
+gateway multi-CC no Render naquela manhã. Nenhum Insert envolvido.
+
+**Âncora anti-wipe (T3):** contagem bate exatamente — **228 pedidos** em agosto/2026. O valor
+mediu **R$ 2.739.159,50** contra os R$ 2.739.015,00 congelados em 03/09: **+R$ 144,50 (+0,005%)**.
+**Não é wipe** — wipe derrubaria o valor. Investigado o pedido de agosto com `valor_total = 0`
+(`0004628`): os payloads crus do Alvo em `compras_pedidos_auditoria` trazem `ValorTotal = 0` desde
+13/08 — o Hub espelha fielmente, não zerou nada. A diferença é variação legítima do ERP entre
+03/09 e hoje. **Reconferir a âncora depois do primeiro ciclo e, se estável, recongelar com o valor
+novo.**
+
+### 11.3 O que realmente nunca rodou: a Edge v51
+
+A v50 (S1.1) executou os 6 ciclos de 07/09. Às **18h43m53s UTC** daquele dia — logo após o SQL
+integral (18h42m23s) — a implantação multi-CC publicou a **v51**, que segue **ACTIVE** e nunca
+executou um ciclo. Ela **preserva a S1.1** (`BUILD_TAG = "S1.1-GATE-EVIDENCIA-DIRETA + ORFAS
+(2026-09-03)"` conferido no bundle publicado), mas traz um commit a mais — `a4d4783` — que muda o
+**espelho de requisições** (`espelharDetalheRequisicao`), e é aí que mora o risco do primeiro ciclo:
+
+1. **UPDATE deixou de ser condicional.** Antes, item com CC igual era pulado (`continue`). Agora
+   **todo item existente é reescrito** a cada espelhamento, gravando `produto_unidade`,
+   `codigo_prod_unid_med`, `quantidade`, `quantidade_solicitada`, `posicao_prod_unid_med` e
+   zerando `conversao_unidade`.
+2. **Alcance medido:** 377 requisições com número no Alvo, **468 itens** — e **462 deles (98,7%)
+   estão hoje sem tupla histórica completa** (`quantidade_solicitada` ou `posicao_prod_unid_med`
+   nulos). O primeiro ciclo é, na prática, um **backfill implícito** desses campos a partir do
+   ReqComp/Load, gradual (por lote de candidatos). Também pode **reescrever `quantidade`** de
+   requisições antigas com `QuantidadeProdUnidMedPrincipal`.
+3. **Erro fatal novo:** `REQ_ITEM_<n>_PRODUTO_DIVERGENTE` se o produto do espelho não bater com o
+   do Alvo. Risco de disparo por nulo é zero (0 itens com `codigo_produto` nulo), mas divergência
+   real derruba o espelhamento daquela requisição.
+4. **`quantidadesLoad` lança** se o Load não trouxer `QuantidadeProdUnidMedPrincipal` ou
+   `CodigoProdUnidMed` — requisições antigas podem virar erro por item.
+
+Nada disso é defeito conhecido: é **caminho feliz que nunca rodou**, na acepção do CLAUDE.md.
+
+## 12. Diário
+
+### 08/09/2026 — Liberação da operação geral e religamento do cron
+
+Sessão da missão *Aprovação de Requisições*, registrada aqui porque **religa o cron desta missão**.
+100% leitura: MCP em modo read-only, nenhuma escrita no banco, nenhum deploy, nenhum push.
+
+- **Decisão do Pedro, explícita:** liberar a operação geral **sem executar o teste Caio/Ana**, com
+  o risco aceito — o caminho multi-CC nunca foi exercitado com dado real. Registro completo em
+  `ESTADO-APROVACAO-REQ.md` (última seção).
+- **Reconferência de envios incertos: limpa.** 0 token sem confirmação, 0 requisição em transição,
+  0 número no Alvo sem persistência, 0 duplicado. Os 25 casos com tentativa sem número foram
+  caracterizados um a um — falhas determinísticas, nenhuma ambígua.
+- **`SQL-LIBERACAO-GERAL.sql`** entregue para o Pedro colar: janela → `aberta`, `sync_settings`
+  → enabled, cron jobid 1 → active, **nessa ordem** (o guard do banco barra INSERT do sync
+  enquanto a janela não estiver aberta; o schedule `0 11-20 * * 1-5` é preservado).
+- **Achado que corrige este arquivo:** a S1.1 **não estava** sem ciclo real — rodou 6 vezes em
+  07/09 e funcionou (§11.1 e §11.2). O que nunca rodou é a **v51** (§11.3).
+- **Lição de método:** "o primeiro ciclo é segunda 08/09" era data derivada de cabeça — 08/09 é
+  terça. `sync_runs` responderia em uma query. Uma pendência ficou aberta dois dias por isso.
 
 ### 06/09/2026 — Deploy da S1.1 (domingo, fora da janela do cron)
 
