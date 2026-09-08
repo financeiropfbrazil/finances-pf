@@ -22,8 +22,12 @@ ciclos às 10h00 e 12h00 BRT, sem erro. A v51 preserva a S1.1. Ver §11.
 
 ⚠️ **Novo achado de 08/09, e é o mais sério desta missão:** o cabeçalho é 100% fiel ao Alvo, mas
 **o detalhe (itens, rateio, parcelas) não é reconciliado quando o pedido muda no ERP** — 41
-pedidos com R$ 411.694,55 de divergência nos itens. Mesmo defeito que produz os 9,5% de jsonb
-desatualizado da §10, medido por outro caminho. Detalhe em `CONFERENCIA-FIDELIDADE-PEDIDOS.md`.
+pedidos com R$ 411.694,55 de divergência nos itens. Dissecados em 08/09: **o erro é do Hub em
+100% dos casos** (o Alvo é internamente consistente em 32 de 41 e fecha com frete/IPI nos outros
+9), e **o Hub nunca remove item que sumiu do ERP nem atualiza item que mudou**. Mesmo defeito que
+produz os 9,5% de jsonb desatualizado da §10. **O gate da S1.1 não pega nenhum dos 41** — ele
+decide por ausência, e todos já têm itens; falta critério de FRESCURA.
+Detalhe em `CONFERENCIA-FIDELIDADE-PEDIDOS.md` §B6.
 
 ---
 
@@ -452,6 +456,36 @@ executou um ciclo. Ela **preserva a S1.1** (`BUILD_TAG = "S1.1-GATE-EVIDENCIA-DI
 Nada disso é defeito conhecido: é **caminho feliz que nunca rodou**, na acepção do CLAUDE.md.
 
 ## 12. Diário
+
+### 08/09/2026 (tarde) — Dissecação dos 41 divergentes
+
+Investigação dirigida, read-only, sobre o achado da manhã. Registro completo em
+`CONFERENCIA-FIDELIDADE-PEDIDOS.md` **§B6**.
+
+- **Duas comparações foram separadas, e só uma é defeito.** `itens × cabeçalho` **não é erro**:
+  o cabeçalho carrega frete, IPI e outras despesas que não estão nos itens — 15 dos 17 casos
+  testados fecham exatamente somando esses campos. O defeito é `itens do Hub × itens do Alvo`.
+- **O erro é do Hub, em 100% dos casos.** O Alvo é internamente consistente em **32 de 41** (soma
+  dos itens = cabeçalho) e nos outros 9 fecha somando frete/IPI. **Em nenhum o ERP traz a
+  divergência** — há o que corrigir.
+- **Mecanismo provado no `0004554`:** o Alvo devolvia 14 itens até 31/07 e passou a devolver 7 em
+  03/08 (cabeçalho 116.549,60 → 66.044,76). O Hub atualizou o cabeçalho e **manteve os 14 itens**.
+  Os 14 são produtos distintos criados no mesmo instante — não é duplicação de linha, são os 7
+  itens excluídos que nunca foram removidos. **O Hub nunca remove item que sumiu do ERP nem
+  atualiza item que mudou; só insere o que falta.**
+- **Distribuição:** 24 pedidos com mesma contagem e valores diferentes (R$ 225,7 mil), 11 com
+  itens a mais (R$ 181,5 mil), 6 com itens a menos (R$ 4,5 mil). Os cinco maiores concentram
+  **R$ 365 mil, 89% do total**.
+- **Nem o coorte 24/05 nem a origem discriminam:** 36 dos 41 são posteriores a 24/05, e o defeito
+  ocorre tanto em pedido criado no Hub (9) quanto descoberto pelo sync (32). O que discrimina é
+  **ter sido editado no ERP depois da carga do detalhe** — 33 dos 41 (80%).
+- **Não é sync degradado:** 41 de 41 têm `detalhes_carregados = true` e 32 estão completos. São
+  pedidos completos com valores errados.
+- 🔴 **O gate da S1.1 não pega nenhum dos 41.** Ele decide por **ausência** ("o Alvo tem rateio e o
+  Hub não tem"), e todos já têm itens — para o gate estão satisfeitos. **Falta critério de
+  frescura:** contagem ou soma de itens divergente do payload, ou `valor_total` alterado desde a
+  última carga do detalhe. E a reconciliação precisa **remover** item que sumiu do Alvo, o que
+  nenhum caminho do Hub faz hoje. **Isto entra no desenho do S2 (§6, bloqueio 1).**
 
 ### 08/09/2026 — Conferência de fidelidade do sync (read-only)
 

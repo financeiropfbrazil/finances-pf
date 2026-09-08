@@ -17,6 +17,8 @@
 O **cabeçalho sim, sem exceção** — `valor_total` bate com o Alvo em **1.343 de 1.343 pedidos
 (100%)**. O **detalhe não**: 41 pedidos têm soma de itens divergente, num total de
 **R$ 411.694,55**, e 85 de 1.307 parcelas têm valor divergente.
+→ Os 41 estão dissecados um a um na **§B6**, com o mecanismo provado e a conclusão de que
+**o erro é do Hub, nunca do Alvo**.
 
 **(ii) Os pedidos estão COMPLETOS?**
 Não todos, mas está melhorando rápido: cobertura de rateio subiu de 18,5% (março) para **87%
@@ -203,13 +205,154 @@ por medição, não por suposição.**
 
 ---
 
+## B6 — Dissecação dos 41 divergentes (08/09/2026, investigação dirigida)
+
+### B6.1 Duas comparações diferentes — só uma é defeito
+
+A conferência original comparou **soma dos itens do Hub × soma dos itens no payload do Alvo**.
+Isso é diferente de comparar **itens × cabeçalho**, e a distinção importa:
+
+| comparação | resultado | é defeito? |
+|---|---|---|
+| soma dos **itens × cabeçalho** do mesmo documento | difere com frequência | **NÃO** |
+| soma dos **itens do Hub × itens do Alvo** | difere em 41 pedidos | **SIM** |
+
+**Itens × cabeçalho não fecha por construção:** o cabeçalho carrega frete, IPI e outras despesas
+que não estão nos itens. Testado nos 17 pedidos em que o Alvo não fecha com o próprio cabeçalho —
+**15 são integralmente explicados** por `valor_frete + valor_ipi + valor_outras_despesas`:
+
+| pedido | itens (Alvo) | frete | IPI | outras | soma | cabeçalho |
+|---|---:|---:|---:|---:|---:|---:|
+| 0004635 | 6.241,86 | 242,86 | — | — | **6.484,72** | 6.484,72 ✅ |
+| 0004539 | 1.476,00 | 175,00 | — | — | **1.651,00** | 1.651,00 ✅ |
+| 0004757 | 302,50 | 151,44 | — | — | **453,94** | 453,94 ✅ |
+| 0003862 | 1.078,80 | — | 90,58 | — | **1.169,38** | 1.169,38 ✅ |
+| 0003468 | 2.100,00 | — | — | 68,25 | **2.168,25** | 2.168,25 ✅ |
+| 0003095 | 1.020,00 | 20,63 | 33,82 | — | **1.074,45** | 1.074,45 ✅ |
+
+Só 2 não fecham, e por valores pequenos: `0003360` (R$ 6,70) e `0003766` (R$ 139). **Ninguém deve
+tratar "itens ≠ cabeçalho" como erro.**
+
+### B6.2 O erro é do HUB — o Alvo é internamente consistente
+
+Esta é a pergunta que decide se há o que corrigir. Resposta: **há**.
+
+| conferência | pedidos | % |
+|---|---:|---:|
+| **Alvo fecha consigo mesmo** (soma dos itens do Alvo = cabeçalho) | **32 de 41** | **78%** |
+| Alvo não fecha, mas fecha somando frete/IPI/outras | 9 de 41 | 22% |
+| **Alvo traz a divergência** | **0** | **0%** |
+
+Em nenhum dos 41 o ERP está inconsistente. **Quem diverge é o Hub, sempre.**
+
+### B6.3 O mecanismo, provado no pedido 0004554
+
+Histórico dos payloads crus do próprio Hub:
+
+| payload | itens no Alvo | cabeçalho no Alvo |
+|---|---:|---:|
+| 29/07 17:00 → 31/07 17:00 (3 payloads) | **14** | 116.549,60 |
+| **03/08 11:00 → 19/08 13:01 (7 payloads)** | **7** | **66.044,76** |
+
+Sete itens foram **excluídos no ERP** em 03/08. O que o Hub tem hoje:
+
+| | Hub | Alvo |
+|---|---:|---:|
+| cabeçalho | 66.044,76 ✅ | 66.044,76 |
+| itens (contagem) | **14** ❌ | 7 |
+| itens (soma) | **116.549,60** ❌ | 66.044,76 |
+
+Os 14 itens do Hub são produtos **distintos** (`001.007.00002` … `001.007.00038`), todos criados
+no mesmo instante (29/07 17:00:33) — não é duplicação de linha, são os 7 itens excluídos que
+**nunca foram removidos**.
+
+> **Conclusão: o Hub nunca remove item que sumiu do ERP, e nunca atualiza item que mudou.
+> Só insere o que falta.** O cabeçalho é reescrito a cada ciclo; os filhos, não.
+
+### B6.4 Os três mecanismos e onde o valor se concentra
+
+| mecanismo | pedidos | valor |
+|---|---:|---:|
+| **C) mesma contagem, valores diferentes** (item alterado no ERP) | 24 | R$ 225.665,84 |
+| **A) Hub tem MAIS itens** (excluídos no ERP, vivos no Hub) | 11 | R$ 181.506,63 |
+| **B) Hub tem MENOS itens** (itens novos não carregados) | 6 | R$ 4.522,08 |
+
+| corte | pedidos | valor |
+|---|---:|---:|
+| pedidos anteriores a 24/05 | 5 | R$ 120.486,00 |
+| **pedidos posteriores a 24/05** | **36** | **R$ 291.208,55** |
+| criados no Hub | 9 | R$ 217.108,61 |
+| descobertos pelo sync | 32 | R$ 194.585,94 |
+
+**O coorte 24/05 não protege** (36 dos 41 são posteriores) e **a origem não discrimina** —
+acontece nos dois caminhos. O que discrimina é o pedido **ter sido editado no ERP depois da carga
+do detalhe**: 33 dos 41 (80%) têm `detalhes_carregados_em` anterior ao payload mais recente.
+
+### B6.5 Não é sync degradado — são pedidos completos
+
+| conferência | resultado |
+|---|---|
+| com `detalhes_carregados = true` | **41 de 41** |
+| completos (detalhe + rateio + parcelas) | 32 de 41 |
+| com detalhe anterior ao payload | 33 de 41 (80%) |
+
+Nenhum é caso de carga interrompida. São pedidos **completos, com valores errados** — que é
+exatamente o que nenhuma métrica de cobertura consegue ver.
+
+### B6.6 Os 18 maiores (99% do valor)
+
+| pedido | data | origem | cabeçalho | itens Hub | itens Alvo | diferença |
+|---|---|---|---:|---:|---:|---:|
+| 0004586 | 03/08 | Hub | 48.750,00 | 191.795,42 | 48.750,00 | **+143.045,42** |
+| 0003681 | 31/03 | sync | 61.000,00 | 122.000,00 | 61.000,00 | +61.000,00 |
+| 0003682 | 31/03 | sync | 55.848,00 | 111.696,00 | 55.848,00 | +55.848,00 |
+| 0004495 | 25/08 | Hub | 55.000,00 | 110.000,00 | 55.000,00 | +55.000,00 |
+| 0004554 | 29/07 | sync | 66.044,76 | 116.549,60 | 66.044,76 | +50.504,84 |
+| 0004674 | 14/08 | Hub | 62.100,00 | 48.600,00 | 62.100,00 | −13.500,00 |
+| 0004582 | 03/08 | sync | 51.799,85 | 60.864,81 | 51.799,85 | +9.064,96 |
+| 0004715 | 20/08 | Hub | 495,00 | 4.950,00 | 495,00 | +4.455,00 |
+| 0004756 | 25/08 | sync | 11.709,10 | 8.185,00 | 11.709,10 | −3.524,10 |
+| 0003732 | 07/04 | sync | 2.750,00 | 5.500,00 | 2.750,00 | +2.750,00 |
+| 0004755 | 25/08 | sync | 599,68 | 2.998,40 | 599,68 | +2.398,72 |
+| 0004539 | 28/07 | sync | 1.651,00 | 3.600,00 | 1.476,00 | +2.124,00 |
+| 0004413 | 10/07 | sync | 21.585,50 | 23.495,00 | 21.585,50 | +1.909,50 |
+| 0004757 | 25/08 | sync | 453,94 | 1.375,00 | 302,50 | +1.072,50 |
+| 0004742 | 25/08 | Hub | 1.060,90 | 116,69 | 1.060,90 | −944,21 |
+| 0003669 | 31/03 | sync | 749,00 | 1.498,00 | 749,00 | +749,00 |
+| 0004679 | 17/08 | sync | 2.623,35 | 3.184,00 | 2.547,20 | +636,80 |
+| 0004559 | 30/07 | sync | 1.501,51 | 2.044,80 | 1.479,90 | +564,90 |
+
+**Os cinco primeiros concentram R$ 365.398,26 — 89% do total.** Os 23 restantes (`0004670`,
+`0004525`, `0004481`, `0004638`, `0004066`, `0004521`, `0004635`, `0004611`, `0003766`,
+`0004720`, `0004546`, `0004704`, `0004752`, `0004567`, `0004658`, `0004564`, `0004595`,
+`0004533`, `0004685`, `0004732`, `0004498`, `0004758`, `0004511`) somam menos de R$ 3 mil,
+com diferenças individuais de R$ 5 a R$ 380.
+
+### B6.7 🔴 O gate da S1.1 não pega NENHUM destes 41
+
+O gate corrigido pela S1.1 decide reprocessar por **evidência direta de ausência**: "o Alvo tem
+rateio de item e o Hub não tem" (§9.1). **Todos os 41 já têm itens e 32 já têm rateio** — para o
+gate, estão satisfeitos, e nunca voltam à fila.
+
+**O critério que falta é de FRESCURA, não de presença.** Um pedido precisa ser revisitado quando
+o que o Hub guarda **diverge** do que o Alvo devolve, não apenas quando falta. Sinais baratos,
+todos já disponíveis no payload que o Job 2 tem em mãos:
+
+- contagem de itens do payload ≠ contagem no Hub;
+- soma de `ValorTotal` dos itens do payload ≠ soma no Hub;
+- `valor_total` do cabeçalho mudou desde a última carga do detalhe.
+
+E a reconciliação precisa **remover** item que sumiu do Alvo — hoje nenhum caminho do Hub faz
+isso, e é a origem dos R$ 181,5 mil do mecanismo A.
+
+---
+
 ## Recomendação (fora do escopo desta sessão)
 
-A correção de fundo é **reconciliar o detalhe quando o cabeçalho muda**: hoje o gate do Job 2
-decide reprocessar por "o Alvo tem rateio e o Hub não tem" (S1.1, evidência direta). Isso resolve
-ausência, não desatualização — um pedido que já tem rateio no Hub nunca é revisitado, mesmo que
-o ERP o tenha alterado. Um critério adicional por mudança de cabeçalho (`valor_total`,
-`data_pedido` ou contagem de itens diferente do payload) traria esses 41 de volta à fila.
+A correção de fundo é **reconciliar o detalhe por frescura, não por presença** — dissecada na
+§B6.7, com os 41 casos abertos um a um. Duas partes, e a segunda não existe em lugar nenhum do
+Hub hoje: (a) revisitar o pedido quando contagem ou soma dos itens divergir do payload;
+(b) **remover item que sumiu do Alvo**.
 
 Isso conversa diretamente com o desenho da FASE S2 (`ESTADO-SYNC-PEDIDOS` §10): o backfill por
 jsonb tem 9,5% de dado desatualizado pelo mesmo motivo. **É o mesmo defeito, medido por dois
