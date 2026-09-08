@@ -65,3 +65,52 @@ export function destinoAposSubmissao(result: SubmissaoResult): DestinoSubmissao 
 export function regenerarGuidsAnexos<T extends { upload_identify_guid: string }>(arquivos: T[]): T[] {
   return arquivos.map((arquivo) => ({ ...arquivo, upload_identify_guid: crypto.randomUUID() }));
 }
+
+/**
+ * Aviso a mostrar quando o 2º tempo (o envio ao ERP) falha depois de a aprovação
+ * já estar gravada.
+ *
+ * POR QUE ISTO EXISTE: a tela concatenava o erro cru com `Use "Reenviar"`, e o
+ * erro cru às vezes diz o oposto — `enviarRequisicaoAlvo` emite "Envio sem
+ * confirmação do ERP. Recarregue o detalhe; não repita sem reconciliar."
+ * O usuário lia "não repita sem reconciliar — Use Reenviar" na mesma frase.
+ * Em 08/09/2026 isso apareceu em produção com o desfecho mais perigoso possível:
+ * o documento EXISTIA no ERP (0001481) e reenviar teria duplicado.
+ *
+ * REGRA: `Reenviar` só é oferecido com PROVA POSITIVA de que nada chegou ao ERP.
+ * Essa prova é a frase que o próprio gate de submissão emite quando recusa antes
+ * de qualquer chamada ao Alvo (ver `mensagemRecusaSubmissao`). Qualquer outra
+ * falha — timeout, 5xx, ANEXO_CONGELADO, violação de chave ao gravar o desfecho —
+ * deixa o desfecho DESCONHECIDO, e o padrão passa a ser reconciliar.
+ *
+ * Lista positiva, nunca dedução por exclusão: erro novo que apareça no futuro cai
+ * no ramo conservador por omissão, e não no que duplica documento no ERP.
+ */
+const SINAL_NADA_ENVIADO = /nada foi enviado ao erp/i;
+
+export interface AvisoFalhaEnvio {
+  titulo: string;
+  descricao: string;
+  /** false ⇒ a tela não deve oferecer "Reenviar": reenviar pode duplicar no ERP. */
+  podeReenviar: boolean;
+}
+
+export function avisoFalhaEnvioPosAprovacao(erro: string, ondeReenviar = "abaixo"): AvisoFalhaEnvio {
+  const mensagem = erro?.trim() || "Falha sem mensagem.";
+
+  if (SINAL_NADA_ENVIADO.test(mensagem)) {
+    return {
+      titulo: "Aprovada, mas o envio ao ERP falhou",
+      descricao: `${mensagem} — a aprovação foi preservada e nada foi criado no ERP. Use "Reenviar" ${ondeReenviar}.`,
+      podeReenviar: true,
+    };
+  }
+
+  return {
+    titulo: "Aprovada — desfecho do envio INCERTO",
+    descricao:
+      `${mensagem} — a aprovação foi preservada. NÃO reenvie: o documento pode ter sido criado no ERP, ` +
+      `e reenviar duplicaria. Confira o número no ERP e acione a reconciliação.`,
+    podeReenviar: false,
+  };
+}

@@ -63,6 +63,7 @@ import { ModalRejeicaoRequisicao } from "@/components/compras/ModalRejeicaoRequi
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { avisoFalhaEnvioPosAprovacao } from "@/lib/requisicaoPosEnvio";
 
 /**
  * Status em que a requisição REALMENTE existe no ERP — logo, os únicos em que faz
@@ -477,18 +478,12 @@ export default function SuprimentosRequisicaoDetalhe() {
             description: "A requisição foi aprovada e criada no ERP.",
           });
         } else {
-          toast({
-            title: "Aprovada, mas o envio ao ERP falhou",
-            description: `${envio.erro} — a aprovação foi preservada. Use "Reenviar" abaixo.`,
-            variant: "destructive",
-          });
+          const aviso = avisoFalhaEnvioPosAprovacao(envio.erro ?? "", "abaixo");
+          toast({ title: aviso.titulo, description: aviso.descricao, variant: "destructive" });
         }
       } catch (errEnvio: any) {
-        toast({
-          title: "Aprovada, mas o envio ao ERP falhou",
-          description: `${errEnvio?.message || errEnvio} — a aprovação foi preservada. Use "Reenviar" abaixo.`,
-          variant: "destructive",
-        });
+        const aviso = avisoFalhaEnvioPosAprovacao(String(errEnvio?.message || errEnvio), "abaixo");
+        toast({ title: aviso.titulo, description: aviso.descricao, variant: "destructive" });
       }
       refetch();
       invalidarFilaDeAprovacoes();

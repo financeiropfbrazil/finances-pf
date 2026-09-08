@@ -19,6 +19,7 @@ import { Loader2, ClipboardCheck, Check, X, Package, Calendar, Building2, User a
 import { useToast } from "@/hooks/use-toast";
 import { format, differenceInCalendarDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { avisoFalhaEnvioPosAprovacao } from "@/lib/requisicaoPosEnvio";
 
 function formatData(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -130,18 +131,12 @@ export default function SuprimentosAprovacoes() {
             description: "A requisição foi aprovada e criada no ERP.",
           });
         } else {
-          toast({
-            title: "Aprovada, mas o envio ao ERP falhou",
-            description: `${envio.erro} — a aprovação foi preservada. Use "Reenviar" no detalhe da requisição.`,
-            variant: "destructive",
-          });
+          const aviso = avisoFalhaEnvioPosAprovacao(envio.erro ?? "", "no detalhe da requisição");
+          toast({ title: aviso.titulo, description: aviso.descricao, variant: "destructive" });
         }
       } catch (errEnvio: any) {
-        toast({
-          title: "Aprovada, mas o envio ao ERP falhou",
-          description: `${errEnvio?.message || errEnvio} — a aprovação foi preservada. Use "Reenviar" no detalhe.`,
-          variant: "destructive",
-        });
+        const aviso = avisoFalhaEnvioPosAprovacao(String(errEnvio?.message || errEnvio), "no detalhe da requisição");
+        toast({ title: aviso.titulo, description: aviso.descricao, variant: "destructive" });
       }
       recarregarTudo();
     } catch (err: any) {
