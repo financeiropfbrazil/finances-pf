@@ -43,6 +43,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Home } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { avisoFalhaEnvioPedido } from "@/lib/pedidoPosEnvio";
 
 // ════════════════════════════════════════════════════════════
 // STATUS CONFIG
@@ -538,7 +539,11 @@ export default function SuprimentosPedidos() {
   const firstName = profile?.full_name?.split(" ")[0] || "";
 
   const irParaPedido = (ped: any) => {
-    const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
+    // A3 — `erro_envio` só volta a ser editável quando há prova de que nada chegou ao
+    // ERP. Sem isso, abrir o wizard convida a um reenvio que duplica o documento.
+    const isEditavel =
+      ped.status_local === "rascunho" ||
+      (ped.status_local === "erro_envio" && avisoFalhaEnvioPedido(ped.numero, ped.erro_envio).podeReenviar);
     if (isEditavel) {
       navigate(`/suprimentos/pedidos/novo?pedidoId=${ped.id}`);
     } else {
@@ -903,7 +908,10 @@ export default function SuprimentosPedidos() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {pedidos.map((ped: any) => {
             const statusVisual = getStatusPedido(ped);
-            const isEditavel = ped.status_local === "rascunho" || ped.status_local === "erro_envio";
+            const avisoFalha =
+              ped.status_local === "erro_envio" ? avisoFalhaEnvioPedido(ped.numero, ped.erro_envio) : null;
+            const isEditavel =
+              ped.status_local === "rascunho" || (ped.status_local === "erro_envio" && !!avisoFalha?.podeReenviar);
             const numeroVisivel = ped.numero?.startsWith("RASCUNHO-") ? "(rascunho)" : ped.numero || "(sem nº)";
 
             return (
@@ -1001,10 +1009,13 @@ export default function SuprimentosPedidos() {
                     )}
                   </div>
 
-                  {ped.status_local === "erro_envio" && ped.erro_envio?.message && (
+                  {avisoFalha && (
                     <div className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 p-2">
                       <AlertCircle className="h-3 w-3 text-destructive shrink-0 mt-0.5" />
-                      <p className="text-[11px] text-destructive line-clamp-2">{ped.erro_envio.message}</p>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-medium text-destructive">{avisoFalha.titulo}</p>
+                        <p className="text-[11px] text-destructive/90">{avisoFalha.descricao}</p>
+                      </div>
                     </div>
                   )}
 

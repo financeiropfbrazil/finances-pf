@@ -1636,17 +1636,32 @@ async function marcarPedidoComErro(params: {
   const { pedidoId, modoEdicao, erroEnvioPayload, mensagemAuditoria, userId, userNome } = params;
   let numero = `RASCUNHO-${pedidoId.substring(0, 8)}`;
 
-  if (modoEdicao) {
-    const { data: pedidoAtual, error: errPedidoAtual } = await (supabase as any)
-      .from("compras_pedidos")
-      .select("numero")
-      .eq("id", pedidoId)
-      .single();
-    if (errPedidoAtual || !pedidoAtual) {
-      throw new Error(`Erro ao recuperar o pedido para registrar a falha: ${errPedidoAtual?.message}`);
+  // A2 (08/09/2026) — esta leitura era feita SÓ em `modoEdicao`. Em criação nova o
+  // número real, já gravado com a resposta do ERP algumas linhas acima, era
+  // sobrescrito por `RASCUNHO-<id>` — e o Hub perdia a única referência ao documento
+  // que o Alvo tinha acabado de criar. Foi o que produziu `RASCUNHO-a28ae319` para o
+  // pedido 0004867 em 08/09. A assimetria era acidente do `if`, não desenho: o número
+  // gravado no banco é sempre a melhor informação disponível, em qualquer modo.
+  const { data: pedidoAtual, error: errPedidoAtual } = await (supabase as any)
+    .from("compras_pedidos")
+    .select("numero")
+    .eq("id", pedidoId)
+    .maybeSingle();
+
+  if (errPedidoAtual) {
+    // Em edição, não conseguir ler é erro: a linha tem de existir.
+    if (modoEdicao) {
+      throw new Error(`Erro ao recuperar o pedido para registrar a falha: ${errPedidoAtual.message}`);
     }
-    numero = pedidoAtual.numero || numero;
+    // Em criação, seguir com o fallback é melhor que perder o registro da falha.
+    console.error(`[marcarPedidoComErro] não foi possível ler o número atual de ${pedidoId}:`, errPedidoAtual);
   }
+
+  if (modoEdicao && !pedidoAtual) {
+    throw new Error("Erro ao recuperar o pedido para registrar a falha: pedido não encontrado.");
+  }
+
+  numero = pedidoAtual?.numero || numero;
 
   const { error: errStatus } = await (supabase as any).from("compras_pedidos").upsert(
     {
@@ -2074,22 +2089,29 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         }
 
         if (reqRow) {
-          const { error: errAtualizarReq } = await (supabase as any).from("compras_requisicoes").upsert(
-            {
-              id: reqRow.id,
-              requisitante_user_id: reqRow.requisitante_user_id,
-              status: reqRow.status,
-              codigo_empresa_filial: reqRow.codigo_empresa_filial,
-              codigo_funcionario: reqRow.codigo_funcionario,
-              codigo_centro_ctrl: reqRow.codigo_centro_ctrl,
-              codigo_finalidade_compra: reqRow.codigo_finalidade_compra,
-              data_necessidade: reqRow.data_necessidade,
-              total_itens: reqRow.total_itens,
+          // A1 (08/09/2026) — era `upsert`, e o upsert do PostgREST gera
+          // `INSERT ... ON CONFLICT DO UPDATE`. O Postgres dispara os triggers BEFORE
+          // INSERT antes de detectar o conflito, então a escrita caía no ramo INSERT de
+          // `fn_req_protege_aprovacao` e voltava com PROTEGIDO_APROVACAO — o ramo existe
+          // justamente para barrar INSERT de requisição já aprovada/numerada. Resultado:
+          // o pedido nascia no ERP e o Hub não conseguia registrar o vínculo.
+          //
+          // A linha SEMPRE existe aqui (o SELECT logo acima devolveu `reqRow`), então o
+          // INSERT nunca teve utilidade. `update` também elimina um bug latente: o
+          // payload antigo reenviava status, requisitante e códigos lidos ANTES da
+          // chamada ao ERP, regredindo qualquer alteração ocorrida nesse intervalo.
+          //
+          // Não usar a RPC `vincular_pedido_requisicao`: ela recusa pedido que já tenha
+          // `numero_req_comp` ("Este pedido já está vinculado à requisição %"), e o
+          // wizard grava esse campo na criação — 105 dos pedidos criados no Hub nascem
+          // com ele. A RPC serve ao vínculo manual de pedido avulso, não a este caminho.
+          const { error: errAtualizarReq } = await (supabase as any)
+            .from("compras_requisicoes")
+            .update({
               numero_pedido_compra_alvo: numeroAlvo,
               updated_at: new Date().toISOString(),
-            },
-            { onConflict: "id" },
-          );
+            })
+            .eq("id", reqRow.id);
           if (errAtualizarReq) {
             throw new Error(`Erro ao vincular o pedido ${numeroAlvo} à requisição: ${errAtualizarReq.message}`);
           }
