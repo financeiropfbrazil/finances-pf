@@ -52,7 +52,7 @@ melhoria de usabilidade, não pré-requisito de nada.
 | **ENCERRAMENTO** | Estado final da missão | ✅ 11/08/2026 — §14 |
 | **AJUSTE 7.1 / PROMPT 7.1** | Líder abre o detalhe da requisição que aprova (bug A1.4) | ✅ **já estava corrigido** — commit `f40029c` (19/08, "card B1"), em `origin/main` **e no bundle publicado**. Sessão de 02/09 verificou e registrou, **zero código alterado** — §15 |
 | **AJUSTE 7.2 / PROMPT 7.2** | Escopo `view_cc` — líder enxerga requisições e pedidos dos CCs que lidera | ✅ código entregue · ⏳ **SQL pendente** (`SQL-AJUSTE72.md`, 14 blocos) · sem push — §16 |
-| **CARD LICENÇA** | Recusa do Alvo por licença esgotada (Prime Back Office) | ✅ §3.1 entregue em 09/09/2026 (mensagem traduzida, ramo conservador) · **§3.2 e §3.3 CANCELADOS** — S1 não confirmou · última seção |
+| **CARD LICENÇA** | Recusa do Alvo por licença esgotada (Prime Back Office) | ✅ §3.1 entregue em 09/09/2026 (mensagem traduzida, ramo conservador) · **§3.2 e §3.3 CANCELADOS** — S1 não confirmou pelo Hub · **S1 fechado à tarde pelo export do Alvo: nada foi criado** · reconciliação em `SQL-RECONCILIACAO-LICENCA-0909.sql`, não executada · última seção |
 | PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado (melhoria de usabilidade, não bloqueia nada) |
 
 **Publicação (medido no git em 11/08/2026):** `main` e `origin/main` estão no mesmo commit —
@@ -1556,3 +1556,65 @@ são a mesma requisição, recriada pela Nathalia).
 **Gate:** `tsc --noEmit -p tsconfig.app.json` limpo · `bun run build` OK · `vitest` 133 passam;
 `sidebar-ordem.test.tsx` falha 7/7 **também no HEAD** (pré-existente, medido por `git stash`) ·
 eslint: 23 erros `no-explicit-any` nas duas telas, **os mesmos 23 do HEAD**, zero novos.
+
+### 09/09/2026 (tarde) — S1 RESPONDIDO e reconciliação das 7
+
+**O S1 fechou com prova externa, e a resposta é a que libera o reenvio.** O Pedro exportou as
+**807 requisições** do Alvo em 09/09: maior número **0001484**, de 08/09; **zero documentos com
+data 09/09**; e as descrições das 7 não constam (as de calibração/usinagem/laser encontradas são
+antigas e de outros requisitantes). **Nenhuma das 7 foi criada no ERP** — o filtro de licença
+recusou antes de persistir. O desfecho deixa de ser desconhecido: reenviar é seguro.
+
+Isso não invalida a leitura de manhã, completa-a: o POST de Insert **foi** despachado (por isso
+`falha_definitiva: false`), mas o Alvo o recusou antes de gravar. Do lado do Hub o desfecho era
+mesmo indeterminável — só o export do ERP podia decidir, e decidiu.
+
+#### A duplicata, confirmada por dados
+
+`0d87cb3e` (09:02 BRT) e `d5152e6f` (09:06 BRT) são a mesma requisição: mesmo requisitante
+(nathalia.richele), CC `00008.00001.00006`, filial `1.01`, funcionário `0000139`, finalidade
+`0000006`, descrição, `data_necessidade`, item (`002.005`, 1 UNID, serviço) e **o mesmo anexo** —
+`PC - 1344_26 - PF.pdf`, 241.089 bytes, sha256 `5dc5b887d6132855…`. Só o `upload_identify_guid`
+difere, e ele é regenerado a cada tentativa por design. Única diferença de conteúdo: o campo
+`texto` — a cancelada dizia "Orçamento da calibração em anexo", a mantida diz "Orçamento em anexo".
+
+**Não há outro par entre as 7.** O cruzamento de autor × CC × descrição × itens × anexos deu só
+esse. Dois quase-pares foram descartados com dado: `463f5f4e` × `d4a58205` (kemilly) casam em
+"anexos" apenas porque **as duas não têm anexo**; `3b38984d` × `88c8351c` (maria.silva) casam em
+itens porque ambas usam o produto genérico de serviço, mas são usinagem e corte a laser.
+
+#### Caminho de escrita escolhido
+
+| O quê | Como | Por quê |
+|---|---|---|
+| Liberar `envio_token` | `concluir_envio_requisicao(id, token, null, <motivo>, true)` | É a mesma RPC que o gateway chama. Grava `envio_pos_aprovacao_falha` com `falha_definitiva: true` **e só então** zera o token. Nenhum UPDATE direto na coluna |
+| Cancelar a duplicata | `UPDATE status='cancelada'` + INSERT na auditoria | `fn_req_protege_aprovacao` só barra `current_user in ('authenticated','anon')`; no SQL Editor passa. Não existe RPC de cancelamento |
+| Registrar o cancelamento | evento `editada` + payload com ação, motivo, prova e id da mantida | `compras_requisicoes_auditoria_evento_check` tem lista fechada e não há rótulo para cancelamento manual. `cancelada_alvo` seria **falso** (afirmaria que o ERP cancelou) |
+
+**Nunca DELETE:** itens, rateios, anexos e a própria auditoria caem por CASCADE.
+
+SQL pronto em `SQL-RECONCILIACAO-LICENCA-0909.sql` — blocos numerados, guarda de estado em cada
+escrita (`and status='aprovada' and numero_alvo is null and envio_token is not null` ⇒ estado
+inesperado retorna 0 linhas e não faz nada), conferência antes/depois, `RETURNING` e rollback com
+os 7 tokens originais anotados. **Não executado por mim.**
+
+#### Ordem obrigatória, e por quê
+
+Bloco 0 (pré-voo) → Bloco A (duplicata) → **Bloco B: liberar UMA e reenviar de verdade** → só
+então os blocos C. O **405 do Alvo continua ativo** e a última evidência de envio (10:39 BRT) foi
+recusa por licença: liberar as 6 de uma vez e pedir reenvio geral prenderia os 6 tokens de novo.
+Escolhida para o teste a `663731a8` ("HJWSIHFIUHHJG D", elisangela.silva) — menor valor de negócio
+e única autora com login próprio no Alvo.
+
+#### Quem reenvia — medido, não suposto
+
+As 4 requisitantes têm `compras.requisicoes.reenviar_own` = **true**; nenhuma é `is_admin` nem
+líder do próprio CC. Como a aprovação já está gravada e o token estará livre,
+`req_iniciar_envio_sem_janela` aceita cada uma na própria requisição, e `compras_requisicoes_janela`
+está em `aberta` (não bloqueia). **O reenvio é do requisitante, pela tela de detalhe.**
+
+A exceção que importa: só **elisangela.silva** tem `alvo_usuario`. Nas outras três o documento sai
+no ERP como `PEDRO.SCRIGNOLI` (evento `login_servico_provisorio`) **independentemente de quem
+clica** — então, para elas, o Pedro reenviar não muda o resultado no ERP, só remove a chance de a
+pessoa ver o erro se ele voltar. Para a `663731a8`, quem clica muda: reenviada pela Elisangela, o
+documento sai com o login dela.
