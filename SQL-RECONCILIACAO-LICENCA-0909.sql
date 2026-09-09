@@ -15,10 +15,18 @@
 --     encontradas são antigas e de outros requisitantes)
 -- Com isso o desfecho deixa de ser desconhecido e o reenvio passa a ser seguro.
 --
+-- DESTINO DAS 7 (decisões do Pedro em 09/09/2026):
+--   · CANCELAR 2 — `d5152e6f` (duplicata de `0d87cb3e`) e `663731a8`
+--     ("HJWSIHFIUHHJG D", criada por digitação acidental)
+--   · REENVIAR 5 — `d4a58205` (teste), depois `0d87cb3e`, `463f5f4e`,
+--     `3b38984d` e `88c8351c`
+--
 -- VIA USADA: `concluir_envio_requisicao(..., p_falha_definitiva := true)` — a
 -- mesma RPC que o gateway chama. Ela grava o evento `envio_pos_aprovacao_falha`
 -- na auditoria e só então limpa o `envio_token`. Nenhum UPDATE direto em
 -- `envio_token`: a trilha continua sendo escrita pelo caminho desenhado.
+-- Os dois cancelamentos passam pela MESMA RPC antes do UPDATE de status: uma
+-- requisição cancelada com token preso continuaria travada se voltasse atrás.
 --
 -- EXECUTAR: SQL Editor do Supabase, projeto hbtggrbauguukewiknew, um bloco por
 -- vez, conferindo a saída antes de seguir. NÃO rodar o arquivo inteiro de uma vez.
@@ -32,10 +40,11 @@
 --   88c8351c… 42bc2053-2b00-42e0-91fe-a480550a183c
 --   663731a8… e6df25b2-4e60-4afa-b131-5a14ace0b259
 --
--- ⚠ ORDEM OBRIGATÓRIA: Bloco 0 → Bloco A (duplicata) → Bloco B (UM teste real de
---   reenvio) → só depois os blocos C. O erro 405 do Alvo ainda está ativo e o
---   envio pode voltar a falhar: liberar os 7 de uma vez e mandar todo mundo
---   reenviar prenderia os 7 tokens de novo.
+-- ⚠ ORDEM OBRIGATÓRIA: Bloco 0 → A e B (os dois cancelamentos, que não tocam o
+--   ERP) → Bloco C (UM teste real de reenvio) → PARE e confirme o número no ERP
+--   → só então os blocos D. O erro 405 do Alvo ainda está ativo e o envio pode
+--   voltar a falhar: liberar as 5 de uma vez e pedir reenvio geral prenderia os
+--   5 tokens de novo, e seria tudo isto outra vez.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -69,7 +78,7 @@ order by created_at;
 
 
 -- ───────────────────────────────────────────────────────────────────────────
--- BLOCO A — DUPLICATA: cancelar d5152e6f (mantendo 0d87cb3e)
+-- BLOCO A — CANCELAR d5152e6f (duplicata; mantém 0d87cb3e)
 -- ───────────────────────────────────────────────────────────────────────────
 -- Idênticas em requisitante, CC, filial, funcionário, finalidade, descrição,
 -- data de necessidade, item (002.005 / 1 UNID) e anexo (mesmo sha256
@@ -137,11 +146,75 @@ where id in ('0d87cb3e-d8ee-4446-bd9e-f49aecd39a95', 'd5152e6f-91ff-4129-9d5a-bc
 
 
 -- ───────────────────────────────────────────────────────────────────────────
--- BLOCO B — TESTE REAL: libera UMA e reenvia pela tela antes de tocar nas outras
+-- BLOCO B — CANCELAR 663731a8 (criada por engano)
 -- ───────────────────────────────────────────────────────────────────────────
--- Escolhida: 663731a8 ("HJWSIHFIUHHJG D", elisangela.silva) — menor valor de
--- negócio entre as 6 e a única autora com login próprio no Alvo
--- (ELISANGELA.SILVA); as outras três saem como PEDRO.SCRIGNOLI de qualquer jeito.
+-- "HJWSIHFIUHHJG D" (elisangela.silva, CC 00010.00002.00007.00001, 1 item, sem
+-- anexo) foi digitação acidental — não há intenção de compra e ela NÃO vai ao
+-- ERP. Não é duplicata de nada: o payload da trilha diz exatamente isso.
+-- Mesmo padrão do Bloco A: libera o token pela RPC, cancela, registra.
+
+-- B1 — conferência ANTES
+select id, status, numero_alvo, envio_token, left(descricao, 40) as descricao,
+       left(erro_ultimo_envio, 60) as erro
+from public.compras_requisicoes
+where id = '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a';
+
+-- B2 — libera o token pela RPC (0 linhas = estado inesperado, nada foi feito)
+select public.concluir_envio_requisicao(
+         r.id,
+         r.envio_token,
+         null,
+         'Reconciliado em 09/09/2026: ERP sem licenca recusou o envio e NADA foi criado (export de 807 requisicoes do Alvo: maior numero 0001484, de 08/09). Requisicao cancelada: criada por engano, digitacao acidental, sem intencao de compra.',
+         true
+       ) as resultado                                    -- esperado: ERRO_REGISTRADO
+from public.compras_requisicoes r
+where r.id = '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a'::uuid
+  and r.status = 'aprovada'
+  and r.numero_alvo is null
+  and r.envio_token is not null;
+
+-- B3 — cancela (só roda com o token já liberado por B2)
+update public.compras_requisicoes
+   set status = 'cancelada', updated_at = now()
+ where id = '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a'::uuid
+   and status = 'aprovada'
+   and numero_alvo is null
+   and envio_token is null
+returning id, status, numero_alvo, envio_token, updated_at;
+
+-- B4 — trilha do cancelamento (sem 'mantida' e sem 'duplicata': não é o caso)
+insert into public.compras_requisicoes_auditoria
+  (requisicao_id, evento, user_id, user_nome, payload_enviado, sucesso, mensagem_erro)
+values
+  ('663731a8-38ff-45c8-a6d9-5e4db0c8fc7a'::uuid,
+   'editada',
+   null,
+   'Reconciliacao manual - Pedro',
+   jsonb_build_object(
+     'acao',      'cancelamento_manual',
+     'motivo',    'criada por engano - digitacao acidental, sem intencao de compra',
+     'descricao', 'HJWSIHFIUHHJG D',
+     'incidente', 'licenca_esgotada_alvo_09_09_2026',
+     'prova',     'export de 807 requisicoes do Alvo em 09/09/2026: maior numero 0001484 (08/09), zero documentos com data 09/09 - nada foi criado no ERP'),
+   true,
+   null)
+returning id, requisicao_id, evento, created_at;
+
+-- B5 — conferência DEPOIS
+select id, status, numero_alvo, envio_token
+from public.compras_requisicoes
+where id = '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a';
+-- esperado: cancelada, token null
+
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- BLOCO C — TESTE REAL: libera UMA e reenvia pela tela antes de tocar nas outras
+-- ───────────────────────────────────────────────────────────────────────────
+-- Escolhida: d4a58205 ("Impressos", kemilly.araujo) — 1 item e SEM ANEXO, o
+-- caminho mais curto do envio (SavePartial em vez de SaveMultiPart, sem download
+-- do Storage nem conferência de sha256). Se falhar, a causa é o ERP, não o anexo.
+-- O documento sairá no Alvo como PEDRO.SCRIGNOLI: a kemilly não tem
+-- `alvo_usuario` no perfil, e isso independe de quem clica em Reenviar.
 
 select public.concluir_envio_requisicao(
          r.id, r.envio_token, null,
@@ -149,25 +222,25 @@ select public.concluir_envio_requisicao(
          true
        ) as resultado
 from public.compras_requisicoes r
-where r.id = '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a'::uuid
+where r.id = 'd4a58205-a57d-41b3-bf4a-be2f20eff7f6'::uuid
   and r.status = 'aprovada' and r.numero_alvo is null and r.envio_token is not null;
 
 select id, status, numero_alvo, envio_token, left(erro_ultimo_envio, 70) as erro
-from public.compras_requisicoes where id = '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a';
+from public.compras_requisicoes where id = 'd4a58205-a57d-41b3-bf4a-be2f20eff7f6';
 
 -- ⏸ PARE AQUI. Peça o reenvio pela tela e confira:
 --    select id, status, numero_alvo, envio_token from compras_requisicoes
---     where id = '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a';
---    · numero_alvo preenchido + status 'sincronizada' → siga para os blocos C
+--     where id = 'd4a58205-a57d-41b3-bf4a-be2f20eff7f6';
+--    · numero_alvo preenchido + status 'sincronizada' → siga para os blocos D
 --    · token preso de novo + erro de licença            → o ERP ainda recusa; pare
 
 
 -- ───────────────────────────────────────────────────────────────────────────
--- BLOCOS C — as outras 5, SÓ depois do Bloco B ter criado número no ERP
+-- BLOCOS D — as outras 4, SÓ depois do Bloco C ter criado número no ERP
 -- ───────────────────────────────────────────────────────────────────────────
 -- Todos idênticos, mudando só o id. Rode um, confira, rode o próximo.
 
--- C1 — 0d87cb3e (nathalia.richele · calibração UV/VIS · a que fica do par)
+-- D1 — 0d87cb3e (nathalia.richele · calibração UV/VIS · a que fica do par)
 select public.concluir_envio_requisicao(
          r.id, r.envio_token, null,
          'Reconciliado em 09/09/2026: ERP sem licenca recusou o envio e NADA foi criado (export de 807 requisicoes do Alvo: maior numero 0001484, de 08/09). Reenvio liberado.',
@@ -179,7 +252,7 @@ where r.id = '0d87cb3e-d8ee-4446-bd9e-f49aecd39a95'::uuid
 select id, status, numero_alvo, envio_token from public.compras_requisicoes
 where id = '0d87cb3e-d8ee-4446-bd9e-f49aecd39a95';
 
--- C2 — 463f5f4e (kemilly.araujo · MATERIAL DE HIGIENE · 2 itens)
+-- D2 — 463f5f4e (kemilly.araujo · MATERIAL DE HIGIENE · 2 itens)
 select public.concluir_envio_requisicao(
          r.id, r.envio_token, null,
          'Reconciliado em 09/09/2026: ERP sem licenca recusou o envio e NADA foi criado (export de 807 requisicoes do Alvo: maior numero 0001484, de 08/09). Reenvio liberado.',
@@ -191,19 +264,7 @@ where r.id = '463f5f4e-e7e8-451f-889c-9cfc457a684f'::uuid
 select id, status, numero_alvo, envio_token from public.compras_requisicoes
 where id = '463f5f4e-e7e8-451f-889c-9cfc457a684f';
 
--- C3 — d4a58205 (kemilly.araujo · Impressos)
-select public.concluir_envio_requisicao(
-         r.id, r.envio_token, null,
-         'Reconciliado em 09/09/2026: ERP sem licenca recusou o envio e NADA foi criado (export de 807 requisicoes do Alvo: maior numero 0001484, de 08/09). Reenvio liberado.',
-         true) as resultado
-from public.compras_requisicoes r
-where r.id = 'd4a58205-a57d-41b3-bf4a-be2f20eff7f6'::uuid
-  and r.status = 'aprovada' and r.numero_alvo is null and r.envio_token is not null;
-
-select id, status, numero_alvo, envio_token from public.compras_requisicoes
-where id = 'd4a58205-a57d-41b3-bf4a-be2f20eff7f6';
-
--- C4 — 3b38984d (maria.silva · Serviço de usinagem)
+-- D3 — 3b38984d (maria.silva · Serviço de usinagem)
 select public.concluir_envio_requisicao(
          r.id, r.envio_token, null,
          'Reconciliado em 09/09/2026: ERP sem licenca recusou o envio e NADA foi criado (export de 807 requisicoes do Alvo: maior numero 0001484, de 08/09). Reenvio liberado.',
@@ -215,7 +276,7 @@ where r.id = '3b38984d-4714-4505-ae5a-72a80afd8729'::uuid
 select id, status, numero_alvo, envio_token from public.compras_requisicoes
 where id = '3b38984d-4714-4505-ae5a-72a80afd8729';
 
--- C5 — 88c8351c (maria.silva · Serviço de corte à laser)
+-- D4 — 88c8351c (maria.silva · Serviço de corte à laser)
 select public.concluir_envio_requisicao(
          r.id, r.envio_token, null,
          'Reconciliado em 09/09/2026: ERP sem licenca recusou o envio e NADA foi criado (export de 807 requisicoes do Alvo: maior numero 0001484, de 08/09). Reenvio liberado.',
@@ -229,7 +290,7 @@ where id = '88c8351c-76f8-4214-9d98-017ae359d1ae';
 
 
 -- ───────────────────────────────────────────────────────────────────────────
--- BLOCO D — conferência final das 7
+-- BLOCO E — conferência final das 7
 -- ───────────────────────────────────────────────────────────────────────────
 select r.id, r.status, r.numero_alvo, r.envio_token is not null as token_preso,
        left(r.descricao, 40) as descricao,
@@ -241,8 +302,8 @@ where r.id in ('0d87cb3e-d8ee-4446-bd9e-f49aecd39a95','d5152e6f-91ff-4129-9d5a-b
                '3b38984d-4714-4505-ae5a-72a80afd8729','88c8351c-76f8-4214-9d98-017ae359d1ae',
                '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a')
 order by r.created_at;
--- esperado após tudo: d5152e6f cancelada · as 6 com token_preso = false
--- (e `numero_alvo` preenchido nas que já foram reenviadas com sucesso)
+-- esperado após tudo: d5152e6f e 663731a8 = cancelada, token null
+-- · as outras 5 com token_preso = false e `numero_alvo` preenchido nas já reenviadas
 
 
 -- ───────────────────────────────────────────────────────────────────────────
@@ -257,11 +318,11 @@ order by r.created_at;
 --    where id = '<id>'::uuid and numero_alvo is null
 --   returning id, envio_token;
 --
--- Cancelamento da duplicata:
+-- Cancelamentos (d5152e6f, duplicata · 663731a8, criada por engano):
 --
 --   update public.compras_requisicoes
 --      set status = 'aprovada', updated_at = now()
---    where id = 'd5152e6f-91ff-4129-9d5a-bce73200dea7'::uuid and status = 'cancelada'
+--    where id = '<d5152e6f… ou 663731a8…>'::uuid and status = 'cancelada'
 --   returning id, status;
 --
 -- A trilha NÃO é revertida — eventos de auditoria não se apagam, por design.

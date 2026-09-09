@@ -1600,13 +1600,24 @@ escrita (`and status='aprovada' and numero_alvo is null and envio_token is not n
 inesperado retorna 0 linhas e não faz nada), conferência antes/depois, `RETURNING` e rollback com
 os 7 tokens originais anotados. **Não executado por mim.**
 
+#### Destino das 7 — decisões do Pedro em 09/09/2026
+
+| requisição | destino | por quê |
+|---|---|---|
+| `d5152e6f` (09:06) | **cancelar** | duplicata de `0d87cb3e`; fica a mais antiga do par |
+| `663731a8` (10:39) | **cancelar** | "HJWSIHFIUHHJG D" — digitação acidental, sem intenção de compra. Não é duplicata de nada, e o payload da trilha registra isso, não "duplicata" |
+| `d4a58205` (09:54) | **reenviar — é o teste** | 1 item e **sem anexo**: o caminho mais curto do envio (`SavePartial`, sem download do Storage nem conferência de sha256). Se falhar, a causa é o ERP e não o anexo |
+| `0d87cb3e`, `463f5f4e`, `3b38984d`, `88c8351c` | reenviar depois | só após o teste criar número no ERP |
+
+Os dois cancelamentos passam pela **mesma RPC** antes do `UPDATE` de status: requisição cancelada
+com token preso continuaria travada se um dia se voltasse atrás.
+
 #### Ordem obrigatória, e por quê
 
-Bloco 0 (pré-voo) → Bloco A (duplicata) → **Bloco B: liberar UMA e reenviar de verdade** → só
-então os blocos C. O **405 do Alvo continua ativo** e a última evidência de envio (10:39 BRT) foi
-recusa por licença: liberar as 6 de uma vez e pedir reenvio geral prenderia os 6 tokens de novo.
-Escolhida para o teste a `663731a8` ("HJWSIHFIUHHJG D", elisangela.silva) — menor valor de negócio
-e única autora com login próprio no Alvo.
+Bloco 0 (pré-voo) → **A e B: os dois cancelamentos**, que não tocam o ERP → **C: liberar UMA e
+reenviar de verdade** → PARE e confirme o número no ERP → só então os blocos D (as 4 restantes).
+O **405 do Alvo continua ativo** e a última evidência de envio (10:39 BRT) foi recusa por licença:
+liberar as 5 de uma vez e pedir reenvio geral prenderia os 5 tokens de novo, e seria tudo de novo.
 
 #### Quem reenvia — medido, não suposto
 
@@ -1615,8 +1626,8 @@ líder do próprio CC. Como a aprovação já está gravada e o token estará li
 `req_iniciar_envio_sem_janela` aceita cada uma na própria requisição, e `compras_requisicoes_janela`
 está em `aberta` (não bloqueia). **O reenvio é do requisitante, pela tela de detalhe.**
 
-A exceção que importa: só **elisangela.silva** tem `alvo_usuario`. Nas outras três o documento sai
-no ERP como `PEDRO.SCRIGNOLI` (evento `login_servico_provisorio`) **independentemente de quem
-clica** — então, para elas, o Pedro reenviar não muda o resultado no ERP, só remove a chance de a
-pessoa ver o erro se ele voltar. Para a `663731a8`, quem clica muda: reenviada pela Elisangela, o
-documento sai com o login dela.
+A exceção que importa: só **elisangela.silva** tem `alvo_usuario` — e a requisição dela é
+justamente uma das duas canceladas. Nas **cinco que serão reenviadas** o documento sai no ERP como
+`PEDRO.SCRIGNOLI` (evento `login_servico_provisorio`) **independentemente de quem clica**; então,
+aqui, o Pedro reenviar não muda o resultado no ERP, só remove a chance de a pessoa ver o erro se
+ele voltar.
