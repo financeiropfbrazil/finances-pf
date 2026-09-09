@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { destinoAposSubmissao, regenerarGuidsAnexos } from "@/lib/requisicaoPosEnvio";
+import {
+  avisoFalhaEnvioPosAprovacao,
+  destinoAposSubmissao,
+  regenerarGuidsAnexos,
+  traduzirErroEnvioAlvo,
+} from "@/lib/requisicaoPosEnvio";
 import type { SubmissaoResult } from "@/services/requisicoesService";
 
 // ══════════════════════════════════════════════════════════════════════
@@ -125,5 +130,86 @@ describe("regenerarGuidsAnexos — o GUID é da tentativa, não do arquivo", () 
 
   it("lista vazia continua vazia", () => {
     expect(regenerarGuidsAnexos([])).toEqual([]);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// CARD LICENÇA — a recusa do ERP por licença esgotada (09/09/2026)
+// ══════════════════════════════════════════════════════════════════════
+//
+// 7 requisições recusadas entre 12:02 e 13:39 UTC com o texto literal do Alvo
+// "Você tentou acessar uma transação do módulo Prime Back Office mas todas as
+// licenças estão em uso." — 100% dos envios do dia, 4 pessoas, zero ocorrências
+// nos 5 meses anteriores.
+//
+// A tradução NÃO libera "Reenviar": a auditoria das 7 gravou `falha_definitiva:
+// false`, marca que o gateway só produz depois de despachar o POST de Insert ao
+// Alvo. Enquanto não se comprovar no ERP que a recusa acontece antes da gravação,
+// o desfecho é desconhecido e vale o ramo conservador. O que muda é só o texto.
+
+describe("traduzirErroEnvioAlvo — assinatura de licença esgotada", () => {
+  const MENSAGEM_ALVO =
+    "Você tentou acessar uma transação do módulo Prime Back Office mas todas as licenças estão em uso.";
+
+  it("reconhece a mensagem literal do ERP e devolve texto acionável", () => {
+    const traduzido = traduzirErroEnvioAlvo(MENSAGEM_ALVO);
+    expect(traduzido).not.toBeNull();
+    expect(traduzido!.titulo).toMatch(/licença/i);
+    expect(traduzido!.descricao).toMatch(/NÃO crie outra requisição/);
+    expect(traduzido!.detalheTecnico).toBe(MENSAGEM_ALVO);
+  });
+
+  it("reconhece pelas duas metades da assinatura, isoladas", () => {
+    expect(traduzirErroEnvioAlvo("módulo Prime Back Office indisponível")).not.toBeNull();
+    expect(traduzirErroEnvioAlvo("todas as licenças estão em uso")).not.toBeNull();
+  });
+
+  it("não reconhece erro de outra natureza — a tela segue mostrando o texto cru", () => {
+    expect(traduzirErroEnvioAlvo("Envio sem confirmação (HTTP 502). Reconciliar antes de reenviar.")).toBeNull();
+    expect(traduzirErroEnvioAlvo("Não foi possível conferir unidades do produto 0000123")).toBeNull();
+    // "licença" no texto de um item comprado não é a assinatura da recusa.
+    expect(traduzirErroEnvioAlvo("Renovação da licença do software Minitab")).toBeNull();
+    expect(traduzirErroEnvioAlvo("")).toBeNull();
+    expect(traduzirErroEnvioAlvo(null)).toBeNull();
+  });
+});
+
+describe("avisoFalhaEnvioPosAprovacao — lista positiva preservada", () => {
+  const MENSAGEM_ALVO =
+    "Você tentou acessar uma transação do módulo Prime Back Office mas todas as licenças estão em uso.";
+
+  it("licença esgotada: traduz, guarda o original e NÃO libera reenviar", () => {
+    const aviso = avisoFalhaEnvioPosAprovacao(MENSAGEM_ALVO);
+    expect(aviso.podeReenviar).toBe(false);
+    expect(aviso.detalheTecnico).toBe(MENSAGEM_ALVO);
+    expect(aviso.descricao).toContain("A aprovação foi preservada.");
+    expect(aviso.descricao).not.toContain("Prime Back Office");
+  });
+
+  it("prova positiva de que nada saiu do Hub continua liberando reenviar", () => {
+    const aviso = avisoFalhaEnvioPosAprovacao("Requisição sem itens. Nada foi enviado ao ERP.");
+    expect(aviso.podeReenviar).toBe(true);
+    expect(aviso.titulo).toBe("Aprovada, mas o envio ao ERP falhou");
+    expect(aviso.detalheTecnico).toBeUndefined();
+  });
+
+  it("a prova positiva vence, mesmo se a assinatura de licença aparecer junto", () => {
+    const aviso = avisoFalhaEnvioPosAprovacao(
+      "Recusado antes do Prime Back Office: nada foi enviado ao ERP.",
+    );
+    expect(aviso.podeReenviar).toBe(true);
+  });
+
+  it("erro desconhecido continua no ramo conservador, com o texto de antes", () => {
+    const aviso = avisoFalhaEnvioPosAprovacao("Envio sem confirmação do ERP.");
+    expect(aviso.podeReenviar).toBe(false);
+    expect(aviso.titulo).toBe("Aprovada — desfecho do envio INCERTO");
+    expect(aviso.descricao).toContain("Envio sem confirmação do ERP.");
+    expect(aviso.detalheTecnico).toBeUndefined();
+  });
+
+  it("falha sem mensagem continua conservadora", () => {
+    expect(avisoFalhaEnvioPosAprovacao("").podeReenviar).toBe(false);
+    expect(avisoFalhaEnvioPosAprovacao("").descricao).toContain("Falha sem mensagem.");
   });
 });

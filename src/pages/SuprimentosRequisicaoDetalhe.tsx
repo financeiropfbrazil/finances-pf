@@ -63,7 +63,8 @@ import { ModalRejeicaoRequisicao } from "@/components/compras/ModalRejeicaoRequi
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { avisoFalhaEnvioPosAprovacao } from "@/lib/requisicaoPosEnvio";
+import { avisoFalhaEnvioPosAprovacao, traduzirErroEnvioAlvo } from "@/lib/requisicaoPosEnvio";
+import { DescricaoFalhaEnvio } from "@/components/compras/DescricaoFalhaEnvio";
 
 /**
  * Status em que a requisição REALMENTE existe no ERP — logo, os únicos em que faz
@@ -479,11 +480,11 @@ export default function SuprimentosRequisicaoDetalhe() {
           });
         } else {
           const aviso = avisoFalhaEnvioPosAprovacao(envio.erro ?? "", "abaixo");
-          toast({ title: aviso.titulo, description: aviso.descricao, variant: "destructive" });
+          toast({ title: aviso.titulo, description: <DescricaoFalhaEnvio aviso={aviso} />, variant: "destructive" });
         }
       } catch (errEnvio: any) {
         const aviso = avisoFalhaEnvioPosAprovacao(String(errEnvio?.message || errEnvio), "abaixo");
-        toast({ title: aviso.titulo, description: aviso.descricao, variant: "destructive" });
+        toast({ title: aviso.titulo, description: <DescricaoFalhaEnvio aviso={aviso} />, variant: "destructive" });
       }
       refetch();
       invalidarFilaDeAprovacoes();
@@ -586,7 +587,7 @@ export default function SuprimentosRequisicaoDetalhe() {
   return (
     <div className="space-y-6 p-6">
       {req.aprovacao_submetida_em && <AprovacoesCC grupos={gruposAprovacao} erro={erroAprovacao?.message} />}
-      {req.envio_token && !req.numero_alvo && <p role="alert" className="rounded-lg border p-4 text-sm">Envio em andamento ou sem confirmação. O reenvio está bloqueado até reconciliar com o Alvo.</p>}
+      {req.envio_token && !req.numero_alvo && <p role="alert" className="rounded-lg border p-4 text-sm">Envio em andamento ou sem confirmação. O reenvio está bloqueado até reconciliar com o Alvo. Não crie outra requisição para o mesmo pedido — se a primeira tiver chegado ao ERP, viram duas.</p>}
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
@@ -847,8 +848,18 @@ export default function SuprimentosRequisicaoDetalhe() {
           <CardContent className="flex items-start gap-3 p-4">
             <AlertTriangle className="mt-0.5 h-5 w-5 text-destructive" />
             <div>
-              <p className="text-sm font-medium text-foreground">Erro no último envio</p>
-              <p className="text-sm text-muted-foreground">{req.erro_ultimo_envio}</p>
+              {/* Assinatura reconhecida (ex.: licença esgotada do ERP) troca o texto
+                  cru por um que diz o que fazer; o original desce para o detalhe
+                  técnico. Mensagem não reconhecida segue exibida como sempre foi. */}
+              <p className="text-sm font-medium text-foreground">
+                {traduzirErroEnvioAlvo(req.erro_ultimo_envio)?.titulo ?? "Erro no último envio"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {traduzirErroEnvioAlvo(req.erro_ultimo_envio)?.descricao ?? req.erro_ultimo_envio}
+              </p>
+              {traduzirErroEnvioAlvo(req.erro_ultimo_envio) && (
+                <p className="mt-1 text-xs text-muted-foreground">Detalhe técnico (ERP): {req.erro_ultimo_envio}</p>
+              )}
               {req.tentativa_envio_em && (
                 <p className="mt-1 text-xs text-muted-foreground">Tentativa em {formatDate(req.tentativa_envio_em)}</p>
               )}

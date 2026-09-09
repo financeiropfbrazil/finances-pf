@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format, differenceInCalendarDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { avisoFalhaEnvioPosAprovacao } from "@/lib/requisicaoPosEnvio";
+import { DescricaoFalhaEnvio } from "@/components/compras/DescricaoFalhaEnvio";
 
 function formatData(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -132,11 +133,11 @@ export default function SuprimentosAprovacoes() {
           });
         } else {
           const aviso = avisoFalhaEnvioPosAprovacao(envio.erro ?? "", "no detalhe da requisição");
-          toast({ title: aviso.titulo, description: aviso.descricao, variant: "destructive" });
+          toast({ title: aviso.titulo, description: <DescricaoFalhaEnvio aviso={aviso} />, variant: "destructive" });
         }
       } catch (errEnvio: any) {
         const aviso = avisoFalhaEnvioPosAprovacao(String(errEnvio?.message || errEnvio), "no detalhe da requisição");
-        toast({ title: aviso.titulo, description: aviso.descricao, variant: "destructive" });
+        toast({ title: aviso.titulo, description: <DescricaoFalhaEnvio aviso={aviso} />, variant: "destructive" });
       }
       recarregarTudo();
     } catch (err: any) {

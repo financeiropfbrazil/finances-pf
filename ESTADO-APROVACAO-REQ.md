@@ -52,6 +52,7 @@ melhoria de usabilidade, não pré-requisito de nada.
 | **ENCERRAMENTO** | Estado final da missão | ✅ 11/08/2026 — §14 |
 | **AJUSTE 7.1 / PROMPT 7.1** | Líder abre o detalhe da requisição que aprova (bug A1.4) | ✅ **já estava corrigido** — commit `f40029c` (19/08, "card B1"), em `origin/main` **e no bundle publicado**. Sessão de 02/09 verificou e registrou, **zero código alterado** — §15 |
 | **AJUSTE 7.2 / PROMPT 7.2** | Escopo `view_cc` — líder enxerga requisições e pedidos dos CCs que lidera | ✅ código entregue · ⏳ **SQL pendente** (`SQL-AJUSTE72.md`, 14 blocos) · sem push — §16 |
+| **CARD LICENÇA** | Recusa do Alvo por licença esgotada (Prime Back Office) | ✅ §3.1 entregue em 09/09/2026 (mensagem traduzida, ramo conservador) · **§3.2 e §3.3 CANCELADOS** — S1 não confirmou · última seção |
 | PROMPT 4 | Validação 255 chars na digitação | ⏸️ não iniciado (melhoria de usabilidade, não bloqueia nada) |
 
 **Publicação (medido no git em 11/08/2026):** `main` e `origin/main` estão no mesmo commit —
@@ -1431,3 +1432,127 @@ resultado esperado; o pré-voo devolveu `LIBERAR / aceite | cron=false | sync=fa
 2. **Permissão sem bypass** — o Pedro é o único `is_admin` de 52 e nunca vê erro de permissão.
    Nenhuma tela ou RPC nova foi testada por usuário sem a flag.
 3. **A Edge v51 nunca executou um ciclo** — ver `ESTADO-SYNC-PEDIDOS.md`, entrada de 08/09.
+
+---
+
+## 09/09/2026 — CARD LICENÇA: recusa do Alvo por licença esgotada (Prime Back Office)
+
+Fonte: `docs/CARD-LICENCA-ALVO.md`. Sessão read-only no banco (MCP `supabase-ro`) + código.
+Nenhuma escrita no banco, nenhum push, nenhum deploy, gateway não tocado.
+
+### S1 (bloqueante) — a requisição chega a ser criada no Alvo? **NÃO CONFIRMADO que não.**
+
+A hipótese do card ("o Alvo recusa antes de gravar — a sessão nem abre") está **refutada pela
+evidência**: quando essa mensagem aparece, o POST de Insert **já foi despachado ao Alvo**.
+
+| Evidência | Onde |
+|---|---|
+| As 7 gravaram `resposta_alvo = {"falha_definitiva": false}` | `compras_requisicoes_auditoria`, evento `envio_pos_aprovacao_falha` |
+| O gateway só grava `falha_definitiva: true` em dois casos: exceção **antes** de `chamadaIniciada = true` (`p_falha_definitiva: !chamadaIniciada`) ou resposta **HTTP 412** sem `Numero` | `docs/aprovacao-multicc/diff-completo.patch`, rota `POST /req-comp/enviar-aprovada` |
+| A mensagem gravada é o `Message` do JSON de resposta do Alvo. Falha no `Produto/Load` diria "Não foi possível conferir unidades do produto X"; no download do anexo, "Não foi possível baixar X"; no `getAlvoToken`, cairia no catch com `falha_definitiva: true` | mesma rota |
+
+⇒ Do lado do Hub o desfecho é **DESCONHECIDO**, que é exatamente o caso que a lista positiva do
+`avisoFalhaEnvioPosAprovacao` manda tratar como conservador. **§3.2 e §3.3 CANCELADOS.**
+
+**Duas descobertas que tornam 3.2/3.3 inexequíveis mesmo se o S1 confirmasse:**
+
+1. `req_iniciar_envio_sem_janela` recusa com `ENVIO_EM_ANDAMENTO_OU_INCERTO` enquanto
+   `envio_token is not null`. Com `falha_definitiva = false` o token **não é limpo**
+   (`concluir_envio_requisicao`), então as 7 estão com reenvio bloqueado **no banco** — nem manual,
+   nem automático, nem por admin. Liberar o helper do frontend não mudaria nada.
+2. Quem decide `falha_definitiva` é o **gateway** (`response.status === 412`) — fora do escopo
+   desta sessão por ordem do card.
+
+**Como fechar o S1 (teste barato e decisivo, para o Pedro):** no Alvo, qual o maior número de
+requisição de compra existente hoje? A última criada pelo Hub foi **0001484** (08/09 20:19 UTC) e
+**não houve nenhuma criação bem-sucedida em 09/09**. Se o maior número ainda for 0001484, nenhuma
+das 7 gerou documento. Se houver números novos, conferir contra estas descrições:
+
+| hora UTC | requisicao_id | autor | CC | descrição |
+|---|---|---|---|---|
+| 12:02 | `0d87cb3e` | nathalia.richele | 00008.00001.00006 | Serviço de calibração … UV/VIS |
+| 12:06 | `d5152e6f` | nathalia.richele | 00008.00001.00006 | *(mesma — ela recriou)* |
+| 12:12 | `463f5f4e` | kemilly.araujo | 00010.00002.00002 | MATERIAL DE HIGIENE — EVENTOS PARQUE TEC. |
+| 12:54 | `d4a58205` | kemilly.araujo | 00010.00002.00002 | Impressos |
+| 13:26 | `3b38984d` | maria.silva | 00008.00002.00005 | Serviço de usinagem |
+| 13:35 | `88c8351c` | maria.silva | 00008.00002.00005 | Serviço de corte à laser |
+| 13:39 | `663731a8` | elisangela.silva | 00010.00002.00007.00001 | HJWSIHFIUHHJG D |
+
+O detector automático disso — **Job 4 (`descoberta_alvo`)**, que cria linha no Hub para requisição
+que existe no Alvo sem par aqui — está **cego desde 12:00 UTC de hoje** (ver S3).
+
+### S2 — frequência: 7 ocorrências, todas hoje, 100% dos envios do dia
+
+| dia | tentativas | sucesso | falha | falha por licença |
+|---|---|---|---|---|
+| 08/09 | 5 | 5 | 0 | 0 |
+| 09/09 | 7 | **0** | 7 | **7** |
+
+Janela: 12:02:38 → 13:39:47 UTC (09:02 → 10:39 BRT), **97 minutos**, 4 pessoas. A auditoria começa
+em 10/04/2026: **238 tentativas de envio em 5 meses, zero ocorrências antes de hoje.** Não é
+degradação gradual por concorrência crescente — é uma parada, de uma vez. A distribuição horária
+não tem o que dizer com n=7 num único dia.
+
+### S3 — pedidos e cron
+
+- **Pedidos: nenhuma ocorrência — e a ausência é CEGA.** O último envio de pedido foi 08/09 17:54
+  (sucesso); **nenhuma tentativa de envio de pedido durante a janela**. Não se pode concluir que
+  pedidos estejam imunes. Varredura da assinatura ("Back Office") em `compras_pedidos`,
+  `compras_pedidos_auditoria`, `op_requisicoes`, `op_rm_atendimentos`, `projeto_requisicoes`,
+  `desp_*`, `stock_*`, `sync_*`, `compras_nfe_fila_chaves`: **0 em todas**.
+- **O cron não competiu — ele está fora do ar, e isso é um segundo incidente.** Entre 11:00 e
+  11:45 UTC de hoje **todos os syncs que leem o Alvo passaram a falhar com HTTP 405**:
+
+| job | 11:00 UTC | depois |
+|---|---|---|
+| `bicephalous` (status req+ped, Job 4 = descoberta) | 474 consultados, **0 erros** | 12:00/13:00/14:00 → **152 erros**, `GET /req-comp/list` e `/ped-comp/list` HTTP 405 |
+| `laudos` (11:45) | — | `Alvo HTTP 405` na etapa `lista` |
+| `reqmat` (12:25) | — | `Alvo HTTP 405`, 150 `ReqMat/Load` falhados |
+
+  As falhas de licença começam 12:02 — **17 minutos** depois do primeiro 405. Os dois incidentes
+  são simultâneos e nenhum dos dois é do Hub; **ninguém foi avisado do 405**, ele é silencioso.
+
+### S4 — quantas sessões o Hub abre (o item de maior alavancagem)
+
+- **Por envio de requisição:** 1 `Produto/Load` (GET) por produto distinto + 1 POST
+  `ReqComp/SavePartial|SaveMultiPart?action=Insert`, **todos com o mesmo token** — `getAlvoToken()`
+  tem cache compartilhado no gateway e só é invalidado em 401/403/409. Não há logout explícito no
+  código disponível. *(Limite: `alvo-auth.ts` vive no repo do gateway, fora deste; o que afirmo vem
+  da cópia em `docs/aprovacao-multicc/gateway/`.)*
+- **Com que identidade:** só **5 dos 58 perfis** têm `alvo_usuario`. Toda a história de envios usou
+  **2 logins**: `ELISANGELA.SILVA` e `PEDRO.SCRIGNOLI`. Hoje, **6 dos 7** envios caíram no login
+  provisório `PEDRO.SCRIGNOLI` (evento `login_servico_provisorio`). Se a licença do Alvo é por
+  usuário nomeado, o Hub inteiro concorre como uma pessoa só — e com o próprio Pedro, se ele
+  estiver no ERP.
+- **O grosso do consumo não é o usuário, é o cron.** Últimos 7 dias, chamadas ao Alvo:
+
+| job | rodadas | chamadas | média/rodada | quando (BRT) |
+|---|---|---|---|---|
+| `bicephalous` | 44 | 19.329 | 439 | **de hora em hora, 08h–17h, dias úteis** |
+| `laudos` | 20 | 17.099 | 855 | 08:45, 11:45, 14:45, 17:45 |
+| `reqmat` | 20 | 13.812 | 691 | 09:25, 12:25, 15:25, 18:25 |
+| `produtos` | 5 | 11.143 | 2.229 | 20:00 (fora do expediente) |
+| demais | 61 | 1.432 | — | 07/12/16h |
+| **total** | | **62.815** | | |
+
+  ≈ **9.200 chamadas por dia útil dentro do horário comercial**, contra **~5 envios de requisição
+  por dia** feitos por pessoas. Se há disputa por licença, ela é do cron com os usuários.
+
+### O que foi corrigido (§3.1, ramo conservador)
+
+| Arquivo | Mudança |
+|---|---|
+| `src/lib/requisicaoPosEnvio.ts` | `SINAL_LICENCA_ESGOTADA` + `traduzirErroEnvioAlvo()` (lista positiva, devolve `null` para o que não reconhece) e campo opcional `detalheTecnico` em `AvisoFalhaEnvio`. `avisoFalhaEnvioPosAprovacao` ganha o ramo da licença **com `podeReenviar: false`** — a prova positiva (`nada foi enviado ao ERP`) continua sendo a primeira e a única que libera reenvio |
+| `src/components/compras/DescricaoFalhaEnvio.tsx` | **novo** — corpo do toast: frase traduzida + "Detalhe técnico (ERP)" com o texto literal |
+| `src/pages/SuprimentosRequisicaoDetalhe.tsx` | 2 toasts usam o componente; o card persistido "Erro no último envio" passa a traduzir a assinatura e a mostrar o original como detalhe técnico; o aviso de `envio_token` ganha "Não crie outra requisição para o mesmo pedido — se a primeira tiver chegado ao ERP, viram duas" |
+| `src/pages/SuprimentosAprovacoes.tsx` | os 2 toasts do 2º tempo usam o componente |
+| `src/test/requisicao-pos-envio.test.ts` | +11 testes: tradução, as duas metades da assinatura, "licença de software" **não** dispara, e a não-regressão dos 3 ramos de 08/09 |
+
+**Fora do escopo por decisão explícita:** a frase "a requisição não foi criada" (só entra se o S1
+confirmar) e o retry automático (§3.3). O acréscimo de 1 linha no aviso de `envio_token` está fora
+do texto do card — foi feito porque a duplicação que ele evita **aconteceu hoje** (12:02 e 12:06
+são a mesma requisição, recriada pela Nathalia).
+
+**Gate:** `tsc --noEmit -p tsconfig.app.json` limpo · `bun run build` OK · `vitest` 133 passam;
+`sidebar-ordem.test.tsx` falha 7/7 **também no HEAD** (pré-existente, medido por `git stash`) ·
+eslint: 23 erros `no-explicit-any` nas duas telas, **os mesmos 23 do HEAD**, zero novos.

@@ -88,11 +88,63 @@ export function regenerarGuidsAnexos<T extends { upload_identify_guid: string }>
  */
 const SINAL_NADA_ENVIADO = /nada foi enviado ao erp/i;
 
+/**
+ * Recusa do ERP por licença esgotada — o texto literal do Alvo é
+ * "Você tentou acessar uma transação do módulo Prime Back Office mas todas as
+ * licenças estão em uso." Apareceu 7 vezes em 09/09/2026 entre 12:02 e 13:39 UTC,
+ * atingindo 4 pessoas e 100% dos envios do dia; zero ocorrências nos 5 meses
+ * anteriores de auditoria.
+ *
+ * Isto NÃO é prova de que nada chegou ao ERP: o gateway já havia despachado o
+ * POST `ReqComp/…?action=Insert` quando essa mensagem voltou (a auditoria das 7
+ * gravou `falha_definitiva: false`, que o gateway só produz DEPOIS de iniciar a
+ * chamada). Por isso a assinatura entra aqui apenas para TRADUZIR o texto — segue
+ * no ramo conservador, sem liberar "Reenviar", até que se comprove no ERP que a
+ * recusa acontece antes da gravação.
+ */
+const SINAL_LICENCA_ESGOTADA = /licen[çc]as?\s+est[ãa]o\s+em\s+uso|prime\s+back\s+office/i;
+
+export interface ErroEnvioTraduzido {
+  titulo: string;
+  descricao: string;
+  /** Texto literal do ERP — sai da frase principal, mas nunca some da tela. */
+  detalheTecnico: string;
+}
+
+/**
+ * Traduz para linguagem de quem usa o Hub as recusas do ERP cuja mensagem crua não
+ * significa nada para quem lê ("Prime Back Office", "licenças em uso"). Devolve
+ * `null` quando a mensagem não é de uma assinatura conhecida — aí a tela mostra o
+ * texto do ERP como sempre mostrou, e nada muda.
+ *
+ * Lista positiva, como no aviso pós-aprovação: traduzir por semelhança seria pior
+ * que não traduzir, porque uma tradução errada é lida como diagnóstico.
+ */
+export function traduzirErroEnvioAlvo(erro: string | null | undefined): ErroEnvioTraduzido | null {
+  const mensagem = erro?.trim();
+  if (!mensagem || !SINAL_LICENCA_ESGOTADA.test(mensagem)) return null;
+
+  return {
+    titulo: "ERP sem licença disponível — envio recusado",
+    descricao:
+      "O ERP recusou a operação porque todas as licenças do módulo estão ocupadas. " +
+      "Não é erro da sua requisição nem do preenchimento, e não adianta corrigir os dados. " +
+      "NÃO crie outra requisição para o mesmo pedido: peça ao Suprimentos para conferir no ERP " +
+      "se ela chegou a ser criada antes de tentar de novo.",
+    detalheTecnico: mensagem,
+  };
+}
+
 export interface AvisoFalhaEnvio {
   titulo: string;
   descricao: string;
   /** false ⇒ a tela não deve oferecer "Reenviar": reenviar pode duplicar no ERP. */
   podeReenviar: boolean;
+  /**
+   * Texto literal do ERP, quando a `descricao` foi reescrita e já não o contém.
+   * Ausente nos ramos que embutem a mensagem original na própria frase.
+   */
+  detalheTecnico?: string;
 }
 
 export function avisoFalhaEnvioPosAprovacao(erro: string, ondeReenviar = "abaixo"): AvisoFalhaEnvio {
@@ -103,6 +155,16 @@ export function avisoFalhaEnvioPosAprovacao(erro: string, ondeReenviar = "abaixo
       titulo: "Aprovada, mas o envio ao ERP falhou",
       descricao: `${mensagem} — a aprovação foi preservada e nada foi criado no ERP. Use "Reenviar" ${ondeReenviar}.`,
       podeReenviar: true,
+    };
+  }
+
+  const traduzido = traduzirErroEnvioAlvo(mensagem);
+  if (traduzido) {
+    return {
+      titulo: traduzido.titulo,
+      descricao: `A aprovação foi preservada. ${traduzido.descricao}`,
+      podeReenviar: false,
+      detalheTecnico: traduzido.detalheTecnico,
     };
   }
 
