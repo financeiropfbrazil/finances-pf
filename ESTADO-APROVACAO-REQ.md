@@ -1576,7 +1576,9 @@ mesmo indeterminável — só o export do ERP podia decidir, e decidiu.
 `0000006`, descrição, `data_necessidade`, item (`002.005`, 1 UNID, serviço) e **o mesmo anexo** —
 `PC - 1344_26 - PF.pdf`, 241.089 bytes, sha256 `5dc5b887d6132855…`. Só o `upload_identify_guid`
 difere, e ele é regenerado a cada tentativa por design. Única diferença de conteúdo: o campo
-`texto` — a cancelada dizia "Orçamento da calibração em anexo", a mantida diz "Orçamento em anexo".
+`texto` — a **mantida** (`0d87cb3e`, 09:02) diz "Orçamento da calibração em anexo"; a
+**cancelada** (`d5152e6f`, 09:06) dizia só "Orçamento em anexo". Decisão do Pedro em 09/09:
+fica a MAIS ANTIGA do par, por causa dessa frase — o SQL foi invertido para isso.
 
 **Não há outro par entre as 7.** O cruzamento de autor × CC × descrição × itens × anexos deu só
 esse. Dois quase-pares foram descartados com dado: `463f5f4e` × `d4a58205` (kemilly) casam em

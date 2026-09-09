@@ -69,14 +69,15 @@ order by created_at;
 
 
 -- ───────────────────────────────────────────────────────────────────────────
--- BLOCO A — DUPLICATA: cancelar 0d87cb3e (mantendo d5152e6f)
+-- BLOCO A — DUPLICATA: cancelar d5152e6f (mantendo 0d87cb3e)
 -- ───────────────────────────────────────────────────────────────────────────
 -- Idênticas em requisitante, CC, filial, funcionário, finalidade, descrição,
 -- data de necessidade, item (002.005 / 1 UNID) e anexo (mesmo sha256
 -- 5dc5b887d6132855…, "PC - 1344_26 - PF.pdf", 241.089 bytes). Só o GUID de
 -- upload difere — ele é regenerado a cada tentativa, por design.
--- ⚠ Diferença única: o campo `texto`. A que será cancelada diz "Orçamento da
---   calibração em anexo"; a mantida diz só "Orçamento em anexo".
+-- ⚠ Diferença única: o campo `texto`. A mantida (0d87cb3e, 09:02) diz "Orçamento
+--   da calibração em anexo"; a cancelada (d5152e6f, 09:06) diz só "Orçamento em
+--   anexo" — a decisão manteve a MAIS ANTIGA do par por causa dessa frase.
 
 -- A1 — conferência ANTES
 select id, status, numero_alvo, envio_token, left(erro_ultimo_envio, 60) as erro
@@ -88,11 +89,11 @@ select public.concluir_envio_requisicao(
          r.id,
          r.envio_token,
          null,
-         'Reconciliado em 09/09/2026: ERP sem licenca recusou o envio e NADA foi criado (export de 807 requisicoes do Alvo: maior numero 0001484, de 08/09). Requisicao cancelada por ser duplicata de d5152e6f-91ff-4129-9d5a-bce73200dea7.',
+         'Reconciliado em 09/09/2026: ERP sem licenca recusou o envio e NADA foi criado (export de 807 requisicoes do Alvo: maior numero 0001484, de 08/09). Requisicao cancelada por ser duplicata de 0d87cb3e-d8ee-4446-bd9e-f49aecd39a95.',
          true
        ) as resultado                                    -- esperado: ERRO_REGISTRADO
 from public.compras_requisicoes r
-where r.id = '0d87cb3e-d8ee-4446-bd9e-f49aecd39a95'::uuid
+where r.id = 'd5152e6f-91ff-4129-9d5a-bce73200dea7'::uuid
   and r.status = 'aprovada'
   and r.numero_alvo is null
   and r.envio_token is not null;
@@ -100,7 +101,7 @@ where r.id = '0d87cb3e-d8ee-4446-bd9e-f49aecd39a95'::uuid
 -- A3 — cancela (só roda com o token já liberado por A2)
 update public.compras_requisicoes
    set status = 'cancelada', updated_at = now()
- where id = '0d87cb3e-d8ee-4446-bd9e-f49aecd39a95'::uuid
+ where id = 'd5152e6f-91ff-4129-9d5a-bce73200dea7'::uuid
    and status = 'aprovada'
    and numero_alvo is null
    and envio_token is null
@@ -113,17 +114,17 @@ returning id, status, numero_alvo, envio_token, updated_at;
 insert into public.compras_requisicoes_auditoria
   (requisicao_id, evento, user_id, user_nome, payload_enviado, sucesso, mensagem_erro)
 values
-  ('0d87cb3e-d8ee-4446-bd9e-f49aecd39a95'::uuid,
+  ('d5152e6f-91ff-4129-9d5a-bce73200dea7'::uuid,
    'editada',
    null,
    'Reconciliacao manual - Pedro',
    jsonb_build_object(
      'acao',      'cancelamento_manual',
-     'motivo',    'duplicata de d5152e6f-91ff-4129-9d5a-bce73200dea7',
+     'motivo',    'duplicata de 0d87cb3e-d8ee-4446-bd9e-f49aecd39a95',
      'igualdade', 'requisitante, CC, filial, funcionario, finalidade, descricao, data_necessidade, item 002.005 1 UNID e anexo sha256 5dc5b887d6132855',
      'incidente', 'licenca_esgotada_alvo_09_09_2026',
      'prova',     'export de 807 requisicoes do Alvo em 09/09/2026: maior numero 0001484 (08/09), zero documentos com data 09/09',
-     'mantida',   'd5152e6f-91ff-4129-9d5a-bce73200dea7'),
+     'mantida',   '0d87cb3e-d8ee-4446-bd9e-f49aecd39a95'),
    true,
    null)
 returning id, requisicao_id, evento, created_at;
@@ -132,7 +133,7 @@ returning id, requisicao_id, evento, created_at;
 select id, status, numero_alvo, envio_token, left(erro_ultimo_envio, 70) as erro
 from public.compras_requisicoes
 where id in ('0d87cb3e-d8ee-4446-bd9e-f49aecd39a95', 'd5152e6f-91ff-4129-9d5a-bce73200dea7');
--- esperado: 0d87cb3e = cancelada, token null · d5152e6f = aprovada, token AINDA preso
+-- esperado: d5152e6f = cancelada, token null · 0d87cb3e = aprovada, token AINDA preso
 
 
 -- ───────────────────────────────────────────────────────────────────────────
@@ -166,17 +167,17 @@ from public.compras_requisicoes where id = '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a
 -- ───────────────────────────────────────────────────────────────────────────
 -- Todos idênticos, mudando só o id. Rode um, confira, rode o próximo.
 
--- C1 — d5152e6f (nathalia.richele · calibração UV/VIS · a que fica do par)
+-- C1 — 0d87cb3e (nathalia.richele · calibração UV/VIS · a que fica do par)
 select public.concluir_envio_requisicao(
          r.id, r.envio_token, null,
          'Reconciliado em 09/09/2026: ERP sem licenca recusou o envio e NADA foi criado (export de 807 requisicoes do Alvo: maior numero 0001484, de 08/09). Reenvio liberado.',
          true) as resultado
 from public.compras_requisicoes r
-where r.id = 'd5152e6f-91ff-4129-9d5a-bce73200dea7'::uuid
+where r.id = '0d87cb3e-d8ee-4446-bd9e-f49aecd39a95'::uuid
   and r.status = 'aprovada' and r.numero_alvo is null and r.envio_token is not null;
 
 select id, status, numero_alvo, envio_token from public.compras_requisicoes
-where id = 'd5152e6f-91ff-4129-9d5a-bce73200dea7';
+where id = '0d87cb3e-d8ee-4446-bd9e-f49aecd39a95';
 
 -- C2 — 463f5f4e (kemilly.araujo · MATERIAL DE HIGIENE · 2 itens)
 select public.concluir_envio_requisicao(
@@ -240,7 +241,7 @@ where r.id in ('0d87cb3e-d8ee-4446-bd9e-f49aecd39a95','d5152e6f-91ff-4129-9d5a-b
                '3b38984d-4714-4505-ae5a-72a80afd8729','88c8351c-76f8-4214-9d98-017ae359d1ae',
                '663731a8-38ff-45c8-a6d9-5e4db0c8fc7a')
 order by r.created_at;
--- esperado após tudo: 0d87cb3e cancelada · as 6 com token_preso = false
+-- esperado após tudo: d5152e6f cancelada · as 6 com token_preso = false
 -- (e `numero_alvo` preenchido nas que já foram reenviadas com sucesso)
 
 
@@ -260,7 +261,7 @@ order by r.created_at;
 --
 --   update public.compras_requisicoes
 --      set status = 'aprovada', updated_at = now()
---    where id = '0d87cb3e-d8ee-4446-bd9e-f49aecd39a95'::uuid and status = 'cancelada'
+--    where id = 'd5152e6f-91ff-4129-9d5a-bce73200dea7'::uuid and status = 'cancelada'
 --   returning id, status;
 --
 -- A trilha NÃO é revertida — eventos de auditoria não se apagam, por design.
