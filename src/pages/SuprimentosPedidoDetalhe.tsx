@@ -60,6 +60,33 @@ import VincularRequisicaoCard from "@/components/VincularRequisicaoCard";
 import { getStatusPedido } from "@/lib/statusPedido";
 import { formatarValorMoeda, moedaNaoConfirmada, MOEDA_NAO_CONFIRMADA } from "@/services/moedaPedido";
 import { carregarDetalhesPedido, isPedidoInexistenteNoAlvo } from "@/services/alvoPedCompLoadService";
+import { formatarPercentualUnidades, montarRateioExatoPorValor, type RateioExato } from "@/lib/rateioExato";
+
+/**
+ * RATEIO-MASSA — rateio exato de um item que tem valor em todas as linhas e fecha o
+ * total (o serviço marca `rateio_por_valor`). Com ele a tela mostra o VALOR gravado
+ * e o percentual de 4 casas, em vez de recalcular valor a partir de % arredondado.
+ * Qualquer inconsistência → null, e a tela cai no cálculo antigo.
+ */
+function rateioExatoParaExibir(item: {
+  rateio_por_valor?: boolean;
+  rateio: Array<{
+    codigo_classe_rec_desp: string;
+    ccs: Array<{ codigo_centro_ctrl: string; valor_centavos?: number }>;
+  }>;
+}): RateioExato | null {
+  if (!item.rateio_por_valor) return null;
+  try {
+    return montarRateioExatoPorValor(
+      item.rateio.map((cls) => ({
+        codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
+        ccs: cls.ccs.map((cc) => ({ codigo_centro_ctrl: cc.codigo_centro_ctrl, centavos: cc.valor_centavos ?? 0 })),
+      })),
+    );
+  } catch {
+    return null;
+  }
+}
 
 // ════════════════════════════════════════════════════════════
 // CONFIG DE EVENTOS DA AUDITORIA (mantido — usado no histórico)
@@ -750,6 +777,7 @@ export default function SuprimentosPedidoDetalhe() {
         <CardContent className="space-y-4">
           {pedido.itens.map((item, idx) => {
             const valorTotalItem = item.quantidade * item.valor_unitario;
+            const exatoItem = rateioExatoParaExibir(item); // RATEIO-MASSA
             return (
               <div key={idx} className="rounded-lg border bg-muted/20 p-4">
                 <div className="mb-3 flex items-start justify-between gap-4">
@@ -780,7 +808,16 @@ export default function SuprimentosPedidoDetalhe() {
                   <div className="mt-3 space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">Rateio do item</p>
                     {item.rateio.map((cls, clsIdx) => {
-                      const valorClasse = (valorTotalItem * cls.percentual) / 100;
+                      // RATEIO-MASSA: item por valor mostra o valor gravado e o % exato.
+                      const classeExata = exatoItem?.classes.find(
+                        (k) => k.codigo_classe_rec_desp === cls.codigo_classe_rec_desp,
+                      );
+                      const valorClasse = classeExata
+                        ? classeExata.centavos / 100
+                        : (valorTotalItem * cls.percentual) / 100;
+                      const pctClasseTexto = classeExata
+                        ? formatarPercentualUnidades(classeExata.unidades)
+                        : `${cls.percentual.toFixed(2)}%`;
                       return (
                         <div key={clsIdx} className="rounded border bg-background p-2.5 text-xs">
                           <div className="flex items-center justify-between">
@@ -793,13 +830,19 @@ export default function SuprimentosPedidoDetalhe() {
                               )}
                             </span>
                             <span className="font-medium">
-                              {cls.percentual.toFixed(2)}% ({fmt(valorClasse)})
+                              {pctClasseTexto} ({fmt(valorClasse)})
                             </span>
                           </div>
                           {cls.ccs.length > 0 && (
                             <div className="mt-1.5 space-y-1 border-l-2 border-muted pl-3">
                               {cls.ccs.map((cc, ccIdx) => {
-                                const valorCC = (valorClasse * cc.percentual) / 100;
+                                const ccExato = classeExata?.ccs.find(
+                                  (x) => x.codigo_centro_ctrl === cc.codigo_centro_ctrl,
+                                );
+                                const valorCC = ccExato ? ccExato.centavos / 100 : (valorClasse * cc.percentual) / 100;
+                                const pctCcTexto = ccExato
+                                  ? formatarPercentualUnidades(ccExato.unidades)
+                                  : `${cc.percentual.toFixed(2)}%`;
                                 return (
                                   <div key={ccIdx} className="flex items-center justify-between text-muted-foreground">
                                     <span className="font-mono">
@@ -809,7 +852,7 @@ export default function SuprimentosPedidoDetalhe() {
                                       )}
                                     </span>
                                     <span>
-                                      {cc.percentual.toFixed(2)}% ({fmt(valorCC)})
+                                      {pctCcTexto} ({fmt(valorCC)})
                                     </span>
                                   </div>
                                 );

@@ -47,9 +47,24 @@ import {
   Image as ImageIcon,
   RefreshCw,
   AlertCircle,
+  ClipboardPaste,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { ColarRateioCCDialog, type LinhaRateioAplicada } from "@/components/compras/ColarRateioCCDialog";
+import {
+  converterPercentualEmValor,
+  distribuirPorMaiorResto,
+  formatarCentavosBRL,
+  formatarPercentualUnidades,
+  montarRateioExatoPorValor,
+  parseValorBRLParaCentavos,
+  percentualParaUnidades,
+  reaisParaCentavos,
+  unidadesParaPercentual,
+  UNIDADES_100_POR_CENTO,
+  type RateioExato,
+} from "@/lib/rateioExato";
 
 // ════════════════════════════════════════════════════════════
 // TIPOS LOCAIS (estado do wizard)
@@ -95,6 +110,10 @@ interface RateioCcWizard {
   codigo_centro_ctrl: string;
   centro_ctrl_label?: string;
   percentual: number; // % DENTRO da classe (soma=100% por classe)
+  /** RATEIO-MASSA — valor do CC em centavos (item por valor). */
+  valor_centavos?: number;
+  /** RATEIO-MASSA — texto do campo R$ enquanto a pessoa digita. */
+  valor_texto?: string;
 }
 
 interface RateioClasseWizard {
@@ -117,6 +136,8 @@ interface ItemWizard {
   valor_unitario: number;
   observacao: string;
   rateio: RateioClasseWizard[]; // hierarquia: classes → ccs
+  /** RATEIO-MASSA — true = o valor em R$ de cada CC é a verdade; os % são derivados. */
+  rateio_por_valor?: boolean;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -178,6 +199,76 @@ function round2(n: number): number {
 function rotuloCcsDistintos(ccs: ReadonlyArray<{ codigo_centro_ctrl: string }>): string {
   const distintos = new Set(ccs.map((cc) => cc.codigo_centro_ctrl)).size;
   return `${distintos} CC${distintos === 1 ? "" : "s"}`;
+}
+
+// ════════════════════════════════════════════════════════════
+// RATEIO-MASSA — rateio por valor (R$)
+// ════════════════════════════════════════════════════════════
+
+/** 205714 → "2.057,14" (texto do campo R$, sem o símbolo). */
+function formatarCentavosEdicao(centavos: number): string {
+  return formatarCentavosBRL(centavos).replace(/^R\$\s/, "");
+}
+
+/**
+ * Converte o rateio do item de % para R$ (maior resto, soma exata) — só quando os %
+ * estão completos e fecham 100% nos dois níveis. Senão, devolve os CCs SEM valor para
+ * a pessoa preencher: distribuir proporcionalmente um % que não fecha mudaria a
+ * intenção dela em silêncio.
+ */
+function converterRateioWizardParaValor(rateio: RateioClasseWizard[], totalCentavos: number): RateioClasseWizard[] {
+  const semValor = rateio.map((c) => ({
+    ...c,
+    ccs: c.ccs.map((cc) => ({ ...cc, valor_centavos: undefined, valor_texto: "" })),
+  }));
+  if (totalCentavos <= 0 || rateio.length === 0) return semValor;
+  try {
+    const fecha = (pcts: number[]) => pcts.reduce((s, p) => s + percentualParaUnidades(p), 0) === UNIDADES_100_POR_CENTO;
+    if (!fecha(rateio.map((c) => c.percentual)) || rateio.some((c) => !fecha(c.ccs.map((cc) => cc.percentual)))) {
+      return semValor;
+    }
+    const entradas = converterPercentualEmValor(
+      rateio.map((c) => ({
+        codigo_classe_rec_desp: c.codigo_classe_rec_desp,
+        percentual: c.percentual,
+        ccs: c.ccs.map((cc) => ({ codigo_centro_ctrl: cc.codigo_centro_ctrl, percentual: cc.percentual })),
+      })),
+      totalCentavos,
+    );
+    return rateio.map((c, i) => ({
+      ...c,
+      ccs: c.ccs.map((cc, j) => {
+        const centavos = entradas[i].ccs[j].centavos;
+        return {
+          ...cc,
+          valor_centavos: centavos > 0 ? centavos : undefined,
+          valor_texto: centavos > 0 ? formatarCentavosEdicao(centavos) : "",
+        };
+      }),
+    }));
+  } catch {
+    return semValor;
+  }
+}
+
+/**
+ * Volta o rateio do item de R$ para % com 2 casas (o caminho por percentual só aceita
+ * 2), fechando 100,00 pelo maior resto. Os valores exatos se perdem: no envio, o
+ * item por percentual tem os valores recalculados, como sempre foi.
+ */
+function converterRateioWizardParaPercentual(rateio: RateioClasseWizard[]): RateioClasseWizard[] {
+  const valoresClasses = rateio.map((c) => c.ccs.reduce((s, cc) => s + (cc.valor_centavos ?? 0), 0));
+  const somaTotal = valoresClasses.reduce((s, v) => s + v, 0);
+  const centesimosClasses = somaTotal > 0 ? distribuirPorMaiorResto(valoresClasses, 10_000) : valoresClasses.map(() => 0);
+  return rateio.map((c, i) => {
+    const valoresCcs = c.ccs.map((cc) => cc.valor_centavos ?? 0);
+    const centesimosCcs = valoresClasses[i] > 0 ? distribuirPorMaiorResto(valoresCcs, 10_000) : valoresCcs.map(() => 0);
+    return {
+      ...c,
+      percentual: centesimosClasses[i] / 100,
+      ccs: c.ccs.map((cc, j) => ({ ...cc, percentual: centesimosCcs[j] / 100, valor_centavos: undefined, valor_texto: undefined })),
+    };
+  });
 }
 
 /**
@@ -308,6 +399,10 @@ export default function SuprimentosPedidoNovo() {
   // Popovers de classes e CCs dentro do rateio
   const [classePopoverOpen, setClassePopoverOpen] = useState<string | null>(null);
   const [ccPopoverOpen, setCcPopoverOpen] = useState<string | null>(null);
+
+  // RATEIO-MASSA — item por valor (R$) e o diálogo "Colar lista" (classe de destino).
+  const [itemRateioPorValor, setItemRateioPorValor] = useState(false);
+  const [colarRateioClasseId, setColarRateioClasseId] = useState<string | null>(null);
 
   // ════════════════════════════════════════════════════════
   // QUERIES (caches do Supabase)
@@ -632,6 +727,8 @@ export default function SuprimentosPedidoNovo() {
           quantidade: it.quantidade,
           valor_unitario: it.valor_unitario,
           observacao: it.observacao,
+          // RATEIO-MASSA: item gravado por valor volta por valor, com os mesmos centavos.
+          ...(it.rateio_por_valor ? { rateio_por_valor: true } : {}),
           rateio: it.rateio.map((cls, clsIdx) => ({
             tempClasseId: `cls-${Date.now()}-${Math.random()}-${idx}-${clsIdx}`,
             codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
@@ -642,6 +739,9 @@ export default function SuprimentosPedidoNovo() {
               codigo_centro_ctrl: cc.codigo_centro_ctrl,
               centro_ctrl_label: cc.centro_ctrl_label,
               percentual: cc.percentual,
+              ...(it.rateio_por_valor && cc.valor_centavos
+                ? { valor_centavos: cc.valor_centavos, valor_texto: formatarCentavosEdicao(cc.valor_centavos) }
+                : {}),
             })),
           })),
         }));
@@ -731,6 +831,8 @@ export default function SuprimentosPedidoNovo() {
     setItemRateio([]);
     setClassePopoverOpen(null);
     setCcPopoverOpen(null);
+    setItemRateioPorValor(false);
+    setColarRateioClasseId(null);
   };
 
   const openNewItemDialog = () => {
@@ -768,6 +870,7 @@ export default function SuprimentosPedidoNovo() {
     setItemValorUnit(String(item.valor_unitario));
     setItemObs(item.observacao || "");
     setItemRateio(item.rateio);
+    setItemRateioPorValor(!!item.rateio_por_valor);
     setItemStep(1);
     setItemDialogOpen(true);
   };
@@ -798,7 +901,47 @@ export default function SuprimentosPedidoNovo() {
     setItemStep(2);
   };
 
+  // RATEIO-MASSA: item por valor confere R$ (os % são derivados e fecham 100,0000).
+  const validarRateioPorValorModal = (): { ok: boolean; erro?: string } => {
+    if (itemRateio.length === 0) {
+      return { ok: false, erro: "Adicione ao menos uma classe ao rateio" };
+    }
+    if (itemRateio.some((c) => !c.codigo_classe_rec_desp)) {
+      return { ok: false, erro: "Todas as classes precisam ser preenchidas" };
+    }
+    for (const c of itemRateio) {
+      if (c.ccs.length === 0) {
+        return { ok: false, erro: `Classe ${c.codigo_classe_rec_desp} sem Centro de Custo` };
+      }
+      if (c.ccs.some((cc) => !cc.codigo_centro_ctrl)) {
+        return { ok: false, erro: `Classe ${c.codigo_classe_rec_desp}: todos os CCs precisam ser selecionados` };
+      }
+      if (c.ccs.some((cc) => !cc.valor_centavos || cc.valor_centavos <= 0)) {
+        return {
+          ok: false,
+          erro: `Classe ${c.codigo_classe_rec_desp}: todo CC precisa de um valor em R$ maior que zero. Remova CCs não usados.`,
+        };
+      }
+    }
+    if (somaValorModalCentavos !== totalItemModalCentavos) {
+      return {
+        ok: false,
+        erro: `Os CCs somam ${formatarCentavosBRL(somaValorModalCentavos)} e o item vale ${formatarCentavosBRL(totalItemModalCentavos)} — diferença de ${formatarCentavosBRL(Math.abs(totalItemModalCentavos - somaValorModalCentavos))}.`,
+      };
+    }
+    if (rateioExatoModal.erro) {
+      return { ok: false, erro: rateioExatoModal.erro };
+    }
+    if (!rateioExatoModal.rateio) {
+      return { ok: false, erro: "Rateio por valor incompleto." };
+    }
+    return { ok: true };
+  };
+
   const validarRateio = (): { ok: boolean; erro?: string } => {
+    if (itemRateioPorValor) {
+      return validarRateioPorValorModal();
+    }
     if (itemRateio.length === 0) {
       return { ok: false, erro: "Adicione ao menos uma classe ao rateio" };
     }
@@ -858,10 +1001,36 @@ export default function SuprimentosPedidoNovo() {
     const qtdNum = parseDecimal(itemQtd);
     const valorNum = parseDecimal(itemValorUnit);
 
+    // RATEIO-MASSA: no item por valor, os % gravados no estado são os DERIVADOS do
+    // rateio exato (4 casas, fecham 100,0000) — servem para os chips e a revisão; o
+    // envio recalcula tudo dos centavos. O aviso de repetição também vem dele.
+    const exatoItem: RateioExato | null = itemRateioPorValor ? rateioExatoModal.rateio : null;
+    const rateioParaSalvar: RateioClasseWizard[] = exatoItem
+      ? itemRateio.map((c) => {
+          const k = exatoItem.classes.find((x) => x.codigo_classe_rec_desp === c.codigo_classe_rec_desp);
+          return {
+            ...c,
+            percentual: k ? unidadesParaPercentual(k.unidades) : 0,
+            ccs: c.ccs.map((cc) => {
+              const x = k?.ccs.find((y) => y.codigo_centro_ctrl === cc.codigo_centro_ctrl);
+              return { ...cc, percentual: x ? unidadesParaPercentual(x.unidades) : 0 };
+            }),
+          };
+        })
+      : itemRateio;
+
     // D4: o envio consolida linhas repetidas de (classe, CC) — o Alvo tem UNIQUE
     // nessa tupla. A consolidação acontece de qualquer forma; o aviso existe para
     // a pessoa entender por que o rateio que ela digitou sai com menos linhas.
-    const { consolidacoes } = consolidarRateioDoItem(itemRateio, round2(qtdNum * valorNum));
+    const { consolidacoes } = exatoItem
+      ? {
+          consolidacoes: exatoItem.consolidacoes.map((c) => ({
+            codigo_classe_rec_desp: c.codigo_classe_rec_desp,
+            codigo_centro_ctrl: c.codigo_centro_ctrl,
+            linhas_originais: c.linhas,
+          })),
+        }
+      : consolidarRateioDoItem(itemRateio, round2(qtdNum * valorNum));
     if (consolidacoes.length > 0) {
       const detalhes = consolidacoes.map((c) =>
         c.codigo_centro_ctrl
@@ -885,7 +1054,8 @@ export default function SuprimentosPedidoNovo() {
       quantidade: qtdNum,
       valor_unitario: valorNum,
       observacao: itemObs.trim(),
-      rateio: itemRateio,
+      rateio: rateioParaSalvar,
+      ...(itemRateioPorValor ? { rateio_por_valor: true } : {}),
     };
 
     if (editingItemId) {
@@ -1005,6 +1175,85 @@ export default function SuprimentosPedidoNovo() {
         };
       }),
     );
+  };
+
+  // ── RATEIO-MASSA: handlers do rateio por valor (R$) ─────
+
+  const mudarModoRateio = (porValor: boolean) => {
+    if (porValor === itemRateioPorValor) return;
+    if (porValor) {
+      setItemRateio((prev) => converterRateioWizardParaValor(prev, totalItemModalCentavos));
+    } else {
+      setItemRateio((prev) => converterRateioWizardParaPercentual(prev));
+      toast({
+        title: "Rateio voltou para percentual (2 casas)",
+        description: "No envio, o valor de cada CC será recalculado a partir do percentual, como nos demais itens.",
+      });
+    }
+    setItemRateioPorValor(porValor);
+  };
+
+  const atualizarValorCc = (tempClasseId: string, tempCcId: string, texto: string) => {
+    const lido = parseValorBRLParaCentavos(texto);
+    updateCc(tempClasseId, tempCcId, {
+      valor_texto: texto,
+      valor_centavos: lido.ok && lido.valor > 0 ? lido.valor : undefined,
+    });
+  };
+
+  /** Ao sair do campo, mostra o valor como foi entendido ("2057.14" → "2.057,14"). */
+  const normalizarValorCc = (tempClasseId: string, tempCcId: string, centavos: number | undefined) => {
+    if (centavos) updateCc(tempClasseId, tempCcId, { valor_texto: formatarCentavosEdicao(centavos) });
+  };
+
+  /** Divide o que falta para fechar o item (total − outras classes) entre os CCs da classe. */
+  const dividirValorCcsIgualmente = (tempClasseId: string) => {
+    const outras = itemRateio
+      .filter((c) => c.tempClasseId !== tempClasseId)
+      .reduce((s, c) => s + c.ccs.reduce((s2, cc) => s2 + (cc.valor_centavos ?? 0), 0), 0);
+    const alvo = totalItemModalCentavos - outras;
+    if (alvo <= 0) {
+      toast({ title: "Nada a dividir", description: "As outras classes já somam o total do item.", variant: "destructive" });
+      return;
+    }
+    setItemRateio((prev) =>
+      prev.map((c) => {
+        if (c.tempClasseId !== tempClasseId || c.ccs.length === 0) return c;
+        const partes = distribuirPorMaiorResto(
+          c.ccs.map(() => 1),
+          alvo,
+        );
+        return {
+          ...c,
+          ccs: c.ccs.map((cc, i) => ({
+            ...cc,
+            valor_centavos: partes[i] > 0 ? partes[i] : undefined,
+            valor_texto: partes[i] > 0 ? formatarCentavosEdicao(partes[i]) : "",
+          })),
+        };
+      }),
+    );
+  };
+
+  /** Diálogo "Colar lista": substitui os CCs da classe e põe o item em modo por valor. */
+  const aplicarRateioColado = (linhas: LinhaRateioAplicada[]) => {
+    const alvo = colarRateioClasseId;
+    if (!alvo) return;
+    const base = itemRateioPorValor ? itemRateio : converterRateioWizardParaValor(itemRateio, totalItemModalCentavos);
+    const novosCcs: RateioCcWizard[] = linhas.map((l, i) => ({
+      tempCcId: `cc-${Date.now()}-${Math.random()}-${i}`,
+      codigo_centro_ctrl: l.codigo_centro_ctrl,
+      centro_ctrl_label: l.centro_ctrl_label,
+      percentual: 0,
+      valor_centavos: l.centavos,
+      valor_texto: formatarCentavosEdicao(l.centavos),
+    }));
+    setItemRateio(base.map((c) => (c.tempClasseId === alvo ? { ...c, ccs: novosCcs } : c)));
+    setItemRateioPorValor(true);
+    toast({
+      title: `${linhas.length} centro${linhas.length === 1 ? "" : "s"} de custo aplicado${linhas.length === 1 ? "" : "s"}`,
+      description: `Total de ${formatarCentavosBRL(linhas.reduce((s, l) => s + l.centavos, 0))}, com percentuais fechando 100,0000%.`,
+    });
   };
 
   // ════════════════════════════════════════════════════════
@@ -1299,6 +1548,8 @@ export default function SuprimentosPedidoNovo() {
         quantidade: it.quantidade,
         valor_unitario: it.valor_unitario,
         observacao: it.observacao,
+        // RATEIO-MASSA: item por valor leva os centavos; o serviço deriva os %.
+        ...(it.rateio_por_valor ? { rateio_por_valor: true } : {}),
         rateio: it.rateio.map((c) => ({
           codigo_classe_rec_desp: c.codigo_classe_rec_desp,
           classe_rec_desp_label: c.classe_rec_desp_label,
@@ -1307,6 +1558,7 @@ export default function SuprimentosPedidoNovo() {
             codigo_centro_ctrl: cc.codigo_centro_ctrl,
             centro_ctrl_label: cc.centro_ctrl_label,
             percentual: cc.percentual,
+            ...(it.rateio_por_valor ? { valor_centavos: cc.valor_centavos } : {}),
           })),
         })),
       }));
@@ -1394,6 +1646,54 @@ export default function SuprimentosPedidoNovo() {
   }, [itemQtd, itemValorUnit]);
 
   const somaPercClasses = useMemo(() => itemRateio.reduce((s, c) => s + c.percentual, 0), [itemRateio]);
+
+  // ── RATEIO-MASSA: números do item por valor (inteiros, sem float) ──────────
+  const totalItemModalCentavos = reaisParaCentavos(round2(valorTotalItemModal));
+
+  const somaValorModalCentavos = useMemo(
+    () => itemRateio.reduce((s, c) => s + c.ccs.reduce((s2, cc) => s2 + (cc.valor_centavos ?? 0), 0), 0),
+    [itemRateio],
+  );
+
+  /** Rateio exato do item em edição — só no modo por valor e com todos os CCs preenchidos. */
+  const rateioExatoModal = useMemo((): { rateio: RateioExato | null; erro: string | null } => {
+    if (!itemRateioPorValor || itemRateio.length === 0) return { rateio: null, erro: null };
+    const incompleto = itemRateio.some(
+      (c) => !c.codigo_classe_rec_desp || c.ccs.length === 0 || c.ccs.some((cc) => !cc.codigo_centro_ctrl || !cc.valor_centavos),
+    );
+    if (incompleto) return { rateio: null, erro: null };
+    try {
+      return {
+        rateio: montarRateioExatoPorValor(
+          itemRateio.map((c) => ({
+            codigo_classe_rec_desp: c.codigo_classe_rec_desp,
+            classe_rec_desp_label: c.classe_rec_desp_label,
+            ccs: c.ccs.map((cc) => ({
+              codigo_centro_ctrl: cc.codigo_centro_ctrl,
+              centro_ctrl_label: cc.centro_ctrl_label,
+              centavos: cc.valor_centavos as number,
+            })),
+          })),
+        ),
+        erro: null,
+      };
+    } catch (e) {
+      return { rateio: null, erro: e instanceof Error ? e.message : String(e) };
+    }
+  }, [itemRateioPorValor, itemRateio]);
+
+  /** % exibido (só leitura) de uma classe ou de um CC no modo por valor. */
+  const percentualExibidoClasse = (codigoClasse: string): string => {
+    const k = rateioExatoModal.rateio?.classes.find((x) => x.codigo_classe_rec_desp === codigoClasse);
+    return k ? formatarPercentualUnidades(k.unidades) : "—";
+  };
+  const percentualExibidoCc = (codigoClasse: string, codigoCc: string): string => {
+    const k = rateioExatoModal.rateio?.classes.find((x) => x.codigo_classe_rec_desp === codigoClasse);
+    const x = k?.ccs.find((y) => y.codigo_centro_ctrl === codigoCc);
+    return x ? formatarPercentualUnidades(x.unidades) : "—";
+  };
+
+  const classeDoColar = itemRateio.find((c) => c.tempClasseId === colarRateioClasseId);
 
   if (carregandoClone || carregandoEdicao) {
     return (
@@ -1541,6 +1841,11 @@ export default function SuprimentosPedidoNovo() {
                                   {cls.codigo_classe_rec_desp} ({cls.percentual}%) — {rotuloCcsDistintos(cls.ccs)}
                                 </Badge>
                               ))}
+                              {item.rateio_por_valor && (
+                                <Badge variant="outline" className="text-[10px] font-normal">
+                                  rateio por valor (R$)
+                                </Badge>
+                              )}
                             </div>
                           )}
                           {item.valor_unitario === 0 && (
@@ -2268,6 +2573,11 @@ export default function SuprimentosPedidoNovo() {
                           {c.codigo_classe_rec_desp} ({c.percentual.toFixed(2)}%) — {rotuloCcsDistintos(c.ccs)}
                         </Badge>
                       ))}
+                      {it.rateio_por_valor && (
+                        <Badge variant="outline" className="text-[10px]">
+                          rateio por valor (R$)
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2650,16 +2960,42 @@ export default function SuprimentosPedidoNovo() {
           {/* Sub-etapa 2: Rateio Classe + CC */}
           {itemStep === 2 && (
             <div className="space-y-4 py-2">
+              {/* RATEIO-MASSA: informar o rateio por percentual (caminho de sempre) ou por valor. */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">Informar o rateio por:</span>
+                <Tabs value={itemRateioPorValor ? "valor" : "percentual"} onValueChange={(v) => mudarModoRateio(v === "valor")}>
+                  <TabsList className="h-8">
+                    <TabsTrigger value="percentual" className="text-xs h-6">
+                      Percentual (%)
+                    </TabsTrigger>
+                    <TabsTrigger value="valor" className="text-xs h-6">
+                      Valor (R$)
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+
               <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-                Defina como o custo deste item será rateado entre <strong>Classes contábeis</strong>. Dentro de cada
-                classe, defina o <strong>rateio por Centro de Custo</strong>. A soma das classes deve ser 100% e a soma
-                dos CCs dentro de cada classe também deve ser 100%.
+                {itemRateioPorValor ? (
+                  <>
+                    Informe o <strong>valor em R$ de cada Centro de Custo</strong> (ou use <strong>Colar lista</strong>{" "}
+                    para trazer do Excel). O valor digitado é o que vai para o ERP; os percentuais são calculados
+                    automaticamente e fecham exatamente 100,0000%. A soma dos CCs precisa ser igual ao total do item.
+                  </>
+                ) : (
+                  <>
+                    Defina como o custo deste item será rateado entre <strong>Classes contábeis</strong>. Dentro de cada
+                    classe, defina o <strong>rateio por Centro de Custo</strong>. A soma das classes deve ser 100% e a
+                    soma dos CCs dentro de cada classe também deve ser 100%.
+                  </>
+                )}
               </div>
 
               <div className="space-y-3">
                 {itemRateio.map((cls, idxClasse) => {
                   const classe = classes.find((c) => c.codigo === cls.codigo_classe_rec_desp);
                   const somaCcs = cls.ccs.reduce((s, cc) => s + cc.percentual, 0);
+                  const somaCcsCentavos = cls.ccs.reduce((s, cc) => s + (cc.valor_centavos ?? 0), 0);
 
                   return (
                     <div key={cls.tempClasseId} className="rounded-lg border p-3 space-y-3">
@@ -2713,20 +3049,30 @@ export default function SuprimentosPedidoNovo() {
                             </PopoverContent>
                           </Popover>
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">% do item</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.01"
-                            value={cls.percentual}
-                            onChange={(e) =>
-                              updateClasse(cls.tempClasseId, { percentual: parseFloat(e.target.value) || 0 })
-                            }
-                            className="w-20 h-9 text-right text-xs"
-                          />
-                        </div>
+                        {itemRateioPorValor ? (
+                          <div className="space-y-1 text-right min-w-[7.5rem] pr-1">
+                            <Label className="text-xs text-muted-foreground">% do item</Label>
+                            <div className="h-9 flex flex-col justify-center font-mono text-xs leading-tight whitespace-nowrap">
+                              <span>{percentualExibidoClasse(cls.codigo_classe_rec_desp)}</span>
+                              <span className="text-muted-foreground">{formatarCentavosBRL(somaCcsCentavos)}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">% do item</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              value={cls.percentual}
+                              onChange={(e) =>
+                                updateClasse(cls.tempClasseId, { percentual: parseFloat(e.target.value) || 0 })
+                              }
+                              className="w-20 h-9 text-right text-xs"
+                            />
+                          </div>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -2743,14 +3089,20 @@ export default function SuprimentosPedidoNovo() {
                       <div className="ml-4 pl-3 border-l-2 border-muted space-y-2">
                         <div className="flex items-center justify-between">
                           <Label className="text-xs text-muted-foreground">Centros de Custo desta classe</Label>
-                          <span
-                            className={cn(
-                              "text-xs font-semibold",
-                              Math.abs(somaCcs - 100) <= 0.01 ? "text-emerald-600" : "text-destructive",
-                            )}
-                          >
-                            Soma CCs: {somaCcs.toFixed(2)}%
-                          </span>
+                          {itemRateioPorValor ? (
+                            <span className="text-xs font-semibold font-mono">
+                              Soma CCs: {formatarCentavosBRL(somaCcsCentavos)}
+                            </span>
+                          ) : (
+                            <span
+                              className={cn(
+                                "text-xs font-semibold",
+                                Math.abs(somaCcs - 100) <= 0.01 ? "text-emerald-600" : "text-destructive",
+                              )}
+                            >
+                              Soma CCs: {somaCcs.toFixed(2)}%
+                            </span>
+                          )}
                         </div>
 
                         {cls.ccs.map((cc) => {
@@ -2810,19 +3162,40 @@ export default function SuprimentosPedidoNovo() {
                                   </PopoverContent>
                                 </Popover>
                               </div>
-                              <Input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="0.01"
-                                value={cc.percentual}
-                                onChange={(e) =>
-                                  updateCc(cls.tempClasseId, cc.tempCcId, {
-                                    percentual: parseFloat(e.target.value) || 0,
-                                  })
-                                }
-                                className="w-20 h-8 text-right text-xs"
-                              />
+                              {itemRateioPorValor ? (
+                                <>
+                                  <Input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="0,00"
+                                    aria-label={`Valor em R$ do centro de custo ${cc_found?.name ?? ""}`}
+                                    value={cc.valor_texto ?? ""}
+                                    onChange={(e) => atualizarValorCc(cls.tempClasseId, cc.tempCcId, e.target.value)}
+                                    onBlur={() => normalizarValorCc(cls.tempClasseId, cc.tempCcId, cc.valor_centavos)}
+                                    className={cn(
+                                      "w-28 h-8 text-right text-xs font-mono",
+                                      (cc.valor_texto ?? "").trim() !== "" && !cc.valor_centavos && "border-destructive",
+                                    )}
+                                  />
+                                  <span className="w-20 h-8 flex items-center justify-end font-mono text-xs text-muted-foreground">
+                                    {percentualExibidoCc(cls.codigo_classe_rec_desp, cc.codigo_centro_ctrl)}
+                                  </span>
+                                </>
+                              ) : (
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  step="0.01"
+                                  value={cc.percentual}
+                                  onChange={(e) =>
+                                    updateCc(cls.tempClasseId, cc.tempCcId, {
+                                      percentual: parseFloat(e.target.value) || 0,
+                                    })
+                                  }
+                                  className="w-20 h-8 text-right text-xs"
+                                />
+                              )}
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -2848,11 +3221,26 @@ export default function SuprimentosPedidoNovo() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => dividirCcsIgualmente(cls.tempClasseId)}
+                            onClick={() =>
+                              itemRateioPorValor
+                                ? dividirValorCcsIgualmente(cls.tempClasseId)
+                                : dividirCcsIgualmente(cls.tempClasseId)
+                            }
                             className="gap-1.5 text-xs h-7"
                             disabled={cls.ccs.length < 2}
                           >
                             Dividir CCs igualmente
+                          </Button>
+                          {/* RATEIO-MASSA: colar do Excel a lista de CCs com valor em R$. */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setColarRateioClasseId(cls.tempClasseId)}
+                            className="gap-1.5 text-xs h-7"
+                            disabled={!cls.codigo_classe_rec_desp}
+                            title={cls.codigo_classe_rec_desp ? "Colar lista de centros de custo com valores" : "Escolha a classe primeiro"}
+                          >
+                            <ClipboardPaste className="h-3 w-3" /> Colar lista (R$)
                           </Button>
                         </div>
                       </div>
@@ -2871,19 +3259,65 @@ export default function SuprimentosPedidoNovo() {
                   size="sm"
                   onClick={dividirClassesIgualmente}
                   className="gap-1.5 text-xs"
-                  disabled={itemRateio.length < 2}
+                  disabled={itemRateio.length < 2 || itemRateioPorValor}
+                  title={itemRateioPorValor ? "No rateio por valor, cada classe vale a soma dos seus CCs" : undefined}
                 >
                   Dividir classes igualmente
                 </Button>
-                <div
-                  className={cn(
-                    "ml-auto text-sm font-semibold",
-                    Math.abs(somaPercClasses - 100) <= 0.01 ? "text-emerald-600" : "text-destructive",
-                  )}
-                >
-                  Total classes: {somaPercClasses.toFixed(2)}%
-                </div>
+                {itemRateioPorValor ? (
+                  <div
+                    className={cn(
+                      "ml-auto text-sm font-semibold font-mono text-right",
+                      somaValorModalCentavos === totalItemModalCentavos ? "text-emerald-600" : "text-destructive",
+                    )}
+                    data-testid="total-rateio-valor"
+                  >
+                    CCs: {formatarCentavosBRL(somaValorModalCentavos)} de {formatarCentavosBRL(totalItemModalCentavos)}
+                    {somaValorModalCentavos === totalItemModalCentavos ? (
+                      rateioExatoModal.rateio ? " ✓ 100,0000%" : " ✓"
+                    ) : (
+                      <span className="block text-xs font-normal">
+                        diferença de {formatarCentavosBRL(Math.abs(totalItemModalCentavos - somaValorModalCentavos))}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    className={cn(
+                      "ml-auto text-sm font-semibold",
+                      Math.abs(somaPercClasses - 100) <= 0.01 ? "text-emerald-600" : "text-destructive",
+                    )}
+                  >
+                    Total classes: {somaPercClasses.toFixed(2)}%
+                  </div>
+                )}
               </div>
+              {itemRateioPorValor && rateioExatoModal.erro && (
+                <p className="text-xs text-destructive" role="alert">
+                  {rateioExatoModal.erro}
+                </p>
+              )}
+
+              {/* RATEIO-MASSA: diálogo de colar lista (aninhado ao modal do item). */}
+              <ColarRateioCCDialog
+                open={colarRateioClasseId !== null}
+                onOpenChange={(aberto) => {
+                  if (!aberto) setColarRateioClasseId(null);
+                }}
+                centrosCusto={costCenters}
+                totalEsperadoCentavos={itemRateio.length === 1 ? totalItemModalCentavos : null}
+                classeLabel={
+                  classeDoColar
+                    ? `${classeDoColar.codigo_classe_rec_desp}${classeDoColar.classe_rec_desp_label ? ` — ${classeDoColar.classe_rec_desp_label}` : ""}`
+                    : undefined
+                }
+                onAplicar={aplicarRateioColado}
+                onUsarSomaComoValorDoItem={
+                  itemRateio.length === 1 && parseDecimal(itemQtd) === 1
+                    ? (centavos) => setItemValorUnit(formatarCentavosEdicao(centavos))
+                    : undefined
+                }
+              />
             </div>
           )}
 

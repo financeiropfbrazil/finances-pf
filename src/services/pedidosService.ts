@@ -1,4 +1,15 @@
 import { supabase } from "@/integrations/supabase/client";
+import {
+  agregarRateioExatoDoPedido,
+  centavosParaReais,
+  converterPercentualEmValor,
+  formatarCentavosBRL,
+  montarRateioExatoPorValor,
+  reaisParaCentavos,
+  unidadesParaPercentual,
+  type ClasseValorEntrada,
+  type RateioExato,
+} from "@/lib/rateioExato";
 
 const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 const EMPRESA_FILIAL = "1.01";
@@ -17,6 +28,11 @@ export interface RateioCcInput {
   codigo_centro_ctrl: string;
   centro_ctrl_label?: string;
   percentual: number; // % dentro da classe (soma 100% entre CCs)
+  /**
+   * RATEIO-MASSA — valor deste CC em CENTAVOS inteiros. Obrigatório em todos os CCs
+   * quando o item é `rateio_por_valor`; ignorado caso contrário.
+   */
+  valor_centavos?: number;
 }
 
 export interface RateioClasseInput {
@@ -37,6 +53,12 @@ export interface ItemPedidoInput {
   valor_unitario: number;
   observacao: string;
   rateio: RateioClasseInput[];
+  /**
+   * RATEIO-MASSA — true = o VALOR de cada CC (`valor_centavos`) é a verdade e os
+   * percentuais são DERIVADOS (4 casas, soma 100,0000 exata; ver `@/lib/rateioExato`).
+   * Ausente/false = caminho antigo, por percentual, sem nenhuma mudança.
+   */
+  rateio_por_valor?: boolean;
 }
 
 export interface ParcelaInput {
@@ -155,9 +177,58 @@ function contarCaracteres(texto: string): number {
   return Array.from(texto || "").length;
 }
 
+/**
+ * RATEIO-MASSA — validação do item POR VALOR: todo CC com código e valor inteiro
+ * maior que zero, e a soma dos CCs IGUAL ao total do item, no centavo. Os
+ * percentuais não são conferidos aqui porque são derivados (`rateioExatoDoItem`),
+ * e por construção somam 100,0000.
+ */
+function validarRateioPorValorDoItem(item: ItemPedidoInput, itemIdx: number): void {
+  item.rateio.forEach((classe) => {
+    if (!classe.codigo_classe_rec_desp) {
+      throw new Error(`O item ${itemIdx + 1} possui uma classe de rateio não preenchida.`);
+    }
+    if (!classe.ccs || classe.ccs.length === 0) {
+      throw new Error(`O item ${itemIdx + 1}, classe ${classe.codigo_classe_rec_desp}, está sem Centro de Custo.`);
+    }
+    classe.ccs.forEach((cc, ccIdx) => {
+      if (!cc.codigo_centro_ctrl) {
+        throw new Error(
+          `O item ${itemIdx + 1}, classe ${classe.codigo_classe_rec_desp}, possui um Centro de Custo não preenchido (linha ${ccIdx + 1}).`,
+        );
+      }
+      if (!Number.isSafeInteger(cc.valor_centavos) || (cc.valor_centavos as number) <= 0) {
+        throw new Error(
+          `O item ${itemIdx + 1}, classe ${classe.codigo_classe_rec_desp}, Centro de Custo ${cc.codigo_centro_ctrl}, está sem valor.`,
+        );
+      }
+    });
+  });
+
+  try {
+    rateioExatoDoItem(item);
+  } catch (e) {
+    throw new Error(`Rateio do item ${itemIdx + 1}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 function validarNovoPedidoInput(input: NovoPedidoInput): void {
   if (!input.itens || input.itens.length === 0) {
     throw new Error("Adicione ao menos um item ao pedido.");
+  }
+
+  // RATEIO-MASSA: com item por valor, o cabeçalho é a soma EXATA dos itens. Se o
+  // total do pedido (arredondado de uma vez) divergir da soma dos itens
+  // (arredondados um a um) — só acontece com valor unitário de 3+ casas —, o Alvo
+  // veria diferença entre as classes e o ValorTotal. Melhor avisar aqui.
+  if (input.itens.some((it) => it.rateio_por_valor)) {
+    const totalDeUmaVez = reaisParaCentavos(round2(input.itens.reduce((a, it) => a + it.quantidade * it.valor_unitario, 0)));
+    const somaDosItens = input.itens.reduce((a, it) => a + reaisParaCentavos(round2(it.quantidade * it.valor_unitario)), 0);
+    if (totalDeUmaVez !== somaDosItens) {
+      throw new Error(
+        `Com rateio por valor, o total do pedido precisa ser a soma exata dos itens: ${formatarCentavosBRL(somaDosItens)} nos itens contra ${formatarCentavosBRL(totalDeUmaVez)} no total, por arredondamento de valor unitário com mais de 2 casas. Ajuste o valor unitário.`,
+      );
+    }
   }
 
   if (!input.parcelas || input.parcelas.length === 0) {
@@ -186,6 +257,13 @@ function validarNovoPedidoInput(input: NovoPedidoInput): void {
 
     if (!item.rateio || item.rateio.length === 0) {
       throw new Error(`O item ${itemIdx + 1} precisa ter ao menos uma classe no rateio.`);
+    }
+
+    // RATEIO-MASSA: item por valor confere VALOR (os % são derivados). O caminho
+    // por percentual, abaixo, continua exatamente como era.
+    if (item.rateio_por_valor) {
+      validarRateioPorValorDoItem(item, itemIdx);
+      return;
     }
 
     const somaClasses = item.rateio.reduce((acc, classe, classeIdx) => {
@@ -978,7 +1056,14 @@ export function montarRateioDoItem(
   codigo_classe_rec_desp: string;
   classe_rec_desp_label: string | null;
   percentual: number;
-  ccs: Array<{ codigo_centro_ctrl: string; centro_ctrl_label: string | null; percentual: number }>;
+  /** RATEIO-MASSA — só em linha com `valor` (espelho ou item por valor): centavos exatos. */
+  valor_centavos?: number;
+  ccs: Array<{
+    codigo_centro_ctrl: string;
+    centro_ctrl_label: string | null;
+    percentual: number;
+    valor_centavos?: number;
+  }>;
 }> {
   if (!linhas.length) return [];
 
@@ -993,7 +1078,13 @@ export function montarRateioDoItem(
       classe_rec_desp_label: string | null;
       somaPercentual: number;
       somaValor: number;
-      ccs: Array<{ codigo_centro_ctrl: string; centro_ctrl_label: string | null; percentual: number }>;
+      somaCentavos: number;
+      ccs: Array<{
+        codigo_centro_ctrl: string;
+        centro_ctrl_label: string | null;
+        percentual: number;
+        valor_centavos?: number;
+      }>;
     }
   >();
 
@@ -1005,16 +1096,21 @@ export function montarRateioDoItem(
         classe_rec_desp_label: r.classe_rec_desp_label,
         somaPercentual: 0,
         somaValor: 0,
+        somaCentavos: 0,
         ccs: [],
       });
     }
     const cls = porClasse.get(key)!;
     cls.somaPercentual = round2(cls.somaPercentual + Number(r.percentual));
     cls.somaValor = round2(cls.somaValor + Number(r.valor ?? 0));
+    // RATEIO-MASSA: o valor exato também sobe, em centavos inteiros (soma sem float).
+    const centavosLinha = ehEspelho ? reaisParaCentavos(Number(r.valor)) : undefined;
+    if (centavosLinha !== undefined) cls.somaCentavos += centavosLinha;
     cls.ccs.push({
       codigo_centro_ctrl: r.codigo_centro_ctrl,
       centro_ctrl_label: r.centro_ctrl_label,
       percentual: Number(r.percentual),
+      ...(centavosLinha !== undefined ? { valor_centavos: centavosLinha } : {}),
     });
   }
 
@@ -1056,6 +1152,7 @@ export function montarRateioDoItem(
       codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
       classe_rec_desp_label: cls.classe_rec_desp_label,
       percentual: percentualClasse,
+      ...(ehEspelho ? { valor_centavos: cls.somaCentavos } : {}),
       ccs,
     };
   });
@@ -1215,7 +1312,110 @@ export function consolidarRateioDoItem(
   return { classes, consolidacoes };
 }
 
-function montarPayloadPedComp(p: MontarPayloadParams): any {
+// ════════════════════════════════════════════════════════════
+// RATEIO-MASSA — caminho EXATO (valor em centavos é a verdade)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Rateio EXATO de um item: centavos inteiros e percentuais em unidades de 0,0001 p.p.,
+ * com as somas fechando por construção (ver `@/lib/rateioExato`).
+ *
+ * - Item POR VALOR: usa os `valor_centavos` como vieram e exige que somem o total do
+ *   item, no centavo.
+ * - Item POR PERCENTUAL: converte os percentuais em centavos pelo maior resto. Só
+ *   acontece quando o PEDIDO tem ao menos um item por valor — pedido sem item por
+ *   valor nunca passa por aqui (ver `montarPayloadPedComp`).
+ *
+ * CC ou classe repetidos são somados em centavos (UNIQUE do Alvo — card D4).
+ */
+export function rateioExatoDoItem(
+  item: Pick<ItemPedidoInput, "quantidade" | "valor_unitario" | "rateio" | "rateio_por_valor">,
+): RateioExato {
+  const totalItemCentavos = reaisParaCentavos(round2(item.quantidade * item.valor_unitario));
+  const entradas: ClasseValorEntrada[] = item.rateio_por_valor
+    ? item.rateio.map((cls) => ({
+        codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
+        classe_rec_desp_label: cls.classe_rec_desp_label,
+        ccs: cls.ccs.map((cc) => ({
+          codigo_centro_ctrl: cc.codigo_centro_ctrl,
+          centro_ctrl_label: cc.centro_ctrl_label,
+          centavos: cc.valor_centavos as number,
+        })),
+      }))
+    : converterPercentualEmValor(
+        // O caminho por % aceita o que o campo numérico deixar digitar; aqui só
+        // importa a proporção, então 4 casas bastam (a conversão é pelo maior resto).
+        item.rateio.map((cls) => ({
+          ...cls,
+          percentual: Math.round(cls.percentual * 10_000) / 10_000,
+          ccs: cls.ccs.map((cc) => ({ ...cc, percentual: Math.round(cc.percentual * 10_000) / 10_000 })),
+        })),
+        totalItemCentavos,
+      );
+
+  const exato = montarRateioExatoPorValor(entradas);
+  if (exato.totalCentavos !== totalItemCentavos) {
+    const diferenca = Math.abs(totalItemCentavos - exato.totalCentavos);
+    throw new Error(
+      `os centros de custo somam ${formatarCentavosBRL(exato.totalCentavos)} e o item vale ${formatarCentavosBRL(totalItemCentavos)} (diferença de ${formatarCentavosBRL(diferenca)}).`,
+    );
+  }
+  return exato;
+}
+
+/** `ItemPedCompClasseRecdespChildList` a partir do rateio exato — mesmo formato do D4. */
+export function classesPayloadDoRateioExato(exato: RateioExato): ClasseRateioItemPayload[] {
+  return exato.classes.map((cls) => ({
+    CodigoEmpresaFilial: "-1",
+    NumeroPedComp: "-1",
+    CodigoProduto: "-1",
+    SequenciaItemPedComp: 0,
+    CodigoClasseRecDesp: cls.codigo_classe_rec_desp,
+    Valor: centavosParaReais(cls.centavos),
+    Percentual: unidadesParaPercentual(cls.unidades),
+    RateioItemPedCompChildList: cls.ccs.map((cc) => ({
+      CodigoEmpresaFilial: "-1",
+      NumeroPedComp: "-1",
+      CodigoProduto: "-1",
+      SequenciaItemPedComp: 0,
+      CodigoClasseRecDesp: "-1",
+      CodigoCentroCtrl: cc.codigo_centro_ctrl,
+      Valor: centavosParaReais(cc.centavos),
+      Percentual: unidadesParaPercentual(cc.unidades),
+    })),
+  }));
+}
+
+/**
+ * `PedCompClasseRecDespChildList` (cabeçalho) a partir dos rateios exatos dos itens:
+ * a soma é feita em centavos, então as classes fecham o total do pedido POR
+ * CONSTRUÇÃO — sem o "ajuste residual na última linha" do caminho antigo.
+ *
+ * Percentuais na convenção que o próprio Alvo grava quando o pedido nasce nele
+ * (0004851, 0004691): classe relativa ao total do pedido, CC relativo à CLASSE.
+ * Em pedido de classe única (o caso comum) é idêntico ao caminho antigo.
+ */
+export function cabecalhoPayloadDoRateioExato(itens: readonly RateioExato[]) {
+  const cabecalho = agregarRateioExatoDoPedido(itens);
+  return cabecalho.classes.map((cls) => ({
+    CodigoEmpresaFilial: "-1",
+    NumeroPedComp: "-1",
+    CodigoClasseRecDesp: cls.codigo_classe_rec_desp,
+    Valor: centavosParaReais(cls.centavos),
+    Percentual: unidadesParaPercentual(cls.unidades),
+    RateioPedCompChildList: cls.ccs.map((cc) => ({
+      CodigoEmpresaFilial: "-1",
+      NumeroPedComp: "-1",
+      CodigoClasseRecDesp: "-1",
+      CodigoCentroCtrl: cc.codigo_centro_ctrl,
+      Valor: centavosParaReais(cc.centavos),
+      Percentual: unidadesParaPercentual(cc.unidades),
+    })),
+  }));
+}
+
+/** Exportada só para teste (RATEIO-MASSA: prova de que o caminho antigo não mudou). */
+export function montarPayloadPedComp(p: MontarPayloadParams): any {
   const {
     input,
     texto_completo,
@@ -1241,6 +1441,13 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
   const dataBaseVencimento = dataPedido;
   const dataHoraDigitacao = dataHoraAgoraUtc();
 
+  // RATEIO-MASSA: basta UM item por valor para o pedido inteiro sair pelo caminho
+  // EXATO — item e cabeçalho em centavos inteiros, percentuais pelo maior resto.
+  // Pedido sem item por valor segue 100% pelo caminho antigo, sem nenhuma mudança.
+  const rateiosExatos: RateioExato[] | null = input.itens.some((it) => it.rateio_por_valor)
+    ? input.itens.map((it) => rateioExatoDoItem(it))
+    : null;
+
   const itensPayload = input.itens.map((item, idx) => {
     const valorTotalItem = round2(item.quantidade * item.valor_unitario);
     const enriq = itens_enriquecidos[idx];
@@ -1250,7 +1457,8 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
 
     // D4: consolida (classe, CC) repetidos antes de montar o payload — o Alvo
     // tem UNIQUE nessa tupla. Ver `consolidarRateioDoItem`.
-    const { classes: classesPayload } = consolidarRateioDoItem(item.rateio, valorTotalItem);
+    const { classes: classesPayloadPercentual } = consolidarRateioDoItem(item.rateio, valorTotalItem);
+    const classesPayload = rateiosExatos ? classesPayloadDoRateioExato(rateiosExatos[idx]) : classesPayloadPercentual;
 
     return {
       CodigoEmpresaFilial: "",
@@ -1449,7 +1657,8 @@ function montarPayloadPedComp(p: MontarPayloadParams): any {
     ItemPedCompChildList: itensPayload,
     ParcPagPedCompChildList: parcelasPayload,
     PedCompArquivoChildList: arquivoChildList,
-    PedCompClasseRecDespChildList: pedCompClassesPayload,
+    // RATEIO-MASSA: com item por valor, o cabeçalho é a soma exata dos itens.
+    PedCompClasseRecDespChildList: rateiosExatos ? cabecalhoPayloadDoRateioExato(rateiosExatos) : pedCompClassesPayload,
     ExecutaOnAfterSave: false,
     ValidaSalvarPedido: true,
     Chamou: "CodigoCondPag",
@@ -1825,6 +2034,32 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
 
       if (errItem || !itemCriado) {
         throw new Error(`Erro ao criar item ${idx + 1}: ${errItem?.message}`);
+      }
+
+      // RATEIO-MASSA: item por valor é gravado na convenção do ESPELHO do Alvo —
+      // `valor` preenchido e `percentual` relativo à CLASSE, com 4 casas. É o que
+      // `montarRateioDoItem` reconhece pela presença de `valor`, e o que faz a
+      // retomada (rascunho/erro) voltar POR VALOR, com os mesmos centavos.
+      if (item.rateio_por_valor) {
+        const exato = rateioExatoDoItem(item);
+        const linhasRateio = exato.classes.flatMap((cls) =>
+          cls.ccs.map((cc) => ({
+            item_id: itemCriado.id,
+            codigo_classe_rec_desp: cls.codigo_classe_rec_desp,
+            classe_rec_desp_label: cls.classe_rec_desp_label ?? null,
+            codigo_centro_ctrl: cc.codigo_centro_ctrl,
+            centro_ctrl_label: cc.centro_ctrl_label ?? null,
+            percentual: unidadesParaPercentual(cc.unidades),
+            valor: centavosParaReais(cc.centavos),
+          })),
+        );
+        const { error: errRateioValor } = await (supabase as any)
+          .from("compras_pedidos_itens_rateio")
+          .insert(linhasRateio);
+        if (errRateioValor) {
+          throw new Error(`Erro ao gravar o rateio por valor do item ${idx + 1}: ${errRateioValor.message}`);
+        }
+        continue;
       }
 
       for (const cls of item.rateio) {
@@ -2241,12 +2476,20 @@ export interface CarregarPedidoResult {
       codigo_classe_rec_desp: string;
       classe_rec_desp_label: string | null;
       percentual: number;
+      /** RATEIO-MASSA — presente quando as linhas trazem `valor`. */
+      valor_centavos?: number;
       ccs: Array<{
         codigo_centro_ctrl: string;
         centro_ctrl_label: string | null;
         percentual: number;
+        valor_centavos?: number;
       }>;
     }>;
+    /**
+     * RATEIO-MASSA — true quando todas as linhas têm `valor` e elas fecham o total do
+     * item no centavo: a retomada volta POR VALOR e a tela mostra os valores exatos.
+     */
+    rateio_por_valor?: boolean;
   }>;
 
   parcelas: ParcelaInput[];
@@ -2366,7 +2609,19 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
 
       const rateioFinal = montarRateioDoItem(rateiosRows || []);
 
+      // RATEIO-MASSA: linhas com `valor` que fecham o total do item no centavo voltam
+      // POR VALOR. Espelho do Alvo com base diferente do item (ex.: rateio com IPI,
+      // 27 itens medidos em 28/08) NÃO fecha — continua por percentual, como sempre.
+      const totalItemCentavos = reaisParaCentavos(round2(Number(itemRow.quantidade) * Number(itemRow.valor_unitario)));
+      const todasComValor =
+        rateioFinal.length > 0 && rateioFinal.every((cls) => cls.ccs.every((cc) => cc.valor_centavos !== undefined));
+      const somaCentavosRateio = todasComValor
+        ? rateioFinal.reduce((s, cls) => s + cls.ccs.reduce((s2, cc) => s2 + (cc.valor_centavos as number), 0), 0)
+        : null;
+      const rateioPorValor = todasComValor && somaCentavosRateio === totalItemCentavos;
+
       itens.push({
+        ...(rateioPorValor ? { rateio_por_valor: true } : {}),
         item_servico: itemRow.item_servico,
         codigo_produto: itemRow.codigo_produto,
         codigo_alternativo_produto: itemRow.codigo_alternativo_produto,
