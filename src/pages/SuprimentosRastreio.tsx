@@ -364,6 +364,8 @@ function CandidataNf({ c }: { c: NfCandidata }) {
       )}
       <Link
         to={linkNotasFiscais(c)}
+        target="_blank"
+        rel="noopener noreferrer"
         className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
       >
         Abrir em Notas Fiscais
