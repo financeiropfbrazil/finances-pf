@@ -38,6 +38,7 @@ import {
   RefreshCw,
   Boxes,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { VincularPedidoNfeDialog } from "@/components/compras/VincularPedidoNfeDialog";
@@ -127,11 +128,16 @@ const situacaoBadge = (sit: string | null) => {
 const ComprasNotasFiscais = () => {
   const { toast } = useToast();
   const now = new Date();
-  const [mes, setMes] = useState(now.getMonth() + 1);
-  const [ano, setAno] = useState(now.getFullYear());
+  // Link direto (ex.: Rastreio de Compras → "Abrir em Notas Fiscais"):
+  // ?mes=10&ano=2026&busca=1782 abre no mês da emissão já filtrado.
+  const [searchParams] = useSearchParams();
+  const mesParam = Number(searchParams.get("mes"));
+  const anoParam = Number(searchParams.get("ano"));
+  const [mes, setMes] = useState(mesParam >= 1 && mesParam <= 12 ? mesParam : now.getMonth() + 1);
+  const [ano, setAno] = useState(Math.abs(anoParam - now.getFullYear()) <= 2 ? anoParam : now.getFullYear());
   const [rows, setRows] = useState<NfeRow[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get("busca") ?? "");
   const [filtroLancamento, setFiltroLancamento] = useState("todos");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [xmlDialog, setXmlDialog] = useState<{ open: boolean; numero: string; fornecedor: string; xml: string }>({

@@ -8,9 +8,14 @@
  * real é a RPC (`_is_admin()`); o `isAdmin` abaixo só evita tela vazia sem
  * explicação. Abre no mês corrente; período DE/ATÉ com atalhos; paginação no
  * servidor (50 por página); "Exportar Excel" leva TODAS as linhas do filtro.
+ *
+ * Pedido sem NF ligada mostra, no quadro da NF, as NFs RECEBIDAS (Compras →
+ * Notas Fiscais) e ainda não lançadas no Alvo que podem ser dele — sugestão
+ * calculada no banco (`rastreio_nf_candidata`), não vínculo.
  */
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import type { DateRange } from "react-day-picker";
 import {
   endOfMonth,
@@ -32,6 +37,8 @@ import {
   ChevronRight,
   ClipboardList,
   Download,
+  ExternalLink,
+  FileSearch,
   FileText,
   Loader2,
   PackageCheck,
@@ -56,6 +63,7 @@ import { cn } from "@/lib/utils";
 import {
   CAMPOS_DATA,
   ETAPAS_ORDEM,
+  FILTRO_NF_CANDIDATA,
   atualizarDados,
   dataLocal,
   isoDia,
@@ -64,6 +72,7 @@ import {
   type CampoData,
   type FiltroRastreio,
   type LinhaRastreio,
+  type NfCandidata,
 } from "@/services/rastreioComprasService";
 import { exportarRastreioXLSX } from "@/services/rastreioComprasExport";
 
@@ -282,7 +291,90 @@ function Passo({
   );
 }
 
+// ════════════════════════════════════════════════════════════
+// NF CANDIDATA — recebida em Compras → Notas Fiscais, ainda fora do Alvo
+// ════════════════════════════════════════════════════════════
+const ESTILO_MOTIVO: Record<string, string> = {
+  "Vinculada em Compras → NF": "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  "Pedido citado na NF":
+    "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  "Mesmo fornecedor e valor":
+    "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300",
+};
+
+const ESTILO_CANDIDATA =
+  "border-dashed border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300";
+
+/** Abre Compras → Notas Fiscais no mês da emissão, já buscando o número. */
+function linkNotasFiscais(c: NfCandidata): string {
+  const q = new URLSearchParams();
+  const emissao = dataLocal(c.data_emissao);
+  if (emissao) {
+    q.set("mes", String(emissao.getMonth() + 1));
+    q.set("ano", String(emissao.getFullYear()));
+  }
+  if (c.nf_numero) q.set("busca", c.nf_numero.replace(/^0+(?=\d)/, ""));
+  return `/compras/notas-fiscais?${q.toString()}`;
+}
+
+function rotuloBase(base: string | null): string {
+  if (!base || base === "total") return "total da NF";
+  if (base === "faturado") return "faturado (sem itens de retorno)";
+  return base.replace(/^item: /, "item ");
+}
+
+function CandidataNf({ c }: { c: NfCandidata }) {
+  const parcial = !!c.base && c.base !== "total";
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-dashed border-amber-300 bg-amber-50/50 p-2 dark:border-amber-800 dark:bg-amber-950/20">
+      <span className="font-mono text-xs font-semibold">
+        NF {c.nf_numero ?? "?"}
+        {c.nf_serie ? <span className="font-normal text-muted-foreground"> · série {c.nf_serie}</span> : null}
+      </span>
+      <Badge
+        variant="outline"
+        className={cn("w-fit whitespace-nowrap px-1.5 py-0 text-[10px] font-medium", ESTILO_MOTIVO[c.motivo])}
+      >
+        {c.motivo}
+      </Badge>
+      <span className="truncate text-[11px] text-muted-foreground" title={c.emitente_nome ?? ""}>
+        {c.emitente_nome ?? "—"}
+      </span>
+      <Campo label="Emissão" valor={fData(c.data_emissao)} />
+      <Campo label="Recebida em" valor={fData(c.recebida_em)} />
+      <Campo label="Valor da NF" valor={fMoeda(c.valor_total)} />
+      {parcial && <Campo label="Valor que bateu" valor={fMoeda(c.valor_comparado)} />}
+      {(c.diferenca_pct ?? 0) > 0 && (
+        <Campo label="Diferença" valor={`${fMoeda(c.diferenca)} (${Number(c.diferenca_pct).toLocaleString("pt-BR")}%)`} />
+      )}
+      {parcial && (
+        <span className="line-clamp-2 text-[11px] text-muted-foreground" title={c.base ?? ""}>
+          Comparado com: {rotuloBase(c.base)}
+        </span>
+      )}
+      {c.natureza && (
+        <span className="truncate text-[11px] text-muted-foreground" title={c.natureza}>
+          {c.natureza}
+        </span>
+      )}
+      {c.outros_pedidos && c.outros_pedidos.length > 0 && (
+        <span className="text-[11px] text-amber-800 dark:text-amber-300">
+          Também sugerida para o{c.outros_pedidos.length > 1 ? "s pedidos" : " pedido"} {c.outros_pedidos.join(", ")}
+        </span>
+      )}
+      <Link
+        to={linkNotasFiscais(c)}
+        className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+      >
+        Abrir em Notas Fiscais
+        <ExternalLink className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+}
+
 function Detalhe({ l }: { l: LinhaRastreio }) {
+  const candidatas = l.nf_numero ? [] : (l.nf_candidatas ?? []);
   const estoqueEstado: Estado =
     l.laudo_qtd && l.laudo_qtd > 0
       ? (l.laudo_concluidos ?? 0) >= l.laudo_qtd
@@ -309,7 +401,15 @@ function Detalhe({ l }: { l: LinhaRastreio }) {
 
   return (
     <div className="flex flex-col gap-3 bg-muted/40 p-4">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_0.85fr_1.3fr]">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-3 md:grid-cols-2",
+          // Com NF candidata o quadro da NF precisa de mais espaço (Estoque/Pagamento estão vazios)
+          candidatas.length > 0
+            ? "xl:grid-cols-[0.9fr_1fr_1.7fr_0.8fr_1fr]"
+            : "xl:grid-cols-[1fr_1fr_1fr_0.85fr_1.3fr]",
+        )}
+      >
         <Passo
           titulo="Requisição"
           icone={<ClipboardList className="h-4 w-4" />}
@@ -346,11 +446,36 @@ function Detalhe({ l }: { l: LinhaRastreio }) {
               : "Nenhuma NF ligada ao pedido"
           }
         >
-          <Campo label="Emissão" valor={fData(l.nf_emissao)} />
-          <Campo label="Entrada" valor={fData(l.nf_entrada)} />
-          <Campo label="Valor da NF" valor={fMoeda(l.nf_valor_total)} />
-          <Campo label="Deste pedido" valor={fMoeda(l.valor_pedido_na_nf)} />
-          <Campo label="Fonte do vínculo" valor={l.fontes_vinculo} />
+          {l.nf_numero ? (
+            <>
+              <Campo label="Emissão" valor={fData(l.nf_emissao)} />
+              <Campo label="Entrada" valor={fData(l.nf_entrada)} />
+              <Campo label="Valor da NF" valor={fMoeda(l.nf_valor_total)} />
+              <Campo label="Deste pedido" valor={fMoeda(l.valor_pedido_na_nf)} />
+              <Campo label="Fonte do vínculo" valor={l.fontes_vinculo} />
+            </>
+          ) : candidatas.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                {candidatas.length === 1
+                  ? "NF recebida e ainda não lançada no Alvo que pode ser deste pedido:"
+                  : `${candidatas.length} NFs recebidas e ainda não lançadas no Alvo que podem ser deste pedido:`}
+              </span>
+              {candidatas.map((c) => (
+                <CandidataNf key={c.nfe_id} c={c} />
+              ))}
+              <span className="text-[11px] leading-snug text-muted-foreground">
+                Sugestão automática. Quando a NF for lançada no Alvo citando o pedido, o vínculo aparece aqui na próxima
+                atualização.
+              </span>
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              {l.etapa === "Cancelado"
+                ? "Pedido cancelado."
+                : "Nenhuma NF recebida em Compras → Notas Fiscais com o mesmo fornecedor e valor parecido."}
+            </span>
+          )}
         </Passo>
 
         <Passo titulo="Estoque" icone={<PackageCheck className="h-4 w-4" />} estado={estoqueEstado} resumo={estoqueResumo}>
@@ -466,6 +591,8 @@ export default function SuprimentosRastreio() {
     [consulta.data?.etapas],
   );
   const totalSemEtapa = resumoEtapas.reduce((s, e) => s + e.qtd, 0);
+  const comNfCandidata = consulta.data?.com_nf_candidata ?? 0;
+  const filtrandoCandidata = etapas.includes(FILTRO_NF_CANDIDATA);
 
   const alternarEtapa = (e: string) =>
     setEtapas((atual) => (atual.includes(e) ? atual.filter((x) => x !== e) : [...atual, e]));
@@ -592,7 +719,7 @@ export default function SuprimentosRastreio() {
               <Input
                 value={buscaDigitada}
                 onChange={(e) => setBuscaDigitada(e.target.value)}
-                placeholder="Pedido, NF, requisição, fornecedor ou requisitante"
+                placeholder="Pedido, NF (lançada ou recebida), requisição, fornecedor ou requisitante"
                 className="h-9 pl-8 pr-8"
               />
               {buscaDigitada && (
@@ -636,6 +763,26 @@ export default function SuprimentosRastreio() {
                 </button>
               );
             })}
+            {(comNfCandidata > 0 || filtrandoCandidata) && (
+              <>
+                <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+                <button
+                  type="button"
+                  onClick={() => alternarEtapa(FILTRO_NF_CANDIDATA)}
+                  title="Pedidos sem NF ligada que têm NF recebida em Compras → Notas Fiscais, ainda não lançada no Alvo"
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors",
+                    filtrandoCandidata
+                      ? cn(ESTILO_CANDIDATA, "ring-1 ring-ring/40 ring-offset-1")
+                      : "border-dashed border-amber-300 text-amber-800 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40",
+                  )}
+                >
+                  <FileSearch className="h-3 w-3" />
+                  Com NF recebida não lançada
+                  <span className="tabular-nums font-semibold">{comNfCandidata.toLocaleString("pt-BR")}</span>
+                </button>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -738,6 +885,40 @@ export default function SuprimentosRastreio() {
                                     {fData(l.nf_entrada, "dd/MM/yy")} · {fMoeda(l.valor_pedido_na_nf)}
                                   </div>
                                 </>
+                              ) : l.nf_candidatas && l.nf_candidatas.length > 0 ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="flex flex-col items-start gap-0.5">
+                                      <span
+                                        className={cn(
+                                          "inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] font-medium",
+                                          ESTILO_CANDIDATA,
+                                        )}
+                                      >
+                                        <FileSearch className="h-3 w-3" />
+                                        Recebida? {l.nf_candidatas[0].nf_numero}
+                                        {l.nf_candidatas.length > 1 && (
+                                          <span className="font-normal">+{l.nf_candidatas.length - 1}</span>
+                                        )}
+                                      </span>
+                                      <span className="whitespace-nowrap text-xs text-muted-foreground">
+                                        {fData(l.nf_candidatas[0].data_emissao, "dd/MM/yy")} ·{" "}
+                                        {fMoeda(l.nf_candidatas[0].valor_total)}
+                                      </span>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs text-xs">
+                                    <div className="mb-1 font-medium">
+                                      Recebida em Compras → Notas Fiscais, ainda não lançada no Alvo
+                                    </div>
+                                    {l.nf_candidatas.map((c) => (
+                                      <div key={c.nfe_id}>
+                                        NF {c.nf_numero} · {fMoeda(c.valor_total)} · {c.motivo}
+                                      </div>
+                                    ))}
+                                    <div className="mt-1 text-muted-foreground">Abra a linha para ver os detalhes.</div>
+                                  </TooltipContent>
+                                </Tooltip>
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>
                               )}

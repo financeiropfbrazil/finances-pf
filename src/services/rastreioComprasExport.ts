@@ -4,14 +4,14 @@
  * Exporta TODAS as linhas do filtro da tela (não só a página): a tela chama
  * `listarTudo`, que busca em blocos de 1000 e confere a contagem.
  *
- * Planilha "Rastreio": linha 1 = blocos (Requisição, Pedido, NF, Estoque,
- * Pagamento, Prazos) mesclados e coloridos; linha 2 = colunas; cabeçalho e
+ * Planilha "Rastreio": linha 1 = blocos (Requisição, Pedido, NF, NF candidata,
+ * Estoque, Pagamento, Prazos) mesclados e coloridos; linha 2 = colunas; cabeçalho e
  * 1ª coluna congelados; autofiltro. Datas são datas de verdade (dd/mm/aaaa),
  * valores e dias são números — o Excel ordena, filtra e soma.
  * Planilha "Sobre": filtro aplicado, momento da exportação e glossário.
  */
-import type { CampoData, LinhaRastreio } from "./rastreioComprasService";
-import { CAMPOS_DATA, dataLocal } from "./rastreioComprasService";
+import type { CampoData, LinhaRastreio, NfCandidata } from "./rastreioComprasService";
+import { CAMPOS_DATA, FILTRO_NF_CANDIDATA, dataLocal } from "./rastreioComprasService";
 
 type Tipo = "texto" | "data" | "valor" | "inteiro";
 
@@ -29,6 +29,7 @@ const BLOCOS: Record<string, string> = {
   Requisição: "FF7C3AED",
   Pedido: "FF2563EB",
   NF: "FF0891B2",
+  "NF candidata (recebida, não lançada)": "FFB45309",
   Estoque: "FF059669",
   Pagamento: "FFD97706",
   "Prazos (dias)": "FF64748B",
@@ -46,6 +47,12 @@ const d = (v: string | null | undefined): Date | null => {
   const x = dataLocal(v);
   return x ? new Date(Date.UTC(x.getFullYear(), x.getMonth(), x.getDate())) : null;
 };
+
+/** Melhor candidata (rank 1) — só existe em linha sem NF ligada. */
+const c1 = (l: LinhaRastreio): NfCandidata | null => (l.nf_candidatas && l.nf_candidatas[0]) || null;
+const BLOCO_CAND = "NF candidata (recebida, não lançada)";
+const fmtValor = (v: number | null) =>
+  v === null ? "" : Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const COLUNAS: Coluna[] = [
   { bloco: "Linha", label: "Etapa atual", tipo: "texto", largura: 24, valor: (l) => t(l.etapa) },
@@ -77,6 +84,35 @@ const COLUNAS: Coluna[] = [
   { bloco: "NF", label: "Valor deste pedido na NF", tipo: "valor", largura: 14, valor: (l) => n(l.valor_pedido_na_nf) },
   { bloco: "NF", label: "Nº de NFs do pedido", tipo: "inteiro", largura: 10, valor: (l) => n(l.pedido_qtd_nfs) },
   { bloco: "NF", label: "Fonte do vínculo", tipo: "texto", largura: 20, valor: (l) => t(l.fontes_vinculo) },
+
+  { bloco: BLOCO_CAND, label: "Qtd candidatas", tipo: "inteiro", largura: 10, valor: (l) => n(l.nf_candidatas_qtd) || null },
+  { bloco: BLOCO_CAND, label: "Nº NF sugerida", tipo: "texto", largura: 12, valor: (l) => t(c1(l)?.nf_numero) },
+  { bloco: BLOCO_CAND, label: "Motivo", tipo: "texto", largura: 24, valor: (l) => t(c1(l)?.motivo) },
+  { bloco: BLOCO_CAND, label: "Emitente", tipo: "texto", largura: 30, valor: (l) => t(c1(l)?.emitente_nome) },
+  { bloco: BLOCO_CAND, label: "Emissão", tipo: "data", largura: 12, valor: (l) => d(c1(l)?.data_emissao) },
+  { bloco: BLOCO_CAND, label: "Recebida em", tipo: "data", largura: 12, valor: (l) => d(c1(l)?.recebida_em) },
+  { bloco: BLOCO_CAND, label: "Valor da NF", tipo: "valor", largura: 13, valor: (l) => n(c1(l)?.valor_total) },
+  { bloco: BLOCO_CAND, label: "Valor que bateu", tipo: "valor", largura: 13, valor: (l) => n(c1(l)?.valor_comparado) },
+  { bloco: BLOCO_CAND, label: "Base da comparação", tipo: "texto", largura: 28, valor: (l) => t(c1(l)?.base) },
+  { bloco: BLOCO_CAND, label: "Diferença %", tipo: "valor", largura: 10, valor: (l) => n(c1(l)?.diferenca_pct) },
+  {
+    bloco: BLOCO_CAND,
+    label: "Também sugerida para",
+    tipo: "texto",
+    largura: 14,
+    valor: (l) => (c1(l)?.outros_pedidos ?? []).join(", "),
+  },
+  {
+    bloco: BLOCO_CAND,
+    label: "Outras candidatas",
+    tipo: "texto",
+    largura: 30,
+    valor: (l) =>
+      (l.nf_candidatas ?? [])
+        .slice(1)
+        .map((c) => `NF ${c.nf_numero ?? "?"} (${fmtValor(c.valor_total)})`)
+        .join(" · "),
+  },
 
   { bloco: "Estoque", label: "Laudo(s)", tipo: "texto", largura: 16, valor: (l) => t(l.laudo_numeros) },
   {
@@ -222,7 +258,12 @@ export async function exportarRastreioXLSX(
     ["Relatório", "Rastreio de Compras — Requisição → Pedido → NF → Estoque → Pagamento"],
     ["Período", `${fmtBR(ctx.de)} a ${fmtBR(ctx.ate)} (por ${campo.toLowerCase()})`],
     ["Busca", ctx.busca.trim() || "—"],
-    ["Etapas", ctx.etapas.length ? ctx.etapas.join(", ") : "Todas"],
+    [
+      "Etapas",
+      ctx.etapas.length
+        ? ctx.etapas.map((e) => (e === FILTRO_NF_CANDIDATA ? "Com NF recebida não lançada" : e)).join(", ")
+        : "Todas",
+    ],
     ["Linhas exportadas", String(linhas.length)],
     ["Dados atualizados em", ctx.atualizadoEm ? new Date(ctx.atualizadoEm).toLocaleString("pt-BR") : "—"],
     ["Exportado em", new Date().toLocaleString("pt-BR")],
@@ -237,6 +278,13 @@ export async function exportarRastreioXLSX(
     [
       "Pagamento",
       "Adiantamento (PC série A), projeção do pedido (PC série 0, parcela 1) e título da NF (parcela 1), lidos do DocFin. 1º pagamento = o mais cedo entre adiantamento e título da NF; sem título ligado, vale a projeção realizada.",
+    ],
+    [
+      "NF candidata",
+      "Só em pedido sem NF ligada: NF recebida em Compras → Notas Fiscais (XML) e ainda não lançada no Alvo que pode ser do pedido. " +
+        "Motivos, do mais forte ao mais fraco: \"Vinculada em Compras → NF\" (alguém vinculou na tela), \"Pedido citado na NF\" (o XML traz o nº do pedido) " +
+        "e \"Mesmo fornecedor e valor\" (raiz do CNPJ igual e valor ±10% — contra o total, o valor faturado sem itens de retorno, ou um item). " +
+        "É sugestão: o vínculo de verdade aparece quando a NF é lançada no Alvo citando o pedido. As colunas mostram a melhor; \"Outras candidatas\" lista as demais (até 3).",
     ],
     ["Título ligado por", "\"Chave da NF\" = DocFin.ChaveMovEstq (exato). \"Número + fornecedor\" = mesmo número de documento e mesma entidade."],
     ["", ""],

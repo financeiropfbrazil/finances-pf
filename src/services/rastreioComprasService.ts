@@ -37,6 +37,37 @@ export const ETAPAS_ORDEM = [
   "Cancelado",
 ] as const;
 
+/** Filtro especial (não é etapa): pedidos sem NF ligada que têm NF candidata. */
+export const FILTRO_NF_CANDIDATA = "NF candidata";
+
+/**
+ * NF recebida (Compras → Notas Fiscais, tabela compras_nfe) e ainda NÃO lançada
+ * no Alvo, sugerida para um pedido sem NF ligada. Calculada de hora em hora por
+ * `rastreio_atualizar_candidatas()` (até 3 por pedido, `rank` 1 = melhor).
+ */
+export interface NfCandidata {
+  nfe_id: string;
+  rank: number;
+  /** "Vinculada em Compras → NF" | "Pedido citado na NF" | "Mesmo fornecedor e valor" */
+  motivo: string;
+  nf_numero: string | null;
+  nf_serie: string | null;
+  emitente_nome: string | null;
+  emitente_cnpj: string | null;
+  data_emissao: string | null;
+  recebida_em: string | null;
+  natureza: string | null;
+  valor_total: number | null;
+  /** Valor que bateu com o pedido: total, faturado (sem retorno) ou um item. */
+  valor_comparado: number | null;
+  /** "total" | "faturado" | "item: <descrição> (CFOP x)" */
+  base: string | null;
+  diferenca: number | null;
+  diferenca_pct: number | null;
+  /** Outros pedidos para os quais a MESMA NF também foi sugerida. */
+  outros_pedidos?: string[] | null;
+}
+
 export interface LinhaRastreio {
   pedido_numero: string;
   chave_movestq: number | null;
@@ -77,6 +108,9 @@ export interface LinhaRastreio {
   valor_pedido_na_nf: number | null;
   pedido_qtd_nfs: number | null;
   fontes_vinculo: string | null;
+  // NF candidata (só em linha sem NF ligada)
+  nf_candidatas: NfCandidata[] | null;
+  nf_candidatas_qtd: number | null;
   // Estoque
   laudo_numeros: string | null;
   laudo_qtd: number | null;
@@ -129,6 +163,8 @@ export interface RespostaRastreio {
   total: number;
   atualizado_em: string | null;
   etapas: { etapa: string; qtd: number }[];
+  /** Pedidos do filtro (sem considerar etapa) com NF candidata. */
+  com_nf_candidata: number;
   linhas: LinhaRastreio[];
 }
 
@@ -154,6 +190,7 @@ export async function listarRastreio(
     total: Number(r.total ?? 0),
     atualizado_em: r.atualizado_em ?? null,
     etapas: Array.isArray(r.etapas) ? r.etapas : [],
+    com_nf_candidata: Number(r.com_nf_candidata ?? 0),
     linhas: Array.isArray(r.linhas) ? (r.linhas as LinhaRastreio[]) : [],
   };
 }
