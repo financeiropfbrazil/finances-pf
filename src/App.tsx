@@ -73,6 +73,7 @@ import ProducaoRM from "./pages/ProducaoRM";
 import ProducaoRMDetalhe from "./pages/ProducaoRMDetalhe";
 import MovimentacaoSalas from "./pages/MovimentacaoSalas";
 import RecebimentoFila from "./pages/RecebimentoFila";
+import SuprimentosRastreio from "./pages/SuprimentosRastreio";
 import RealizadoDespesas from "./pages/RealizadoDespesas";
 import ConfigContasDespesas from "@/pages/despesas/ConfigContasDespesas";
 import ReqBackfillDataAbertura from "./pages/ferramentas/ReqBackfillDataAbertura";
@@ -282,6 +283,16 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="compras.requisicoes.aprovar">
               <SuprimentosAprovacoes />
+            </PermissionRoute>
+          }
+        />
+        {/* Rastreio Requisição → Pagamento — admin-only (código RBAC que só o
+            bypass de admin libera; o gate real é a RPC rastreio_compras_listar). */}
+        <Route
+          path="/suprimentos/rastreio"
+          element={
+            <PermissionRoute permKey="suprimentos.rastreio.admin">
+              <SuprimentosRastreio />
             </PermissionRoute>
           }
         />
