@@ -286,12 +286,12 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
-        {/* Rastreio Requisição → Pagamento — admin-only (código RBAC que só o
-            bypass de admin libera; o gate real é a RPC rastreio_compras_listar). */}
+        {/* Rastreio Requisição → Pagamento — admin ou papel visualizador_rastreio
+            (compras.rastreio.access); o gate real é a RPC rastreio_compras_listar. */}
         <Route
           path="/suprimentos/rastreio"
           element={
-            <PermissionRoute permKey="suprimentos.rastreio.admin">
+            <PermissionRoute permKey="compras.rastreio.access">
               <SuprimentosRastreio />
             </PermissionRoute>
           }

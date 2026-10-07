@@ -120,9 +120,9 @@ const suprimentosSubItems: { label: string; url: string; icon: any; perm?: strin
   { label: "Aprovações", url: "/suprimentos/aprovacoes", icon: ClipboardCheck, perm: "compras.requisicoes.aprovar" },
   { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
   { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
-  // Rastreio Req → Pagamento — admin-only. Código RBAC que ninguém recebe:
-  // só o bypass de admin do `hasAccess` libera. O gate real é a RPC (_is_admin).
-  { label: "Rastreio de Compras", url: "/suprimentos/rastreio", icon: FileBarChart, perm: "suprimentos.rastreio.admin" },
+  // Rastreio Req → Pagamento — admin ou papel visualizador_rastreio.
+  // O gate real é a RPC (admin ou compras.rastreio.access).
+  { label: "Rastreio de Compras", url: "/suprimentos/rastreio", icon: FileBarChart, perm: "compras.rastreio.access" },
   { label: "Atualizar Cadastros", url: "/suprimentos/cadastros", icon: RefreshCw, perm: "compras.cadastros.sync" },
 ];
 

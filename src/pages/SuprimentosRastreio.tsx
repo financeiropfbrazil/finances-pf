@@ -1,12 +1,13 @@
 /**
- * Rastreio de Compras — SOMENTE LEITURA, admin-only.
+ * Rastreio de Compras — SOMENTE LEITURA. Admin ou papel `visualizador_rastreio`
+ * (permissão `compras.rastreio.access`).
  *
  * Requisição → Pedido → NF de entrada → Confirmação no estoque (laudo) →
  * Pagamento da 1ª parcela (DocFin). Uma linha por PEDIDO × NF.
  *
  * Fonte: RPC `rastreio_compras_listar` (ver rastreioComprasService.ts). O gate
- * real é a RPC (`_is_admin()`); o `isAdmin` abaixo só evita tela vazia sem
- * explicação. Abre no mês corrente; período DE/ATÉ com atalhos; paginação no
+ * real é a RPC (admin ou `compras.rastreio.access`); o `hasAccess` abaixo só
+ * evita tela vazia sem explicação. Abre no mês corrente; período DE/ATÉ com atalhos; paginação no
  * servidor (50 por página); "Exportar Excel" leva TODAS as linhas do filtro.
  *
  * Pedido sem NF ligada mostra, no quadro da NF, as NFs RECEBIDAS (Compras →
@@ -323,7 +324,7 @@ function rotuloBase(base: string | null): string {
   return base.replace(/^item: /, "item ");
 }
 
-function CandidataNf({ c }: { c: NfCandidata }) {
+function CandidataNf({ c, podeAbrirNf }: { c: NfCandidata; podeAbrirNf: boolean }) {
   const parcial = !!c.base && c.base !== "total";
   return (
     <div className="flex flex-col gap-1 rounded-md border border-dashed border-amber-300 bg-amber-50/50 p-2 dark:border-amber-800 dark:bg-amber-950/20">
@@ -362,20 +363,24 @@ function CandidataNf({ c }: { c: NfCandidata }) {
           Também sugerida para o{c.outros_pedidos.length > 1 ? "s pedidos" : " pedido"} {c.outros_pedidos.join(", ")}
         </span>
       )}
-      <Link
-        to={linkNotasFiscais(c)}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
-      >
-        Abrir em Notas Fiscais
-        <ExternalLink className="h-3 w-3" />
-      </Link>
+      {/* A tela de Notas Fiscais tem gate próprio (menu "compras"): sem ele, o
+          link levaria a "Acesso Restrito". */}
+      {podeAbrirNf && (
+        <Link
+          to={linkNotasFiscais(c)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+        >
+          Abrir em Notas Fiscais
+          <ExternalLink className="h-3 w-3" />
+        </Link>
+      )}
     </div>
   );
 }
 
-function Detalhe({ l }: { l: LinhaRastreio }) {
+function Detalhe({ l, podeAbrirNf }: { l: LinhaRastreio; podeAbrirNf: boolean }) {
   const candidatas = l.nf_numero ? [] : (l.nf_candidatas ?? []);
   const estoqueEstado: Estado =
     l.laudo_qtd && l.laudo_qtd > 0
@@ -464,7 +469,7 @@ function Detalhe({ l }: { l: LinhaRastreio }) {
                   : `${candidatas.length} NFs recebidas e ainda não lançadas no Alvo que podem ser deste pedido:`}
               </span>
               {candidatas.map((c) => (
-                <CandidataNf key={c.nfe_id} c={c} />
+                <CandidataNf key={c.nfe_id} c={c} podeAbrirNf={podeAbrirNf} />
               ))}
               <span className="text-[11px] leading-snug text-muted-foreground">
                 Sugestão automática. Quando a NF for lançada no Alvo citando o pedido, o vínculo aparece aqui na próxima
@@ -539,7 +544,9 @@ function Detalhe({ l }: { l: LinhaRastreio }) {
 // PÁGINA
 // ════════════════════════════════════════════════════════════
 export default function SuprimentosRastreio() {
-  const { isAdmin, loading: permLoading } = usePermissions();
+  const { hasAccess, loading: permLoading } = usePermissions();
+  const podeVer = hasAccess("compras.rastreio.access");
+  const podeAbrirNf = hasAccess("compras");
   const queryClient = useQueryClient();
 
   const [periodo, setPeriodo] = useState<Periodo>(() => atalhosPeriodo()[0].periodo);
@@ -580,7 +587,7 @@ export default function SuprimentosRastreio() {
   const consulta = useQuery({
     queryKey: ["rastreio-compras", chaveFiltro, pagina],
     queryFn: () => listarRastreio(filtro, POR_PAGINA, pagina * POR_PAGINA),
-    enabled: isAdmin,
+    enabled: podeVer,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
@@ -647,7 +654,7 @@ export default function SuprimentosRastreio() {
     );
   }
 
-  if (!isAdmin) {
+  if (!podeVer) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-muted-foreground">
         <ShieldX className="h-16 w-16" />
@@ -983,7 +990,7 @@ export default function SuprimentosRastreio() {
                                   className="sticky left-0"
                                   style={larguraVisivel ? { width: larguraVisivel } : undefined}
                                 >
-                                  <Detalhe l={l} />
+                                  <Detalhe l={l} podeAbrirNf={podeAbrirNf} />
                                 </div>
                               </td>
                             </tr>

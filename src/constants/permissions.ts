@@ -29,6 +29,9 @@ export const PERMISSIONS = {
   // AJUSTE 7.2 — idem para pedidos. União de duas fontes de CC: o rateio
   // (`compras_pedidos_itens_rateio`) e o cabeçalho (`compras_pedidos.centro_custo`).
   COMPRAS_PEDIDOS_VIEW_CC: "compras.pedidos.view_cc",
+  // Rastreio Requisição → Pedido → NF → Estoque → Pagamento (só leitura + Excel).
+  // Papel: visualizador_rastreio. Gate real nas RPCs rastreio_compras_*.
+  COMPRAS_RASTREIO_ACCESS: "compras.rastreio.access",
   // ─── Administração global ───────────────────────────────────────
   ADMIN_USERS_MANAGE: "admin.users.manage",
 
@@ -112,6 +115,7 @@ export const ROLES = {
   ANALISTA_COMPRAS: "analista_compras",
   REQUISITANTE: "requisitante",
   LIDER_DEPARTAMENTO: "lider_departamento",
+  VISUALIZADOR_RASTREIO: "visualizador_rastreio",
   RESPONSAVEL_PROJETO: "responsavel_projeto",
   APROVADOR_PROJETOS: "aprovador_projetos",
   CONTROLLER_INTERCOMPANY: "controller_intercompany",
