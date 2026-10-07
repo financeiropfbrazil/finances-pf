@@ -255,6 +255,39 @@ export default function SuprimentosRequisicaoDetalhe() {
     queryFn: () => carregarAprovacaoCC(id!),
     enabled: !!user && !!req,
   });
+  // Nomes dos centros de custo (cabeçalho, itens e grupos de aprovação). O
+  // `centro_ctrl_nome` da requisição quase nunca vem preenchido; a fonte é
+  // cost_centers (espelho do Alvo), pelo código.
+  const codigosCC = Array.from(
+    new Set(
+      [
+        req?.codigo_centro_ctrl,
+        ...itens.map((it: any) => it.codigo_centro_ctrl),
+        ...gruposAprovacao.map((g) => g.codigo_centro_ctrl),
+      ].filter((c): c is string => !!c),
+    ),
+  ).sort();
+  const { data: nomesCC = {} } = useQuery({
+    queryKey: ["cc_nomes", codigosCC],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("cost_centers")
+        .select("erp_code, name")
+        .in("erp_code", codigosCC);
+      if (error) throw error;
+      const mapa: Record<string, string> = {};
+      for (const c of data || []) if (c.erp_code && c.name) mapa[c.erp_code] = c.name;
+      return mapa;
+    },
+    enabled: codigosCC.length > 0,
+    staleTime: 10 * 60_000,
+  });
+  const rotuloCC = (codigo: string | null | undefined): string => {
+    if (!codigo) return "—";
+    const nome = nomesCC[codigo] || (codigo === req?.codigo_centro_ctrl ? req?.centro_ctrl_nome : null);
+    return nome ? `${nome} (${codigo})` : codigo;
+  };
+
   const isLiderDoCC = gruposAprovacao.some((g) => g.lider_atual);
   const aguardandoMinhaAprovacao = gruposAprovacao.some((g) => g.lider_atual && g.situacao === "pendente");
 
@@ -586,7 +619,9 @@ export default function SuprimentosRequisicaoDetalhe() {
 
   return (
     <div className="space-y-6 p-6">
-      {req.aprovacao_submetida_em && <AprovacoesCC grupos={gruposAprovacao} erro={erroAprovacao?.message} />}
+      {req.aprovacao_submetida_em && (
+        <AprovacoesCC grupos={gruposAprovacao} erro={erroAprovacao?.message} nomesCC={nomesCC} />
+      )}
       {req.envio_token && !req.numero_alvo && <p role="alert" className="rounded-lg border p-4 text-sm">Envio em andamento ou sem confirmação. O reenvio está bloqueado até reconciliar com o Alvo. Não crie outra requisição para o mesmo pedido — se a primeira tiver chegado ao ERP, viram duas.</p>}
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -826,7 +861,7 @@ export default function SuprimentosRequisicaoDetalhe() {
               <p className="text-sm font-medium text-foreground">Aguardando aprovação do líder</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Esta requisição <strong>ainda não foi enviada ao ERP</strong>. Ela depende da decisão do líder do centro
-                de custo <strong>{req.centro_ctrl_nome || req.codigo_centro_ctrl || "—"}</strong> — quem responde pela
+                de custo <strong>{rotuloCC(req.codigo_centro_ctrl)}</strong> — quem responde pela
                 aprovação é o centro de custo onerado, não a área de quem digitou.
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
@@ -912,7 +947,7 @@ export default function SuprimentosRequisicaoDetalhe() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Centro de Custo</p>
-              <p className="text-sm font-medium text-foreground">{req.codigo_centro_ctrl || "—"}</p>
+              <p className="text-sm font-medium text-foreground">{rotuloCC(req.codigo_centro_ctrl)}</p>
             </div>
           </div>
         </CardContent>
@@ -934,12 +969,22 @@ export default function SuprimentosRequisicaoDetalhe() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.quantidade_solicitada == null ? "Solicitada não disponível" : `${item.quantidade_solicitada} ${item.codigo_prod_unid_med}`} · principal: {item.quantidade} · posição: {item.posicao_prod_unid_med ?? "não disponível"} · {item.codigo_produto}
                 </p>
+                {item.codigo_centro_ctrl && item.codigo_centro_ctrl !== req.codigo_centro_ctrl && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Centro de custo do item:{" "}
+                    <span className="font-medium text-foreground">{rotuloCC(item.codigo_centro_ctrl)}</span>
+                  </p>
+                )}
                 {item.observacao && <p className="mt-2 text-xs italic text-muted-foreground">"{item.observacao}"</p>}
                 {item.rateio?.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {item.rateio.map((r: any) => (
                       <Badge key={r.id} variant="secondary" className="text-[10px]">
-                        {r.codigo_classe_rec_desp} ({r.percentual}%)
+                        {r.codigo_classe_rec_desp}
+                        {r.classe_rec_desp_label && r.classe_rec_desp_label !== r.codigo_classe_rec_desp
+                          ? ` · ${r.classe_rec_desp_label}`
+                          : ""}{" "}
+                        ({r.percentual}%)
                       </Badge>
                     ))}
                   </div>
