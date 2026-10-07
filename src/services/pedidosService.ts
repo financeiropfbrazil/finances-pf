@@ -61,6 +61,33 @@ export interface ItemPedidoInput {
   rateio_por_valor?: boolean;
 }
 
+/**
+ * "Data Base Parcelas" do pedido no Alvo (campo DataBaseVencimentoParcela):
+ * de qual data os prazos da condição de pagamento são contados.
+ * O Alvo tem ainda "Data do Sistema" e "Data do Cadastro"; no Hub as duas são
+ * iguais à Data do Pedido (carimbada no envio), por isso só estas duas opções.
+ * Padrão: Data da Entrega. `null` no banco = pedido anterior à opção (saiu
+ * com "Data do Pedido").
+ */
+export type BaseParcelas = "Data da Entrega" | "Data do Pedido";
+export const BASE_PARCELAS_PADRAO: BaseParcelas = "Data da Entrega";
+export const BASES_PARCELAS: { valor: BaseParcelas; label: string; ajuda: string }[] = [
+  {
+    valor: "Data da Entrega",
+    label: "Data da Entrega",
+    ajuda: "Os prazos da condição contam a partir da Data da Entrega.",
+  },
+  {
+    valor: "Data do Pedido",
+    label: "Data do Pedido",
+    ajuda: "Os prazos da condição contam a partir da Data do Pedido (hoje).",
+  },
+];
+
+export function normalizarBaseParcelas(v: unknown): BaseParcelas {
+  return v === "Data da Entrega" ? "Data da Entrega" : "Data do Pedido";
+}
+
 export interface ParcelaInput {
   sequencia: number;
   dias_entre_parcelas: number;
@@ -105,6 +132,8 @@ export interface NovoPedidoInput {
   data_entrega: string;
   data_validade: string;
   data_competencia: string;
+  /** "Data Base Parcelas" no Alvo. Ausente = BASE_PARCELAS_PADRAO. */
+  data_base_parcelas?: BaseParcelas;
 
   parcelas: ParcelaInput[];
   arquivos?: ArquivoInput[];
@@ -644,6 +673,7 @@ interface EnriquecimentoItemInput {
   data_validade: string;
   data_competencia: string;
   data_base_vencimento: string;
+  data_base_vencimento_parcela?: BaseParcelas;
   codigo_tipo_pag_rec: string;
   codigo_usuario: string;
 }
@@ -682,7 +712,7 @@ async function enriquecerItemViaAlvo(params: EnriquecimentoItemInput): Promise<I
     DataCadastro: dataCadastroIso,
     DataBaseVencimento: dataBaseVencIso,
     DataCompetencia: dataCompetenciaIso,
-    DataBaseVencimentoParcela: "Data do Pedido",
+    DataBaseVencimentoParcela: params.data_base_vencimento_parcela ?? "Data do Pedido",
     Origem: "Pedido",
     Chamou: "CodigoProduto",
     ValorCambio: 1,
@@ -1438,7 +1468,10 @@ export function montarPayloadPedComp(p: MontarPayloadParams): any {
   const dataValidade = formatarDataParaAlvo(input.data_validade);
   const dataEntrega = formatarDataParaAlvo(input.data_entrega);
   const dataCompetencia = formatarDataParaAlvo(input.data_competencia);
-  const dataBaseVencimento = dataPedido;
+  // "Data Base Parcelas": o Alvo grava a data base e o rótulo; os vencimentos
+  // das parcelas vão calculados pelo Hub (Etapa 4) a partir da MESMA data.
+  const baseParcelas: BaseParcelas = input.data_base_parcelas ?? BASE_PARCELAS_PADRAO;
+  const dataBaseVencimento = baseParcelas === "Data da Entrega" ? dataEntrega : dataPedido;
   const dataHoraDigitacao = dataHoraAgoraUtc();
 
   // RATEIO-MASSA: basta UM item por valor para o pedido inteiro sair pelo caminho
@@ -1649,7 +1682,7 @@ export function montarPayloadPedComp(p: MontarPayloadParams): any {
     Texto: texto_completo,
     Origem: origem,
     CodigoTipoPagRec: "0000016",
-    DataBaseVencimentoParcela: "Data do Pedido",
+    DataBaseVencimentoParcela: baseParcelas,
     NomeEntidade: input.nome_entidade,
     DataHoraDigitacao: dataHoraDigitacao,
     CasasDecimaisValorUnitario: 5,
@@ -1947,6 +1980,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
           data_cadastro: input.data_pedido,
           data_entrega: input.data_entrega,
           data_validade: input.data_validade,
+          data_base_parcelas: input.data_base_parcelas ?? BASE_PARCELAS_PADRAO,
           codigo_entidade: input.codigo_entidade,
           nome_entidade: input.nome_entidade,
           cnpj_entidade: input.cnpj_entidade || null,
@@ -1983,6 +2017,7 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
           data_cadastro: input.data_pedido,
           data_entrega: input.data_entrega,
           data_validade: input.data_validade,
+          data_base_parcelas: input.data_base_parcelas ?? BASE_PARCELAS_PADRAO,
           codigo_entidade: input.codigo_entidade,
           nome_entidade: input.nome_entidade,
           cnpj_entidade: input.cnpj_entidade || null,
@@ -2172,7 +2207,11 @@ export async function enviarPedido(input: NovoPedidoInput, pedidoIdExistente?: s
         data_cadastro: input.data_pedido,
         data_validade: input.data_validade,
         data_competencia: input.data_competencia,
-        data_base_vencimento: input.data_pedido,
+        data_base_vencimento:
+          (input.data_base_parcelas ?? BASE_PARCELAS_PADRAO) === "Data da Entrega"
+            ? input.data_entrega
+            : input.data_pedido,
+        data_base_vencimento_parcela: input.data_base_parcelas ?? BASE_PARCELAS_PADRAO,
         codigo_tipo_pag_rec: "0000016",
         codigo_usuario: codigoUsuarioAlvo,
       });
@@ -2461,6 +2500,8 @@ export interface CarregarPedidoResult {
   data_pedido: string; // YYYY-MM-DD
   data_entrega: string;
   data_validade: string;
+  /** null no banco (pedido anterior à opção) volta como "Data do Pedido". */
+  data_base_parcelas?: BaseParcelas;
 
   itens: Array<{
     item_servico: boolean;
@@ -2689,6 +2730,7 @@ async function _carregarPedidoCompleto(pedidoId: string, modoEdicao: boolean): P
     data_pedido: ped.data_pedido,
     data_entrega: ped.data_entrega,
     data_validade: ped.data_validade,
+    data_base_parcelas: normalizarBaseParcelas(ped.data_base_parcelas),
     itens,
     parcelas,
     arquivos_existentes: arquivosRows || [],

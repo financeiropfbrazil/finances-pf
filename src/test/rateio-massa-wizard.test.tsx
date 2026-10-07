@@ -255,6 +255,8 @@ describe("wizard de pedido — rateio em massa por valor, ponta a ponta na tela"
     // O que a tela entrega ao serviço.
     const input = enviarPedidoMock.mock.calls[0][0] as NovoPedidoInput;
     expect(enviarPedidoMock.mock.calls[0][1]).toBe("ped-1");
+    // Rascunho salvo antes da opção "Data Base Parcelas" mantém a Data do Pedido.
+    expect(input.data_base_parcelas).toBe("Data do Pedido");
     const item = input.itens[0];
     expect(item.rateio_por_valor).toBe(true);
     const ccs = item.rateio[0].ccs;

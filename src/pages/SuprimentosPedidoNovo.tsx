@@ -8,6 +8,9 @@ import {
   calcularParcelas,
   carregarPedidoParaEdicao,
   consolidarRateioDoItem,
+  BASES_PARCELAS,
+  BASE_PARCELAS_PADRAO,
+  type BaseParcelas,
   type NovoPedidoInput,
   type ParcelaInput,
   type ArquivoInput,
@@ -353,6 +356,9 @@ export default function SuprimentosPedidoNovo() {
   const [dataPedido, setDataPedido] = useState<Date>(hoje);
   const [dataEntrega, setDataEntrega] = useState<Date>(addDays(hoje, 30));
   const [dataValidade, setDataValidade] = useState<Date>(addDays(hoje, 60));
+  // "Data Base Parcelas" do Alvo: de qual data os prazos da condição contam.
+  // Padrão: Data da Entrega. O comprador pode trocar na Etapa 4.
+  const [baseParcelas, setBaseParcelas] = useState<BaseParcelas>(BASE_PARCELAS_PADRAO);
 
   // Popovers dos calendários
   const [dataEntregaPopoverOpen, setDataEntregaPopoverOpen] = useState(false);
@@ -708,6 +714,8 @@ export default function SuprimentosPedidoNovo() {
         // 23/07 enviado hoje entra no ERP com a data de hoje.
         setDataEntrega(parseLocalDate(dados.data_entrega));
         setDataValidade(parseLocalDate(dados.data_validade));
+        // Pedido salvo antes da opção existir saiu com "Data do Pedido".
+        setBaseParcelas(dados.data_base_parcelas ?? "Data do Pedido");
 
         // Origem (se veio de Req)
         if (dados.origem_numero_req_alvo) {
@@ -1382,7 +1390,7 @@ export default function SuprimentosPedidoNovo() {
     setCalculandoParcelas(true);
     setErroCalculoParcelas(null);
     try {
-      const dataBaseYMD = format(dataPedido, "yyyy-MM-dd");
+      const dataBaseYMD = format(baseParcelas === "Data da Entrega" ? dataEntrega : dataPedido, "yyyy-MM-dd");
       const parcelasCalculadas = await calcularParcelas(codigoCondPag, valorTotalPedido, dataBaseYMD);
       setParcelas(parcelasCalculadas);
       setParcelasEditadasManualmente(false);
@@ -1403,7 +1411,15 @@ export default function SuprimentosPedidoNovo() {
     // Recalcula se ainda não tem parcelas OU se valor/condpag/data mudou
     recalcularParcelas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep, codigoCondPag, valorTotalPedido, dataPedido]);
+  }, [currentStep, codigoCondPag, valorTotalPedido, dataPedido, dataEntrega, baseParcelas]);
+
+  // Trocar a data base é uma decisão explícita: refaz as parcelas do zero
+  // (o efeito acima recalcula quando a marca de edição manual sai).
+  const trocarBaseParcelas = (nova: BaseParcelas) => {
+    if (nova === baseParcelas) return;
+    setBaseParcelas(nova);
+    setParcelasEditadasManualmente(false);
+  };
 
   const atualizarParcela = (idx: number, patch: Partial<ParcelaInput>) => {
     setParcelas((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
@@ -1594,6 +1610,7 @@ export default function SuprimentosPedidoNovo() {
         data_entrega: format(dataEntrega, "yyyy-MM-dd"),
         data_validade: format(dataValidade, "yyyy-MM-dd"),
         data_competencia: format(dataCompetenciaEnvio, "yyyy-MM-dd"),
+        data_base_parcelas: baseParcelas,
 
         parcelas,
         arquivos,
@@ -2139,6 +2156,8 @@ export default function SuprimentosPedidoNovo() {
                 </Popover>
                 <p className="text-[11px] text-muted-foreground">
                   Quando o fornecedor deve entregar. Default: pedido + 30 dias.
+                  {baseParcelas === "Data da Entrega" &&
+                    " Os vencimentos das parcelas contam a partir desta data (dá para trocar na Etapa 4)."}
                 </p>
               </div>
 
@@ -2217,6 +2236,37 @@ export default function SuprimentosPedidoNovo() {
                   )}
                   Recalcular do zero
                 </Button>
+              </div>
+
+              {/* Data base das parcelas ("Data Base Parcelas" no Alvo) */}
+              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium text-foreground">Data base das parcelas</p>
+                  <p className="text-xs text-muted-foreground">
+                    {BASES_PARCELAS.find((b) => b.valor === baseParcelas)?.ajuda} Vai para o Alvo como "Data Base
+                    Parcelas".
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {BASES_PARCELAS.map((b) => (
+                    <Button
+                      key={b.valor}
+                      type="button"
+                      size="sm"
+                      variant={baseParcelas === b.valor ? "default" : "outline"}
+                      onClick={() => trocarBaseParcelas(b.valor)}
+                      disabled={calculandoParcelas}
+                      className="flex-1 md:flex-none"
+                    >
+                      {b.label}
+                      <span className="ml-1.5 tabular-nums opacity-80">
+                        {format(b.valor === "Data da Entrega" ? dataEntrega : dataPedido, "dd/MM/yyyy", {
+                          locale: ptBR,
+                        })}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
               </div>
 
               {/* Erro de cálculo */}
@@ -2622,7 +2672,7 @@ export default function SuprimentosPedidoNovo() {
                   <Pencil className="h-3 w-3 mr-1.5" /> Editar
                 </Button>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                 <div>
                   <p className="text-xs text-muted-foreground">Pedido</p>
                   <p className="font-medium">{format(dataPedido, "dd/MM/yyyy", { locale: ptBR })}</p>
@@ -2638,6 +2688,10 @@ export default function SuprimentosPedidoNovo() {
                 <div>
                   <p className="text-xs text-muted-foreground">Validade</p>
                   <p className="font-medium">{format(dataValidade, "dd/MM/yyyy", { locale: ptBR })}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Base das parcelas</p>
+                  <p className="font-medium">{baseParcelas}</p>
                 </div>
               </div>
             </CardContent>
