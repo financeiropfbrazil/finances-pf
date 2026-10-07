@@ -125,6 +125,30 @@ const situacaoBadge = (sit: string | null) => {
   return <Badge variant="outline">{sit || "—"}</Badge>;
 };
 
+/**
+ * Baixa o XML da NF-e como arquivo. `raw_xml` é o nfeProc completo (NF-e +
+ * protocolo de autorização) gravado no recebimento; só ganha a declaração
+ * <?xml ...?> quando falta (fica fora da assinatura, não a invalida).
+ * Nome no padrão de download da SEFAZ: <chave>-procNFe.xml.
+ */
+function baixarXmlNfe(nfe: { raw_xml: string | null; chave_acesso: string | null; numero: string | null }): boolean {
+  if (!nfe.raw_xml) return false;
+  const xml = nfe.raw_xml.trimStart().startsWith("<?xml")
+    ? nfe.raw_xml
+    : `<?xml version="1.0" encoding="UTF-8"?>\n${nfe.raw_xml}`;
+  const chave = (nfe.chave_acesso || "").replace(/\D/g, "");
+  const nome = chave.length === 44 ? `${chave}-procNFe.xml` : `NFe-${nfe.numero || "sem-numero"}.xml`;
+  const url = URL.createObjectURL(new Blob([xml], { type: "application/xml;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nome;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return true;
+}
+
 const ComprasNotasFiscais = () => {
   const { toast } = useToast();
   const now = new Date();
@@ -140,11 +164,20 @@ const ComprasNotasFiscais = () => {
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get("busca") ?? "");
   const [filtroLancamento, setFiltroLancamento] = useState("todos");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [xmlDialog, setXmlDialog] = useState<{ open: boolean; numero: string; fornecedor: string; xml: string }>({
+  const [xmlDialog, setXmlDialog] = useState<{
+    open: boolean;
+    numero: string;
+    fornecedor: string;
+    xml: string;
+    chave: string;
+    temXml: boolean;
+  }>({
     open: false,
     numero: "",
     fornecedor: "",
     xml: "",
+    chave: "",
+    temXml: false,
   });
   const [vincularDialog, setVincularDialog] = useState<{ open: boolean; nfe: NfeRow | null }>({
     open: false,
@@ -722,10 +755,25 @@ const ComprasNotasFiscais = () => {
                                         numero: r.numero || "",
                                         fornecedor: r.emitente_nome || "",
                                         xml: r.raw_xml || "Sem XML disponível",
+                                        chave: r.chave_acesso || "",
+                                        temXml: !!r.raw_xml,
                                       });
                                     }}
                                   >
                                     <Eye className="h-3 w-3" /> Ver XML
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1 text-xs"
+                                    disabled={!r.raw_xml}
+                                    title={r.raw_xml ? "Baixar o XML autorizado (NF-e + protocolo)" : "Sem XML disponível"}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      baixarXmlNfe(r);
+                                    }}
+                                  >
+                                    <Download className="h-3 w-3" /> Baixar XML
                                   </Button>
                                 </div>
                               </div>
@@ -764,7 +812,7 @@ const ComprasNotasFiscais = () => {
           <div className="max-h-[60vh] overflow-auto rounded-md bg-muted p-3">
             <pre className="text-xs font-mono whitespace-pre-wrap break-all">{xmlDialog.xml}</pre>
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -775,6 +823,17 @@ const ComprasNotasFiscais = () => {
               }}
             >
               <Copy className="h-3 w-3" /> Copiar XML
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              disabled={!xmlDialog.temXml}
+              onClick={() =>
+                baixarXmlNfe({ raw_xml: xmlDialog.xml, chave_acesso: xmlDialog.chave, numero: xmlDialog.numero })
+              }
+            >
+              <Download className="h-3 w-3" /> Baixar XML
             </Button>
           </div>
         </DialogContent>
