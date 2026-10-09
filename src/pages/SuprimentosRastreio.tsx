@@ -113,6 +113,14 @@ function useDebounce<T>(valor: T, ms: number): T {
 // ETAPA
 // ════════════════════════════════════════════════════════════
 const ESTILO_ETAPA: Record<string, string> = {
+  "Requisição em aprovação":
+    "border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300",
+  "Requisição aprovada (não enviada ao Alvo)":
+    "border-violet-300 bg-white text-violet-800 dark:border-violet-800 dark:bg-transparent dark:text-violet-300",
+  "Aguardando pedido":
+    "border-violet-300 bg-white text-violet-700 dark:border-violet-800 dark:bg-transparent dark:text-violet-300",
+  "Requisição cancelada": "border-border bg-muted text-muted-foreground line-through",
+  "Requisição rejeitada": "border-border bg-muted text-muted-foreground",
   "Pedido em aprovação": "border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300",
   "Aguardando NF": "border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-transparent dark:text-slate-300",
   "Em inspeção (laudo)": "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300",
@@ -420,9 +428,20 @@ function Detalhe({ l, podeAbrirNf }: { l: LinhaRastreio; podeAbrirNf: boolean })
         <Passo
           titulo="Requisição"
           icone={<ClipboardList className="h-4 w-4" />}
-          estado={l.req_numeros ? "feito" : "na"}
-          resumo={l.req_numeros ? `Nº ${l.req_numeros}` : "Pedido sem requisição"}
+          estado={l.req_numeros || !l.pedido_numero ? "feito" : "na"}
+          resumo={
+            l.req_numeros
+              ? `Nº ${l.req_numeros}${l.req_status_alvo ? ` · ${l.req_status_alvo}` : ""}`
+              : l.pedido_numero
+                ? "Pedido sem requisição"
+                : "Ainda sem número no Alvo"
+          }
         >
+          {l.req_descricao && (
+            <span className="line-clamp-3 text-xs text-foreground" title={l.req_descricao}>
+              {l.req_descricao}
+            </span>
+          )}
           <Campo label="Abertura" valor={fData(l.req_abertura)} />
           <Campo label="Requisitante" valor={l.req_requisitante} />
           <Campo label="CC" valor={l.req_cc_nome ?? l.req_cc_codigo} />
@@ -433,14 +452,26 @@ function Detalhe({ l, podeAbrirNf }: { l: LinhaRastreio; podeAbrirNf: boolean })
           titulo="Pedido"
           icone={<ShoppingCart className="h-4 w-4" />}
           estado={l.pedido_aprovacao ? "feito" : "pendente"}
-          resumo={`Nº ${l.pedido_numero} · ${l.pedido_status ?? "—"}`}
+          resumo={l.pedido_numero ? `Nº ${l.pedido_numero} · ${l.pedido_status ?? "—"}` : "Nenhum pedido gerado"}
         >
-          <Campo label="Data" valor={fData(l.pedido_data)} />
-          <Campo label="Aprovação (Alvo)" valor={fData(l.pedido_aprovacao)} />
-          <Campo label="Valor" valor={fMoeda(l.pedido_valor, l.pedido_moeda)} />
-          <Campo label="Condição" valor={l.pedido_cond_pagamento} />
-          <Campo label="CC" valor={l.pedido_cc_nome ?? l.pedido_cc} />
-          <Campo label="Comprador" valor={l.pedido_comprador} />
+          {l.pedido_numero ? (
+            <>
+              <Campo label="Data" valor={fData(l.pedido_data)} />
+              <Campo label="Aprovação (Alvo)" valor={fData(l.pedido_aprovacao)} />
+              <Campo label="Valor" valor={fMoeda(l.pedido_valor, l.pedido_moeda)} />
+              <Campo label="Condição" valor={l.pedido_cond_pagamento} />
+              <Campo label="CC" valor={l.pedido_cc_nome ?? l.pedido_cc} />
+              <Campo label="Comprador" valor={l.pedido_comprador} />
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              {l.etapa === "Aguardando pedido"
+                ? "Requisição no Alvo, aguardando o comprador gerar o pedido."
+                : l.etapa === "Requisição cancelada" || l.etapa === "Requisição rejeitada"
+                  ? "Requisição encerrada sem pedido."
+                  : "A requisição ainda não chegou ao Alvo."}
+            </span>
+          )}
         </Passo>
 
         <Passo
@@ -478,9 +509,11 @@ function Detalhe({ l, podeAbrirNf }: { l: LinhaRastreio; podeAbrirNf: boolean })
             </div>
           ) : (
             <span className="text-xs text-muted-foreground">
-              {l.etapa === "Cancelado"
-                ? "Pedido cancelado."
-                : "Nenhuma NF recebida em Compras → Notas Fiscais com o mesmo fornecedor e valor parecido."}
+              {!l.pedido_numero
+                ? "Sem pedido ainda."
+                : l.etapa === "Cancelado"
+                  ? "Pedido cancelado."
+                  : "Nenhuma NF recebida em Compras → Notas Fiscais com o mesmo fornecedor e valor parecido."}
             </span>
           )}
         </Passo>
@@ -728,7 +761,7 @@ export default function SuprimentosRastreio() {
               <Input
                 value={buscaDigitada}
                 onChange={(e) => setBuscaDigitada(e.target.value)}
-                placeholder="Pedido, NF (lançada ou recebida), requisição, fornecedor ou requisitante"
+                placeholder="Pedido, NF, requisição (nº ou descrição), fornecedor ou requisitante"
                 className="h-9 pl-8 pr-8"
               />
               {buscaDigitada && (
@@ -838,7 +871,7 @@ export default function SuprimentosRastreio() {
                     </tr>
                   ) : (
                     linhas.map((l) => {
-                      const id = `${l.pedido_numero}-${l.chave_movestq ?? 0}`;
+                      const id = l.linha_id ?? `${l.pedido_numero}-${l.chave_movestq ?? 0}`;
                       const expandida = aberta === id;
                       return (
                         <Fragment key={id}>
@@ -853,21 +886,37 @@ export default function SuprimentosRastreio() {
                               <EtapaBadge etapa={l.etapa} />
                             </td>
                             <td className="px-2.5 py-2">
-                              <div className="flex min-w-0 items-baseline gap-2">
-                                <span className="font-mono font-medium">{l.pedido_numero}</span>
-                                <span className="max-w-[180px] truncate" title={l.pedido_fornecedor ?? ""}>
-                                  {l.pedido_fornecedor ?? "—"}
-                                </span>
-                              </div>
-                              <div className="whitespace-nowrap text-xs text-muted-foreground">
-                                {fData(l.pedido_data, "dd/MM/yy")} · {fMoeda(l.pedido_valor, l.pedido_moeda)}
-                                {l.pedido_natureza ? ` · ${l.pedido_natureza}` : ""}
-                              </div>
+                              {l.pedido_numero ? (
+                                <>
+                                  <div className="flex min-w-0 items-baseline gap-2">
+                                    <span className="font-mono font-medium">{l.pedido_numero}</span>
+                                    <span className="max-w-[180px] truncate" title={l.pedido_fornecedor ?? ""}>
+                                      {l.pedido_fornecedor ?? "—"}
+                                    </span>
+                                  </div>
+                                  <div className="whitespace-nowrap text-xs text-muted-foreground">
+                                    {fData(l.pedido_data, "dd/MM/yy")} · {fMoeda(l.pedido_valor, l.pedido_moeda)}
+                                    {l.pedido_natureza ? ` · ${l.pedido_natureza}` : ""}
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="text-xs italic text-muted-foreground">Sem pedido</div>
+                                  <div
+                                    className="max-w-[240px] truncate text-xs text-foreground"
+                                    title={l.req_descricao ?? ""}
+                                  >
+                                    {l.req_descricao ?? "—"}
+                                  </div>
+                                </>
+                              )}
                             </td>
                             <td className="px-2.5 py-2">
-                              {l.req_numeros ? (
+                              {l.req_numeros || l.req_abertura ? (
                                 <>
-                                  <div className="font-mono">{l.req_numeros}</div>
+                                  <div className={cn(l.req_numeros ? "font-mono" : "text-xs italic text-muted-foreground")}>
+                                    {l.req_numeros ?? "sem nº (Hub)"}
+                                  </div>
                                   <div
                                     className="max-w-[130px] truncate text-xs text-muted-foreground"
                                     title={l.req_requisitante ?? ""}

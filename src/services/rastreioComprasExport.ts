@@ -58,6 +58,13 @@ const COLUNAS: Coluna[] = [
   { bloco: "Linha", label: "Etapa atual", tipo: "texto", largura: 24, valor: (l) => t(l.etapa) },
 
   { bloco: "Requisição", label: "Nº requisição", tipo: "texto", largura: 16, valor: (l) => t(l.req_numeros) },
+  {
+    bloco: "Requisição",
+    label: "Descrição (requisição sem pedido)",
+    tipo: "texto",
+    largura: 34,
+    valor: (l) => t(l.req_descricao),
+  },
   { bloco: "Requisição", label: "Abertura", tipo: "data", largura: 12, valor: (l) => d(l.req_abertura) },
   { bloco: "Requisição", label: "Requisitante", tipo: "texto", largura: 28, valor: (l) => t(l.req_requisitante) },
   { bloco: "Requisição", label: "CC da requisição", tipo: "texto", largura: 26, valor: (l) => t(l.req_cc_nome ?? l.req_cc_codigo) },
@@ -268,7 +275,14 @@ export async function exportarRastreioXLSX(
     ["Dados atualizados em", ctx.atualizadoEm ? new Date(ctx.atualizadoEm).toLocaleString("pt-BR") : "—"],
     ["Exportado em", new Date().toLocaleString("pt-BR")],
     ["", ""],
-    ["Grão", "Uma linha por pedido × NF. Pedido sem NF = uma linha com o bloco NF vazio."],
+    [
+      "Grão",
+      "Uma linha por pedido × NF. Pedido sem NF = uma linha com o bloco NF vazio. Requisição que ainda não virou pedido = uma linha só com o bloco Requisição (Nº pedido vazio).",
+    ],
+    [
+      "Filtro por data do pedido",
+      "Nas linhas de requisição sem pedido vale a data de abertura da requisição. Filtrando por entrada da NF ou 1º pagamento, essas linhas não aparecem.",
+    ],
     [
       "NF com 2+ pedidos",
       "Aparece em cada pedido. \"Valor deste pedido na NF\" é a parte do pedido (com IPI/frete quando o Alvo informa); o título de pagamento é da NF e se repete nessas linhas — não some o pagamento.",
@@ -289,6 +303,9 @@ export async function exportarRastreioXLSX(
     ["Título ligado por", "\"Chave da NF\" = DocFin.ChaveMovEstq (exato). \"Número + fornecedor\" = mesmo número de documento e mesma entidade."],
     ["", ""],
     ["Etapas", ""],
+    ["Requisição em aprovação", "Requisição criada no Hub aguardando o líder do centro de custo (ainda não está no Alvo)."],
+    ["Requisição aprovada (não enviada ao Alvo)", "Aprovada pelo líder no Hub, mas o envio ao Alvo não aconteceu — verificar."],
+    ["Aguardando pedido", "Requisição aberta no Alvo, sem pedido gerado e sem pedido que a cite."],
     ["Pedido em aprovação", "Sem NF e sem data de aprovação no Alvo."],
     ["Aguardando NF", "Pedido aprovado, nenhuma NF ligada ainda."],
     ["Em inspeção (laudo)", "NF lançada, laudo(s) ainda não concluído(s)."],
@@ -298,6 +315,8 @@ export async function exportarRastreioXLSX(
     ["Adiantamento pago (sem NF)", "Adiantamento pago, NF ainda não ligada."],
     ["Encerrado sem NF ligada", "Pedido encerrado no Alvo sem NF ligada e sem pagamento identificado."],
     ["Cancelado", "Pedido cancelado no Alvo."],
+    ["Requisição cancelada", "Requisição cancelada no Alvo sem ter virado pedido."],
+    ["Requisição rejeitada", "Requisição rejeitada pelo líder no Hub."],
   ];
   info.forEach(([k, v], i) => {
     const r = sobre.getRow(i + 1);

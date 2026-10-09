@@ -6,7 +6,8 @@
  * pelo pg_cron, e sob demanda pela RPC `rastreio_compras_atualizar`).
  *
  * Grão: UMA LINHA POR PEDIDO × NF. Pedido sem NF = 1 linha com o bloco NF
- * vazio. NF que atende 2+ pedidos aparece em cada um, com o "valor deste
+ * vazio. Requisição que ainda não virou pedido = 1 linha só com o bloco
+ * Requisição (pedido_numero null; etapas "Requisição …" / "Aguardando pedido"). NF que atende 2+ pedidos aparece em cada um, com o "valor deste
  * pedido na NF"; o título (pagamento) é da NF e se repete nessas linhas.
  *
  * A RPC devolve um jsonb (sem o teto de 1000 linhas do PostgREST) e aceita
@@ -26,6 +27,9 @@ export const CAMPOS_DATA: { valor: CampoData; label: string }[] = [
 
 /** Ordem do funil — a mesma da coluna etapa_ordem da view. */
 export const ETAPAS_ORDEM = [
+  "Requisição em aprovação",
+  "Requisição aprovada (não enviada ao Alvo)",
+  "Aguardando pedido",
   "Pedido em aprovação",
   "Aguardando NF",
   "Em inspeção (laudo)",
@@ -35,6 +39,8 @@ export const ETAPAS_ORDEM = [
   "Pago (1ª parcela)",
   "Encerrado sem NF ligada",
   "Cancelado",
+  "Requisição cancelada",
+  "Requisição rejeitada",
 ] as const;
 
 /** Filtro especial (não é etapa): pedidos sem NF ligada que têm NF candidata. */
@@ -69,7 +75,10 @@ export interface NfCandidata {
 }
 
 export interface LinhaRastreio {
-  pedido_numero: string;
+  /** Chave única da linha (pedido-chaveNF, req-<nº> ou req-hub-<id>). */
+  linha_id?: string | null;
+  /** null = linha só de requisição (ainda sem pedido). */
+  pedido_numero: string | null;
   chave_movestq: number | null;
   etapa: string;
   etapa_ordem: number | null;
@@ -82,6 +91,8 @@ export interface LinhaRastreio {
   req_cc_nome: string | null;
   req_status_alvo: string | null;
   req_aprovacao_lider: string | null;
+  /** Só nas linhas de requisição sem pedido. */
+  req_descricao?: string | null;
   // Pedido
   pedido_data: string | null;
   pedido_aprovacao: string | null;
