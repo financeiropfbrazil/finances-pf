@@ -488,6 +488,7 @@ function Detalhe({ l, podeAbrirNf }: { l: LinhaRastreio; podeAbrirNf: boolean })
             <>
               <Campo label="Emissão" valor={fData(l.nf_emissao)} />
               <Campo label="Entrada" valor={fData(l.nf_entrada)} />
+              <Campo label="Digitação" valor={fData(l.nf_digitacao)} />
               <Campo label="Valor da NF" valor={fMoeda(l.nf_valor_total)} />
               <Campo label="Deste pedido" valor={fMoeda(l.valor_pedido_na_nf)} />
               <Campo label="Fonte do vínculo" valor={l.fontes_vinculo} />

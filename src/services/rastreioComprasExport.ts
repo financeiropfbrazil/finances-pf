@@ -87,6 +87,7 @@ const COLUNAS: Coluna[] = [
   { bloco: "NF", label: "Espécie", tipo: "texto", largura: 8, valor: (l) => t(l.nf_especie) },
   { bloco: "NF", label: "Emissão", tipo: "data", largura: 12, valor: (l) => d(l.nf_emissao) },
   { bloco: "NF", label: "Entrada", tipo: "data", largura: 12, valor: (l) => d(l.nf_entrada) },
+  { bloco: "NF", label: "Digitação", tipo: "data", largura: 12, valor: (l) => d(l.nf_digitacao) },
   { bloco: "NF", label: "Valor total da NF", tipo: "valor", largura: 14, valor: (l) => n(l.nf_valor_total) },
   { bloco: "NF", label: "Valor deste pedido na NF", tipo: "valor", largura: 14, valor: (l) => n(l.valor_pedido_na_nf) },
   { bloco: "NF", label: "Nº de NFs do pedido", tipo: "inteiro", largura: 10, valor: (l) => n(l.pedido_qtd_nfs) },
@@ -286,6 +287,11 @@ export async function exportarRastreioXLSX(
     [
       "NF com 2+ pedidos",
       "Aparece em cada pedido. \"Valor deste pedido na NF\" é a parte do pedido (com IPI/frete quando o Alvo informa); o título de pagamento é da NF e se repete nessas linhas — não some o pagamento.",
+    ],
+    [
+      "Datas da NF",
+      "Emissão = data em que o fornecedor emitiu a NF. Entrada = data de entrada/movimento da NF no Alvo. " +
+        "Digitação = dia em que a NF foi lançada (digitada) no Alvo (MovEstq.DataHoraDigitacao).",
     ],
     ["Requisição", "Espelho das requisições do Alvo (abertura = data/hora de digitação). Aprovação do líder vem do Hub (só requisições criadas no Hub)."],
     ["Estoque", "Laudo concluído = confirmação no estoque (E0000163). Serviço não tem laudo."],

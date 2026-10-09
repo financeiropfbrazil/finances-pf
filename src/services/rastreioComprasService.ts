@@ -113,6 +113,8 @@ export interface LinhaRastreio {
   nf_especie: string | null;
   nf_emissao: string | null;
   nf_entrada: string | null;
+  /** Data de digitação da NF no Alvo (MovEstq.DataHoraDigitacao), horário de Brasília. */
+  nf_digitacao?: string | null;
   nf_valor_total: number | null;
   nf_fornecedor: string | null;
   nf_tipo_lanc: string | null;
