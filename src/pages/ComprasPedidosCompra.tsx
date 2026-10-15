@@ -24,7 +24,6 @@ import {
   Package,
   Calendar,
   Paperclip,
-  FileText,
   CheckCircle2,
 } from "lucide-react";
 
@@ -107,8 +106,6 @@ export default function ComprasPedidosCompra() {
   const [refreshingDetailsId, setRefreshingDetailsId] = useState<string | null>(null);
   const [nomeClassesCache, setNomeClassesCache] = useState<Record<string, string>>({});
   const [nomeCCCache, setNomeCCCache] = useState<Record<string, string>>({});
-  const [nfseCountByPedido, setNfseCountByPedido] = useState<Record<string, number>>({});
-  const [nfseByPedido, setNfseByPedido] = useState<Record<string, any[]>>({});
 
   // Load last sync timestamp
   useEffect(() => {
@@ -148,19 +145,6 @@ export default function ComprasPedidosCompra() {
       toast({ title: "Erro", description: error.message, variant: "destructive" });
     } else {
       setRows((data ?? []) as unknown as Pedido[]);
-      // Batch fetch NFS-e counts
-      const numeros = (data || []).map((r: any) => r.numero).filter(Boolean);
-      if (numeros.length > 0) {
-        const { data: nfseData } = await supabase
-          .from("compras_nfse")
-          .select("pedido_compra_numero, id")
-          .in("pedido_compra_numero", numeros);
-        const map: Record<string, number> = {};
-        (nfseData || []).forEach((n: any) => {
-          map[n.pedido_compra_numero] = (map[n.pedido_compra_numero] || 0) + 1;
-        });
-        setNfseCountByPedido(map);
-      }
     }
     setLoading(false);
   }, [ano, mes, toast]);
@@ -292,17 +276,6 @@ export default function ComprasPedidosCompra() {
     [nomeClassesCache, nomeCCCache],
   );
 
-  const fetchNfseForPedido = useCallback(async (numero: string) => {
-    const { data: nfseVinculadas } = await supabase
-      .from("compras_nfse")
-      .select("id, numero, prestador_nome, prestador_cnpj, valor_servico, data_emissao, status_lancamento, lancado_em")
-      .eq("pedido_compra_numero", numero)
-      .order("data_emissao", { ascending: false });
-    if (nfseVinculadas) {
-      setNfseByPedido((prev) => ({ ...prev, [numero]: nfseVinculadas }));
-    }
-  }, []);
-
   const handleExpand = useCallback(
     async (r: Pedido) => {
       if (expandedId === r.id) {
@@ -312,7 +285,7 @@ export default function ComprasPedidosCompra() {
       setExpandedId(r.id);
 
       if (r.detalhes_carregados) {
-        await Promise.all([resolveNames(r), fetchNfseForPedido(r.numero)]);
+        await resolveNames(r);
         return;
       }
 
@@ -322,16 +295,15 @@ export default function ComprasPedidosCompra() {
         const { data } = await supabase.from("compras_pedidos").select("*").eq("id", r.id).single();
         if (data) {
           setRows((prev) => prev.map((p) => (p.id === r.id ? (data as unknown as Pedido) : p)));
-          await Promise.all([resolveNames(data as unknown as Pedido), fetchNfseForPedido(r.numero)]);
+          await resolveNames(data as unknown as Pedido);
         }
       } catch (err: any) {
         toast({ title: "Erro ao carregar detalhes", description: err.message, variant: "destructive" });
-        await fetchNfseForPedido(r.numero);
       } finally {
         setLoadingDetailsId(null);
       }
     },
-    [expandedId, resolveNames, fetchNfseForPedido, toast],
+    [expandedId, resolveNames, toast],
   );
 
   const handleRefreshDetails = useCallback(
@@ -584,11 +556,6 @@ export default function ComprasPedidosCompra() {
                       <TableCell className="text-right font-mono text-xs">{fmtBRL(r.valor_total)}</TableCell>
                       <TableCell>
                         {statusBadge(r.status)}
-                        {(nfseCountByPedido[r.numero] || 0) > 0 && (
-                          <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100 ml-1 text-[10px]">
-                            {nfseCountByPedido[r.numero]} NFS-e
-                          </Badge>
-                        )}
                       </TableCell>
                       <TableCell className="text-center">
                         {r.nf_vinculada ? (
@@ -964,69 +931,6 @@ export default function ComprasPedidosCompra() {
                                       {new Date(r.detalhes_carregados_em).toLocaleString("pt-BR")}
                                     </span>
                                   )}
-                                </div>
-                                <div>
-                                  <h4 className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
-                                    <FileText className="h-3.5 w-3.5" /> NFS-e Vinculadas
-                                  </h4>
-                                  {(() => {
-                                    const nfses = nfseByPedido[r.numero] || [];
-                                    if (nfses.length === 0)
-                                      return (
-                                        <p className="text-xs text-muted-foreground italic">
-                                          Nenhuma NFS-e vinculada a este pedido.
-                                        </p>
-                                      );
-                                    return (
-                                      <table className="w-full text-xs">
-                                        <thead>
-                                          <tr className="border-b text-muted-foreground">
-                                            <th className="text-left py-1 pr-2">Número</th>
-                                            <th className="text-left py-1 pr-2">Prestador</th>
-                                            <th className="text-right py-1 pr-2">Valor</th>
-                                            <th className="text-left py-1 pr-2">Data Emissão</th>
-                                            <th className="text-left py-1">Status</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {nfses.map((n: any) => (
-                                            <tr key={n.id} className="border-b border-muted/50">
-                                              <td className="py-1 pr-2 font-mono">{n.numero || "—"}</td>
-                                              <td className="py-1 pr-2">{n.prestador_nome || "—"}</td>
-                                              <td className="py-1 pr-2 text-right font-mono">
-                                                {fmtBRL(n.valor_servico)}
-                                              </td>
-                                              <td className="py-1 pr-2">
-                                                {n.data_emissao
-                                                  ? new Date(n.data_emissao).toLocaleDateString("pt-BR")
-                                                  : "—"}
-                                              </td>
-                                              <td className="py-1">
-                                                {n.status_lancamento === "lancada" ? (
-                                                  <Badge className="bg-green-100 text-green-800 hover:bg-green-100 text-[10px]">
-                                                    Lançada
-                                                  </Badge>
-                                                ) : n.status_lancamento === "vinculada" ? (
-                                                  <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100 text-[10px]">
-                                                    Vinculada
-                                                  </Badge>
-                                                ) : (
-                                                  <Badge variant="outline" className="text-[10px]">
-                                                    Pendente
-                                                  </Badge>
-                                                )}
-                                                {n.lancado_em && (
-                                                  <span className="ml-1 text-[10px] text-muted-foreground">
-                                                    {new Date(n.lancado_em).toLocaleDateString("pt-BR")}
-                                                  </span>
-                                                )}
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    );
-                                  })()}
                                 </div>
                               </div>
                             </div>

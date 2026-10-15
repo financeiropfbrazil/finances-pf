@@ -184,7 +184,6 @@ export default function ContasPagar() {
   const [pedidoModalOpen, setPedidoModalOpen] = useState(false);
   const [pedidoModalData, setPedidoModalData] = useState<any>(null);
   const [pedidoModalLoading, setPedidoModalLoading] = useState(false);
-  const [pedidoNfseList, setPedidoNfseList] = useState<any[]>([]);
   const [nfOrigemModalOpen, setNfOrigemModalOpen] = useState(false);
   const [nfOrigemModalData, setNfOrigemModalData] = useState<any>(null);
   const [nfOrigemModalLoading, setNfOrigemModalLoading] = useState(false);
@@ -310,7 +309,6 @@ export default function ContasPagar() {
     setPedidoModalOpen(true);
     setPedidoModalLoading(true);
     setPedidoModalData(null);
-    setPedidoNfseList([]);
     try {
       const { data: pedido } = await supabase
         .from("compras_pedidos").select("*").eq("numero", numeroPedido).maybeSingle();
@@ -325,12 +323,6 @@ export default function ContasPagar() {
             if (updated) setPedidoModalData(updated);
           } catch (err) { console.error("Erro detalhes:", err); }
         }
-        const { data: nfses } = await supabase
-          .from("compras_nfse")
-          .select("id, numero, prestador_nome, prestador_cnpj, valor_servico, valor_liquido, valor_iss, aliquota_iss, valor_total_retencoes, data_emissao, data_competencia, chave_acesso, descricao_servico, status_lancamento, erp_chave_movestq")
-          .eq("pedido_compra_numero", numeroPedido)
-          .order("data_emissao", { ascending: false });
-        setPedidoNfseList(nfses || []);
       } else {
         toast({ title: "Pedido não encontrado no cache", description: "Sincronize os pedidos de compra.", variant: "destructive" });
       }
@@ -1169,78 +1161,7 @@ export default function ContasPagar() {
                 })()}
               </div>
 
-              <Separator />
-
-              {/* 5. NFS-e Vinculadas */}
-              <div>
-                <h4 className="text-xs font-semibold text-muted-foreground mb-2">NFS-e Vinculadas</h4>
-                {pedidoNfseList.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">Nenhuma NFS-e vinculada</p>
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead><tr className="border-b text-muted-foreground">
-                      <th className="py-1 text-left">Número</th>
-                      <th className="py-1 text-left">Prestador</th>
-                      <th className="py-1 text-right w-24">Valor</th>
-                      <th className="py-1 text-left w-24">Emissão</th>
-                      <th className="py-1 text-left w-24">Competência</th>
-                      <th className="py-1 text-right w-24">Vlr Líquido</th>
-                      <th className="py-1 text-right w-24">Retenções</th>
-                      <th className="py-1 text-left w-20">Status</th>
-                      <th className="py-1 text-center w-16">Ações</th>
-                    </tr></thead>
-                    <tbody>
-                      {pedidoNfseList.map((nf: any) => (
-                        <React.Fragment key={nf.id}>
-                          <tr className="border-b border-muted/50">
-                            <td className="py-1">{nf.numero}</td>
-                            <td className="py-1">{nf.prestador_nome}</td>
-                            <td className="py-1 text-right font-mono">{fmtBRL(nf.valor_servico)}</td>
-                            <td className="py-1">{nf.data_emissao?.split("T")[0] || "—"}</td>
-                            <td className="py-1">{nf.data_competencia || "—"}</td>
-                            <td className="py-1 text-right font-mono">{fmtBRL(nf.valor_liquido)}</td>
-                            <td className="py-1 text-right font-mono">{fmtBRL(nf.valor_total_retencoes)}</td>
-                            <td className="py-1"><Badge variant="outline" className="text-[10px]">{nf.status_lancamento || "—"}</Badge></td>
-                            <td className="py-1 text-center">
-                              {nf.chave_acesso && (
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" title="DANFSE"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                      const { data: nfData } = await supabase
-                                        .from("compras_nfse").select("raw_xml").eq("id", nf.id).maybeSingle();
-                                      if (!nfData?.raw_xml) {
-                                        toast({ title: "XML não disponível", variant: "destructive" });
-                                        return;
-                                      }
-                                      const { gerarDanfsePdfBlob } = await import("@/services/danfseGeneratorService");
-                                      const blob = gerarDanfsePdfBlob(nfData.raw_xml);
-                                      const url = URL.createObjectURL(blob);
-                                      window.open(url, "_blank");
-                                    } catch (err: any) {
-                                      toast({ title: "Erro ao gerar DANFSE", description: err.message, variant: "destructive" });
-                                    }
-                                  }}>
-                                  <Download className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                            </td>
-                          </tr>
-                          {nf.descricao_servico && (
-                            <tr className="border-b border-muted/50">
-                              <td colSpan={9} className="py-0.5 pl-2 text-xs text-muted-foreground italic">
-                                {nf.descricao_servico.length > 100 ? nf.descricao_servico.slice(0, 100) + "…" : nf.descricao_servico}
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* 6. Observações */}
+              {/* 5. Observações */}
               {pedidoModalData.texto && (
                 <>
                   <Separator />

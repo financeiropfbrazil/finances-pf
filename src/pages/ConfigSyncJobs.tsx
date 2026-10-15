@@ -45,7 +45,6 @@ const syncRouteMap: Record<string, string> = {
   condicoes_pagamento: "/configuracoes/conexao-api?autoSync=true",
   pedidos_compra: "/compras/pedidos-compra?autoSync=true",
   contas_pagar: "/contas-a-pagar?autoSync=true",
-  nfse_sefaz: "/compras/notas-servico?autoSync=true",
   nfe_sefaz: "/compras/notas-fiscais?autoSync=true",
 };
 

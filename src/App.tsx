@@ -23,8 +23,6 @@ import FixedAssetsItems from "./pages/FixedAssetsItems";
 import Closing from "./pages/Closing";
 import NfEntrada from "./pages/NfEntrada";
 import ComprasNotasFiscais from "./pages/ComprasNotasFiscais";
-import ComprasNotasServico from "./pages/ComprasNotasServico";
-import ComprasCertificado from "./pages/ComprasCertificado";
 import ComprasPedidosCompra from "./pages/ComprasPedidosCompra";
 import Entidades from "./pages/Entidades";
 import EntidadesUploadCodigos from "./pages/EntidadesUploadCodigos";
@@ -400,22 +398,6 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="compras">
               <ComprasNotasFiscais />
-            </PermissionRoute>
-          }
-        />
-        <Route
-          path="/compras/notas-servico"
-          element={
-            <PermissionRoute permKey="compras">
-              <ComprasNotasServico />
-            </PermissionRoute>
-          }
-        />
-        <Route
-          path="/compras/certificado"
-          element={
-            <PermissionRoute permKey="compras">
-              <ComprasCertificado />
             </PermissionRoute>
           }
         />

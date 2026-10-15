@@ -105,8 +105,6 @@ const inventorySubItems = [{ label: "Importação de Produtos", url: "/inventory
 
 const comprasSubItems = [
   { label: "Pedidos de Compra", url: "/compras/pedidos-compra", icon: ClipboardList },
-  { label: "Notas de Serviço", url: "/compras/notas-servico", icon: FileText },
-  { label: "Certificado Digital", url: "/compras/certificado", icon: ShieldCheck },
 ];
 
 // `perm` opcional: item só aparece para quem tem a permissão (o grupo

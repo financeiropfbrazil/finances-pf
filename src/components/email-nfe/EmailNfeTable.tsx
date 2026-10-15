@@ -65,10 +65,11 @@ const empresaLabels: Record<string, string> = {
   "2.01": "Biocollagen",
 };
 
-const IMPORTABLE_MODELOS: EmailNfModelo[] = ["nfe_55", "nfse", "nfcom_62", "cte_57"];
+// NFS-e, NFCOM e CT-e iam para compras_nfse, cuja tela (Notas de Serviço) foi
+// removida em 15/10/2026 — sem destino até existir a nova captura.
+const IMPORTABLE_MODELOS: EmailNfModelo[] = ["nfe_55"];
 
 const destinoRoutes: Record<string, string> = {
-  compras_nfse: "/compras/notas-servico",
   compras_nfe: "/compras/notas-fiscais",
 };
 
@@ -420,9 +421,9 @@ export default function EmailNfeTable({ rows, comprasStatus, onOpenDetail, onImp
                           Importar para Compras
                         </DropdownMenuItem>
                       )}
-                      {info?.already_in_compras && info.destino && (
+                      {info?.already_in_compras && destinoRoutes[info.destino] && (
                         <DropdownMenuItem
-                          onClick={() => navigate(destinoRoutes[info.destino] || "/compras/notas-fiscais")}
+                          onClick={() => navigate(destinoRoutes[info.destino])}
                         >
                           <ExternalLink className="h-4 w-4 mr-2" /> Ver em Compras
                         </DropdownMenuItem>

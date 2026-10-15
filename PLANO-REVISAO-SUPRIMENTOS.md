@@ -449,6 +449,20 @@ Validação (Pedro): lançar uma NFS-e/NF real de teste → movimento criado no 
 nenhuma chamada a pef.it4you no DevTools.
 ```
 
+### AJUSTE E1-A (15/10/2026) — metade NFS-e do E1 resolvida por remoção
+
+O recurso **Notas de Serviço** (`/compras/notas-servico`) e a página **Certificado Digital**
+(`/compras/certificado`) foram **removidos** por decisão do Pedro. O módulo estava parado desde
+08/04/2026 e só 1 NFS-e tinha sido lançada no Alvo por ele. Com isso, `alvoMovEstqLancarService.ts`
+deixou de existir.
+
+O **E1 continua valendo só para `alvoMovEstqLancarNfeService.ts`** (NF-e, via `LancarNfeModal`).
+Na validação, use uma NF-e de teste.
+
+A tabela `compras_nfse` (32 linhas), as chaves `nfse_*` de `compras_config` e o job `nfse_sefaz`
+em `sync_jobs` **ficaram no banco, intactos**. A futura captura de NFS-e pelo ADN será construída
+do zero no servidor, com o certificado em variável de ambiente e não no navegador.
+
 ### PROMPT E2 — ApiTester admin-only via passthrough (decisão D7)
 
 ```
