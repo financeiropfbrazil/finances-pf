@@ -45,6 +45,9 @@ import {
   RefreshCw,
   CheckCircle2,
   Clock,
+  Paperclip,
+  FileText,
+  X,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ProductCombobox } from "@/components/ProductCombobox";
@@ -55,8 +58,20 @@ import {
   marcarEmailAprovacao,
   descricaoErro,
   falhou,
+  type ArquivoPedidoProjeto,
   type DadosPedido,
 } from "@/services/projetosService";
+import {
+  ACCEPT_ANEXOS,
+  MAX_ANEXOS_PEDIDO,
+  anexarArquivos,
+  fmtTamanho,
+  limparArquivosDePedidoExcluido,
+  listarArquivosDoProjeto,
+  removerAnexo,
+  urlTemporariaAnexo,
+  validarAnexos,
+} from "@/services/projetoArquivosService";
 import { sincronizarPedidosDoProjeto, getStatusAlvoDoPedido } from "@/services/projetoAlvoLoadService";
 import { BarraConsumo, CabecalhoSecao, FaseChip, Indicador, StatusChip } from "@/components/projetos/ProjetosUI";
 import { STATUS_PEDIDO, fmtData, fmtMoeda, fmtPct } from "@/components/projetos/projetosFormat";
@@ -259,6 +274,22 @@ export default function ProjetoRequisicoes() {
 
   const totalRateio = useMemo(() => classeRateio.reduce((s, c) => s + c.percentual, 0), [classeRateio]);
 
+  // ── Anexos (L9) ──
+  const [arquivosNovos, setArquivosNovos] = useState<File[]>([]);
+  const [removendoAnexo, setRemovendoAnexo] = useState<string | null>(null);
+
+  const { data: arquivosProjeto = [] } = useQuery({
+    queryKey: ["projeto-arquivos", projetoId],
+    queryFn: () => listarArquivosDoProjeto(projetoId!),
+    enabled: !!projetoId,
+  });
+
+  const arquivosPorPedido = useMemo(() => {
+    const mapa: Record<string, ArquivoPedidoProjeto[]> = {};
+    for (const a of arquivosProjeto) (mapa[a.requisicao_id] ||= []).push(a);
+    return mapa;
+  }, [arquivosProjeto]);
+
   // ── Open-load do Alvo (L7-A) ──────────────────────────────────────────────
   // Roda UMA vez por abertura do projeto, só para linhas com numero_pedido_alvo.
   // Lê pelo erp-proxy (conta de serviço) e persiste via RPC. Um 404 aqui NÃO
@@ -353,6 +384,7 @@ export default function ProjetoRequisicoes() {
       },
     ]);
     setClasseRateio([]);
+    setArquivosNovos([]);
     setEditingReq(null);
   }
 
@@ -567,21 +599,88 @@ export default function ProjetoRequisicoes() {
       }
     }
 
+    // L9: anexos escolhidos no modal sobem depois que o pedido existe (o caminho
+    // do arquivo leva o id do pedido). Falha de um anexo não desfaz o pedido salvo.
+    const pedidoId: string | undefined = editingReq?.id ?? (res.dados.pedido as { id?: string })?.id;
+    if (currentFase === "actual" && arquivosNovos.length > 0) {
+      if (!pedidoId) {
+        toast({
+          title: "Pedido salvo, mas os anexos não foram incluídos",
+          description: "Abra o pedido novamente e anexe os arquivos.",
+          variant: "destructive",
+        });
+      } else {
+        setSaving(true);
+        const anexo = await anexarArquivos(projetoId!, pedidoId, arquivosNovos);
+        setSaving(false);
+        if (anexo.falhas.length > 0) {
+          toast({
+            title: `${anexo.anexados.length} de ${arquivosNovos.length} anexo(s) incluído(s)`,
+            description: anexo.falhas.join(" · "),
+            variant: "destructive",
+          });
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["projeto-arquivos", projetoId] });
+    }
+
     setDialogOpen(false);
     resetForm();
     queryClient.invalidateQueries({ queryKey: ["projeto-requisicoes", projetoId] });
     queryClient.invalidateQueries({ queryKey: ["projetos-usage"] });
   }
 
+  /** Arquivos escolhidos no modal: validados agora, enviados ao salvar. */
+  function escolherArquivos(e: React.ChangeEvent<HTMLInputElement>, jaAnexados: number) {
+    const escolhidos = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (escolhidos.length === 0) return;
+    const problema = validarAnexos(escolhidos, jaAnexados + arquivosNovos.length);
+    if (problema) {
+      toast({ title: "Anexo não incluído", description: problema, variant: "destructive" });
+      return;
+    }
+    setArquivosNovos((prev) => [...prev, ...escolhidos]);
+  }
+
+  async function handleRemoverAnexo(a: ArquivoPedidoProjeto) {
+    setRemovendoAnexo(a.id);
+    const r = await removerAnexo(a);
+    setRemovendoAnexo(null);
+    if (r.ok === false) {
+      toast({ title: "Erro ao remover anexo", description: r.erro, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Anexo removido" });
+    queryClient.invalidateQueries({ queryKey: ["projeto-arquivos", projetoId] });
+  }
+
+  /** Abre o anexo num link temporário. A aba é aberta antes do await para o navegador não bloquear. */
+  async function abrirAnexo(a: ArquivoPedidoProjeto) {
+    const aba = window.open("about:blank", "_blank");
+    try {
+      const url = await urlTemporariaAnexo(a.storage_path);
+      if (aba) aba.location.href = url;
+      else window.location.assign(url);
+    } catch (err: any) {
+      aba?.close();
+      toast({ title: "Não foi possível abrir o anexo", description: err?.message, variant: "destructive" });
+    }
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return;
+    const caminhosAnexos = (arquivosPorPedido[deleteTarget.id] || []).map((a) => a.storage_path);
     const res = await excluirPedido(deleteTarget.id);
     // R-1: só invalida as queries quando o banco confirmou a exclusão.
     if (falhou(res)) {
       toast({ title: "Erro ao excluir", description: descricaoErro(res), variant: "destructive" });
     } else {
       toast({ title: "Pedido de compra excluído!" });
+      // os registros dos anexos saíram junto (cascata); os arquivos saem da pasta agora
+      await limparArquivosDePedidoExcluido(caminhosAnexos);
       queryClient.invalidateQueries({ queryKey: ["projeto-requisicoes", projetoId] });
+      queryClient.invalidateQueries({ queryKey: ["projeto-arquivos", projetoId] });
       queryClient.invalidateQueries({ queryKey: ["projetos-usage"] });
     }
     setDeleteTarget(null);
@@ -730,6 +829,20 @@ export default function ProjetoRequisicoes() {
   function updateItem(idx: number, field: keyof ReqItem, value: any) {
     setItens((prev) => prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it)));
   }
+
+  const clipeAnexos = (r: any) => {
+    const n = arquivosPorPedido[r.id]?.length ?? 0;
+    if (n === 0) return null;
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-0.5 text-xs font-normal text-muted-foreground"
+        title={`${n} anexo(s)`}
+      >
+        <Paperclip className="h-3 w-3" />
+        {n}
+      </span>
+    );
+  };
 
   const toggleLinha = (id: string) => setExpandedRow((atual) => (atual === id ? null : id));
 
@@ -949,6 +1062,30 @@ export default function ProjetoRequisicoes() {
             )}
           </div>
         </div>
+        {(arquivosPorPedido[r.id]?.length ?? 0) > 0 && (
+          <div>
+            <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Anexos</h4>
+            <div className="flex flex-wrap gap-2">
+              {arquivosPorPedido[r.id].map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => abrirAnexo(a)}
+                  className="inline-flex max-w-[280px] items-center gap-1.5 rounded border border-border bg-card px-2 py-1 text-xs hover:bg-muted"
+                  title={
+                    a.enviado_alvo_em
+                      ? `Enviado ao Alvo no pedido ${a.numero_alvo_ao_enviar ?? ""}`
+                      : "Ainda não enviado ao ERP"
+                  }
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{a.nome_original}</span>
+                  <span className="shrink-0 text-muted-foreground">{fmtTamanho(a.tamanho_bytes)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
           {r.numero_pedido_alvo && (
             <span>
@@ -1009,7 +1146,10 @@ export default function ProjetoRequisicoes() {
                       <span className="tabular-nums">#{r.sequencia}</span>
                       {fase === "actual" && celulaSituacao(r)}
                     </div>
-                    <p className="mt-0.5 truncate text-sm font-medium">{r.descricao}</p>
+                    <p className="mt-0.5 flex items-center gap-1.5 text-sm font-medium">
+                      <span className="truncate">{r.descricao}</span>
+                      {clipeAnexos(r)}
+                    </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {r.fornecedor_nome || "Sem fornecedor"}
                       {r.numero_pedido_alvo ? ` · Alvo ${r.numero_pedido_alvo}` : ""}
@@ -1070,8 +1210,9 @@ export default function ProjetoRequisicoes() {
                         </div>
                       </TableCell>
                       <TableCell className="max-w-[360px] px-3 py-2">
-                        <p className="truncate text-sm font-medium" title={r.descricao}>
-                          {r.descricao}
+                        <p className="flex items-center gap-1.5 text-sm font-medium" title={r.descricao}>
+                          <span className="truncate">{r.descricao}</span>
+                          {clipeAnexos(r)}
                         </p>
                         <p className="truncate text-xs text-muted-foreground" title={r.fornecedor_nome || undefined}>
                           {r.fornecedor_nome || "Sem fornecedor"}
@@ -1783,6 +1924,103 @@ export default function ProjetoRequisicoes() {
                   </>
                 )}
               </div>
+
+              {/* Section 4: Anexos (L9 — só Actual) */}
+              {currentFase === "actual" &&
+                (() => {
+                  const existentes = editingReq ? arquivosPorPedido[editingReq.id] || [] : [];
+                  const podeMexer = editingReq
+                    ? canEditActualRow(editingReq)
+                    : faseAtual === "actual" && (isAdmin || (canPedidosCreate && isResponsavel));
+                  const total = existentes.length + arquivosNovos.length;
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Anexos
+                          </h3>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Até {MAX_ANEXOS_PEDIDO} arquivos PDF, JPG ou PNG de até 5 MB. Vão junto com o pedido para o
+                            ERP.
+                          </p>
+                        </div>
+                        {podeMexer && total < MAX_ANEXOS_PEDIDO && (
+                          <Button variant="outline" size="sm" className="h-8 shrink-0 cursor-pointer text-xs" asChild>
+                            <label>
+                              <Paperclip className="mr-1 h-3 w-3" /> Anexar arquivo
+                              <input
+                                type="file"
+                                className="sr-only"
+                                accept={ACCEPT_ANEXOS}
+                                multiple
+                                onChange={(e) => escolherArquivos(e, existentes.length)}
+                              />
+                            </label>
+                          </Button>
+                        )}
+                      </div>
+                      {total === 0 ? (
+                        <p className="rounded border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                          Nenhum anexo.
+                        </p>
+                      ) : (
+                        <ul className="divide-y divide-border rounded border border-border">
+                          {existentes.map((a) => (
+                            <li key={a.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              <button
+                                type="button"
+                                className="min-w-0 flex-1 truncate text-left hover:underline"
+                                onClick={() => abrirAnexo(a)}
+                              >
+                                {a.nome_original}
+                              </button>
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {fmtTamanho(a.tamanho_bytes)}
+                                {a.enviado_alvo_em ? ` · no Alvo (${a.numero_alvo_ao_enviar ?? "—"})` : ""}
+                              </span>
+                              {podeMexer && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-danger"
+                                  disabled={removendoAnexo === a.id}
+                                  onClick={() => handleRemoverAnexo(a)}
+                                >
+                                  {removendoAnexo === a.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
+                                  <span className="sr-only">Remover anexo</span>
+                                </Button>
+                              )}
+                            </li>
+                          ))}
+                          {arquivosNovos.map((f, idx) => (
+                            <li key={`novo-${idx}`} className="flex items-center gap-2 px-3 py-2 text-sm">
+                              <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {fmtTamanho(f.size)} · será anexado ao salvar
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-danger"
+                                onClick={() => setArquivosNovos((prev) => prev.filter((_, i) => i !== idx))}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                                <span className="sr-only">Retirar arquivo</span>
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })()}
             </div>
 
             <DialogFooter className="px-4 py-3 sm:px-6 border-t border-border shrink-0">
@@ -1820,7 +2058,10 @@ export default function ProjetoRequisicoes() {
               <AlertDialogTitle>Enviar ao ERP Alvo</AlertDialogTitle>
               <AlertDialogDescription>
                 Criar no Alvo o pedido de compra #{enviarTarget?.sequencia} "{enviarTarget?.descricao}" (
-                {fmtMoeda(Number(enviarTarget?.valor_total) || 0)})? Esta ação não pode ser desfeita.
+                {fmtMoeda(Number(enviarTarget?.valor_total) || 0)})
+                {(arquivosPorPedido[enviarTarget?.id]?.length ?? 0) > 0 &&
+                  `, com ${arquivosPorPedido[enviarTarget.id].length} anexo(s)`}
+                ? Esta ação não pode ser desfeita.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

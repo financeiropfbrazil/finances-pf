@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
-import { marcarEnviado, descricaoErro, falhou } from "./projetosService";
+import { marcarEnviado, marcarArquivosEnviados, descricaoErro, falhou } from "./projetosService";
 import { resolverUsuarioAlvoOuNull, type ConsolidacaoRateio } from "./pedidosService";
+import { baixarAnexosParaEnvio, listarArquivosDoPedido } from "./projetoArquivosService";
 
 /**
  * L7-B — o envio passa pelo erp-proxy, não mais direto ao Alvo.
@@ -531,6 +532,73 @@ async function postPedidoViaGateway(payload: any, jwt: string): Promise<any> {
   return data;
 }
 
+/**
+ * Acrescenta ao payload do PedComp a lista de anexos no formato que o
+ * SaveMultiPart do Alvo espera — o mesmo que o Suprimentos manda
+ * (pedidosService.ts, montarPayloadPedComp). Não altera o payload recebido.
+ */
+export function anexarArquivosAoPayload<T extends object>(payload: T, guids: string[]) {
+  return {
+    ...payload,
+    PedCompArquivoChildList: guids.map((guid, idx) => ({
+      CodigoEmpresaFilial: -1,
+      NumeroPedComp: -1,
+      Sequencia: idx + 1,
+      Arquivo: null,
+      UploadIdentify: guid,
+    })),
+    filesToUpload: guids.map((guid) => ({ key: `${guid}#Arquivo`, file: {} })),
+  };
+}
+
+/**
+ * L9 — pedido COM anexos: POST /ped-comp/insert-multipart, a mesma rota que leva
+ * os anexos do Suprimentos (SaveMultiPart no Alvo). O payload é o de sempre,
+ * acrescido de `PedCompArquivoChildList` + `filesToUpload`, no formato que o
+ * Suprimentos já valida em produção (pedidosService.ts, montarPayloadPedComp).
+ * Cada arquivo vai no FormData com a chave `{GUID}#Arquivo`; o gateway confere
+ * que a quantidade bate com a lista.
+ *
+ * Pedido SEM anexo continua no /insert (JSON) — o caminho já validado não muda.
+ */
+async function postPedidoMultipartViaGateway(
+  payload: any,
+  arquivos: Array<{ guid: string; blob: Blob; nome: string }>,
+  jwt: string,
+): Promise<any> {
+  const obj = anexarArquivosAoPayload(
+    payload,
+    arquivos.map((a) => a.guid),
+  );
+
+  const formData = new FormData();
+  formData.append("obj", JSON.stringify(obj));
+  for (const a of arquivos) formData.append(`${a.guid}#Arquivo`, a.blob, a.nome);
+
+  const resp = await fetch(`${ERP_PROXY_URL}/ped-comp/insert-multipart`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jwt}` },
+    body: formData,
+  });
+
+  const text = await resp.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = text;
+  }
+
+  if (!resp.ok) {
+    const detalhe =
+      (data && typeof data === "object" && (data.error || data.message)) ||
+      (typeof data === "string" ? data : JSON.stringify(data)?.slice(0, 500));
+    throw new Error(`Gateway HTTP ${resp.status}: ${detalhe || "sem detalhe"}`);
+  }
+
+  return data;
+}
+
 // ── Public API ──
 
 export async function enviarRequisicaoAlvo(
@@ -578,9 +646,20 @@ export async function enviarRequisicaoAlvo(
     const condPag = await fetchCondPag(req.cond_pagamento_codigo);
     const payload = buildPayload(req, condPag, projetoNome, codigoUsuario);
 
-    console.log(`[PedComp] Enviando via gateway como ${codigoUsuario}:`, JSON.stringify(payload).substring(0, 500));
+    // L9: os anexos são carregados ANTES de qualquer chamada ao ERP — se um não
+    // puder ser lido, nada é enviado (e o pedido fica em 'erro', reenviável).
+    const anexos = await listarArquivosDoPedido(requisicaoId);
+    const blobs = anexos.length > 0 ? await baixarAnexosParaEnvio(anexos) : [];
 
-    const result = await postPedidoViaGateway(payload, session.access_token);
+    console.log(
+      `[PedComp] Enviando via gateway como ${codigoUsuario} (${blobs.length} anexo(s)):`,
+      JSON.stringify(payload).substring(0, 500),
+    );
+
+    const result =
+      blobs.length > 0
+        ? await postPedidoMultipartViaGateway(payload, blobs, session.access_token)
+        : await postPedidoViaGateway(payload, session.access_token);
 
     const numeroPedido = result?.Numero || result?.numero || result?.NumeroPedComp || null;
 
@@ -602,6 +681,18 @@ export async function enviarRequisicaoAlvo(
     }
 
     console.log("[PedComp] Requisição atualizada via RPC:", requisicaoId);
+
+    if (anexos.length > 0) {
+      const carimbo = await marcarArquivosEnviados(requisicaoId, numeroPedido);
+      if (falhou(carimbo)) {
+        console.error("[PedComp] Pedido e anexos no Alvo, mas os anexos não foram carimbados no Hub:", carimbo);
+        return {
+          success: true,
+          numeroPedido,
+          error: `Pedido criado no Alvo (#${numeroPedido}) com ${anexos.length} anexo(s), mas o Hub não registrou o envio dos anexos: ${descricaoErro(carimbo)}`,
+        };
+      }
+    }
 
     return { success: true, numeroPedido };
   } catch (err: any) {

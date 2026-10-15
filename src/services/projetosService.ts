@@ -192,3 +192,58 @@ export async function marcarEnviado(
 export async function marcarEmailAprovacao(projetoId: string): Promise<ResultadoRpc> {
   return chamarRpc("projeto_marcar_email_aprovacao", { p_projeto_id: projetoId });
 }
+
+// ── Anexos (L9) ──────────────────────────────────────────────────────
+
+/** Linha de `projeto_pedido_arquivos`. */
+export interface ArquivoPedidoProjeto {
+  id: string;
+  projeto_id: string;
+  requisicao_id: string;
+  upload_identify_guid: string;
+  nome_original: string;
+  storage_path: string;
+  mime_type: string;
+  tamanho_bytes: number;
+  numero_alvo_ao_enviar: string | null;
+  enviado_alvo_em: string | null;
+  uploaded_by: string;
+  created_at: string;
+}
+
+/**
+ * Registra um arquivo que JÁ foi enviado para a pasta `projetos-pedidos`. O
+ * banco monta o caminho a partir do pedido, confere que o arquivo existe e
+ * aplica o limite de 3 anexos.
+ */
+export async function registrarArquivo(
+  requisicaoId: string,
+  guid: string,
+  nome: string,
+  mime: string,
+  tamanho: number,
+): Promise<ResultadoRpc<{ success: true; arquivo: ArquivoPedidoProjeto }>> {
+  return chamarRpc("projeto_pedido_arquivo_registrar", {
+    p_requisicao_id: requisicaoId,
+    p_guid: guid,
+    p_nome: nome,
+    p_mime: mime,
+    p_tamanho: tamanho,
+  });
+}
+
+/** Remove o registro do anexo; devolve o caminho para apagar o arquivo da pasta. */
+export async function excluirArquivo(id: string): Promise<ResultadoRpc<{ success: true; storage_path: string }>> {
+  return chamarRpc("projeto_pedido_arquivo_excluir", { p_id: id });
+}
+
+/** Carimba os anexos do pedido com o número criado no Alvo. */
+export async function marcarArquivosEnviados(
+  requisicaoId: string,
+  numeroAlvo: string | null,
+): Promise<ResultadoRpc<{ success: true; marcados: number }>> {
+  return chamarRpc("projeto_pedido_arquivos_marcar_enviados", {
+    p_requisicao_id: requisicaoId,
+    p_numero_alvo: numeroAlvo,
+  });
+}
