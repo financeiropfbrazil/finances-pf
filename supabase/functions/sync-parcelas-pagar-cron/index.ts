@@ -1,5 +1,11 @@
 // =====================================================================
-// Edge Function: sync-parcelas-pagar-cron   (RASTREIO · Suprimentos)  v8
+// Edge Function: sync-parcelas-pagar-cron   (RASTREIO · Suprimentos)  v9
+// v9 (15/10/2026, LR-PAG F2): item que o Alvo recusa (código ≠ 404/412) não
+//   volta mais a cada 3 min. Cada falha grava em rastreio_tentativa e espera
+//   15 min, 1 h, 6 h e 24 h; na 5ª o item fica estacionado (delete da linha
+//   libera). Vale para P (pedido), B1 (chave_docfin) e B2 (chave_movestq). O
+//   portão SQL também ignora esses itens. Buscas do P contam em
+//   total_consultados. Em 14/10 uma NF com HTTP 417 gerou 157 execuções.
 // v8 (09/10/2026): B2 grava também MovEstq.DataHoraDigitacao em
 //   rastreio_nf.data_hora_digitacao (coluna "Digitação" do Excel do Rastreio).
 // v7 (06/10/2026): passo P — NF a partir do PEDIDO (movEstq/GetListForComponents
@@ -29,7 +35,8 @@
 //         primeiro). Override: body { desde, ate } 'YYYY-MM'.
 //      R) requisições do mês anterior e do atual.
 //      B) com o tempo que sobrar, passo NF (abaixo).
-//   "nf" (cron noturno): só o passo NF, até o limite de tempo.
+//   "nf" (job sync-parcelas-pagar-nf-fila, a cada 3 min, só quando há fila):
+//      só o passo NF, até o limite de tempo.
 //   "req" (manual/backfill): só requisições, meses body { desde, ate }
 //      (padrão: mês anterior e atual).
 //
@@ -55,6 +62,8 @@
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
+// Carimbo gravado em sync_runs.observacao: prova qual versão rodou (deploy fantasma já aconteceu).
+const VERSAO = "v9-2026-10-15";
 const JOB_NAME = "sync-parcelas-pagar";
 const JOB_TYPE = "parcelas_pagar";
 const FILIAL = "1.01";
@@ -71,6 +80,8 @@ const B1_MAX_LISTA = 60;          // no modo "lista", B1 no máximo 60 títulos
 const B2_CONCORRENCIA = 3;        // MovEstq/Load simultâneos no passo B2
 const P_FRACAO_NF = 0.25;         // no modo "nf", o passo P usa até 25% do tempo
 const P_CONCORRENCIA = 3;         // buscas por pedido simultâneas
+const ESPERA_MIN = [15, 60, 360, 1440]; // espera após a 1ª, 2ª, 3ª e 4ª falha do mesmo item
+const MAX_TENTATIVAS = 5;               // na 5ª falha o item fica estacionado
 
 interface Resultado {
   modo: string;
@@ -94,6 +105,98 @@ interface Resultado {
   erros: number;
   parado_por_watchdog: boolean;
   detalhes: Array<Record<string, unknown>>;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Tentativas por item (v9) — public.rastreio_tentativa
+// ─────────────────────────────────────────────────────────────────────
+// A tabela é pequena (só itens com falha), então é lida inteira no início e
+// mantida em memória durante a execução. Se a leitura falhar (ex.: tabela
+// ainda não criada), nada é bloqueado e a execução segue como na v8.
+type Etapa = "P" | "B1" | "B2";
+
+interface Tentativa {
+  tentativas: number;
+  proxima_em: string | null;
+  primeiro_erro_em: string | null;
+}
+
+interface ControleTentativas {
+  supabase: SupabaseClient;
+  mapa: Map<string, Tentativa>;
+  estacionadosAgora: string[];
+}
+
+const chaveTentativa = (etapa: Etapa, chave: string) => `${etapa}|${chave}`;
+
+async function carregarTentativas(supabase: SupabaseClient, res: Resultado): Promise<ControleTentativas> {
+  const ctl: ControleTentativas = { supabase, mapa: new Map(), estacionadosAgora: [] };
+  const { data, error } = await supabase
+    .from("rastreio_tentativa")
+    .select("etapa, chave, tentativas, proxima_em, primeiro_erro_em");
+  if (error) {
+    res.detalhes.push({ etapa: "tentativas_leitura", erro: error.message });
+    return ctl;
+  }
+  for (const t of data ?? []) {
+    ctl.mapa.set(chaveTentativa(t.etapa as Etapa, String(t.chave)), {
+      tentativas: Number(t.tentativas ?? 0),
+      proxima_em: t.proxima_em ?? null,
+      primeiro_erro_em: t.primeiro_erro_em ?? null,
+    });
+  }
+  return ctl;
+}
+
+/** Em espera (proxima_em no futuro) ou estacionado (MAX_TENTATIVAS falhas): não tentar agora. */
+function bloqueado(ctl: ControleTentativas, etapa: Etapa, chave: string): boolean {
+  const t = ctl.mapa.get(chaveTentativa(etapa, chave));
+  if (!t) return false;
+  if (t.tentativas >= MAX_TENTATIVAS) return true;
+  return t.proxima_em !== null && Date.parse(t.proxima_em) > Date.now();
+}
+
+async function registrarFalha(ctl: ControleTentativas, etapa: Etapa, chave: string, erro: string): Promise<void> {
+  const k = chaveTentativa(etapa, chave);
+  const atual = ctl.mapa.get(k);
+  const tentativas = (atual?.tentativas ?? 0) + 1;
+  const agora = new Date();
+  const proxima =
+    tentativas >= MAX_TENTATIVAS
+      ? null
+      : new Date(agora.getTime() + ESPERA_MIN[Math.min(tentativas, ESPERA_MIN.length) - 1] * 60_000).toISOString();
+  const linha = {
+    etapa,
+    chave,
+    tentativas,
+    proxima_em: proxima,
+    ultimo_erro: erro.slice(0, 500),
+    primeiro_erro_em: atual?.primeiro_erro_em ?? agora.toISOString(),
+    atualizado_em: agora.toISOString(),
+  };
+  const { error } = await ctl.supabase.from("rastreio_tentativa").upsert(linha, { onConflict: "etapa,chave" });
+  if (!error) {
+    ctl.mapa.set(k, { tentativas, proxima_em: proxima, primeiro_erro_em: linha.primeiro_erro_em });
+    if (tentativas >= MAX_TENTATIVAS) ctl.estacionadosAgora.push(`${etapa} ${chave}: ${erro.slice(0, 120)}`);
+  }
+}
+
+/** Item resolvido (lido, gravado ou excluído no Alvo): some da tabela. */
+async function registrarSucesso(ctl: ControleTentativas, etapa: Etapa, chave: string): Promise<void> {
+  const k = chaveTentativa(etapa, chave);
+  if (!ctl.mapa.has(k)) return;
+  const { error } = await ctl.supabase.from("rastreio_tentativa").delete().eq("etapa", etapa).eq("chave", chave);
+  if (!error) ctl.mapa.delete(k);
+}
+
+function resumoTentativas(ctl: ControleTentativas): { emEspera: number; estacionados: number } {
+  let emEspera = 0;
+  let estacionados = 0;
+  for (const t of ctl.mapa.values()) {
+    if (t.tentativas >= MAX_TENTATIVAS) estacionados++;
+    else if (t.proxima_em !== null && Date.parse(t.proxima_em) > Date.now()) emEspera++;
+  }
+  return { emEspera, estacionados };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -447,6 +550,7 @@ async function passoB1(
   maxTitulos: number,
   t0: number,
   res: Resultado,
+  ctl: ControleTentativas,
 ): Promise<void> {
   // Prioridade: títulos de fornecedores com pedido ainda sem NF ligada
   // (v_rastreio_b1_prioridade). Depois, o resto da fila.
@@ -474,7 +578,9 @@ async function passoB1(
 
   const chaves = Array.from(
     new Set([...(prio ?? []), ...(pend ?? [])].map((p: any) => Number(p.chave_docfin))),
-  ).slice(0, maxTitulos);
+  )
+    .filter((c) => !bloqueado(ctl, "B1", String(c)))
+    .slice(0, maxTitulos);
   const falhas: string[] = [];
 
   for (const chave of chaves) {
@@ -498,8 +604,10 @@ async function passoB1(
     }
 
     if (!patch) {
+      const erro = r.erro ?? "Load sem Chave correspondente";
       res.docfin_load_falha++;
-      if (falhas.length < 20) falhas.push(`${chave}: ${r.erro ?? "Load sem Chave correspondente"}`);
+      if (falhas.length < 20) falhas.push(`${chave}: ${erro}`);
+      await registrarFalha(ctl, "B1", String(chave), erro);
       continue;
     }
 
@@ -511,14 +619,16 @@ async function passoB1(
     if (errUp) {
       res.docfin_load_falha++;
       if (falhas.length < 20) falhas.push(`${chave}: update ${errUp.message}`);
+      await registrarFalha(ctl, "B1", String(chave), `update ${errUp.message}`);
     } else {
       res.docfin_load_ok++;
+      await registrarSucesso(ctl, "B1", String(chave));
     }
   }
 
   if (falhas.length > 0) {
     res.erros += 1;
-    res.detalhes.push({ etapa: "b1_docfin_load", erro: `${res.docfin_load_falha} falharam (voltam na próxima)`, amostra: falhas });
+    res.detalhes.push({ etapa: "b1_docfin_load", erro: `${res.docfin_load_falha} falharam (nova tentativa com espera crescente)`, amostra: falhas });
   }
 }
 
@@ -531,6 +641,7 @@ async function passoB2(
   secret: string,
   t0: number,
   res: Resultado,
+  ctl: ControleTentativas,
 ): Promise<void> {
   // 1º: NFs achadas pela busca por pedido (passo P; ultimo_vencimento nulo).
   const { data: doPedido, error: errPed } = await supabase
@@ -563,7 +674,9 @@ async function passoB2(
   const falhas: string[] = [];
   const fila = Array.from(
     new Set([...(doPedido ?? []), ...(prio ?? []), ...(pend ?? [])].map((p: any) => Number(p.chave_movestq))),
-  ).map((chave_movestq) => ({ chave_movestq }));
+  )
+    .filter((c) => !bloqueado(ctl, "B2", String(c)))
+    .map((chave_movestq) => ({ chave_movestq }));
 
   // B2_CONCORRENCIA leituras em paralelo: o MovEstq/Load (loadChild=All) é o
   // passo lento (~1,7 s) e o gargalo da fila.
@@ -586,9 +699,12 @@ async function passoB2(
           { onConflict: "codigo_empresa_filial,chave_movestq" },
         );
         res.nf_nao_encontradas++;
+        await registrarSucesso(ctl, "B2", String(chave));
       } else {
+        const erro = r.erro ?? "Load sem Chave correspondente";
         res.nf_falha++;
-        if (falhas.length < 20) falhas.push(`${chave}: ${r.erro ?? "Load sem Chave correspondente"}`);
+        if (falhas.length < 20) falhas.push(`${chave}: ${erro}`);
+        await registrarFalha(ctl, "B2", String(chave), erro);
       }
       return;
     }
@@ -643,6 +759,7 @@ async function passoB2(
     if (errNf) {
       res.nf_falha++;
       if (falhas.length < 20) falhas.push(`${chave}: rastreio_nf ${errNf.message}`);
+      await registrarFalha(ctl, "B2", String(chave), `rastreio_nf ${errNf.message}`);
       return;
     }
 
@@ -655,6 +772,7 @@ async function passoB2(
     if (errDel) {
       res.nf_falha++;
       if (falhas.length < 20) falhas.push(`${chave}: limpar vínculos ${errDel.message}`);
+      await registrarFalha(ctl, "B2", String(chave), `limpar vínculos ${errDel.message}`);
       return;
     }
     if (porPedido.size > 0) {
@@ -672,11 +790,13 @@ async function passoB2(
       if (errIns) {
         res.nf_falha++;
         if (falhas.length < 20) falhas.push(`${chave}: vínculos ${errIns.message}`);
+        await registrarFalha(ctl, "B2", String(chave), `vínculos ${errIns.message}`);
         return;
       }
       res.vinculos_pedido += linhas.length;
     }
     res.nf_lidas++;
+    await registrarSucesso(ctl, "B2", String(chave));
   };
 
   const trabalhador = async (): Promise<void> => {
@@ -693,7 +813,7 @@ async function passoB2(
 
   if (falhas.length > 0) {
     res.erros += 1;
-    res.detalhes.push({ etapa: "b2_movestq_load", erro: `${res.nf_falha} falharam (voltam na próxima)`, amostra: falhas });
+    res.detalhes.push({ etapa: "b2_movestq_load", erro: `${res.nf_falha} falharam (nova tentativa com espera crescente)`, amostra: falhas });
   }
 }
 
@@ -736,6 +856,7 @@ async function passoP(
   limiteMs: number,
   t0: number,
   res: Resultado,
+  ctl: ControleTentativas,
 ): Promise<void> {
   const { data: fila, error } = await supabase
     .from("v_rastreio_pedido_fila")
@@ -748,7 +869,7 @@ async function passoP(
     res.detalhes.push({ etapa: "p_fila", erro: error.message });
     return;
   }
-  const pedidos = (fila ?? []).map((x: any) => String(x.pedido_numero));
+  const pedidos = (fila ?? []).map((x: any) => String(x.pedido_numero)).filter((p) => !bloqueado(ctl, "P", p));
   const falhas: string[] = [];
   let proxima = 0;
 
@@ -767,6 +888,7 @@ async function passoP(
     if (lista === null) {
       res.p_falha++;
       if (falhas.length < 20) falhas.push(`${ped}: ${erro}`);
+      await registrarFalha(ctl, "P", ped, erro ?? "busca sem lista");
       return;
     }
     const chaves = Array.from(
@@ -786,6 +908,7 @@ async function passoP(
       if (errFila) {
         res.p_falha++;
         if (falhas.length < 20) falhas.push(`${ped}: fila ${errFila.message}`);
+        await registrarFalha(ctl, "P", ped, `fila ${errFila.message}`);
         return;
       }
     }
@@ -795,10 +918,12 @@ async function passoP(
     if (errBusca) {
       res.p_falha++;
       if (falhas.length < 20) falhas.push(`${ped}: busca ${errBusca.message}`);
+      await registrarFalha(ctl, "P", ped, `busca ${errBusca.message}`);
       return;
     }
     res.p_buscados++;
     res.p_nfs += chaves.length;
+    await registrarSucesso(ctl, "P", ped);
   };
 
   const trabalhador = async (): Promise<void> => {
@@ -811,7 +936,7 @@ async function passoP(
 
   if (falhas.length > 0) {
     res.erros += 1;
-    res.detalhes.push({ etapa: "p_busca_pedido", erro: `${res.p_falha} falharam (voltam na próxima)`, amostra: falhas });
+    res.detalhes.push({ etapa: "p_busca_pedido", erro: `${res.p_falha} falharam (nova tentativa com espera crescente)`, amostra: falhas });
   }
 }
 
@@ -937,6 +1062,7 @@ Deno.serve(async (req: Request) => {
 
   let observacao: string | null = null;
   const re = /^\d{4}-(0[1-9]|1[0-2])$/;
+  const ctl = await carregarTentativas(supabase, res);
   try {
     if (modo === "sonda") {
       const pedidos = Array.isArray(body?.pedidos) ? body.pedidos.map((x: unknown) => String(x)) : [];
@@ -986,13 +1112,13 @@ Deno.serve(async (req: Request) => {
         await lerRequisicoes(supabase, erpUrl, secret, [somarMeses(atual, -1), atual], t0, res);
       }
       if (!res.parado_por_watchdog) {
-        await passoB1(supabase, erpUrl, secret, WATCHDOG_MS, B1_MAX_LISTA, t0, res);
-        if (!res.parado_por_watchdog) await passoB2(supabase, erpUrl, secret, t0, res);
+        await passoB1(supabase, erpUrl, secret, WATCHDOG_MS, B1_MAX_LISTA, t0, res, ctl);
+        if (!res.parado_por_watchdog) await passoB2(supabase, erpUrl, secret, t0, res, ctl);
       }
     } else {
-      await passoP(supabase, erpUrl, secret, Math.round(WATCHDOG_MS * P_FRACAO_NF), t0, res);
-      await passoB1(supabase, erpUrl, secret, Math.round(WATCHDOG_MS * B1_FRACAO_NF), 1000, t0, res);
-      await passoB2(supabase, erpUrl, secret, t0, res);
+      await passoP(supabase, erpUrl, secret, Math.round(WATCHDOG_MS * P_FRACAO_NF), t0, res, ctl);
+      await passoB1(supabase, erpUrl, secret, Math.round(WATCHDOG_MS * B1_FRACAO_NF), 1000, t0, res, ctl);
+      await passoB2(supabase, erpUrl, secret, t0, res, ctl);
     }
   } catch (e: any) {
     res.erros++;
@@ -1007,6 +1133,12 @@ Deno.serve(async (req: Request) => {
     supabase.from("v_rastreio_pedido_fila").select("pedido_numero", { count: "exact", head: true }),
   ]);
 
+  // "faltam" inclui itens em espera/estacionados; o resumo abaixo separa.
+  const { emEspera, estacionados } = resumoTentativas(ctl);
+  if (ctl.estacionadosAgora.length > 0) {
+    res.detalhes.push({ etapa: "estacionados", erro: `${ctl.estacionadosAgora.length} item(ns) estacionado(s) após ${MAX_TENTATIVAS} falhas`, amostra: ctl.estacionadosAgora.slice(0, 20) });
+  }
+
   observacao =
     observacao ??
     [
@@ -1020,8 +1152,11 @@ Deno.serve(async (req: Request) => {
       modo !== "req" ? `títulos ${res.docfin_load_ok} ok/${res.docfin_load_falha} falha (faltam ${pendB1 ?? "?"})` : null,
       modo !== "req" ? `NFs ${res.nf_lidas} ok/${res.nf_falha} falha/${res.nf_nao_encontradas} excluídas (faltam ${pendB2 ?? "?"})` : null,
       modo !== "req" ? `vínculos +${res.vinculos_pedido}` : null,
+      emEspera > 0 ? `em espera ${emEspera}` : null,
+      estacionados > 0 ? `ESTACIONADOS ${estacionados}` : null,
       res.parado_por_watchdog ? "PARADO PELO WATCHDOG" : null,
       `fingerprint pedidos=${fingerprint ?? "?"}`,
+      `edge ${VERSAO}`,
     ]
       .filter(Boolean)
       .join(" · ");
@@ -1032,7 +1167,7 @@ Deno.serve(async (req: Request) => {
       finished_at: new Date().toISOString(),
       duracao_ms: Date.now() - t0,
       total_candidatos: res.meses_planejados.length,
-      total_consultados: res.parcelas_lidas + res.docfin_load_ok + res.nf_lidas,
+      total_consultados: res.parcelas_lidas + res.docfin_load_ok + res.nf_lidas + res.p_buscados,
       total_mudaram: res.parcelas_gravadas + res.vinculos_pedido + res.reqs_gravadas,
       total_erros: res.erros,
       detalhes: res.detalhes,
