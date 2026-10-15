@@ -4,13 +4,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
 import { PERMISSIONS } from "@/constants/permissions";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -30,20 +30,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
-import {
-  Plus,
-  Pencil,
-  ClipboardList,
-  User,
-  UserCheck,
-  Calendar,
-  Wallet,
-  Search,
-  FolderKanban,
-  Loader2,
-  Trash2,
-} from "lucide-react";
+import { Plus, Pencil, Search, FolderKanban, Loader2, Trash2, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { BarraConsumo, FaseChip, Indicador } from "@/components/projetos/ProjetosUI";
+import { fmtData, fmtMoeda, fmtPct, pct, tomConsumo } from "@/components/projetos/projetosFormat";
 
 interface Projeto {
   id: string;
@@ -72,15 +62,28 @@ interface UserOption {
   email: string | null;
 }
 
-const fmtCurrency = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+/** Uso do orçamento por projeto, separado por fase. */
+interface UsoProjeto {
+  budget: number;
+  actual: number;
+  /** pedidos com número no Alvo — o projeto não pode ser excluído pelo Hub */
+  enviadosErp: number;
+}
 
-const fmtDate = (d: string | null) => {
-  if (!d) return "—";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
-};
+const USO_VAZIO: UsoProjeto = { budget: 0, actual: 0, enviadosErp: 0 };
 
 const userLabel = (u: UserOption) => u.full_name || u.email || "Sem nome";
+
+/** Data de `<input type="date">` com ano de 4 dígitos (o campo aceita "82026"). */
+const DATA_VALIDA = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * O valor comprometido é o da FASE CORRENTE. Na aprovação o Budget é copiado
+ * para o Actual, então somar as duas fases conta o mesmo pedido duas vezes —
+ * era o que fazia todo projeto em Actual aparecer com ~200% na lista.
+ */
+const comprometido = (p: Projeto, uso: UsoProjeto) =>
+  (p.fase_atual || "budget") === "actual" ? uso.actual : uso.budget;
 
 export default function Projetos() {
   const { user, profile } = useAuth();
@@ -168,15 +171,21 @@ export default function Projetos() {
     },
   });
 
-  // Fetch budget usage for all projects
+  // Uso do orçamento por projeto e fase
   const { data: usageMap = {} } = useQuery({
     queryKey: ["projetos-usage"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("projeto_requisicoes").select("projeto_id, valor_total");
+      const { data, error } = await supabase
+        .from("projeto_requisicoes")
+        .select("projeto_id, valor_total, fase, numero_pedido_alvo");
       if (error) throw error;
-      const map: Record<string, number> = {};
+      const map: Record<string, UsoProjeto> = {};
       (data || []).forEach((r: any) => {
-        map[r.projeto_id] = (map[r.projeto_id] || 0) + (r.valor_total || 0);
+        const uso = (map[r.projeto_id] ||= { ...USO_VAZIO });
+        const v = Number(r.valor_total) || 0;
+        if (r.fase === "actual") uso.actual += v;
+        else uso.budget += v;
+        if (r.numero_pedido_alvo) uso.enviadosErp += 1;
       });
       return map;
     },
@@ -227,6 +236,19 @@ export default function Projetos() {
       });
       return;
     }
+    // A-11: o campo de data aceita ano com 5 dígitos ("82026") e fim antes do início.
+    if ((dataInicio && !DATA_VALIDA.test(dataInicio)) || (dataFim && !DATA_VALIDA.test(dataFim))) {
+      toast({
+        title: "Data inválida",
+        description: "Confira o ano das datas de início e fim.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (dataInicio && dataFim && dataFim < dataInicio) {
+      toast({ title: "A data de fim é anterior à data de início", variant: "destructive" });
+      return;
+    }
 
     setSaving(true);
     try {
@@ -244,18 +266,22 @@ export default function Projetos() {
       }
 
       if (editingProject) {
-        // Upsert para evitar CORS PATCH
+        // Upsert para evitar CORS PATCH. Só colunas REAIS da tabela: o objeto da
+        // lista carrega nomes/e-mails hidratados (responsavel_nome…), que o
+        // PostgREST recusa por não existirem em `projetos`. E nada de fase/status:
+        // reenviar o valor lido poderia desfazer uma aprovação feita no meio-tempo.
+        // `criado_por` vai porque o upsert avalia a policy de INSERT (P-6).
         const { error } = await supabase
           .from("projetos")
-          .upsert({ ...editingProject, ...payload, id: editingProject.id }, { onConflict: "id" });
+          .upsert({ ...payload, id: editingProject.id, criado_por: editingProject.criado_por }, { onConflict: "id" });
         if (error) throw error;
-        toast({ title: "Projeto atualizado!" });
+        toast({ title: "Projeto atualizado" });
       } else {
         payload.criado_por = user?.id || null;
         if (!isAdmin) payload.orcamento = parseFloat(orcamento) || 0;
         const { error } = await supabase.from("projetos").insert(payload);
         if (error) throw error;
-        toast({ title: "Projeto criado!" });
+        toast({ title: "Projeto criado" });
       }
       queryClient.invalidateQueries({ queryKey: ["projetos"] });
       setDialogOpen(false);
@@ -269,13 +295,18 @@ export default function Projetos() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      const { error } = await supabase.from("projetos").delete().eq("id", deleteTarget.id);
+      // `.select()` devolve as linhas apagadas: sem isso, um DELETE barrado pela
+      // RLS volta sem erro e a tela dizia "excluído" sem ter apagado nada.
+      const { data, error } = await supabase.from("projetos").delete().eq("id", deleteTarget.id).select("id");
       if (error) throw error;
-      toast({ title: "Projeto excluído!" });
+      if (!data || data.length === 0) {
+        throw new Error("Nenhum projeto foi excluído — verifique se você tem permissão para excluí-lo.");
+      }
+      toast({ title: "Projeto excluído" });
       queryClient.invalidateQueries({ queryKey: ["projetos"] });
       queryClient.invalidateQueries({ queryKey: ["projetos-usage"] });
     } catch (err: any) {
-      toast({ title: "Erro", description: err.message, variant: "destructive" });
+      toast({ title: "Erro ao excluir", description: err.message, variant: "destructive" });
     } finally {
       setDeleteTarget(null);
     }
@@ -283,288 +314,380 @@ export default function Projetos() {
 
   // Filtered list by fase_atual
   const filtered = projetos.filter((p) => {
-    const fase = (p as any).fase_atual || "budget";
+    const fase = p.fase_atual || "budget";
     if (filterFase !== "todos" && fase !== filterFase) return false;
     if (search && !p.nome.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
-  // UI helpers para mostrar/ocultar ações
-  const canEditThis = (p: Projeto) => isAdmin || (canEditOwn && p.criado_por === user?.id && p.fase_atual === "budget");
+  // Titularidade é do RESPONSÁVEL (é o que as policies de UPDATE/DELETE checam),
+  // não de quem criou o registro.
+  const canEditThis = (p: Projeto) =>
+    isAdmin || (canEditOwn && p.responsavel_id === user?.id && p.fase_atual === "budget");
 
   const canDeleteThis = (p: Projeto) =>
-    isAdmin || (canDeleteOwn && p.criado_por === user?.id && p.fase_atual === "budget");
+    isAdmin || (canDeleteOwn && p.responsavel_id === user?.id && p.fase_atual === "budget");
+
+  /**
+   * Excluir o projeto apaga em cascata os pedidos E a trilha de auditoria. Com
+   * pedido já no ERP isso deixaria o Alvo com um documento que o Hub esqueceu —
+   * vale também para o admin (mesmo princípio da D-3).
+   */
+  const bloqueioExclusao = (p: Projeto) => {
+    const enviados = (usageMap[p.id] || USO_VAZIO).enviadosErp;
+    return enviados > 0
+      ? `Este projeto tem ${enviados} pedido(s) já enviado(s) ao ERP e não pode ser excluído pelo Hub.`
+      : null;
+  };
+
+  const totais = filtered.reduce(
+    (acc, p) => {
+      acc.orcamento += Number(p.orcamento) || 0;
+      acc.comprometido += comprometido(p, usageMap[p.id] || USO_VAZIO);
+      return acc;
+    },
+    { orcamento: 0, comprometido: 0 },
+  );
+  const pctTotal = pct(totais.comprometido, totais.orcamento);
+
+  const acoesProjeto = (p: Projeto) => {
+    const bloqueio = bloqueioExclusao(p);
+    return (
+      <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+        {canEditThis(p) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}>
+                <Pencil className="h-3.5 w-3.5" />
+                <span className="sr-only">Editar projeto</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Editar projeto</TooltipContent>
+          </Tooltip>
+        )}
+        {canDeleteThis(p) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* span: botão desabilitado não dispara o tooltip */}
+              <span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-danger"
+                  disabled={!!bloqueio}
+                  onClick={() => setDeleteTarget(p)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span className="sr-only">Excluir projeto</span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">{bloqueio || "Excluir projeto"}</TooltipContent>
+          </Tooltip>
+        )}
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/projetos/${p.id}`)}>
+          <ChevronRight className="h-4 w-4" />
+          <span className="sr-only">Abrir pedidos de compra</span>
+        </Button>
+      </div>
+    );
+  };
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Projetos</h1>
-          <p className="text-sm text-muted-foreground">
-            Gerencie projetos e pedidos de compra
-            {!canViewAll && !isAdmin && (
-              <span className="ml-2 italic">· mostrando apenas projetos onde você é responsável ou aprovador</span>
-            )}
-          </p>
+    <TooltipProvider delayDuration={200}>
+      {/* grid-cols-1 = minmax(0, 1fr): a grade larga rola dentro do painel em vez de alargar a página */}
+      <div className="grid grid-cols-1 gap-4 p-4 sm:p-6">
+        {/* Cabeçalho */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Projetos</h1>
+            <p className="text-sm text-muted-foreground">
+              Orçamento e pedidos de compra por projeto
+              {!canViewAll && !isAdmin && <span> · exibindo os projetos em que você é responsável ou aprovador</span>}
+            </p>
+          </div>
+          {canCreate && (
+            <Button onClick={openCreate} size="sm" className="gap-1.5">
+              <Plus className="h-4 w-4" /> Novo projeto
+            </Button>
+          )}
         </div>
-        {canCreate && (
-          <Button onClick={openCreate} className="gap-2">
-            <Plus className="h-4 w-4" /> Novo Projeto
-          </Button>
-        )}
-      </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por nome..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+        {/* Resumo */}
+        <div className="grid grid-cols-2 divide-border rounded-md border border-border bg-card sm:grid-cols-4 sm:divide-x">
+          <Indicador
+            rotulo="Projetos"
+            valor={filtered.length}
+            apoio={filterFase === "todos" ? "todas as fases" : "no filtro"}
+          />
+          <Indicador rotulo="Orçamento" valor={fmtMoeda(totais.orcamento)} apoio="soma dos projetos listados" />
+          <Indicador
+            rotulo="Comprometido"
+            valor={fmtMoeda(totais.comprometido)}
+            apoio={`${fmtPct(pctTotal)} do orçamento · fase corrente`}
+          />
+          <Indicador
+            rotulo="Saldo"
+            valor={fmtMoeda(totais.orcamento - totais.comprometido)}
+            tom={totais.orcamento - totais.comprometido < 0 ? "perigo" : undefined}
+            apoio="orçamento − comprometido"
           />
         </div>
-        <Select value={filterFase} onValueChange={setFilterFase}>
-          <SelectTrigger className="w-[220px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            <SelectItem value="budget">Budget</SelectItem>
-            <SelectItem value="budget_em_aprovacao">Pendente de Aprovação</SelectItem>
-            <SelectItem value="actual">Actual</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
 
-      {/* Cards Grid */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <FolderKanban className="h-12 w-12 mb-3" />
-          <p>Nenhum projeto encontrado</p>
-        </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((p) => {
-            const utilizado = usageMap[p.id] || 0;
-            const pct = p.orcamento > 0 ? Math.round((utilizado / p.orcamento) * 100) : 0;
-            const progressColor = pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-yellow-500" : "bg-green-500";
-            const fase = p.fase_atual || "budget";
-
-            return (
-              <Card key={p.id} className="flex flex-col">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-base font-semibold truncate">{p.nome}</CardTitle>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      {fase === "budget" && (
-                        <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400">
-                          Budget
-                        </Badge>
-                      )}
-                      {fase === "budget_em_aprovacao" && (
-                        <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400">
-                          Pendente de Aprovação
-                        </Badge>
-                      )}
-                      {fase === "actual" && (
-                        <Badge className="bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400">
-                          Actual
-                        </Badge>
-                      )}
-                      {p.budget_aprovado_por && (
-                        <span className="text-[10px] text-muted-foreground">Aprovado por {p.budget_aprovado_por}</span>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex-1 space-y-3 text-sm">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <User className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">Resp: {p.responsavel_nome || p.responsavel_email || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <UserCheck className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">Aprov: {p.aprovador_nome || p.aprovador_email || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Calendar className="h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      {fmtDate(p.data_inicio)} → {fmtDate(p.data_fim)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Wallet className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="font-semibold">{fmtCurrency(p.orcamento)}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
-                      <div
-                        className={`absolute left-0 top-0 h-full rounded-full transition-all ${progressColor}`}
-                        style={{ width: `${Math.min(pct, 100)}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {fmtCurrency(utilizado)} / {fmtCurrency(p.orcamento)} ({pct}%)
-                    </p>
-                  </div>
-                </CardContent>
-                <CardFooter className="border-t pt-3 gap-2">
-                  {canEditThis(p) && (
-                    <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => openEdit(p)}>
-                      <Pencil className="h-3 w-3" /> Editar
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1 text-xs"
-                    onClick={() => navigate(`/projetos/${p.id}`)}
-                  >
-                    <ClipboardList className="h-3 w-3" /> Pedidos de Compra
-                  </Button>
-                  {canDeleteThis(p) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="ml-auto h-7 w-7 p-0 text-destructive"
-                      onClick={() => setDeleteTarget(p)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </CardFooter>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Create/Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingProject ? "Editar Projeto" : "Novo Projeto"}</DialogTitle>
-            <DialogDescription>
-              Defina o responsável (quem cria pedidos) e o aprovador (quem aprova o Budget).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Nome do Projeto *</Label>
-              <Input value={nome} onChange={(e) => setNome(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Descrição</Label>
-              <Textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={3} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Orçamento (R$) *{!isAdmin && editingProject ? " — somente admin" : ""}</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={orcamento}
-                onChange={(e) => setOrcamento(e.target.value)}
-                disabled={!isAdmin && !!editingProject}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Responsável *</Label>
-              <Select value={responsavelId} onValueChange={setResponsavelId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o responsável..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {responsaveis.length === 0 ? (
-                    <p className="px-2 py-2 text-xs text-muted-foreground">
-                      Nenhum usuário com papel "Responsável de Projeto" cadastrado.
-                    </p>
-                  ) : (
-                    responsaveis.map((u) => (
-                      <SelectItem key={u.user_id} value={u.user_id}>
-                        {userLabel(u)}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Usuário com papel "Responsável de Projeto" — quem cria os pedidos de compra.
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Aprovador *</Label>
-              <Select value={aprovadorId} onValueChange={setAprovadorId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o aprovador..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {aprovadores.length === 0 ? (
-                    <p className="px-2 py-2 text-xs text-muted-foreground">
-                      Nenhum usuário com papel "Aprovador de Projetos" cadastrado.
-                    </p>
-                  ) : (
-                    aprovadores.map((u) => (
-                      <SelectItem key={u.user_id} value={u.user_id}>
-                        {userLabel(u)}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Usuário com papel "Aprovador de Projetos" — quem aprova o Budget e libera o Actual.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Data Início</Label>
-                <Input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Data Fim</Label>
-                <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
-              </div>
-            </div>
+        {/* Filtros */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar projeto"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 pl-8"
+            />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {editingProject ? "Salvar" : "Criar Projeto"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <Select value={filterFase} onValueChange={setFilterFase}>
+            <SelectTrigger className="h-9 w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todas as fases</SelectItem>
+              <SelectItem value="budget">Budget</SelectItem>
+              <SelectItem value="budget_em_aprovacao">Em aprovação</SelectItem>
+              <SelectItem value="actual">Actual</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-      {/* Delete Confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir projeto?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza? Todos os pedidos de compra deste projeto serão excluídos. Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+        {/* Lista */}
+        {isLoading ? (
+          <div className="flex items-center justify-center rounded-md border border-border bg-card py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-md border border-border bg-card py-16 text-muted-foreground">
+            <FolderKanban className="mb-2 h-8 w-8" />
+            <p className="text-sm">Nenhum projeto encontrado</p>
+          </div>
+        ) : (
+          <>
+            {/* Desktop: grade */}
+            <div className="hidden overflow-hidden rounded-md border border-border bg-card md:block">
+              <Table>
+                <TableHeader className="bg-muted/40">
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="h-9 px-3 text-xs">Projeto</TableHead>
+                    <TableHead className="h-9 px-3 text-xs">Fase</TableHead>
+                    <TableHead className="h-9 px-3 text-xs">Responsável / aprovador</TableHead>
+                    <TableHead className="h-9 px-3 text-right text-xs">Orçamento</TableHead>
+                    <TableHead className="h-9 w-[180px] px-3 text-xs">Comprometido</TableHead>
+                    <TableHead className="h-9 px-3 text-right text-xs">Saldo</TableHead>
+                    <TableHead className="h-9 w-[104px] px-3" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((p) => {
+                    const uso = usageMap[p.id] || USO_VAZIO;
+                    const valor = comprometido(p, uso);
+                    const orc = Number(p.orcamento) || 0;
+                    const pc = pct(valor, orc);
+                    const saldo = orc - valor;
+                    const periodo =
+                      p.data_inicio || p.data_fim ? `${fmtData(p.data_inicio)} – ${fmtData(p.data_fim)}` : null;
+                    const apoio = [periodo, p.descricao].filter(Boolean).join(" · ");
+                    return (
+                      <TableRow key={p.id} className="cursor-pointer" onClick={() => navigate(`/projetos/${p.id}`)}>
+                        <TableCell className="max-w-[300px] px-3 py-2">
+                          <p className="truncate font-medium text-foreground">{p.nome}</p>
+                          {apoio && <p className="truncate text-xs tabular-nums text-muted-foreground">{apoio}</p>}
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
+                          <FaseChip fase={p.fase_atual} />
+                        </TableCell>
+                        <TableCell className="max-w-[180px] px-3 py-2">
+                          <p className="truncate text-sm">{p.responsavel_nome || p.responsavel_email || "—"}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            aprov. {p.aprovador_nome || p.aprovador_email || "—"}
+                          </p>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap px-3 py-2 text-right text-sm tabular-nums">
+                          {fmtMoeda(orc)}
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
+                          <div className="flex items-baseline justify-between gap-2 whitespace-nowrap text-sm tabular-nums">
+                            <span>{fmtMoeda(valor)}</span>
+                            <span className="text-xs text-muted-foreground">{fmtPct(pc)}</span>
+                          </div>
+                          <BarraConsumo pct={pc} className="mt-1" />
+                        </TableCell>
+                        <TableCell
+                          className={`whitespace-nowrap px-3 py-2 text-right text-sm tabular-nums ${saldo < 0 ? "text-danger" : ""}`}
+                        >
+                          {fmtMoeda(saldo)}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5">{acoesProjeto(p)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Mobile: lista compacta */}
+            <div className="divide-y divide-border overflow-hidden rounded-md border border-border bg-card md:hidden">
+              {filtered.map((p) => {
+                const uso = usageMap[p.id] || USO_VAZIO;
+                const valor = comprometido(p, uso);
+                const orc = Number(p.orcamento) || 0;
+                const pc = pct(valor, orc);
+                return (
+                  <div key={p.id} className="cursor-pointer px-3 py-3" onClick={() => navigate(`/projetos/${p.id}`)}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{p.nome}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {p.responsavel_nome || p.responsavel_email || "—"} · aprov.{" "}
+                          {p.aprovador_nome || p.aprovador_email || "—"}
+                        </p>
+                      </div>
+                      <FaseChip fase={p.fase_atual} />
+                    </div>
+                    <div className="mt-2 flex items-baseline justify-between text-xs tabular-nums">
+                      <span>
+                        {fmtMoeda(valor)} <span className="text-muted-foreground">de {fmtMoeda(orc)}</span>
+                      </span>
+                      <span className={tomConsumo(pc) === "perigo" ? "text-danger" : "text-muted-foreground"}>
+                        {fmtPct(pc)}
+                      </span>
+                    </div>
+                    <BarraConsumo pct={pc} className="mt-1" />
+                    <div className="mt-1">{acoesProjeto(p)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* Create/Edit Dialog */}
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{editingProject ? "Editar projeto" : "Novo projeto"}</DialogTitle>
+              <DialogDescription>
+                O responsável cria os pedidos de compra; o aprovador aprova o Budget e libera o Actual.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-1">
+              <div className="space-y-1.5">
+                <Label>Nome do projeto *</Label>
+                <Input value={nome} onChange={(e) => setNome(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Descrição</Label>
+                <Textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={3} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Orçamento (R$) *{!isAdmin && editingProject ? " — somente admin" : ""}</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={orcamento}
+                  onChange={(e) => setOrcamento(e.target.value)}
+                  disabled={!isAdmin && !!editingProject}
+                  className="tabular-nums"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Responsável *</Label>
+                  <Select value={responsavelId} onValueChange={setResponsavelId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {responsaveis.length === 0 ? (
+                        <p className="px-2 py-2 text-xs text-muted-foreground">
+                          Nenhum usuário com papel "Responsável de Projeto" cadastrado.
+                        </p>
+                      ) : (
+                        responsaveis.map((u) => (
+                          <SelectItem key={u.user_id} value={u.user_id}>
+                            {userLabel(u)}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Cria os pedidos de compra.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Aprovador *</Label>
+                  <Select value={aprovadorId} onValueChange={setAprovadorId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {aprovadores.length === 0 ? (
+                        <p className="px-2 py-2 text-xs text-muted-foreground">
+                          Nenhum usuário com papel "Aprovador de Projetos" cadastrado.
+                        </p>
+                      ) : (
+                        aprovadores.map((u) => (
+                          <SelectItem key={u.user_id} value={u.user_id}>
+                            {userLabel(u)}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Aprova o Budget e libera o Actual.</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Data de início</Label>
+                  <Input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Data de fim</Label>
+                  <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {editingProject ? "Salvar" : "Criar projeto"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation */}
+        <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir o projeto "{deleteTarget?.nome}"?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Os pedidos de compra do projeto e o histórico de eventos dele também serão apagados. Esta ação não pode
+                ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </TooltipProvider>
   );
 }
