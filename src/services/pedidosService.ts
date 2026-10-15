@@ -3013,7 +3013,7 @@ export async function calcularParcelas(
  * Desembrulha o objeto do pedido de qualquer envelope que o GET possa
  * devolver (objeto direto, .data, lista nomeada, array puro).
  */
-function desembrulharPedido(bruto: any): any | null {
+export function desembrulharPedido(bruto: any): any | null {
   if (!bruto || typeof bruto !== "object") return null;
 
   if (Array.isArray(bruto.ItemPedCompChildList) && bruto.Numero) return bruto;

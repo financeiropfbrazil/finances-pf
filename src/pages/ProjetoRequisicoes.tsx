@@ -48,6 +48,7 @@ import {
   Paperclip,
   FileText,
   X,
+  BadgeCheck,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ProductCombobox } from "@/components/ProductCombobox";
@@ -96,6 +97,11 @@ import {
   validarAnexos,
 } from "@/services/projetoArquivosService";
 import { sincronizarPedidosDoProjeto, getStatusAlvoDoPedido } from "@/services/projetoAlvoLoadService";
+import {
+  enviarParaAprovacaoAlvo,
+  podeMostrarEnviarAprovacao,
+  type ResultadoAprovacao,
+} from "@/services/projetoAprovacaoService";
 import { BarraConsumo, CabecalhoSecao, FaseChip, Indicador, StatusChip } from "@/components/projetos/ProjetosUI";
 import { STATUS_PEDIDO, fmtData, fmtMoeda, fmtPct, tomEtapa } from "@/components/projetos/projetosFormat";
 
@@ -156,6 +162,9 @@ export default function ProjetoRequisicoes() {
   const [saving, setSaving] = useState(false);
   const [enviando, setEnviando] = useState<string | null>(null);
   const [enviarTarget, setEnviarTarget] = useState<any>(null);
+  // L10: "Enviar para aprovação" avulso (pedido já criado no Alvo)
+  const [aprovacaoAlvoTarget, setAprovacaoAlvoTarget] = useState<any>(null);
+  const [enviandoAprovacaoAlvo, setEnviandoAprovacaoAlvo] = useState<string | null>(null);
   const [currentFase, setCurrentFase] = useState<"budget" | "actual">("budget");
   const [enviandoAprovacao, setEnviandoAprovacao] = useState(false);
   const [aprovandoBudget, setAprovandoBudget] = useState(false);
@@ -463,6 +472,9 @@ export default function ProjetoRequisicoes() {
     r.fase === "actual" &&
     (isAdmin || (canReenviar && isResponsavel)) &&
     (r.status === "rascunho" || r.status === "erro");
+  // L10: pode mandar para aprovação no Alvo um pedido já criado (mesma regra de quem envia)
+  const canSendForApprovalAlvo = (r: any) =>
+    faseAtual === "actual" && r.fase === "actual" && (isAdmin || (canReenviar && isResponsavel)) && podeMostrarEnviarAprovacao(r);
   // Pode enviar Budget para aprovação
   const canSendForApproval = (isAdmin || isResponsavel) && faseAtual === "budget" && pedidosBudget.length > 0;
   // Pode aprovar Budget
@@ -849,10 +861,10 @@ export default function ProjetoRequisicoes() {
     setEnviarTarget(null);
     const result = await enviarRequisicaoAlvo(targetId, (projeto as any).nome);
     if (result.success && result.error) {
-      // Pedido entrou no ERP mas o Hub não registrou o status: NÃO é sucesso limpo.
+      // Pedido entrou no ERP mas o Hub não registrou tudo: NÃO é sucesso limpo.
       // Era exatamente este o caso que passava batido antes (achado A-2).
       toast({
-        title: "Enviado ao Alvo, mas o Hub não registrou",
+        title: "Enviado ao Alvo, mas o Hub não registrou tudo",
         description: result.error,
         variant: "destructive",
       });
@@ -861,8 +873,40 @@ export default function ProjetoRequisicoes() {
     } else {
       toast({ title: "Erro ao enviar", description: result.error, variant: "destructive" });
     }
+    if (result.success && result.aprovacao) avisarAprovacao(result.numeroPedido || "", result.aprovacao);
     setEnviando(null);
     await queryClient.invalidateQueries({ queryKey: ["projeto-requisicoes", projetoId] });
+    await queryClient.invalidateQueries({ queryKey: ["projeto-etapas", projetoId] });
+  }
+
+  /** L10: resultado do comando de aprovação — falha NUNCA aparece como sucesso. */
+  function avisarAprovacao(numero: string, a: ResultadoAprovacao) {
+    if (!a.ok) {
+      toast({
+        title: `Pedido ${numero} NÃO foi enviado para aprovação`,
+        description: `${a.erro ?? "Erro desconhecido"}. Use o botão "Enviar para aprovação" na linha do pedido.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    const prox = a.proximoAprovador ? ` Próximo aprovador: ${a.proximoAprovador}.` : "";
+    toast({
+      title: a.jaEstava ? `Pedido ${numero} já estava em aprovação no Alvo` : `Pedido ${numero} enviado para aprovação`,
+      description: `${a.statusAprovacao ? `Situação no Alvo: ${a.statusAprovacao}.` : ""}${prox}${a.aviso ? ` Atenção: ${a.aviso}` : ""}`,
+      variant: a.aviso ? "destructive" : undefined,
+    });
+  }
+
+  async function handleEnviarParaAprovacaoAlvo() {
+    if (!aprovacaoAlvoTarget) return;
+    const alvo = aprovacaoAlvoTarget;
+    setAprovacaoAlvoTarget(null);
+    setEnviandoAprovacaoAlvo(alvo.id);
+    const a = await enviarParaAprovacaoAlvo({ id: alvo.id, numero_pedido_alvo: alvo.numero_pedido_alvo });
+    avisarAprovacao(alvo.numero_pedido_alvo, a);
+    setEnviandoAprovacaoAlvo(null);
+    await queryClient.invalidateQueries({ queryKey: ["projeto-requisicoes", projetoId] });
+    await queryClient.invalidateQueries({ queryKey: ["projeto-etapas", projetoId] });
   }
 
   // ── Novo: Enviar Budget para Aprovação (RPC) ──
@@ -1026,6 +1070,27 @@ export default function ProjetoRequisicoes() {
             </Button>
           </TooltipTrigger>
           <TooltipContent>{r.status === "erro" ? "Reenviar ao ERP" : "Enviar ao ERP"}</TooltipContent>
+        </Tooltip>
+      )}
+      {canSendForApprovalAlvo(r) && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-primary hover:text-primary"
+              disabled={enviandoAprovacaoAlvo === r.id}
+              onClick={() => setAprovacaoAlvoTarget(r)}
+            >
+              {enviandoAprovacaoAlvo === r.id ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <BadgeCheck className="h-3.5 w-3.5" />
+              )}
+              <span className="sr-only">Enviar para aprovação</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Enviar para aprovação no Alvo</TooltipContent>
         </Tooltip>
       )}
       {canEditRow && (r.status !== "enviado" || isAdmin) && (
@@ -1422,7 +1487,7 @@ export default function ProjetoRequisicoes() {
                           {r.sequencia}
                         </div>
                       </TableCell>
-                      <TableCell className={`${fase === "actual" ? "max-w-[260px]" : "max-w-[360px]"} px-3 py-2`}>
+                      <TableCell className={`${fase === "actual" ? "max-w-[220px]" : "max-w-[360px]"} px-3 py-2`}>
                         <p className="flex items-center gap-1.5 text-sm font-medium" title={r.descricao}>
                           <span className="truncate">{r.descricao}</span>
                           {clipeAnexos(r)}
@@ -2528,9 +2593,47 @@ export default function ProjetoRequisicoes() {
                 )}
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <div className="flex gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <p>
+                <span className="font-semibold">O pedido também vai para APROVAÇÃO no Alvo.</span> Logo depois de criado,
+                o Hub manda o comando "Enviar aprovação = Sim": a cadeia de aprovação começa na hora e o aprovador
+                (definido pelo Alvo) é avisado pelo ERP.
+              </p>
+            </div>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction onClick={handleEnviarAlvo}>Enviar ao ERP</AlertDialogAction>
+              <AlertDialogAction onClick={handleEnviarAlvo}>Criar e enviar para aprovação</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* L10: Enviar para aprovação (pedido já criado no Alvo) */}
+        <AlertDialog
+          open={!!aprovacaoAlvoTarget}
+          onOpenChange={(v) => {
+            if (!v) setAprovacaoAlvoTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Enviar para aprovação no Alvo</AlertDialogTitle>
+              <AlertDialogDescription>
+                Pedido {aprovacaoAlvoTarget?.numero_pedido_alvo} · #{aprovacaoAlvoTarget?.sequencia} "
+                {aprovacaoAlvoTarget?.descricao}" ({fmtMoeda(Number(aprovacaoAlvoTarget?.valor_total) || 0)}).
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="flex gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <p>
+                O Hub vai mandar o comando "Enviar aprovação = Sim" para este pedido. A cadeia de aprovação começa na
+                hora e o aprovador é avisado pelo ERP. Antes, o Hub confere no Alvo se o pedido ainda não foi para
+                aprovação — se já foi, nada é reenviado.
+              </p>
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleEnviarParaAprovacaoAlvo}>Enviar para aprovação</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

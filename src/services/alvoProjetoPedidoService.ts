@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { marcarEnviado, marcarArquivosEnviados, descricaoErro, falhou } from "./projetosService";
 import { resolverUsuarioAlvoOuNull, type ConsolidacaoRateio } from "./pedidosService";
 import { baixarAnexosParaEnvio, listarArquivosDoPedido } from "./projetoArquivosService";
+import { enviarParaAprovacaoAlvo, type ResultadoAprovacao } from "./projetoAprovacaoService";
 import {
   calcularParcelasProjeto,
   datasParaAlvo,
@@ -649,7 +650,7 @@ async function postPedidoMultipartViaGateway(
 export async function enviarRequisicaoAlvo(
   requisicaoId: string,
   projetoNome: string,
-): Promise<{ success: boolean; numeroPedido?: string; error?: string }> {
+): Promise<{ success: boolean; numeroPedido?: string; error?: string; aprovacao?: ResultadoAprovacao }> {
   try {
     const req = await fetchRequisicao(requisicaoId);
 
@@ -734,25 +735,38 @@ export async function enviarRequisicaoAlvo(
       return {
         success: true,
         numeroPedido,
-        error: `Pedido criado no Alvo (#${numeroPedido}) mas o Hub não registrou o status: ${descricaoErro(marcado)}`,
+        error:
+          `Pedido criado no Alvo (#${numeroPedido}) mas o Hub não registrou o status: ${descricaoErro(marcado)}. ` +
+          "Ele NÃO foi enviado para aprovação — o Hub precisa registrar o envio antes.",
       };
     }
 
     console.log("[PedComp] Requisição atualizada via RPC:", requisicaoId);
 
+    const avisos: string[] = [];
     if (anexos.length > 0) {
       const carimbo = await marcarArquivosEnviados(requisicaoId, numeroPedido);
       if (falhou(carimbo)) {
         console.error("[PedComp] Pedido e anexos no Alvo, mas os anexos não foram carimbados no Hub:", carimbo);
-        return {
-          success: true,
-          numeroPedido,
-          error: `Pedido criado no Alvo (#${numeroPedido}) com ${anexos.length} anexo(s), mas o Hub não registrou o envio dos anexos: ${descricaoErro(carimbo)}`,
-        };
+        avisos.push(
+          `Pedido criado no Alvo (#${numeroPedido}) com ${anexos.length} anexo(s), mas o Hub não registrou o envio dos anexos: ${descricaoErro(carimbo)}`,
+        );
       }
     }
 
-    return { success: true, numeroPedido };
+    // L10: envio para aprovação — SEGUNDO passo, depois do pedido criado e
+    // registrado. Nunca lança (um throw aqui cairia no catch abaixo e marcaria
+    // como 'erro' um pedido que JÁ existe no Alvo, liberando reenvio duplicado).
+    let aprovacao: ResultadoAprovacao;
+    try {
+      aprovacao = numeroPedido
+        ? await enviarParaAprovacaoAlvo({ id: requisicaoId, numero_pedido_alvo: numeroPedido })
+        : { ok: false, erro: "O Alvo não devolveu o número do pedido." };
+    } catch (errAprov: any) {
+      aprovacao = { ok: false, erro: errAprov?.message || String(errAprov) };
+    }
+
+    return { success: true, numeroPedido, aprovacao, error: avisos.length > 0 ? avisos.join(" · ") : undefined };
   } catch (err: any) {
     const msg = err.message || "Erro desconhecido";
     console.error("[PedComp] Erro ao enviar:", msg);

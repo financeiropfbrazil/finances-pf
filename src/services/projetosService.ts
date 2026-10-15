@@ -280,3 +280,26 @@ export interface EtapasDoProjeto {
 export async function listarEtapasDoProjeto(projetoId: string): Promise<ResultadoRpc<EtapasDoProjeto>> {
   return chamarRpc<EtapasDoProjeto>("projeto_pedidos_etapa", { p_projeto_id: projetoId });
 }
+
+// ── Envio para aprovação (L10) ───────────────────────────────────────
+
+/**
+ * Registra no Hub o comando "Enviar aprovação" dado no Alvo (LIVRO: o Hub
+ * mandou). O FATO (`enviou_aprovacao`, `status_aprovacao`) continua vindo só da
+ * leitura do Alvo — nunca é escrito daqui.
+ *
+ * `sucesso = null` é o PRÉ-VOO: o banco confere permissão e estado do pedido e
+ * não grava nada. Tem de rodar ANTES do comando ao Alvo, porque o gateway só
+ * exige login, não a permissão do Hub.
+ */
+export async function registrarEnvioAprovacao(
+  id: string,
+  sucesso: boolean | null,
+  detalhes: Record<string, unknown> = {},
+): Promise<ResultadoRpc<{ success: true; pre_voo?: boolean; evento_id?: string }>> {
+  return chamarRpc("projeto_pedido_registrar_aprovacao", {
+    p_id: id,
+    p_sucesso: sucesso,
+    p_detalhes: detalhes,
+  });
+}
