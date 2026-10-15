@@ -303,3 +303,41 @@ export async function registrarEnvioAprovacao(
     p_detalhes: detalhes,
   });
 }
+
+// ── Previsão × pagamento real (L12) ──────────────────────────────────
+
+/** Título a pagar do Alvo (criado no lançamento da NF), com a regra de prova do Rastreio. */
+export interface TituloPagamento {
+  vencimento: string | null;
+  valor: number | null;
+  pago_em: string | null;
+  valor_pago: number | null;
+  /** 'pago' | 'baixa_sem_mov' | 'quitado_adto' | 'agrupado' | 'aberto' | 'desconhecido' */
+  classe: string;
+  situacao: string | null;
+}
+
+export interface PagamentosDoPedido {
+  numero: string;
+  /** Parcelas do PEDIDO como estão no Alvo — previsão, não pagamento. */
+  previsao: { sequencia: number; vencimento: string | null; valor: number | null }[];
+  /** NFs lançadas para o pedido, cada uma com os seus títulos (o pagamento real). */
+  nfs: {
+    nf: string | null;
+    entrada: string | null;
+    valor_pedido_na_nf: number | null;
+    qtd_pedidos_na_nf: number;
+    titulos: TituloPagamento[];
+    titulos_lidos_em: string | null;
+  }[];
+}
+
+/**
+ * Previsão (parcelas do pedido no Alvo) e pagamento real (títulos da NF) de
+ * cada pedido do projeto já enviado. Mesmas fontes do Rastreio de Compras.
+ */
+export async function listarPagamentosDoProjeto(
+  projetoId: string,
+): Promise<ResultadoRpc<{ success: true; pedidos: PagamentosDoPedido[] }>> {
+  return chamarRpc("projeto_pedidos_pagamentos", { p_projeto_id: projetoId });
+}

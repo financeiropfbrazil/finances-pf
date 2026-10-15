@@ -217,3 +217,14 @@ describe("envio ao Alvo (L11)", () => {
     expect(payload.PedCompUserFieldsObject).toEqual({});
   });
 });
+
+import { situacaoPagamento } from "@/components/projetos/projetosFormat";
+
+describe("situacaoPagamento — regra de prova do Rastreio", () => {
+  it("só é 'Pago' com baixa e movimento bancário; baixa sem movimento não é pagamento comprovado", () => {
+    expect(situacaoPagamento("pago").label).toBe("Pago");
+    expect(situacaoPagamento("baixa_sem_mov")).toEqual({ label: "Baixado sem movimento bancário", tom: "atencao" });
+    expect(situacaoPagamento("aberto").label).toBe("Em aberto");
+    expect(situacaoPagamento("qualquer-coisa").label).toBe("Situação desconhecida");
+  });
+});

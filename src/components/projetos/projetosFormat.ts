@@ -56,3 +56,17 @@ const TOM_ETAPA: Record<string, Tom> = {
 };
 
 export const tomEtapa = (etapa: string): Tom => TOM_ETAPA[etapa] ?? "neutro";
+
+/**
+ * Situação de um título a pagar, pela regra de prova do Rastreio
+ * (`rastreio_classe_pagamento`): só é "Pago" com baixa E movimento bancário.
+ */
+const PAGAMENTO: Record<string, { label: string; tom: Tom }> = {
+  pago: { label: "Pago", tom: "sucesso" },
+  quitado_adto: { label: "Quitado por adiantamento", tom: "sucesso" },
+  baixa_sem_mov: { label: "Baixado sem movimento bancário", tom: "atencao" },
+  agrupado: { label: "Agrupado em outro título", tom: "neutro" },
+  aberto: { label: "Em aberto", tom: "info" },
+};
+
+export const situacaoPagamento = (classe: string) => PAGAMENTO[classe] ?? { label: "Situação desconhecida", tom: "neutro" as Tom };

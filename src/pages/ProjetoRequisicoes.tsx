@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { toast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -49,8 +51,10 @@ import {
   FileText,
   X,
   BadgeCheck,
+  CalendarDays,
 } from "lucide-react";
 import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { ProductCombobox } from "@/components/ProductCombobox";
 import { enviarRequisicaoAlvo, fetchLinhasCondicao, validarLinhasRateio } from "@/services/alvoProjetoPedidoService";
 import {
@@ -60,15 +64,13 @@ import {
   descricaoErro,
   falhou,
   listarEtapasDoProjeto,
+  listarPagamentosDoProjeto,
+  type PagamentosDoPedido,
   type ArquivoPedidoProjeto,
   type DadosPedido,
 } from "@/services/projetosService";
 import {
-  BASES_PARCELAS_PROJETO,
-  BASE_PARCELAS_PROJETO_PADRAO,
-  DIAS_ENTREGA_PADRAO,
   adicionarParcela,
-  alterarDias,
   alterarValor,
   alterarVencimento,
   calcularParcelasProjeto,
@@ -76,13 +78,10 @@ import {
   fmtDataBR,
   hojeYMD,
   linhasDoResumo,
-  normalizarBaseParcelas,
   recalcularDias,
   removerParcela,
   somaParcelas,
-  somarDias,
   validarParcelas,
-  type BaseParcelasProjeto,
   type ParcelaProjeto,
 } from "@/services/projetoParcelas";
 import {
@@ -103,7 +102,7 @@ import {
   type ResultadoAprovacao,
 } from "@/services/projetoAprovacaoService";
 import { BarraConsumo, CabecalhoSecao, FaseChip, Indicador, StatusChip } from "@/components/projetos/ProjetosUI";
-import { STATUS_PEDIDO, fmtData, fmtMoeda, fmtPct, tomEtapa } from "@/components/projetos/projetosFormat";
+import { STATUS_PEDIDO, fmtData, fmtMoeda, fmtPct, situacaoPagamento, tomEtapa } from "@/components/projetos/projetosFormat";
 
 const fmtCurrency = fmtMoeda;
 
@@ -187,12 +186,13 @@ export default function ProjetoRequisicoes() {
   ]);
   const [classeRateio, setClasseRateio] = useState<ClasseRateio[]>([]);
 
-  // ── Entrega e parcelas (L11 — só Actual) ──
+  // ── Previsão de pagamento (L11/L12 — só Actual) ──
   // `parcelasManuais` = a pessoa mexeu: o envio manda exatamente o que ficou.
-  // Automáticas são recalculadas no envio, com a data do dia.
-  const [dataEntrega, setDataEntrega] = useState<string>(() => somarDias(hojeYMD(), DIAS_ENTREGA_PADRAO));
-  const [baseParcelas, setBaseParcelas] = useState<BaseParcelasProjeto>(BASE_PARCELAS_PROJETO_PADRAO);
+  // Automáticas são recalculadas no envio, com a data do dia. Os prazos contam
+  // sempre da Data do Pedido (o dia do envio) e a Data da Entrega não aparece:
+  // vai ao Alvo como o dia do envio, como sempre foi (decisão do Pedro, 15/10).
   const [parcelas, setParcelas] = useState<ParcelaProjeto[]>([]);
+  const [parcelaCalendarioAberto, setParcelaCalendarioAberto] = useState<number | null>(null);
   const [parcelasManuais, setParcelasManuais] = useState(false);
   const [erroCalculoParcelas, setErroCalculoParcelas] = useState<string | null>(null);
 
@@ -336,8 +336,8 @@ export default function ProjetoRequisicoes() {
 
   // ── Parcelas (L11) ──
   const hoje = hojeYMD();
-  /** Data de onde os prazos contam: o dia do envio (Data do Pedido) ou a Data da Entrega. */
-  const dataBaseParcelas = baseParcelas === "Data da Entrega" && ehDataValida(dataEntrega) ? dataEntrega : hoje;
+  /** Os prazos da condição contam do dia do envio (Data do Pedido). */
+  const dataBaseParcelas = hoje;
   const valorPedidoForm = Math.round(valorTotalItens * 100) / 100;
 
   const { data: linhasCondicao, isFetching: carregandoCondicao } = useQuery({
@@ -372,20 +372,6 @@ export default function ProjetoRequisicoes() {
     setParcelasManuais(true);
   }
 
-  function trocarDataEntrega(nova: string) {
-    setDataEntrega(nova);
-    // Editadas à mão contando da entrega: os vencimentos ficam, os "dias" da 1ª acompanham.
-    if (parcelasManuais && baseParcelas === "Data da Entrega" && ehDataValida(nova)) {
-      setParcelas((ps) => recalcularDias(ps, nova));
-    }
-  }
-
-  function trocarBaseParcelas(nova: BaseParcelasProjeto) {
-    if (nova === baseParcelas) return;
-    setBaseParcelas(nova);
-    setParcelasManuais(false); // trocar a base é decisão explícita: refaz do zero
-  }
-
   // ── Etapa (L11 — Rastreio de Compras, só informativa) ──
   const temPedidoNoAlvo = useMemo(
     () => (requisicoes as any[]).some((r) => r.fase === "actual" && !!r.numero_pedido_alvo),
@@ -403,6 +389,23 @@ export default function ProjetoRequisicoes() {
     retry: false,
   });
   const etapaPorNumero = useMemo(() => new Map((etapas?.pedidos ?? []).map((e) => [e.numero, e])), [etapas]);
+
+  // ── Previsão × pagamento real (L12 — espelho do Alvo, mesmas fontes do Rastreio) ──
+  const { data: pagamentos, error: erroPagamentos } = useQuery({
+    queryKey: ["projeto-pagamentos", projetoId],
+    queryFn: async () => {
+      const r = await listarPagamentosDoProjeto(projetoId!);
+      if (falhou(r)) throw new Error(descricaoErro(r));
+      return r.dados.pedidos;
+    },
+    enabled: !!projetoId && temPedidoNoAlvo,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const pagamentosPorNumero = useMemo(
+    () => new Map<string, PagamentosDoPedido>((pagamentos ?? []).map((p) => [p.numero, p])),
+    [pagamentos],
+  );
   const etapasAtualizadoEm = etapas?.atualizado_em ? format(new Date(etapas.atualizado_em), "dd/MM 'às' HH:mm") : null;
 
   // ── Open-load do Alvo (L7-A) ──────────────────────────────────────────────
@@ -503,8 +506,6 @@ export default function ProjetoRequisicoes() {
     ]);
     setClasseRateio([]);
     setArquivosNovos([]);
-    setDataEntrega(somarDias(hojeYMD(), DIAS_ENTREGA_PADRAO));
-    setBaseParcelas(BASE_PARCELAS_PROJETO_PADRAO);
     setParcelas([]);
     setParcelasManuais(false);
     setErroCalculoParcelas(null);
@@ -562,16 +563,10 @@ export default function ProjetoRequisicoes() {
         percentual: Number(c.percentual) || 0,
       })),
     );
-    // L11: pedido anterior às parcelas (sem entrega gravada) abre com o padrão.
-    const entrega = ehDataValida(r.data_entrega) ? r.data_entrega : somarDias(hojeYMD(), DIAS_ENTREGA_PADRAO);
-    const base = r.data_base_parcelas ? normalizarBaseParcelas(r.data_base_parcelas) : BASE_PARCELAS_PROJETO_PADRAO;
-    setDataEntrega(entrega);
-    setBaseParcelas(base);
     setErroCalculoParcelas(null);
     if (r.parcelas_manuais && Array.isArray(r.parcelas) && r.parcelas.length > 0) {
-      // "dias" refeitos contra a data base de HOJE — os vencimentos gravados ficam.
-      const baseHoje = base === "Data da Entrega" ? entrega : hojeYMD();
-      setParcelas(recalcularDias(r.parcelas as ParcelaProjeto[], baseHoje));
+      // "dias" refeitos contra HOJE (a data do envio) — as datas gravadas ficam.
+      setParcelas(recalcularDias(r.parcelas as ParcelaProjeto[], hojeYMD()));
       setParcelasManuais(true);
     } else {
       setParcelas([]);
@@ -608,17 +603,9 @@ export default function ProjetoRequisicoes() {
 
     const vt = validItens.reduce((s, i) => s + i.quantidade * i.valor_unitario, 0);
 
-    // L11: entrega e parcelas (Actual). Sem condição escolhida não há parcelas —
-    // o envio recusa depois, como já fazia.
+    // L11/L12: previsão de pagamento (Actual). Sem condição escolhida não há
+    // parcelas — o envio recusa depois, como já fazia.
     if (currentFase === "actual") {
-      if (!ehDataValida(dataEntrega)) {
-        toast({ title: "Informe a Data da Entrega", variant: "destructive" });
-        return;
-      }
-      if (dataEntrega < hojeYMD() && dataEntrega !== editingReq?.data_entrega) {
-        toast({ title: "A Data da Entrega não pode ser anterior a hoje", variant: "destructive" });
-        return;
-      }
       if (condPag && parcelas.length > 0) {
         const problema = validarParcelas(parcelas, Math.round(vt * 100) / 100, {
           hoje: parcelasManuais ? hojeYMD() : undefined,
@@ -659,8 +646,9 @@ export default function ProjetoRequisicoes() {
       fase: currentFase,
       ...(currentFase === "actual"
         ? {
-            data_entrega: dataEntrega,
-            data_base_parcelas: baseParcelas,
+            // Data da Entrega fora da tela (L12): vai ao Alvo como o dia do envio.
+            data_entrega: null,
+            data_base_parcelas: "Data do Pedido",
             parcelas: condPag ? parcelas : [],
             parcelas_manuais: !!condPag && parcelas.length > 0 && parcelasManuais,
           }
@@ -877,6 +865,7 @@ export default function ProjetoRequisicoes() {
     setEnviando(null);
     await queryClient.invalidateQueries({ queryKey: ["projeto-requisicoes", projetoId] });
     await queryClient.invalidateQueries({ queryKey: ["projeto-etapas", projetoId] });
+    await queryClient.invalidateQueries({ queryKey: ["projeto-pagamentos", projetoId] });
   }
 
   /** L10: resultado do comando de aprovação — falha NUNCA aparece como sucesso. */
@@ -1229,6 +1218,116 @@ export default function ProjetoRequisicoes() {
     );
   };
 
+  // ── Pagamento (L12): PREVISÃO do pedido × títulos REAIS do Alvo (após a NF) ──
+  const blocoPagamento = (r: any) => {
+    const th = "px-2 py-1.5 font-medium";
+    const pg = r.numero_pedido_alvo ? pagamentosPorNumero.get(r.numero_pedido_alvo) : undefined;
+    // Antes do envio a previsão é a do Hub; depois, a que está no pedido do Alvo.
+    const previsao: { vencimento: string | null; valor: number | null }[] = r.numero_pedido_alvo
+      ? (pg?.previsao ?? [])
+      : r.parcelas_manuais && Array.isArray(r.parcelas)
+        ? (r.parcelas as ParcelaProjeto[]).map((pp) => ({ vencimento: pp.data_vencimento, valor: pp.valor_parcela }))
+        : [];
+    const titulos = (pg?.nfs ?? []).flatMap((n) => n.titulos.map((t) => ({ ...t, nf: n.nf, compartilhada: n.qtd_pedidos_na_nf > 1 })));
+    const nfsSemTitulo = (pg?.nfs ?? []).filter((n) => n.titulos.length === 0);
+
+    return (
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="min-w-0">
+          <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Previsão de pagamento (pedido)
+          </h4>
+          {previsao.length > 0 ? (
+            <div className="overflow-x-auto rounded border border-border bg-card">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/40 text-muted-foreground">
+                  <tr>
+                    <th className={`${th} text-left`}>Parcela</th>
+                    <th className={`${th} text-left`}>Data prevista</th>
+                    <th className={`${th} text-right`}>Valor</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {previsao.map((pv, i) => (
+                    <tr key={i}>
+                      <td className="px-2 py-1.5 tabular-nums text-muted-foreground">
+                        {i + 1}/{previsao.length}
+                      </td>
+                      <td className="px-2 py-1.5 tabular-nums">{pv.vencimento ? fmtDataBR(pv.vencimento) : "—"}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoeda(Number(pv.valor) || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {r.numero_pedido_alvo
+                ? erroPagamentos
+                  ? `Indisponível: ${(erroPagamentos as Error).message}`
+                  : "Parcelas do pedido ainda não lidas do Alvo."
+                : r.cond_pagamento_codigo
+                  ? "Calculada pela condição de pagamento no envio ao ERP."
+                  : "Sem condição de pagamento."}
+            </p>
+          )}
+        </div>
+        <div className="min-w-0">
+          <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Pagamento real (títulos do Alvo, após a NF)
+          </h4>
+          {titulos.length > 0 ? (
+            <div className="overflow-x-auto rounded border border-border bg-card">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/40 text-muted-foreground">
+                  <tr>
+                    <th className={`${th} text-left`}>NF</th>
+                    <th className={`${th} text-left`}>Vencimento</th>
+                    <th className={`${th} text-right`}>Valor</th>
+                    <th className={`${th} text-left`}>Situação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {titulos.map((t, i) => {
+                    const sit = situacaoPagamento(t.classe);
+                    return (
+                      <tr key={i}>
+                        <td className="px-2 py-1.5 font-mono" title={t.compartilhada ? "NF que atende mais de um pedido" : undefined}>
+                          {t.nf ?? "—"}
+                          {t.compartilhada && <span className="ml-1 font-sans text-muted-foreground">*</span>}
+                        </td>
+                        <td className="px-2 py-1.5 tabular-nums">{t.vencimento ? fmtDataBR(t.vencimento) : "—"}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoeda(Number(t.valor) || 0)}</td>
+                        <td className="px-2 py-1.5">
+                          <StatusChip tom={sit.tom}>
+                            {t.classe === "pago" && t.pago_em ? `Pago em ${fmtDataBR(t.pago_em)}` : sit.label}
+                          </StatusChip>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {!r.numero_pedido_alvo
+                ? "Aparece aqui quando a NF for lançada no Alvo."
+                : erroPagamentos
+                  ? `Indisponível: ${(erroPagamentos as Error).message}`
+                  : nfsSemTitulo.length > 0
+                    ? `NF ${nfsSemTitulo.map((n) => n.nf).join(", ")} lançada; títulos ainda não lidos do Alvo.`
+                    : "Ainda sem NF lançada no Alvo — a data de pagamento é definida no lançamento da NF."}
+            </p>
+          )}
+          {titulos.some((t) => t.compartilhada) && (
+            <p className="mt-1 text-[11px] text-muted-foreground">* NF que atende mais de um pedido: o título é da NF inteira.</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // ── Detalhe de um pedido (linha expandida): itens, rateio e dados do envio ──
   const detalhePedido = (r: any, fase: "budget" | "actual") => {
     const rItens = (r.itens as any[]) || [];
@@ -1322,6 +1421,7 @@ export default function ProjetoRequisicoes() {
             )}
           </div>
         </div>
+        {fase === "actual" && blocoPagamento(r)}
         {(arquivosPorPedido[r.id]?.length ?? 0) > 0 && (
           <div>
             <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Anexos</h4>
@@ -1359,18 +1459,6 @@ export default function ProjetoRequisicoes() {
             </span>
           )}
           {r.cond_pagamento_nome && <span>Cond. pagamento: {r.cond_pagamento_nome}</span>}
-          {fase === "actual" && ehDataValida(r.data_entrega) && <span>Entrega: {fmtDataBR(r.data_entrega)}</span>}
-          {fase === "actual" && r.parcelas_manuais && Array.isArray(r.parcelas) && r.parcelas.length > 0 && (
-            <span>
-              Parcelas (editadas):{" "}
-              {(r.parcelas as ParcelaProjeto[])
-                .map((pp) => `${fmtDataBR(pp.data_vencimento)} ${fmtMoeda(Number(pp.valor_parcela) || 0)}`)
-                .join(" · ")}
-            </span>
-          )}
-          {fase === "actual" && !r.parcelas_manuais && r.status !== "enviado" && r.cond_pagamento_codigo && (
-            <span>Parcelas: calculadas pela condição no envio</span>
-          )}
           {r.fornecedor_cnpj && <span>CNPJ: {r.fornecedor_cnpj}</span>}
           {r.alvo_synced_at && (
             <span>Status lido do ERP em {format(new Date(r.alvo_synced_at), "dd/MM/yyyy HH:mm")}</span>
@@ -2205,7 +2293,7 @@ export default function ProjetoRequisicoes() {
                 )}
               </div>
 
-              {/* Section 3b: Entrega e parcelas (L11 — só Actual) */}
+              {/* Section 3b: Previsão de pagamento (L11/L12 — só Actual) */}
               {currentFase === "actual" &&
                 (() => {
                   const podeMexer = editingReq
@@ -2223,13 +2311,13 @@ export default function ProjetoRequisicoes() {
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Entrega e parcelas
+                            Previsão de pagamento
                           </h3>
                           <p className="mt-0.5 text-xs text-muted-foreground">
                             {nomeCond ? (
                               <>
-                                Calculadas a partir de <span className="font-medium text-foreground">{nomeCond}</span>.
-                                Dá para editar vencimento, dias ou valor — vai assim para o ERP.
+                                Calculada pela condição <span className="font-medium text-foreground">{nomeCond}</span>,
+                                a partir do dia do envio ao ERP. Dá para mudar a data e o valor de cada parcela.
                               </>
                             ) : (
                               "Escolha a condição de pagamento para calcular as parcelas."
@@ -2246,47 +2334,8 @@ export default function ProjetoRequisicoes() {
                           title="Volta às parcelas da condição de pagamento"
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
-                          Recalcular do zero
+                          Recalcular pela condição
                         </Button>
-                      </div>
-
-                      <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 sm:grid-cols-[170px_1fr]">
-                        <div>
-                          <Label className="text-xs">Data da Entrega</Label>
-                          <Input
-                            type="date"
-                            value={dataEntrega}
-                            min={hoje}
-                            onChange={(e) => trocarDataEntrega(e.target.value)}
-                            disabled={!podeMexer}
-                            className="mt-1 h-9"
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <Label className="text-xs">Prazos contam a partir de</Label>
-                          <div className="mt-1 flex flex-wrap gap-2">
-                            {BASES_PARCELAS_PROJETO.map((b) => (
-                              <Button
-                                key={b.valor}
-                                type="button"
-                                size="sm"
-                                variant={baseParcelas === b.valor ? "default" : "outline"}
-                                onClick={() => trocarBaseParcelas(b.valor)}
-                                disabled={!podeMexer}
-                                className="h-9 text-xs"
-                              >
-                                {b.valor}
-                                <span className="ml-1.5 tabular-nums opacity-80">
-                                  {fmtDataBR(b.valor === "Data da Entrega" ? dataEntrega : hoje)}
-                                </span>
-                              </Button>
-                            ))}
-                          </div>
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            {BASES_PARCELAS_PROJETO.find((b) => b.valor === baseParcelas)?.ajuda} Vai ao ERP como
-                            "Data Base Parcelas".
-                          </p>
-                        </div>
                       </div>
 
                       {erroCalculoParcelas && (
@@ -2307,51 +2356,58 @@ export default function ProjetoRequisicoes() {
                       )}
 
                       {parcelas.length > 0 && (
-                        <div className="overflow-x-auto rounded-md border border-border">
-                          <table className="w-full text-xs">
-                            <thead className="bg-muted/40 text-muted-foreground">
+                        <div className="overflow-hidden rounded-md border border-border">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted/40 text-xs text-muted-foreground">
                               <tr>
-                                <th className="w-10 px-2 py-1.5 text-left font-medium">Nº</th>
-                                <th className="px-2 py-1.5 text-left font-medium">Vencimento</th>
-                                <th
-                                  className="w-24 px-2 py-1.5 text-center font-medium"
-                                  title="1ª parcela: dias depois da data base · demais: dias depois da parcela anterior"
-                                >
-                                  Dias
-                                </th>
-                                <th className="w-36 px-2 py-1.5 text-right font-medium">Valor (R$)</th>
-                                <th className="w-10" />
+                                <th className="w-14 px-3 py-2 text-left font-medium">Parcela</th>
+                                <th className="px-3 py-2 text-left font-medium">Data prevista de pagamento</th>
+                                <th className="w-44 px-3 py-2 text-right font-medium">Valor (R$)</th>
+                                <th className="w-12" />
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-border">
                               {parcelas.map((pp, idx) => (
                                 <tr key={idx}>
-                                  <td className="px-2 py-1.5 tabular-nums text-muted-foreground">{pp.sequencia}</td>
-                                  <td className="px-2 py-1.5">
-                                    <Input
-                                      type="date"
-                                      value={pp.data_vencimento}
-                                      min={hoje}
-                                      onChange={(e) =>
-                                        editarParcelas(alterarVencimento(parcelas, idx, e.target.value, dataBaseParcelas))
-                                      }
-                                      disabled={!podeMexer}
-                                      className="h-8 w-[150px] text-xs"
-                                    />
+                                  <td className="px-3 py-1.5 tabular-nums text-muted-foreground">
+                                    {pp.sequencia}/{parcelas.length}
                                   </td>
-                                  <td className="px-2 py-1.5">
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      value={pp.dias_entre_parcelas}
-                                      onChange={(e) =>
-                                        editarParcelas(alterarDias(parcelas, idx, Number(e.target.value), dataBaseParcelas))
-                                      }
-                                      disabled={!podeMexer}
-                                      className="h-8 text-center text-xs tabular-nums"
-                                    />
+                                  <td className="px-3 py-1.5">
+                                    <Popover
+                                      open={parcelaCalendarioAberto === idx}
+                                      onOpenChange={(v) => setParcelaCalendarioAberto(v ? idx : null)}
+                                    >
+                                      <PopoverTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          disabled={!podeMexer}
+                                          className="h-8 w-[150px] justify-start gap-2 font-normal tabular-nums"
+                                        >
+                                          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                                          {fmtDataBR(pp.data_vencimento)}
+                                        </Button>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="w-auto p-0" align="start">
+                                        <Calendar
+                                          mode="single"
+                                          locale={ptBR}
+                                          selected={ehDataValida(pp.data_vencimento) ? new Date(`${pp.data_vencimento}T12:00:00`) : undefined}
+                                          defaultMonth={ehDataValida(pp.data_vencimento) ? new Date(`${pp.data_vencimento}T12:00:00`) : undefined}
+                                          disabled={(d) => format(d, "yyyy-MM-dd") < hoje}
+                                          onSelect={(d) => {
+                                            if (!d) return;
+                                            editarParcelas(alterarVencimento(parcelas, idx, format(d, "yyyy-MM-dd"), dataBaseParcelas));
+                                            setParcelaCalendarioAberto(null);
+                                          }}
+                                          initialFocus
+                                          className="pointer-events-auto p-3"
+                                        />
+                                      </PopoverContent>
+                                    </Popover>
                                   </td>
-                                  <td className="px-2 py-1.5">
+                                  <td className="px-3 py-1.5">
                                     <Input
                                       type="number"
                                       min={0}
@@ -2359,10 +2415,10 @@ export default function ProjetoRequisicoes() {
                                       value={pp.valor_parcela}
                                       onChange={(e) => editarParcelas(alterarValor(parcelas, idx, Number(e.target.value)))}
                                       disabled={!podeMexer}
-                                      className="h-8 text-right text-xs tabular-nums"
+                                      className="h-8 text-right tabular-nums"
                                     />
                                   </td>
-                                  <td className="px-1 py-1.5 text-center">
+                                  <td className="px-2 py-1.5 text-center">
                                     <Button
                                       type="button"
                                       variant="ghost"
@@ -2379,24 +2435,24 @@ export default function ProjetoRequisicoes() {
                                 </tr>
                               ))}
                             </tbody>
-                            <tfoot className="border-t border-border bg-muted/30">
+                            <tfoot className="border-t border-border bg-muted/30 text-xs">
                               <tr>
-                                <td colSpan={3} className="px-2 py-1.5 text-right font-medium text-muted-foreground">
-                                  Total das parcelas
+                                <td colSpan={2} className="px-3 py-2">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="-ml-2 h-7 gap-1.5 text-xs"
+                                    onClick={() => editarParcelas(adicionarParcela(parcelas, dataBaseParcelas, valorPedidoForm))}
+                                    disabled={!podeMexer}
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Adicionar parcela
+                                  </Button>
                                 </td>
-                                <td
-                                  className={`px-2 py-1.5 text-right font-semibold tabular-nums ${fechou ? "text-success" : "text-danger"}`}
-                                >
-                                  {fmtMoeda(soma)}
-                                </td>
-                                <td />
-                              </tr>
-                              <tr>
-                                <td colSpan={3} className="px-2 pb-1.5 text-right text-muted-foreground">
-                                  Valor do pedido
-                                </td>
-                                <td className="px-2 pb-1.5 text-right tabular-nums text-muted-foreground">
-                                  {fmtMoeda(valorPedidoForm)}
+                                <td className="px-3 py-2 text-right tabular-nums">
+                                  <span className={`font-semibold ${fechou ? "text-success" : "text-danger"}`}>{fmtMoeda(soma)}</span>
+                                  <span className="block text-muted-foreground">de {fmtMoeda(valorPedidoForm)}</span>
                                 </td>
                                 <td />
                               </tr>
@@ -2406,28 +2462,13 @@ export default function ProjetoRequisicoes() {
                       )}
 
                       {parcelas.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-8 gap-1.5 text-xs"
-                            onClick={() => editarParcelas(adicionarParcela(parcelas, dataBaseParcelas, valorPedidoForm))}
-                            disabled={!podeMexer}
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Adicionar parcela
-                          </Button>
-                          {parcelasManuais ? (
-                            <span className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground">
-                              Editadas à mão — vão ao ERP exatamente assim. "Recalcular do zero" volta à condição.
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">
-                              Automáticas — no envio são recalculadas com a data do dia.
-                            </span>
-                          )}
-                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {parcelasManuais
+                            ? "Editadas à mão — vão ao ERP exatamente assim. "
+                            : "Automáticas — no envio são recalculadas com a data do dia. "}
+                          É a previsão do pedido: a data real de pagamento é definida quando a NF é lançada no Alvo e
+                          aparece no detalhe do pedido depois disso.
+                        </p>
                       )}
 
                       {problema && (
@@ -2579,16 +2620,11 @@ export default function ProjetoRequisicoes() {
                 ? Esta ação não pode ser desfeita.
                 {enviarTarget && (
                   <span className="mt-2 block text-xs">
-                    {ehDataValida(enviarTarget.data_entrega) && `Entrega ${fmtDataBR(enviarTarget.data_entrega)} · `}
                     {enviarTarget.parcelas_manuais && (enviarTarget.parcelas?.length ?? 0) > 0
                       ? `Parcelas editadas: ${(enviarTarget.parcelas as ParcelaProjeto[])
                           .map((pp) => `${fmtDataBR(pp.data_vencimento)} ${fmtMoeda(Number(pp.valor_parcela) || 0)}`)
                           .join(" · ")}`
-                      : `Parcelas calculadas agora pela condição (${enviarTarget.cond_pagamento_nome || "—"}), contando de ${
-                          enviarTarget.data_base_parcelas === "Data da Entrega" && ehDataValida(enviarTarget.data_entrega)
-                            ? `${fmtDataBR(enviarTarget.data_entrega)} (entrega)`
-                            : "hoje"
-                        }.`}
+                      : `Parcelas calculadas agora pela condição (${enviarTarget.cond_pagamento_nome || "—"}), contando de hoje.`}
                   </span>
                 )}
               </AlertDialogDescription>
