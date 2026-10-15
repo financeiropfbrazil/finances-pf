@@ -5,7 +5,14 @@
 --   so fase Actual; ate 3 arquivos PDF/JPG/PNG de ate 5 MB (os limites da rota
 --   /ped-comp/insert-multipart do erp-proxy, que ja leva os anexos do Suprimentos).
 --
--- ESTADO: PENDENTE de aplicacao (aguarda OK do Pedro).
+-- ESTADO (15/10/2026, OK do Pedro): aplicado pelo MCP em 6 migrations
+--   proj_l9_a_tabela_anexos, proj_l9_b_funcoes_regra_anexos,
+--   proj_l9_c_privilegios_e_policy_tabela, proj_l9_d_rpcs_registrar_e_marcar,
+--   proj_l9_f_pasta_projetos_pedidos. A parte com DELETE (RPC de excluir anexo
+--   + 3 policies da pasta) vai pelo SQL Editor: PROJ-L9-anexos-parte-final.sql.
+--   Motivo: o MCP trava (timeout 60 s) em qualquer SQL com DELETE/DROP — pede
+--   uma confirmacao que o Claude Code nao exibe. A tentativa proj_l9_e (excluir)
+--   travou e NAO foi aplicada (conferido por leitura).
 -- PRE-REQUISITOS: L1..L3 aplicados (projeto_requisicoes, _is_admin, _user_has_perm).
 -- Idempotente: if not exists / on conflict / drop policy if exists / create or replace.
 --
@@ -425,7 +432,10 @@ grant execute on function public.projeto_pedido_arquivo_registrar(uuid, uuid, te
 grant execute on function public.projeto_pedido_arquivo_excluir(uuid)                to authenticated;
 grant execute on function public.projeto_pedido_arquivos_marcar_enviados(uuid, text) to authenticated;
 
-revoke all on public.projeto_pedido_arquivos from anon;
+-- tabela fechada: escrita só pelas RPCs (que rodam como dono). TRUNCATE não passa
+-- pela RLS, por isso tudo sai do default do Supabase e só o SELECT volta.
+-- (Aplicado assim na proj_l9_c; medido depois: authenticated = só SELECT, anon = nada.)
+revoke all on public.projeto_pedido_arquivos from anon, authenticated;
 grant select on public.projeto_pedido_arquivos to authenticated;
 
 notify pgrst, 'reload schema';
