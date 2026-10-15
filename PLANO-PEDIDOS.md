@@ -65,6 +65,8 @@ Filtro do dropdown = essa lista (Enviando fica como estado transitório do card;
 | LD | Tela **Atualizar Cadastros** (produtos + fornecedores) + rotas de leitura de entidade no proxy | finances-pf + erp-proxy | ✅ **concluído** 19/07 — virou tela, NÃO Edge/delta (ver diário: os syncs já existiam) |
 | L5 | Data-fix: backfill de itens órfãos; recuperação de wipados SE existirem | SQL/disparo manual | 🟡 **em andamento 21/07** — grosso resolvido pela auditoria (1.129 via jsonb→tabela); 450 na fila de recarga |
 | L6 | Validação fim-a-fim com operação real | — | ⬜ |
+| LR-PAG F1 | Rastreio › Pagamento: regra "pago só com prova", totais do título da NF, parcelas no card; corrige o falso "pago" da projeção | SQL (MV + 2 funções) + finances-pf (src) | 🟡 **SQL APLICADO 15/10 10:32 BRT** (MCP de escrita, autorizado pelo Pedro) e verificado; frontend no working tree, **aguarda push + Publish**; `mv_rastreio_compras_v1` guardada para rollback até a limpeza |
+| LR-PAG F2 | Seguir a fatura agrupadora (02.007 → `Agrupamento` → FAT) — Edge `sync-parcelas-pagar-cron` v9 + coluna | finances-pf (Edge) + SQL | ⬜ depois da F1 validada |
 
 Ordem: **L0 → L1 → L3 → L2 → LD → L4 → L5 → L6** (L4 consome statusPedido + delta + open-load de uma vez).
 
@@ -128,6 +130,13 @@ Filosofia: e-mail não nasce de transição detectada (o open-load do L4 mataria
 
 ### L6 — Validação fim-a-fim (operação real, evidências no diário)
 0004441 abre com itens (loading visível) · aprovação 100% → e-mail ao criador ≤15min · conclusão → e-mail ao requisitante · cancelado no Alvo → badge no open · excluído no Alvo → badge no open · operadora cadastra produto+fornecedor no Alvo → botão → aparecem no wizard · filtro novo bate com o CASE SQL · replicar correções de narrativa nos reports consolidados.
+
+### LR-PAG — Pagamentos no Rastreio (pedido do Pedro, 15/10/2026)
+**Pedido:** a coluna Pagamento de `/suprimentos/rastreio` deve mostrar os valores pagos, com ligação confiável. **Decisões do Pedro:** NF de vários pedidos mostra os **valores da NF inteira** com aviso e a parte do pedido (sem ratear pagamento); começar pela **Fase 1**.
+**Regra (função única `rastreio_classe_pagamento`, usada pela MV e pela RPC):** `02.002` + `NumeroMovCtrlBanc` = **pago** · `02.002` + cobrança "BAIXA ADIANTAMENTO" = **quitado c/ adiantamento** · `02.002` sem movimento = baixa sem prova · `02.007` = agrupado em fatura (sem prova até a F2) · `02.001` = aberto · outro código = desconhecido (nunca pago). Projeção realizada **não** é pagamento. Pago/quitado em **R$** (o DocFin grava `ValorPago` convertido); total/em aberto na **moeda do título**.
+**F1 — arquivos:** `docs/rastreio-pagamentos/F1-aplicar.sql` (uma transação `repeatable read`: pré-voo com md5 da definição atual → guarda a MV como `mv_rastreio_compras_v1` e a recalcula → cria a nova por **6 trocas verificadas** sobre o próprio `pg_get_viewdef` → índices/ACL iguais aos de hoje, sem anon/authenticated → reaponta as 3 views com md5 conferido → **compara nova × antiga linha a linha e aborta** se mudar algo fora do previsto → RPC `rastreio_pagamento_nf(bigint)` com gate e `revoke ... from anon`) · `F1-verificar.sql` · `F1-rollback.sql` (troca de nomes de volta, sem retranscrever DDL) · `F1-limpeza.sql` (apaga a v1 depois de validada). Frontend: `SuprimentosRastreio.tsx` (card `PagamentoPasso` + parcelas sob demanda), `rastreioComprasService.ts`, `rastreioComprasExport.ts` (7 colunas novas e legenda sem "projeção = pago").
+**Ordem:** aplicar o SQL (fora do minuto :50–:59 e de 06h40) → `F1-verificar.sql` → push do frontend → conferir tela **e** Excel → Publish. Validar também com usuário **sem** `is_admin` (papel `visualizador_rastreio`).
+**F2 (não iniciada):** gravar o `Agrupamento` de cada parcela no B1 (DocFin/Load já traz) e reler os 467 títulos `02.007`; ligar à FAT do mesmo fornecedor e trazer ao espelho as FATs que faltam (5 de 10 testadas não estavam). Junto: backoff/limite de tentativas no cron 31 (laço da NF 21128 em 14/10).
 
 ---
 
@@ -352,3 +361,19 @@ do limite antigo, com UNID/1 automática; AMOSTRA UNID/2 e M3/3 bloqueada preser
 Temas conferidos e respostas reais validadas; sem persistência ou Insert. Operação
 continua restrita aos quatro participantes e cron suspenso. Aceite de requisição/
 aprovação será feito pelo usuário. Relatório: docs/aprovacao-multicc/CORRECAO-TIMEOUT.md.
+
+## 15/10/2026 — LR-PAG: pagamentos no Rastreio (preparado, nada aplicado)
+
+Pre-flight: projeto confirmado por objetos (`v_intercompany_master_unificado`, `intercompany_invoices_master_blocos_manual`, `sync_runs`); `compras_pedidos` = 2.290 (o "~1.650" do §0.5 está defasado). Acesso só SELECT.
+Medido no espelho `fin_parcelas_pagar`: os 4.403 títulos de NF (Estoque) têm `chave_movestq` → elo NF→título 100% por chave. **Falso "pago":** as 2.798 projeções PC/0 "pagas" são todas `Realizado=Sim` e **nenhuma** tem movimento bancário → 26 linhas (22 pedidos) do Rastreio apareciam pagas sem pagamento. 467 títulos `02.007` (agrupados) e 482 títulos "pagos" sem movimento bancário no total; nenhum agrupado afeta hoje uma NF ligada a pedido. Moeda: em USD/EUR, `valor_original` vem na moeda do título e `valor_pago` em R$ (26 NFs). O agrupador é um `FAT` (origem Nenhum) do mesmo fornecedor com número = `Agrupamento` da parcela; o espelho não guarda esse campo (`raw` nulo).
+Ensaio em leitura do texto exato do `F1-aplicar.sql`: 2.908 linhas; 25 "Pago (1ª parcela)"→"Aguardando pagamento", 1 "Pago antes da NF"→"Encerrado sem NF ligada", 27 datas de 1º pagamento; 77 colunas; a diferença residual (8 linhas/3 etapas) foi provada como deriva de dados com a definição atual sem trocas — some na aplicação real, que recalcula a v1 na mesma transação.
+Grants de hoje da MV e das 3 views: só `service_role` e `klaus_readonly` (o default do Supabase daria tudo a anon/authenticated ao recriar → revoke explícito no script).
+
+## 15/10/2026 — LR-PAG F1: SQL aplicado em produção
+
+Autorização do Pedro: "Pode aplicar o F1-aplicar.sql pelo MCP de escrita, depois do fingerprint, fora do minuto :50–:59."
+**Qual MCP escreve aqui:** dos conectores Supabase da sessão, só o `0e14dbb7` aponta para este projeto (fingerprint por objetos + números idênticos aos do `supabase-ro`: 2.293 pedidos, 32 `compras_nfse`, NSU 575, `atualizado_em` da MV igual ao microssegundo). Os outros caíram em `pqmdfcqeiqvnkqhewzim`, `myonymbedwddzztnkayv`, `jlinwjcpjhpaywycmzkg` e em dois bancos sem `compras_pedidos` — **o fingerprint barrou o primeiro candidato (`82aa8819`) antes de qualquer escrita**. O conector respeita `BEGIN … ISOLATION LEVEL` dentro do comando (provado com transação vazia).
+**Aplicação:** 13:32 UTC (10:32 BRT), arquivo idêntico ao do repo, sem erro (cada trava aborta por exceção). Resultado (via `supabase-ro`): 77 colunas; "Pago (1ª parcela)" 2.147→**2.122**; "Aguardando pagamento" 277→**302**; "Pago antes da NF" 1→**0**; "Encerrado sem NF ligada" 8→**9**; demais etapas idênticas à v1. ACL da MV igual à de antes; `anon`/`authenticated` sem leitura da MV; `anon` sem EXECUTE nas funções novas. As 3 views leem a MV nova, nenhuma lê a v1; filas do cron 31 em 0.
+**RPC testada por perfil** (conexão de escrita, `set local role authenticated` + `request.jwt.claims`, sempre `rollback`): visualizador **sem** `is_admin` → 3 parcelas da NF 20517 (pago, pago, aberto, com movimento bancário); admin → idem; usuário sem permissão → **42501**. ⚠️ O `_is_admin()` procura por `profiles.user_id`, não `profiles.id` — o primeiro teste usou o id errado e barrou o admin; com o `user_id` passou. Hoje **2 usuários** têm `compras.rastreio.access` (1 sem admin).
+**Achado nos valores:** de 3.554 parcelas pagas em R$, 3.191 com pago = valor, 307 explicadas por juros/multa/desconto e **56 sem explicação no espelho** (−R$ 139,7 mil; quase todas pago < valor: retenção, parcial ou baixa em lote). Caso extremo: DIV 265289 (chave 17139), valor R$ 950,00 pago R$ 6.005,69 sem juros — conferir no Alvo. O card passou a mostrar "valor da parcela → pago" quando diferem e chama o total de "valor original", sem afirmar a causa.
+**Pendente:** push do frontend + Publish; conferir tela e Excel; confirmar que o refresh das :55 (jobid 32) recalcula a MV nova; `F1-limpeza.sql` depois de alguns dias estável.

@@ -11,7 +11,7 @@
  * Planilha "Sobre": filtro aplicado, momento da exportação e glossário.
  */
 import type { CampoData, LinhaRastreio, NfCandidata } from "./rastreioComprasService";
-import { CAMPOS_DATA, FILTRO_NF_CANDIDATA, dataLocal } from "./rastreioComprasService";
+import { CAMPOS_DATA, FILTRO_NF_CANDIDATA, dataLocal, moedaDocFin } from "./rastreioComprasService";
 
 type Tipo = "texto" | "data" | "valor" | "inteiro";
 
@@ -152,6 +152,13 @@ const COLUNAS: Coluna[] = [
     largura: 10,
     valor: (l) => (l.tit_qtd_parcelas ? `${l.tit_qtd_pagas ?? 0}/${l.tit_qtd_parcelas}` : ""),
   },
+  { bloco: "Pagamento", label: "Título · moeda", tipo: "texto", largura: 8, valor: (l) => t(moedaDocFin(l.tit_moeda) ?? l.tit_moeda) },
+  { bloco: "Pagamento", label: "Título · valor original (moeda do título)", tipo: "valor", largura: 14, valor: (l) => n(l.tit_total) },
+  { bloco: "Pagamento", label: "Título · pago (R$, saída bancária)", tipo: "valor", largura: 14, valor: (l) => n(l.tit_total_pago) },
+  { bloco: "Pagamento", label: "Título · quitado c/ adiantamento (R$)", tipo: "valor", largura: 14, valor: (l) => n(l.tit_total_quitado_adto) },
+  { bloco: "Pagamento", label: "Título · em aberto (moeda do título)", tipo: "valor", largura: 14, valor: (l) => n(l.tit_total_em_aberto) },
+  { bloco: "Pagamento", label: "Título · parcelas sem prova", tipo: "inteiro", largura: 10, valor: (l) => n(l.tit_qtd_nao_confirmadas) },
+  { bloco: "Pagamento", label: "NF atende (pedidos)", tipo: "inteiro", largura: 9, valor: (l) => n(l.nf_qtd_pedidos) },
   { bloco: "Pagamento", label: "Título ligado por", tipo: "texto", largura: 18, valor: (l) => t(l.tit_ligacao) },
   { bloco: "Pagamento", label: "1º pagamento", tipo: "data", largura: 13, valor: (l) => d(l.primeiro_pagamento) },
   { bloco: "Pagamento", label: "Origem do 1º pagamento", tipo: "texto", largura: 18, valor: (l) => t(l.primeiro_pagamento_origem) },
@@ -297,7 +304,11 @@ export async function exportarRastreioXLSX(
     ["Estoque", "Laudo concluído = confirmação no estoque (E0000163). Serviço não tem laudo."],
     [
       "Pagamento",
-      "Adiantamento (PC série A), projeção do pedido (PC série 0, parcela 1) e título da NF (parcela 1), lidos do DocFin. 1º pagamento = o mais cedo entre adiantamento e título da NF; sem título ligado, vale a projeção realizada.",
+      "Adiantamento (PC série A), projeção do pedido (PC série 0, parcela 1) e título da NF (todas as parcelas), lidos do DocFin. " +
+        "Uma parcela só conta como PAGA com prova: situação 02.002 com movimento bancário (\"pago\", valor em R$) ou quitada por " +
+        "\"Baixa adiantamento\". Parcela agrupada em fatura (02.007) ou baixada sem movimento bancário NÃO conta (\"parcelas sem prova\"). " +
+        "Projeção realizada significa NF lançada no Alvo, não pagamento. 1º pagamento = o mais cedo entre adiantamento pago e parcela paga do título. " +
+        "Total e em aberto estão na moeda do título; pago e quitado, sempre em reais. Se a NF atende vários pedidos, os valores são da NF inteira e se repetem em cada linha.",
     ],
     [
       "NF candidata",
@@ -315,9 +326,8 @@ export async function exportarRastreioXLSX(
     ["Pedido em aprovação", "Sem NF e sem data de aprovação no Alvo."],
     ["Aguardando NF", "Pedido aprovado, nenhuma NF ligada ainda."],
     ["Em inspeção (laudo)", "NF lançada, laudo(s) ainda não concluído(s)."],
-    ["Aguardando pagamento", "NF lançada (e estoque confirmado, quando produto), 1ª parcela ainda não paga."],
-    ["Pago (1ª parcela)", "1ª parcela do título da NF paga (ou projeção realizada)."],
-    ["Pago (NF não ligada)", "Projeção do pedido realizada, mas a NF ainda não foi ligada ao pedido nas fontes do Hub."],
+    ["Aguardando pagamento", "NF lançada (e estoque confirmado, quando produto), nenhuma parcela do título paga com prova."],
+    ["Pago (1ª parcela)", "Ao menos uma parcela do título da NF paga com prova (ver bloco Pagamento)."],
     ["Adiantamento pago (sem NF)", "Adiantamento pago, NF ainda não ligada."],
     ["Encerrado sem NF ligada", "Pedido encerrado no Alvo sem NF ligada e sem pagamento identificado."],
     ["Cancelado", "Pedido cancelado no Alvo."],
