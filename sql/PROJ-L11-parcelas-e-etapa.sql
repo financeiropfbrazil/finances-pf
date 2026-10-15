@@ -5,7 +5,9 @@
 --   as duas mudanças juntas; prazos contam da Data do Pedido por padrão;
 --   Data da Entrega sugerida = hoje + 30.
 --
--- ESTADO: PENDENTE de aplicação (aguarda OK do Pedro).
+-- ESTADO: APLICADO em 15/10/2026 (OK do Pedro) pelo MCP, migration
+--   proj_l11_parcelas_e_etapa (seções 1–4, sem os comentários). md5 da
+--   projeto_pedido_salvar nova: d1401845de16c8e5c1b9885c0c836d30.
 -- Sem DELETE/DROP — pode ir pelo MCP. O rollback (que tem DROP) fica em
 -- PROJ-L11-rollback.sql e vai pelo SQL Editor, se um dia precisar.
 --
