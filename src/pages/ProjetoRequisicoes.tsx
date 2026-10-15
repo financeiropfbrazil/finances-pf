@@ -1,11 +1,10 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { Fragment, useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasPermission } from "@/hooks/useHasPermission";
 import { PERMISSIONS } from "@/constants/permissions";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -59,34 +58,28 @@ import {
   type DadosPedido,
 } from "@/services/projetosService";
 import { sincronizarPedidosDoProjeto, getStatusAlvoDoPedido } from "@/services/projetoAlvoLoadService";
+import { BarraConsumo, CabecalhoSecao, FaseChip, Indicador, StatusChip } from "@/components/projetos/ProjetosUI";
+import { STATUS_PEDIDO, fmtData, fmtMoeda, fmtPct } from "@/components/projetos/projetosFormat";
 
-const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  pendente: {
-    label: "Pendente",
-    className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400",
-  },
-  pendente_aprovacao: {
-    label: "Pendente de Aprovação",
-    className: "bg-orange-100 text-orange-800 hover:bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400",
-  },
-  aprovado: {
-    label: "Aprovado",
-    className: "bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400",
-  },
-  concluido: {
-    label: "Concluído",
-    className: "bg-blue-100 text-blue-800 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400",
-  },
-  cancelado: { label: "Cancelado", className: "bg-muted text-muted-foreground" },
-};
+const fmtCurrency = fmtMoeda;
 
-const REQ_STATUS: Record<string, { label: string; className: string }> = {
-  rascunho: { label: "Rascunho", className: "bg-muted text-muted-foreground" },
-  enviado: { label: "Enviado", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" },
-  erro: { label: "Erro", className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
-};
+/**
+ * Chave canônica do rateio para comparar Budget × Actual: (classe, CC, % com 2
+ * casas), ordenada. Comparar o JSON cru dava falso "rateio alterado" — o jsonb
+ * do banco volta com as chaves em outra ordem e o número em outra escala
+ * (mesma armadilha do R-2).
+ */
+const chaveRateio = (linhas: any[] | null | undefined) =>
+  (linhas || [])
+    .map(
+      (c: any) =>
+        `${String(c.classe_codigo ?? "").trim()}|${String(c.centro_custo_codigo ?? "").trim()}|${(Number(c.percentual) || 0).toFixed(2)}`,
+    )
+    .sort()
+    .join(";");
 
-const fmtCurrency = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+/** Tira do termo de busca o que quebra o filtro `.or()` do PostgREST (vírgula, parênteses, aspas). */
+const termoBusca = (s: string) => s.replace(/[,()"\\%]/g, " ").trim();
 
 interface ReqItem {
   codigoProduto: string;
@@ -196,11 +189,12 @@ export default function ProjetoRequisicoes() {
   const { data: fornecedores = [] } = useQuery({
     queryKey: ["entidades-cache", fornecedorSearch],
     queryFn: async () => {
-      if (fornecedorSearch.length < 2) return [];
+      const termo = termoBusca(fornecedorSearch);
+      if (termo.length < 2) return [];
       const { data } = await supabase
         .from("compras_entidades_cache")
         .select("codigo_entidade, nome, cnpj")
-        .or(`nome.ilike.%${fornecedorSearch}%,cnpj.ilike.%${fornecedorSearch}%`)
+        .or(`nome.ilike.%${termo}%,cnpj.ilike.%${termo}%`)
         .limit(10);
       return data || [];
     },
@@ -541,9 +535,7 @@ export default function ProjetoRequisicoes() {
           });
         }
 
-        const budgetCR = JSON.stringify((budgetOriginal.classe_rateio as any[]) || []);
-        const actualCR = JSON.stringify(classeRateio);
-        if (budgetCR !== actualCR) {
+        if (chaveRateio(budgetOriginal.classe_rateio as any[]) !== chaveRateio(classeRateio)) {
           alteracoes.push({
             ...base,
             campo: "classe_rateio",
@@ -557,8 +549,20 @@ export default function ProjetoRequisicoes() {
         }
 
         if (alteracoes.length > 0) {
-          await supabase.from("projeto_pedido_auditoria").insert(alteracoes);
-          console.log(`[Auditoria] ${alteracoes.length} desvio(s) registrado(s)`);
+          // O pedido já foi salvo pela RPC; a falha aqui não desfaz nada, mas não
+          // pode ser silenciosa (R-1) — senão o relatório de desvios fica incompleto
+          // sem ninguém saber.
+          const { error: errAuditoria } = await supabase.from("projeto_pedido_auditoria").insert(alteracoes);
+          if (errAuditoria) {
+            console.error("[Auditoria] desvios Actual × Budget não registrados:", errAuditoria);
+            toast({
+              title: "Pedido salvo, mas os desvios em relação ao Budget não foram registrados",
+              description: errAuditoria.message,
+              variant: "destructive",
+            });
+          } else {
+            console.log(`[Auditoria] ${alteracoes.length} desvio(s) registrado(s)`);
+          }
         }
       }
     }
@@ -727,413 +731,393 @@ export default function ProjetoRequisicoes() {
     setItens((prev) => prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it)));
   }
 
-  // ── Render mobile card for a pedido ──
-  const renderPedidoCard = (r: any, fase: "budget" | "actual", canEditRow: boolean) => {
-    const rs = REQ_STATUS[r.status] || REQ_STATUS.rascunho;
-    const sa = fase === "actual" ? getStatusAlvoDoPedido(r) : null;
-    const IconAlvo = sa?.Icon;
-    const isExpanded = expandedRow === r.id;
-    const rItens = (r.itens as any[]) || [];
-    const rClasse = (r.classe_rateio as any[]) || [];
+  const toggleLinha = (id: string) => setExpandedRow((atual) => (atual === id ? null : id));
 
-    return (
-      <div key={r.id} className="rounded-lg border border-border bg-card/50">
-        <div
-          className={`flex items-start justify-between gap-2 p-3 cursor-pointer ${fase === "budget" ? "hover:bg-yellow-100/50 dark:hover:bg-yellow-900/30" : "hover:bg-green-100/50 dark:hover:bg-green-900/30"}`}
-          onClick={() => setExpandedRow(isExpanded ? null : r.id)}
-        >
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              {isExpanded ? (
-                <ChevronDown className="h-3 w-3 shrink-0" />
+  // ── Ações de uma linha: enviar ao ERP / editar / excluir ──
+  const acoesPedido = (r: any, canEditRow: boolean) => (
+    <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+      {canSendToAlvo(r) && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-primary hover:text-primary"
+              disabled={enviando === r.id}
+              onClick={() => setEnviarTarget(r)}
+            >
+              {enviando === r.id ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : r.status === "erro" ? (
+                <RefreshCw className="h-3.5 w-3.5" />
               ) : (
-                <ChevronRight className="h-3 w-3 shrink-0" />
+                <Send className="h-3.5 w-3.5" />
               )}
-              <span className="text-xs text-muted-foreground">#{r.sequencia}</span>
-              {fase === "actual" && <Badge className={`${rs.className} text-[10px] px-1.5 py-0`}>{rs.label}</Badge>}
-              {sa && IconAlvo && (
-                <Badge variant="outline" className={`${sa.className} text-[10px] px-1.5 py-0`}>
-                  <IconAlvo className={`mr-1 h-2.5 w-2.5 ${sa.iconAnimate ? "animate-spin" : ""}`} />
-                  {sa.label}
-                </Badge>
-              )}
-              {r.alvo_nao_encontrado_em && <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />}
-            </div>
-            <p className="mt-1 text-sm font-medium truncate">{r.descricao}</p>
-            <p className="text-xs text-muted-foreground truncate">{r.fornecedor_nome || "Sem fornecedor"}</p>
-          </div>
-          <div className="text-right shrink-0" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-semibold">{fmtCurrency(Number(r.valor_total) || 0)}</p>
-            <div className="flex gap-1 mt-1 justify-end">
-              {canSendToAlvo(r) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 text-blue-600"
-                  disabled={enviando === r.id}
-                  onClick={() => setEnviarTarget(r)}
-                >
-                  {enviando === r.id ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : r.status === "erro" ? (
-                    <RefreshCw className="h-3 w-3" />
-                  ) : (
-                    <Send className="h-3 w-3" />
-                  )}
-                </Button>
-              )}
-              {canEditRow && (r.status !== "enviado" || isAdmin) && (
-                <>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(r)}>
-                    <Pencil className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0 text-destructive"
-                    onClick={() => setDeleteTarget(r)}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-        {r.status === "enviado" && r.numero_pedido_alvo && (
-          <p className="px-3 pb-1 text-xs font-medium text-green-600 dark:text-green-400">
-            Pedido #{r.numero_pedido_alvo}
-          </p>
-        )}
-        {isExpanded && (
-          <div className="border-t border-border p-3 space-y-3">
-            <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Itens</h4>
-              <div className="space-y-2">
-                {rItens.map((it: any, idx: number) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between gap-2 rounded-md bg-muted/30 px-2 py-1.5 text-xs"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">
-                        {it.codigoProduto || it.codigo_produto
-                          ? `${it.codigoProduto || it.codigo_produto} — ${it.descricao}`
-                          : it.descricao}
-                      </p>
-                      <p className="text-muted-foreground">
-                        {it.quantidade} {it.unidade} × {fmtCurrency(Number(it.valor_unitario) || 0)}
-                      </p>
-                    </div>
-                    <span className="font-semibold shrink-0">
-                      {fmtCurrency((Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0))}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {rClasse.length > 0 && (
-              <div>
-                <h4 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Classificação / Rateio</h4>
-                <div className="space-y-1.5">
-                  {rClasse.map((c: any, idx: number) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between gap-2 rounded-md bg-muted/30 px-2 py-1.5 text-xs"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium">
-                          {c.classe_codigo} — {c.classe_nome}
-                        </p>
-                        <p className="text-muted-foreground truncate">
-                          {c.centro_custo_codigo} — {c.centro_custo_nome}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p>{c.percentual}%</p>
-                        <p className="font-semibold">
-                          {fmtCurrency((Number(c.percentual) / 100) * Number(r.valor_total))}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-              {r.numero_pedido_alvo && (
-                <span>
-                  Pedido Alvo: <strong>#{r.numero_pedido_alvo}</strong>
-                </span>
-              )}
-              {r.cond_pagamento_nome && <span>Cond. Pagamento: {r.cond_pagamento_nome}</span>}
-              {r.fornecedor_cnpj && <span>CNPJ: {r.fornecedor_cnpj}</span>}
-            </div>
-            {r.erro_envio && <p className="text-xs text-destructive">Erro: {r.erro_envio}</p>}
-          </div>
+              <span className="sr-only">{r.status === "erro" ? "Reenviar ao ERP" : "Enviar ao ERP"}</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{r.status === "erro" ? "Reenviar ao ERP" : "Enviar ao ERP"}</TooltipContent>
+        </Tooltip>
+      )}
+      {canEditRow && (r.status !== "enviado" || isAdmin) && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)}>
+                <Pencil className="h-3.5 w-3.5" />
+                <span className="sr-only">Editar pedido</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Editar pedido</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-danger"
+                onClick={() => setDeleteTarget(r)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span className="sr-only">Excluir pedido</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Excluir pedido</TooltipContent>
+          </Tooltip>
+        </>
+      )}
+    </div>
+  );
+
+  // ── Situação no Hub (livro): rascunho / enviado / erro ──
+  const celulaSituacao = (r: any) => {
+    const st = STATUS_PEDIDO[r.status] || STATUS_PEDIDO.rascunho;
+    return (
+      <div className="flex items-center gap-1">
+        <StatusChip tom={st.tom}>{st.label}</StatusChip>
+        {r.status === "erro" && r.erro_envio && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 cursor-help text-danger" />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs text-xs">
+              {r.erro_envio}
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
     );
   };
 
-  // ── Render pedidos table ──
+  // ── Situação no ERP (espelho): vem de src/lib/statusPedido.ts, fonte única do Hub;
+  //    null enquanto o open-load não trouxe dados do Alvo. ──
+  const celulaErp = (r: any) => {
+    const sa = getStatusAlvoDoPedido(r);
+    const IconAlvo = sa?.Icon;
+    if (!sa && !r.alvo_nao_encontrado_em) return <span className="text-xs text-muted-foreground">—</span>;
+    return (
+      <div className="flex items-center gap-1">
+        {sa && IconAlvo && (
+          <Tooltip>
+            {/* span: o Badge não repassa ref, e o Tooltip precisa dela para se posicionar */}
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help">
+                <Badge
+                  variant="outline"
+                  className={`${sa.className} whitespace-nowrap rounded px-1.5 py-0 text-[11px] font-medium leading-5`}
+                >
+                  <IconAlvo className={`mr-1 h-3 w-3 ${sa.iconAnimate ? "animate-spin" : ""}`} />
+                  {sa.label}
+                </Badge>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs text-xs">
+              {sa.tooltip}
+              {r.alvo_synced_at && (
+                <div className="mt-1 opacity-70">
+                  Lido do ERP em {format(new Date(r.alvo_synced_at), "dd/MM/yyyy HH:mm")}
+                </div>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {r.alvo_nao_encontrado_em && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 cursor-help text-warning" />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs text-xs">
+              Não encontrado no ERP na última leitura ({format(new Date(r.alvo_nao_encontrado_em), "dd/MM/yyyy HH:mm")}
+              ). Os dados do Hub foram preservados — confirme no Alvo antes de concluir que o pedido foi excluído.
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    );
+  };
+
+  // ── Detalhe de um pedido (linha expandida): itens, rateio e dados do envio ──
+  const detalhePedido = (r: any, fase: "budget" | "actual") => {
+    const rItens = (r.itens as any[]) || [];
+    const rClasse = (r.classe_rateio as any[]) || [];
+    const th = "px-2 py-1.5 font-medium";
+    return (
+      <div className="space-y-3">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="min-w-0">
+            <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Itens</h4>
+            <div className="overflow-x-auto rounded border border-border bg-card">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/40 text-muted-foreground">
+                  <tr>
+                    <th className={`${th} text-left`}>Produto</th>
+                    <th className={`${th} text-left`}>Un.</th>
+                    <th className={`${th} text-right`}>Qtd</th>
+                    <th className={`${th} text-right`}>Vlr unit.</th>
+                    <th className={`${th} text-right`}>Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {rItens.map((it: any, idx: number) => (
+                    <tr key={idx}>
+                      <td className="px-2 py-1.5">
+                        {it.codigoProduto || it.codigo_produto ? (
+                          <>
+                            <span className="font-mono text-muted-foreground">
+                              {it.codigoProduto || it.codigo_produto}
+                            </span>{" "}
+                            {it.descricao}
+                          </>
+                        ) : (
+                          it.descricao
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5">{it.unidade}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{it.quantidade}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">
+                        {fmtMoeda(Number(it.valor_unitario) || 0)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-medium tabular-nums">
+                        {fmtMoeda((Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="min-w-0">
+            <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Rateio — classe × centro de custo
+            </h4>
+            {rClasse.length === 0 ? (
+              <p
+                className={`rounded border border-dashed border-border px-2 py-2 text-xs ${fase === "actual" ? "text-warning" : "text-muted-foreground"}`}
+              >
+                Sem rateio.{fase === "actual" ? " Obrigatório para enviar ao ERP." : ""}
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded border border-border bg-card">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/40 text-muted-foreground">
+                    <tr>
+                      <th className={`${th} text-left`}>Classe</th>
+                      <th className={`${th} text-left`}>Centro de custo</th>
+                      <th className={`${th} text-right`}>%</th>
+                      <th className={`${th} text-right`}>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {rClasse.map((c: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="px-2 py-1.5">
+                          <span className="font-mono text-muted-foreground">{c.classe_codigo}</span> {c.classe_nome}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <span className="font-mono text-muted-foreground">{c.centro_custo_codigo}</span>{" "}
+                          {c.centro_custo_nome}
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{c.percentual}%</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">
+                          {fmtMoeda((Number(c.percentual) / 100) * Number(r.valor_total))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+          {r.numero_pedido_alvo && (
+            <span>
+              Pedido no Alvo: <span className="font-mono text-foreground">{r.numero_pedido_alvo}</span>
+            </span>
+          )}
+          {r.enviado_alvo_em && (
+            <span>
+              Enviado em {format(new Date(r.enviado_alvo_em), "dd/MM/yyyy HH:mm")}
+              {r.enviado_alvo_por ? ` por ${r.enviado_alvo_por}` : ""}
+            </span>
+          )}
+          {r.cond_pagamento_nome && <span>Cond. pagamento: {r.cond_pagamento_nome}</span>}
+          {r.fornecedor_cnpj && <span>CNPJ: {r.fornecedor_cnpj}</span>}
+          {r.alvo_synced_at && (
+            <span>Status lido do ERP em {format(new Date(r.alvo_synced_at), "dd/MM/yyyy HH:mm")}</span>
+          )}
+        </div>
+        {r.erro_envio && <p className="text-xs text-danger">Erro no último envio: {r.erro_envio}</p>}
+      </div>
+    );
+  };
+
+  // ── Grade de pedidos de uma fase (desktop: tabela; mobile: lista compacta) ──
   const renderPedidosTable = (pedidos: any[], fase: "budget" | "actual") => {
     if (loadingReqs) {
       return (
         <div className="flex justify-center py-8">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       );
     }
 
     if (pedidos.length === 0) {
-      return (
-        <p
-          className={`py-8 text-center text-sm italic ${fase === "budget" ? "text-yellow-600 dark:text-yellow-500" : "text-green-600 dark:text-green-500"}`}
-        >
-          Nenhum pedido de compra cadastrado.
-        </p>
-      );
+      return <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum pedido de compra cadastrado.</p>;
     }
+
+    const total = pedidos.reduce((s: number, r: any) => s + (Number(r.valor_total) || 0), 0);
+    const colunas = fase === "actual" ? 7 : 5;
+    const colunasRotulo = fase === "actual" ? 2 : 3;
+    const podeEditar = (r: any) => (fase === "budget" ? canEditBudget : canEditActualRow(r));
 
     return (
       <>
-        {/* Mobile cards */}
-        <div className="space-y-2 md:hidden">
+        {/* Mobile */}
+        <div className="divide-y divide-border md:hidden">
           {pedidos.map((r: any) => {
-            const rowCanEdit = fase === "budget" ? canEditBudget : canEditActualRow(r);
-            return renderPedidoCard(r, fase, rowCanEdit);
+            const isExpanded = expandedRow === r.id;
+            return (
+              <div key={r.id}>
+                <div
+                  className="flex cursor-pointer items-start justify-between gap-2 px-3 py-2.5"
+                  onClick={() => toggleLinha(r.id)}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      <span className="tabular-nums">#{r.sequencia}</span>
+                      {fase === "actual" && celulaSituacao(r)}
+                    </div>
+                    <p className="mt-0.5 truncate text-sm font-medium">{r.descricao}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {r.fornecedor_nome || "Sem fornecedor"}
+                      {r.numero_pedido_alvo ? ` · Alvo ${r.numero_pedido_alvo}` : ""}
+                    </p>
+                    {fase === "actual" && (r.status_alvo || r.alvo_nao_encontrado_em) && (
+                      <div className="mt-1">{celulaErp(r)}</div>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-sm font-medium tabular-nums">{fmtMoeda(Number(r.valor_total) || 0)}</p>
+                    {acoesPedido(r, podeEditar(r))}
+                  </div>
+                </div>
+                {isExpanded && (
+                  <div className="border-t border-border bg-muted/30 px-3 py-3">{detalhePedido(r, fase)}</div>
+                )}
+              </div>
+            );
           })}
+          <div className="flex justify-between bg-muted/40 px-3 py-2 text-sm font-medium">
+            <span>Total</span>
+            <span className="tabular-nums">{fmtMoeda(total)}</span>
+          </div>
         </div>
 
-        {/* Desktop table */}
-        <div className="hidden md:block overflow-x-auto">
+        {/* Desktop */}
+        <div className="hidden md:block">
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">#</TableHead>
-                <TableHead>Descrição</TableHead>
-                <TableHead>Fornecedor</TableHead>
-                <TableHead className="text-right">Valor Total</TableHead>
-                {fase === "actual" && <TableHead>Status</TableHead>}
-                <TableHead className="w-24">Ações</TableHead>
+            <TableHeader className="bg-muted/40">
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="h-9 w-16 px-3 text-xs">Seq.</TableHead>
+                <TableHead className="h-9 px-3 text-xs">Pedido / fornecedor</TableHead>
+                {fase === "budget" && <TableHead className="h-9 px-3 text-xs">Cond. pagto</TableHead>}
+                <TableHead className="h-9 px-3 text-right text-xs">Valor</TableHead>
+                {fase === "actual" && (
+                  <>
+                    <TableHead className="h-9 px-3 text-xs">Situação no Hub</TableHead>
+                    <TableHead className="h-9 px-3 text-xs">Status no ERP</TableHead>
+                    <TableHead className="h-9 px-3 text-xs">Nº Alvo</TableHead>
+                  </>
+                )}
+                <TableHead className="h-9 w-[104px] px-3" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {pedidos.map((r: any) => {
-                const rs = REQ_STATUS[r.status] || REQ_STATUS.rascunho;
-                // Status do ERP vem de src/lib/statusPedido.ts (fonte única do Hub);
-                // null enquanto o open-load não trouxe dados do Alvo.
-                const sa = fase === "actual" ? getStatusAlvoDoPedido(r) : null;
-                const IconAlvo = sa?.Icon;
                 const isExpanded = expandedRow === r.id;
-                const rItens = (r.itens as any[]) || [];
-                const rClasse = (r.classe_rateio as any[]) || [];
-                const rowCanEdit = fase === "budget" ? canEditBudget : canEditActualRow(r);
                 return (
-                  <>
+                  <Fragment key={r.id}>
                     <TableRow
-                      key={r.id}
-                      className={`cursor-pointer ${r.bloqueado ? "opacity-75" : ""} ${fase === "budget" ? "hover:bg-yellow-100/50 dark:hover:bg-yellow-900/30" : "hover:bg-green-100/50 dark:hover:bg-green-900/30"}`}
-                      onClick={() => setExpandedRow(isExpanded ? null : r.id)}
+                      className={`cursor-pointer ${isExpanded ? "bg-muted/40" : ""}`}
+                      onClick={() => toggleLinha(r.id)}
                     >
-                      <TableCell>
+                      <TableCell className="px-3 py-2 text-sm tabular-nums text-muted-foreground">
                         <div className="flex items-center gap-1">
                           {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                           {r.sequencia}
                         </div>
                       </TableCell>
-                      <TableCell className="max-w-[120px] truncate font-medium text-sm">{r.descricao}</TableCell>
-                      <TableCell className="max-w-[120px] truncate text-sm text-muted-foreground">
-                        {r.fornecedor_nome || "—"}
+                      <TableCell className="max-w-[360px] px-3 py-2">
+                        <p className="truncate text-sm font-medium" title={r.descricao}>
+                          {r.descricao}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground" title={r.fornecedor_nome || undefined}>
+                          {r.fornecedor_nome || "Sem fornecedor"}
+                        </p>
                       </TableCell>
-                      <TableCell className="text-right font-semibold">
-                        {fmtCurrency(Number(r.valor_total) || 0)}
-                      </TableCell>
-                      {fase === "actual" && (
-                        <TableCell>
-                          <TooltipProvider>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <Badge className={rs.className}>{rs.label}</Badge>
-                              {sa && IconAlvo && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge variant="outline" className={`${sa.className} cursor-help`}>
-                                      <IconAlvo
-                                        className={`mr-1 h-3 w-3 ${sa.iconAnimate ? "animate-spin" : ""}`}
-                                      />
-                                      {sa.label}
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="max-w-xs text-xs">
-                                    {sa.tooltip}
-                                    {r.alvo_synced_at && (
-                                      <div className="mt-1 opacity-70">
-                                        Lido do ERP em {format(new Date(r.alvo_synced_at), "dd/MM/yyyy HH:mm")}
-                                      </div>
-                                    )}
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              {r.alvo_nao_encontrado_em && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 cursor-help" />
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="max-w-xs text-xs">
-                                    Não encontrado no ERP na última leitura (
-                                    {format(new Date(r.alvo_nao_encontrado_em), "dd/MM/yyyy HH:mm")}). Os dados do Hub
-                                    foram preservados — confirme no Alvo antes de concluir que o pedido foi excluído.
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              {r.status === "enviado" && r.numero_pedido_alvo && (
-                                <span className="text-xs font-medium text-green-600 dark:text-green-400">
-                                  Pedido #{r.numero_pedido_alvo}
-                                </span>
-                              )}
-                              {r.status === "erro" && r.erro_envio && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <AlertTriangle className="h-3.5 w-3.5 text-destructive cursor-help" />
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="max-w-xs text-xs">
-                                    {r.erro_envio}
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                            </div>
-                          </TooltipProvider>
+                      {fase === "budget" && (
+                        <TableCell className="whitespace-nowrap px-3 py-2 text-sm text-muted-foreground">
+                          {r.cond_pagamento_nome || "—"}
                         </TableCell>
                       )}
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-1">
-                          {canSendToAlvo(r) && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className={`h-7 w-7 p-0 ${r.status === "erro" ? "text-yellow-600 hover:text-yellow-700" : "text-blue-600 hover:text-blue-700"}`}
-                              disabled={enviando === r.id}
-                              onClick={() => setEnviarTarget(r)}
-                            >
-                              {enviando === r.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : r.status === "erro" ? (
-                                <RefreshCw className="h-3 w-3" />
-                              ) : (
-                                <Send className="h-3 w-3" />
-                              )}
-                            </Button>
-                          )}
-                          {rowCanEdit && (r.status !== "enviado" || isAdmin) && (
-                            <>
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(r)}>
-                                <Pencil className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                                onClick={() => setDeleteTarget(r)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-right text-sm font-medium tabular-nums">
+                        {fmtMoeda(Number(r.valor_total) || 0)}
                       </TableCell>
+                      {fase === "actual" && (
+                        <>
+                          <TableCell className="px-3 py-2">{celulaSituacao(r)}</TableCell>
+                          <TableCell className="px-3 py-2">{celulaErp(r)}</TableCell>
+                          <TableCell className="whitespace-nowrap px-3 py-2 font-mono text-sm">
+                            {r.numero_pedido_alvo || <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                        </>
+                      )}
+                      <TableCell className="px-3 py-1">{acoesPedido(r, podeEditar(r))}</TableCell>
                     </TableRow>
                     {isExpanded && (
-                      <TableRow key={`${r.id}-detail`}>
-                        <TableCell colSpan={fase === "actual" ? 6 : 5} className="bg-muted/30 p-4">
-                          <div className="space-y-4">
-                            <div>
-                              <h4 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Itens</h4>
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead>Produto</TableHead>
-                                    <TableHead>Unidade</TableHead>
-                                    <TableHead className="text-right">Qtd</TableHead>
-                                    <TableHead className="text-right">Vlr Unit.</TableHead>
-                                    <TableHead className="text-right">Vlr Total</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {rItens.map((it: any, idx: number) => (
-                                    <TableRow key={idx}>
-                                      <TableCell>
-                                        {it.codigoProduto || it.codigo_produto
-                                          ? `${it.codigoProduto || it.codigo_produto} — ${it.descricao}`
-                                          : it.descricao}
-                                      </TableCell>
-                                      <TableCell>{it.unidade}</TableCell>
-                                      <TableCell className="text-right">{it.quantidade}</TableCell>
-                                      <TableCell className="text-right">
-                                        {fmtCurrency(Number(it.valor_unitario) || 0)}
-                                      </TableCell>
-                                      <TableCell className="text-right font-medium">
-                                        {fmtCurrency((Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0))}
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </div>
-                            {rClasse.length > 0 && (
-                              <div>
-                                <h4 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
-                                  Classificação / Rateio
-                                </h4>
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow>
-                                      <TableHead>Classe</TableHead>
-                                      <TableHead>Centro de Custo</TableHead>
-                                      <TableHead className="text-right">%</TableHead>
-                                      <TableHead className="text-right">Valor</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {rClasse.map((c: any, idx: number) => (
-                                      <TableRow key={idx}>
-                                        <TableCell>
-                                          {c.classe_codigo} — {c.classe_nome}
-                                        </TableCell>
-                                        <TableCell>
-                                          {c.centro_custo_codigo} — {c.centro_custo_nome}
-                                        </TableCell>
-                                        <TableCell className="text-right">{c.percentual}%</TableCell>
-                                        <TableCell className="text-right">
-                                          {fmtCurrency((Number(c.percentual) / 100) * Number(r.valor_total))}
-                                        </TableCell>
-                                      </TableRow>
-                                    ))}
-                                  </TableBody>
-                                </Table>
-                              </div>
-                            )}
-                            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-                              {r.numero_pedido_alvo && (
-                                <span>
-                                  Pedido Alvo: <strong className="font-mono">#{r.numero_pedido_alvo}</strong>
-                                </span>
-                              )}
-                              {r.enviado_alvo_em && (
-                                <span>Enviado em {new Date(r.enviado_alvo_em).toLocaleString("pt-BR")}</span>
-                              )}
-                              {r.cond_pagamento_nome && <span>Cond. Pagamento: {r.cond_pagamento_nome}</span>}
-                              {r.fornecedor_cnpj && <span>CNPJ: {r.fornecedor_cnpj}</span>}
-                            </div>
-                            {r.erro_envio && <p className="text-xs text-destructive">Erro: {r.erro_envio}</p>}
-                          </div>
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={colunas} className="bg-muted/30 px-4 py-3">
+                          {detalhePedido(r, fase)}
                         </TableCell>
                       </TableRow>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </TableBody>
+            <TableFooter className="bg-muted/40">
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={colunasRotulo} className="px-3 py-2 text-sm">
+                  Total · {pedidos.length} pedido(s)
+                </TableCell>
+                <TableCell className="whitespace-nowrap px-3 py-2 text-right text-sm tabular-nums">
+                  {fmtMoeda(total)}
+                </TableCell>
+                <TableCell colSpan={colunas - colunasRotulo - 1} />
+              </TableRow>
+            </TableFooter>
           </Table>
         </div>
       </>
@@ -1143,7 +1127,7 @@ export default function ProjetoRequisicoes() {
   if (loadingProjeto) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -1151,645 +1135,591 @@ export default function ProjetoRequisicoes() {
   if (!projeto) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-muted-foreground">
-        <Package className="h-16 w-16" />
-        <p>Projeto não encontrado.</p>
-        <Button variant="outline" onClick={() => navigate("/projetos")}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
+        <Package className="h-10 w-10" />
+        <p className="text-sm">Projeto não encontrado.</p>
+        <Button variant="outline" size="sm" onClick={() => navigate("/projetos")}>
+          <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para Projetos
         </Button>
       </div>
     );
   }
 
   const projData = projeto as any;
-  const statusCfg = STATUS_CONFIG[projData.status] || STATUS_CONFIG.pendente;
+  const saldoFase = orcamento - (faseAtual === "actual" ? totalActual : totalBudget);
+  const enviadosActual = pedidosActual.filter((r: any) => r.status === "enviado").length;
+  const podeCriarActual = faseAtual === "actual" && (isAdmin || (canPedidosCreate && isResponsavel));
+
+  const secaoBudget = (
+    <section className="overflow-hidden rounded-md border border-border bg-card">
+      <CabecalhoSecao
+        titulo="Budget — planejamento"
+        subtitulo={
+          <span className="tabular-nums">
+            {pedidosBudget.length} pedido(s) · {fmtMoeda(totalBudget)} · {fmtPct(pctBudget)} do orçamento
+            {faseAtual !== "budget" && " · aprovado, somente leitura"}
+          </span>
+        }
+        acoes={
+          canEditBudget && (
+            <Button size="sm" className="h-8 gap-1" onClick={() => openCreate("budget")}>
+              <Plus className="h-3.5 w-3.5" /> Novo pedido
+            </Button>
+          )
+        }
+      />
+      {renderPedidosTable(pedidosBudget, "budget")}
+    </section>
+  );
+
+  const secaoActual = (
+    <section className="overflow-hidden rounded-md border border-border bg-card">
+      <CabecalhoSecao
+        titulo="Actual — execução"
+        subtitulo={
+          faseAtual === "actual" ? (
+            <span className="inline-flex flex-wrap items-center gap-x-1 tabular-nums">
+              {pedidosActual.length} pedido(s) · {fmtMoeda(totalActual)} · {enviadosActual} enviado(s) ao ERP
+              {syncAlvoRodando && (
+                <span className="inline-flex items-center gap-1">
+                  · <Loader2 className="h-3 w-3 animate-spin" /> lendo status no ERP…
+                </span>
+              )}
+            </span>
+          ) : (
+            "Liberado após a aprovação do Budget"
+          )
+        }
+        acoes={
+          podeCriarActual && (
+            <Button size="sm" className="h-8 gap-1" onClick={() => openCreate("actual")}>
+              <Plus className="h-3.5 w-3.5" /> Novo pedido
+            </Button>
+          )
+        }
+      />
+      {faseAtual === "actual" ? (
+        renderPedidosTable(pedidosActual, "actual")
+      ) : (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+          {faseAtual === "budget_em_aprovacao"
+            ? "Aguardando a aprovação do Budget para liberar o Actual."
+            : "O Budget precisa ser aprovado para liberar o Actual."}
+        </p>
+      )}
+    </section>
+  );
 
   return (
-    <div className="space-y-6 p-4 sm:p-6 overflow-hidden">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/projetos")}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-bold">{projData.nome}</h1>
-              {/* Badge de status: esconde quando fase=budget_em_aprovacao para evitar duplicação com badge de fase */}
-              {faseAtual !== "budget_em_aprovacao" && <Badge className={statusCfg.className}>{statusCfg.label}</Badge>}
-              {faseAtual === "budget" && (
-                <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400">
-                  Budget
-                </Badge>
+    <TooltipProvider delayDuration={200}>
+      {/* grid-cols-1 = minmax(0, 1fr): grade larga rola dentro do painel em vez de alargar a página */}
+      <div className="grid grid-cols-1 gap-4 p-4 sm:p-6">
+        {/* Cabeçalho */}
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => navigate("/projetos")}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Projetos
+          </button>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold text-foreground">{projData.nome}</h1>
+                <FaseChip fase={faseAtual} />
+              </div>
+              {projData.descricao && (
+                <p className="mt-1 max-w-3xl whitespace-pre-line text-sm text-muted-foreground">{projData.descricao}</p>
               )}
-              {faseAtual === "budget_em_aprovacao" && (
-                <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400">
-                  Pendente de Aprovação
-                </Badge>
-              )}
-              {faseAtual === "actual" && (
-                <Badge className="bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400">
-                  Actual
-                </Badge>
-              )}
-
-              {/* Botão 1: Enviar para Aprovação (fase=budget) */}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               {canSendForApproval && (
-                <Button
-                  size="sm"
-                  className="bg-yellow-600 hover:bg-yellow-700 text-white"
-                  onClick={handleEnviarParaAprovacao}
-                  disabled={enviandoAprovacao}
-                >
+                <Button size="sm" onClick={handleEnviarParaAprovacao} disabled={enviandoAprovacao}>
                   {enviandoAprovacao ? (
                     <>
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" /> Enviando...
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Enviando…
                     </>
                   ) : (
                     <>
-                      <Send className="mr-1 h-3 w-3" /> Enviar para Aprovação
+                      <Send className="mr-1.5 h-3.5 w-3.5" /> Enviar Budget para aprovação
                     </>
                   )}
                 </Button>
               )}
-
-              {/* Botão 2: Aprovar Budget (fase=budget_em_aprovacao + é aprovador) */}
               {canApproveBudget && (
-                <Button
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  onClick={handleAprovarBudget}
-                  disabled={aprovandoBudget}
-                >
+                <Button size="sm" onClick={handleAprovarBudget} disabled={aprovandoBudget}>
                   {aprovandoBudget ? (
                     <>
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" /> Aprovando...
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Aprovando…
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="mr-1 h-3 w-3" /> Aprovar Budget
+                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Aprovar Budget
                     </>
                   )}
                 </Button>
               )}
-
-              {/* Texto: Aguardando aprovação (responsável vê durante em_aprovacao) */}
               {faseAtual === "budget_em_aprovacao" && !canApproveBudget && (
-                <div className="flex items-center gap-1.5 rounded-md bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1 text-xs text-orange-700 dark:text-orange-400">
-                  <Clock className="h-3 w-3" />
-                  <span>
-                    Aguardando aprovação de <strong>{aprovadorNome}</strong>
-                  </span>
-                </div>
+                <span className="inline-flex items-center gap-1.5 rounded border border-border bg-card px-2 py-1 text-xs text-muted-foreground">
+                  <Clock className="h-3.5 w-3.5" /> Aguardando aprovação de{" "}
+                  <span className="font-medium text-foreground">{aprovadorNome}</span>
+                </span>
               )}
             </div>
-            {projData.descricao && <p className="mt-1 text-sm text-muted-foreground">{projData.descricao}</p>}
-            <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
-              <span>
-                Responsável: <strong>{responsavelNome}</strong>
-              </span>
-              <span>
-                Aprovador: <strong>{aprovadorNome}</strong>
-              </span>
+          </div>
+          <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+            <div className="flex gap-1">
+              <dt className="text-muted-foreground">Responsável:</dt>
+              <dd className="font-medium">{responsavelNome}</dd>
             </div>
+            <div className="flex gap-1">
+              <dt className="text-muted-foreground">Aprovador:</dt>
+              <dd className="font-medium">{aprovadorNome}</dd>
+            </div>
+            {(projData.data_inicio || projData.data_fim) && (
+              <div className="flex gap-1">
+                <dt className="text-muted-foreground">Período:</dt>
+                <dd className="tabular-nums">
+                  {fmtData(projData.data_inicio)} – {fmtData(projData.data_fim)}
+                </dd>
+              </div>
+            )}
             {projData.budget_aprovado_por && (
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Aprovado por {projData.budget_aprovado_por} em{" "}
-                {projData.budget_aprovado_em
-                  ? format(new Date(projData.budget_aprovado_em as string), "dd/MM/yyyy HH:mm")
-                  : "—"}
-              </p>
+              <div className="flex gap-1">
+                <dt className="text-muted-foreground">Budget aprovado:</dt>
+                <dd>
+                  {projData.budget_aprovado_por}
+                  {projData.budget_aprovado_em &&
+                    ` em ${format(new Date(projData.budget_aprovado_em as string), "dd/MM/yyyy HH:mm")}`}
+                </dd>
+              </div>
             )}
-          </div>
+          </dl>
         </div>
-      </div>
 
-      {/* Global budget bar */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-            <span>
-              Orçamento: <strong>{fmtCurrency(orcamento)}</strong>
-            </span>
-            <span className="text-yellow-700 dark:text-yellow-400">
-              Budget: <strong>{fmtCurrency(totalBudget)}</strong> ({pctBudget}%)
-            </span>
-            <span className="text-green-700 dark:text-green-400">
-              Actual: <strong>{fmtCurrency(totalActual)}</strong> ({pctActual}%)
-            </span>
-          </div>
-          <div className="mt-3 space-y-1.5">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <div className="h-2.5 w-2.5 rounded-full bg-yellow-500" />
-              <span>Budget</span>
-            </div>
-            <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-yellow-500 transition-all"
-                style={{ width: `${Math.min(pctBudget, 100)}%` }}
-              />
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <div className="h-2.5 w-2.5 rounded-full bg-green-500" />
-              <span>Actual</span>
-            </div>
-            <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-green-500 transition-all"
-                style={{ width: `${Math.min(pctActual, 100)}%` }}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+        {/* Resumo financeiro */}
+        <div className="grid grid-cols-2 divide-border rounded-md border border-border bg-card lg:grid-cols-4 lg:divide-x">
+          <Indicador rotulo="Orçamento" valor={fmtMoeda(orcamento)} apoio="teto das duas fases" />
+          <Indicador
+            rotulo="Budget (planejado)"
+            valor={fmtMoeda(totalBudget)}
+            apoio={`${fmtPct(pctBudget)} do orçamento · ${pedidosBudget.length} pedido(s)`}
+          >
+            <BarraConsumo pct={pctBudget} tom={pctBudget > 100 ? "perigo" : "neutro"} className="mt-2" />
+          </Indicador>
+          <Indicador
+            rotulo="Actual (realizado)"
+            valor={fmtMoeda(totalActual)}
+            apoio={`${fmtPct(pctActual)} do orçamento · ${enviadosActual} de ${pedidosActual.length} no ERP`}
+          >
+            <BarraConsumo pct={pctActual} className="mt-2" />
+          </Indicador>
+          <Indicador
+            rotulo={faseAtual === "actual" ? "Saldo do Actual" : "Saldo do Budget"}
+            valor={fmtMoeda(saldoFase)}
+            tom={saldoFase < 0 ? "perigo" : undefined}
+            apoio="orçamento − fase corrente"
+          />
+        </div>
 
-      {/* Split view: Budget | Actual */}
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-4 min-w-0">
-        {/* BUDGET — Left */}
-        <Card className="overflow-hidden min-w-0 shadow-[0_0_12px_-3px_rgba(234,179,8,0.3)] dark:shadow-[0_0_12px_-3px_rgba(234,179,8,0.2)]">
-          <div className="p-3 sm:p-4 border-b border-border">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="font-semibold text-sm sm:text-base">Budget (Orçamento)</h3>
-                <p className="text-xs text-muted-foreground">Planejamento de pedidos de compra</p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                {canEditBudget && (
-                  <Button size="sm" className="h-8 text-xs sm:text-sm" onClick={() => openCreate("budget")}>
-                    <Plus className="mr-1 h-3 w-3" /> Novo
-                  </Button>
-                )}
-              </div>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground">
-              <span>
-                Total: <strong className="text-foreground">{fmtCurrency(totalBudget)}</strong>
-              </span>
-              <span>
-                Orçamento: <strong className="text-foreground">{fmtCurrency(orcamento)}</strong>
-              </span>
-              <span>
-                Saldo:{" "}
-                <strong className={orcamento - totalBudget < 0 ? "text-destructive" : "text-foreground"}>
-                  {fmtCurrency(orcamento - totalBudget)}
-                </strong>
-              </span>
-            </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full bg-yellow-500 dark:bg-yellow-400 transition-all"
-                style={{ width: `${Math.min(orcamento > 0 ? (totalBudget / orcamento) * 100 : 0, 100)}%` }}
-              />
-            </div>
-          </div>
-          <CardContent className="p-2 sm:p-3">{renderPedidosTable(pedidosBudget, "budget")}</CardContent>
-        </Card>
+        {/* Fases: a corrente primeiro */}
+        {faseAtual === "actual" ? (
+          <>
+            {secaoActual}
+            {secaoBudget}
+          </>
+        ) : (
+          <>
+            {secaoBudget}
+            {secaoActual}
+          </>
+        )}
 
-        {/* ACTUAL — Right */}
-        <Card className="overflow-hidden min-w-0 shadow-[0_0_12px_-3px_rgba(34,197,94,0.3)] dark:shadow-[0_0_12px_-3px_rgba(34,197,94,0.2)]">
-          <div className="p-3 sm:p-4 border-b border-border">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="font-semibold text-sm sm:text-base">Actual (Realizado)</h3>
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  Pedidos de compra em execução
-                  {syncAlvoRodando && (
-                    <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                      <Loader2 className="h-3 w-3 animate-spin" /> lendo status no ERP…
-                    </span>
-                  )}
-                </p>
-              </div>
-              {faseAtual === "actual" && (isAdmin || (canPedidosCreate && isResponsavel)) && (
-                <Button size="sm" className="h-8 text-xs sm:text-sm w-fit" onClick={() => openCreate("actual")}>
-                  <Plus className="mr-1 h-3 w-3" /> Novo
-                </Button>
-              )}
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground">
-              <span>
-                Total: <strong className="text-foreground">{fmtCurrency(totalActual)}</strong>
-              </span>
-              <span>
-                Orçamento: <strong className="text-foreground">{fmtCurrency(orcamento)}</strong>
-              </span>
-              <span>
-                Saldo:{" "}
-                <strong className={orcamento - totalActual < 0 ? "text-destructive" : "text-foreground"}>
-                  {fmtCurrency(orcamento - totalActual)}
-                </strong>
-              </span>
-            </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full bg-green-500 dark:bg-green-400 transition-all"
-                style={{ width: `${Math.min(orcamento > 0 ? (totalActual / orcamento) * 100 : 0, 100)}%` }}
-              />
-            </div>
-          </div>
-          <CardContent className="p-2 sm:p-3">
-            {faseAtual === "actual" ? (
-              renderPedidosTable(pedidosActual, "actual")
-            ) : faseAtual === "budget_em_aprovacao" ? (
-              <div className="py-12 text-center text-sm italic text-muted-foreground">
-                Aguardando aprovação do Budget para liberar o Actual.
-              </div>
-            ) : (
-              <div className="py-12 text-center text-sm italic text-muted-foreground">
-                O Budget precisa ser aprovado para liberar o Actual.
+        {/* Create/Edit Dialog */}
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(v) => {
+            if (!v) resetForm();
+            setDialogOpen(v);
+          }}
+        >
+          <DialogContent
+            className="w-[95vw] max-w-3xl p-0 gap-0 max-h-[90vh] flex flex-col"
+            onPointerDownOutside={(e) => {
+              const target = e.target as HTMLElement | null;
+              if (target?.closest('[data-product-combobox-dropdown="true"]')) return;
+              e.preventDefault();
+            }}
+            onEscapeKeyDown={(e) => e.preventDefault()}
+          >
+            <DialogHeader className="px-4 pt-4 pb-3 sm:px-6 sm:pt-6 border-b border-border shrink-0">
+              <DialogTitle className="text-base sm:text-lg">
+                {editingReq ? "Editar Pedido de Compra" : "Novo Pedido de Compra"}
+              </DialogTitle>
+              <DialogDescription asChild>
+                <div className="flex items-center gap-2 text-xs sm:text-sm">
+                  <span>{projData.nome}</span>
+                  <FaseChip fase={currentFase} />
+                </div>
+              </DialogDescription>
+            </DialogHeader>
+
+            {editingReq?.status === "enviado" && !isAdmin && (
+              <div className="mx-4 mt-4 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground sm:mx-6">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+                Este pedido de compra já gerou o pedido #{editingReq.numero_pedido_alvo} no ERP. Apenas administradores
+                podem editar.
               </div>
             )}
-          </CardContent>
-        </Card>
-      </div>
 
-      {/* Create/Edit Dialog */}
-      <Dialog
-        open={dialogOpen}
-        onOpenChange={(v) => {
-          if (!v) resetForm();
-          setDialogOpen(v);
-        }}
-      >
-        <DialogContent
-          className="w-[95vw] max-w-3xl p-0 gap-0 max-h-[90vh] flex flex-col"
-          onPointerDownOutside={(e) => {
-            const target = e.target as HTMLElement | null;
-            if (target?.closest('[data-product-combobox-dropdown="true"]')) return;
-            e.preventDefault();
-          }}
-          onEscapeKeyDown={(e) => e.preventDefault()}
-        >
-          <DialogHeader className="px-4 pt-4 pb-3 sm:px-6 sm:pt-6 border-b border-border shrink-0">
-            <DialogTitle className="text-base sm:text-lg">
-              {editingReq ? "Editar Pedido de Compra" : "Novo Pedido de Compra"}
-            </DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">
-              Preencha os dados do pedido de compra.
-              <Badge variant="outline" className="ml-2 text-xs">
-                {currentFase === "budget" ? "Budget" : "Actual"}
-              </Badge>
-            </DialogDescription>
-          </DialogHeader>
-
-          {editingReq?.status === "enviado" && !isAdmin && (
-            <div className="mx-4 mt-4 sm:mx-6 flex items-center gap-2 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              Este pedido de compra já gerou o pedido #{editingReq.numero_pedido_alvo} no ERP. Apenas administradores
-              podem editar.
-            </div>
-          )}
-
-          <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 space-y-6">
-            {/* Section 1: General */}
-            <div className="space-y-3">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Dados Gerais</h3>
-              <div>
-                <Label className="text-xs sm:text-sm">Descrição *</Label>
-                <Input
-                  value={descricao}
-                  onChange={(e) => setDescricao(e.target.value)}
-                  placeholder="Descrição do pedido de compra"
-                  className="mt-1"
-                />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 space-y-6">
+              {/* Section 1: General */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Dados Gerais</h3>
                 <div>
-                  <Label className="text-xs sm:text-sm">Fornecedor</Label>
+                  <Label className="text-xs sm:text-sm">Descrição *</Label>
                   <Input
-                    value={fornecedorSearch}
-                    onChange={(e) => {
-                      setFornecedorSearch(e.target.value);
-                      setFornecedor(null);
-                    }}
-                    placeholder="Buscar por nome ou CNPJ..."
+                    value={descricao}
+                    onChange={(e) => setDescricao(e.target.value)}
+                    placeholder="Descrição do pedido de compra"
                     className="mt-1"
                   />
-                  {fornecedores.length > 0 && !fornecedor && (
-                    <div className="mt-1 max-h-40 overflow-y-auto rounded border bg-popover text-sm">
-                      {fornecedores.map((f: any) => (
-                        <div
-                          key={f.codigo_entidade}
-                          className="cursor-pointer px-3 py-2 hover:bg-accent"
-                          onClick={() => {
-                            setFornecedor({ codigo: f.codigo_entidade, nome: f.nome || "", cnpj: f.cnpj || "" });
-                            setFornecedorSearch(f.nome || f.cnpj || "");
-                          }}
-                        >
-                          <span className="font-medium">{f.nome}</span>
-                          {f.cnpj && <span className="ml-2 text-xs text-muted-foreground">{f.cnpj}</span>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {fornecedor && (
-                    <p className="mt-1 text-xs text-green-600">
-                      ✓ {fornecedor.nome} ({fornecedor.cnpj})
-                    </p>
-                  )}
                 </div>
-                <div>
-                  <Label className="text-xs sm:text-sm">Condição de Pagamento</Label>
-                  {condicoes.length > 0 ? (
-                    <Select value={condPag} onValueChange={setCondPag}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="Selecione..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {condicoes.map((c: any) => (
-                          <SelectItem key={c.codigo} value={c.codigo}>
-                            {c.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input disabled placeholder="Sincronize as condições em Configurações" className="mt-1" />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Section 2: Items */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Itens</h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() =>
-                    setItens((prev) => [
-                      ...prev,
-                      {
-                        codigoProduto: "",
-                        descricao: "",
-                        unidade: "UNID",
-                        quantidade: 1,
-                        valor_unitario: 0,
-                        codigoClasFiscal: "",
-                        codigoTipoProdFisc: "",
-                      },
-                    ])
-                  }
-                >
-                  <Plus className="mr-1 h-3 w-3" /> Adicionar Item
-                </Button>
-              </div>
-
-              <div className="space-y-3">
-                {itens.map((it, idx) => (
-                  <div key={idx} className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-muted-foreground">Item {idx + 1}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">{fmtCurrency(it.quantidade * it.valor_unitario)}</span>
-                        {itens.length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                            onClick={() => setItens((prev) => prev.filter((_, i) => i !== idx))}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs sm:text-sm">Fornecedor</Label>
+                    <Input
+                      value={fornecedorSearch}
+                      onChange={(e) => {
+                        setFornecedorSearch(e.target.value);
+                        setFornecedor(null);
+                      }}
+                      placeholder="Buscar por nome ou CNPJ..."
+                      className="mt-1"
+                    />
+                    {fornecedores.length > 0 && !fornecedor && (
+                      <div className="mt-1 max-h-40 overflow-y-auto rounded border bg-popover text-sm">
+                        {fornecedores.map((f: any) => (
+                          <div
+                            key={f.codigo_entidade}
+                            className="cursor-pointer px-3 py-2 hover:bg-accent"
+                            onClick={() => {
+                              setFornecedor({ codigo: f.codigo_entidade, nome: f.nome || "", cnpj: f.cnpj || "" });
+                              setFornecedorSearch(f.nome || f.cnpj || "");
+                            }}
                           >
-                            ×
-                          </Button>
-                        )}
+                            <span className="font-medium">{f.nome}</span>
+                            {f.cnpj && <span className="ml-2 text-xs text-muted-foreground">{f.cnpj}</span>}
+                          </div>
+                        ))}
                       </div>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Produto</Label>
-                      <ProductCombobox
-                        value={it.codigoProduto}
-                        displayValue={it.codigoProduto ? `${it.codigoProduto} — ${it.descricao}` : ""}
-                        onSelect={(p) => {
-                          setItens((prev) =>
-                            prev.map((x, i) =>
-                              i === idx
-                                ? {
-                                    ...x,
-                                    codigoProduto: p.codigo,
-                                    descricao: p.nome,
-                                    codigoClasFiscal: p.codigo_clas_fiscal || "",
-                                    codigoTipoProdFisc: p.codigo_tipo_prod_fisc || "",
-                                  }
-                                : x,
-                            ),
-                          );
-                        }}
-                        className="mt-1"
-                      />
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        <Label className="text-xs">Unidade</Label>
-                        <Input
-                          value={it.unidade}
-                          onChange={(e) => updateItem(idx, "unidade", e.target.value)}
-                          className="h-9 text-sm mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Qtd</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={it.quantidade}
-                          onChange={(e) => updateItem(idx, "quantidade", Number(e.target.value))}
-                          className="h-9 text-sm mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Vlr Unitário</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={it.valor_unitario}
-                          onChange={(e) => updateItem(idx, "valor_unitario", Number(e.target.value))}
-                          className="h-9 text-sm mt-1"
-                        />
-                      </div>
-                    </div>
+                    )}
+                    {fornecedor && (
+                      <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                        <span className="truncate">
+                          {fornecedor.nome}
+                          {fornecedor.cnpj ? ` · CNPJ ${fornecedor.cnpj}` : ""}
+                        </span>
+                      </p>
+                    )}
                   </div>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-1 text-sm">
-                <span className="text-muted-foreground">Valor Total:</span>
-                <strong className="text-base">{fmtCurrency(valorTotalItens)}</strong>
-              </div>
-            </div>
-
-            {/* Section 3: Classification */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Classificação (Rateio)
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Distribua o valor total entre classes e centros de custo. O total deve somar 100%.
-                  </p>
+                  <div>
+                    <Label className="text-xs sm:text-sm">Condição de Pagamento</Label>
+                    {condicoes.length > 0 ? (
+                      <Select value={condPag} onValueChange={setCondPag}>
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {condicoes.map((c: any) => (
+                            <SelectItem key={c.codigo} value={c.codigo}>
+                              {c.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input disabled placeholder="Sincronize as condições em Configurações" className="mt-1" />
+                    )}
+                  </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs shrink-0"
-                  onClick={() =>
-                    setClasseRateio((prev) => [
-                      ...prev,
-                      {
-                        classe_codigo: "",
-                        classe_nome: "",
-                        centro_custo_codigo: "",
-                        centro_custo_nome: "",
-                        percentual: 100 - totalRateio > 0 ? Math.round(100 - totalRateio) : 0,
-                      },
-                    ])
-                  }
-                >
-                  <Plus className="mr-1 h-3 w-3" /> Adicionar Classe
-                </Button>
               </div>
-              {classeRateio.length === 0 ? (
-                <p className="text-xs italic text-muted-foreground">Nenhuma classificação adicionada (opcional).</p>
-              ) : (
-                <>
-                  <div className="space-y-3">
-                    {classeRateio.map((c, idx) => {
-                      const filteredClasses = classes.filter((cl: any) => {
-                        const search = (classeSearch[idx] || "").toLowerCase();
-                        if (!search) return true;
-                        return cl.codigo.toLowerCase().includes(search) || cl.nome.toLowerCase().includes(search);
-                      });
-                      const filteredCCs = costCenters.filter((cc: any) => {
-                        const search = (ccSearch[idx] || "").toLowerCase();
-                        if (!search) return true;
-                        return (
-                          (cc.erp_code || "").toLowerCase().includes(search) || cc.name.toLowerCase().includes(search)
-                        );
-                      });
-                      const rateioValor = (c.percentual / 100) * valorTotalItens;
 
-                      return (
-                        <div key={idx} className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium text-muted-foreground">Linha {idx + 1}</span>
+              {/* Section 2: Items */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Itens</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() =>
+                      setItens((prev) => [
+                        ...prev,
+                        {
+                          codigoProduto: "",
+                          descricao: "",
+                          unidade: "UNID",
+                          quantidade: 1,
+                          valor_unitario: 0,
+                          codigoClasFiscal: "",
+                          codigoTipoProdFisc: "",
+                        },
+                      ])
+                    }
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Adicionar Item
+                  </Button>
+                </div>
+
+                <div className="space-y-3">
+                  {itens.map((it, idx) => (
+                    <div key={idx} className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-muted-foreground">Item {idx + 1}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold">
+                            {fmtCurrency(it.quantidade * it.valor_unitario)}
+                          </span>
+                          {itens.length > 1 && (
                             <Button
                               variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                              onClick={() => setClasseRateio((prev) => prev.filter((_, i) => i !== idx))}
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-danger"
+                              onClick={() => setItens((prev) => prev.filter((_, i) => i !== idx))}
                             >
-                              ×
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span className="sr-only">Remover item</span>
                             </Button>
-                          </div>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div>
-                              <Label className="text-xs">Classe Rec/Desp</Label>
-                              <Select
-                                value={c.classe_codigo}
-                                onValueChange={(v) => {
-                                  const cl = classes.find((x: any) => x.codigo === v);
-                                  setClasseRateio((prev) =>
-                                    prev.map((x, i) =>
-                                      i === idx ? { ...x, classe_codigo: v, classe_nome: cl?.nome || "" } : x,
-                                    ),
-                                  );
-                                }}
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Produto</Label>
+                        <ProductCombobox
+                          value={it.codigoProduto}
+                          displayValue={it.codigoProduto ? `${it.codigoProduto} — ${it.descricao}` : ""}
+                          onSelect={(p) => {
+                            setItens((prev) =>
+                              prev.map((x, i) =>
+                                i === idx
+                                  ? {
+                                      ...x,
+                                      codigoProduto: p.codigo,
+                                      descricao: p.nome,
+                                      codigoClasFiscal: p.codigo_clas_fiscal || "",
+                                      codigoTipoProdFisc: p.codigo_tipo_prod_fisc || "",
+                                    }
+                                  : x,
+                              ),
+                            );
+                          }}
+                          className="mt-1"
+                        />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <Label className="text-xs">Unidade</Label>
+                          <Input
+                            value={it.unidade}
+                            onChange={(e) => updateItem(idx, "unidade", e.target.value)}
+                            className="h-9 text-sm mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Qtd</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={it.quantidade}
+                            onChange={(e) => updateItem(idx, "quantidade", Number(e.target.value))}
+                            className="h-9 text-sm mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Vlr Unitário</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={it.valor_unitario}
+                            onChange={(e) => updateItem(idx, "valor_unitario", Number(e.target.value))}
+                            className="h-9 text-sm mt-1"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1 text-sm">
+                  <span className="text-muted-foreground">Valor Total:</span>
+                  <strong className="text-base">{fmtCurrency(valorTotalItens)}</strong>
+                </div>
+              </div>
+
+              {/* Section 3: Classification */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Classificação (Rateio)
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Distribua o valor total entre classes e centros de custo. O total deve somar 100%.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs shrink-0"
+                    onClick={() =>
+                      setClasseRateio((prev) => [
+                        ...prev,
+                        {
+                          classe_codigo: "",
+                          classe_nome: "",
+                          centro_custo_codigo: "",
+                          centro_custo_nome: "",
+                          percentual: 100 - totalRateio > 0 ? Math.round(100 - totalRateio) : 0,
+                        },
+                      ])
+                    }
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Adicionar Classe
+                  </Button>
+                </div>
+                {classeRateio.length === 0 ? (
+                  <p className="rounded border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                    Nenhuma classe adicionada.
+                    {currentFase === "actual" && " O rateio é obrigatório para enviar o pedido ao ERP."}
+                  </p>
+                ) : (
+                  <>
+                    <div className="space-y-3">
+                      {classeRateio.map((c, idx) => {
+                        const filteredClasses = classes.filter((cl: any) => {
+                          const search = (classeSearch[idx] || "").toLowerCase();
+                          if (!search) return true;
+                          return cl.codigo.toLowerCase().includes(search) || cl.nome.toLowerCase().includes(search);
+                        });
+                        const filteredCCs = costCenters.filter((cc: any) => {
+                          const search = (ccSearch[idx] || "").toLowerCase();
+                          if (!search) return true;
+                          return (
+                            (cc.erp_code || "").toLowerCase().includes(search) || cc.name.toLowerCase().includes(search)
+                          );
+                        });
+                        const rateioValor = (c.percentual / 100) * valorTotalItens;
+
+                        return (
+                          <div key={idx} className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-muted-foreground">Linha {idx + 1}</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                                onClick={() => setClasseRateio((prev) => prev.filter((_, i) => i !== idx))}
                               >
-                                <SelectTrigger className="h-9 text-xs mt-1">
-                                  <SelectValue placeholder="Selecione a classe..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <div className="px-2 pb-2">
-                                    <Input
-                                      placeholder="Filtrar por código ou nome..."
-                                      value={classeSearch[idx] || ""}
-                                      onChange={(e) => setClasseSearch((prev) => ({ ...prev, [idx]: e.target.value }))}
-                                      className="h-8 text-xs"
-                                      onClick={(e) => e.stopPropagation()}
-                                      onKeyDown={(e) => e.stopPropagation()}
-                                    />
-                                  </div>
-                                  {filteredClasses.length === 0 ? (
-                                    <p className="py-2 text-center text-xs text-muted-foreground">
-                                      Nenhuma classe encontrada
-                                    </p>
-                                  ) : (
-                                    filteredClasses.slice(0, 50).map((cl: any) => (
-                                      <SelectItem key={cl.codigo} value={cl.codigo} className="text-xs">
-                                        {cl.codigo} — {cl.nome}
-                                      </SelectItem>
-                                    ))
-                                  )}
-                                </SelectContent>
-                              </Select>
+                                ×
+                              </Button>
                             </div>
-                            <div>
-                              <Label className="text-xs">Centro de Custo</Label>
-                              <Select
-                                value={c.centro_custo_codigo}
-                                onValueChange={(v) => {
-                                  const cc = costCenters.find((x: any) => x.erp_code === v);
-                                  setClasseRateio((prev) =>
-                                    prev.map((x, i) =>
-                                      i === idx
-                                        ? { ...x, centro_custo_codigo: v, centro_custo_nome: cc?.name || "" }
-                                        : x,
-                                    ),
-                                  );
-                                }}
-                              >
-                                <SelectTrigger className="h-9 text-xs mt-1">
-                                  <SelectValue placeholder="Selecione o CC..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <div className="px-2 pb-2">
-                                    <Input
-                                      placeholder="Filtrar por código ou nome..."
-                                      value={ccSearch[idx] || ""}
-                                      onChange={(e) => setCcSearch((prev) => ({ ...prev, [idx]: e.target.value }))}
-                                      className="h-8 text-xs"
-                                      onClick={(e) => e.stopPropagation()}
-                                      onKeyDown={(e) => e.stopPropagation()}
-                                    />
-                                  </div>
-                                  {filteredCCs.length === 0 ? (
-                                    <p className="py-2 text-center text-xs text-muted-foreground">
-                                      Nenhum centro de custo encontrado
-                                    </p>
-                                  ) : (
-                                    filteredCCs.slice(0, 50).map((cc: any) => (
-                                      <SelectItem key={cc.erp_code} value={cc.erp_code || ""} className="text-xs">
-                                        {cc.erp_code} — {cc.name}
-                                      </SelectItem>
-                                    ))
-                                  )}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="flex-1">
-                              <Label className="text-xs">Percentual (%)</Label>
-                              <div className="flex items-center gap-3 mt-1">
-                                <input
-                                  type="range"
-                                  min={0}
-                                  max={100}
-                                  value={c.percentual}
-                                  onChange={(e) =>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div>
+                                <Label className="text-xs">Classe Rec/Desp</Label>
+                                <Select
+                                  value={c.classe_codigo}
+                                  onValueChange={(v) => {
+                                    const cl = classes.find((x: any) => x.codigo === v);
                                     setClasseRateio((prev) =>
                                       prev.map((x, i) =>
-                                        i === idx ? { ...x, percentual: Number(e.target.value) } : x,
+                                        i === idx ? { ...x, classe_codigo: v, classe_nome: cl?.nome || "" } : x,
                                       ),
-                                    )
-                                  }
-                                  className="flex-1 h-2 accent-primary cursor-pointer"
-                                />
-                                <div className="flex items-center gap-1">
-                                  <Input
-                                    type="number"
+                                    );
+                                  }}
+                                >
+                                  <SelectTrigger className="h-9 text-xs mt-1">
+                                    <SelectValue placeholder="Selecione a classe..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <div className="px-2 pb-2">
+                                      <Input
+                                        placeholder="Filtrar por código ou nome..."
+                                        value={classeSearch[idx] || ""}
+                                        onChange={(e) =>
+                                          setClasseSearch((prev) => ({ ...prev, [idx]: e.target.value }))
+                                        }
+                                        className="h-8 text-xs"
+                                        onClick={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                      />
+                                    </div>
+                                    {filteredClasses.length === 0 ? (
+                                      <p className="py-2 text-center text-xs text-muted-foreground">
+                                        Nenhuma classe encontrada
+                                      </p>
+                                    ) : (
+                                      filteredClasses.slice(0, 50).map((cl: any) => (
+                                        <SelectItem key={cl.codigo} value={cl.codigo} className="text-xs">
+                                          {cl.codigo} — {cl.nome}
+                                        </SelectItem>
+                                      ))
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Label className="text-xs">Centro de Custo</Label>
+                                <Select
+                                  value={c.centro_custo_codigo}
+                                  onValueChange={(v) => {
+                                    const cc = costCenters.find((x: any) => x.erp_code === v);
+                                    setClasseRateio((prev) =>
+                                      prev.map((x, i) =>
+                                        i === idx
+                                          ? { ...x, centro_custo_codigo: v, centro_custo_nome: cc?.name || "" }
+                                          : x,
+                                      ),
+                                    );
+                                  }}
+                                >
+                                  <SelectTrigger className="h-9 text-xs mt-1">
+                                    <SelectValue placeholder="Selecione o CC..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <div className="px-2 pb-2">
+                                      <Input
+                                        placeholder="Filtrar por código ou nome..."
+                                        value={ccSearch[idx] || ""}
+                                        onChange={(e) => setCcSearch((prev) => ({ ...prev, [idx]: e.target.value }))}
+                                        className="h-8 text-xs"
+                                        onClick={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                      />
+                                    </div>
+                                    {filteredCCs.length === 0 ? (
+                                      <p className="py-2 text-center text-xs text-muted-foreground">
+                                        Nenhum centro de custo encontrado
+                                      </p>
+                                    ) : (
+                                      filteredCCs.slice(0, 50).map((cc: any) => (
+                                        <SelectItem key={cc.erp_code} value={cc.erp_code || ""} className="text-xs">
+                                          {cc.erp_code} — {cc.name}
+                                        </SelectItem>
+                                      ))
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="flex-1">
+                                <Label className="text-xs">Percentual (%)</Label>
+                                <div className="flex items-center gap-3 mt-1">
+                                  <input
+                                    type="range"
                                     min={0}
                                     max={100}
                                     value={c.percentual}
@@ -1800,114 +1730,132 @@ export default function ProjetoRequisicoes() {
                                         ),
                                       )
                                     }
-                                    className="h-8 w-20 text-sm text-center"
+                                    className="flex-1 h-2 accent-primary cursor-pointer"
                                   />
-                                  <span className="text-sm text-muted-foreground">%</span>
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      value={c.percentual}
+                                      onChange={(e) =>
+                                        setClasseRateio((prev) =>
+                                          prev.map((x, i) =>
+                                            i === idx ? { ...x, percentual: Number(e.target.value) } : x,
+                                          ),
+                                        )
+                                      }
+                                      className="h-8 w-20 text-sm text-center"
+                                    />
+                                    <span className="text-sm text-muted-foreground">%</span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="text-right min-w-[80px]">
-                              <Label className="text-xs">Valor</Label>
-                              <p className="text-sm font-semibold mt-1">{fmtCurrency(rateioValor)}</p>
+                              <div className="text-right min-w-[80px]">
+                                <Label className="text-xs">Valor</Label>
+                                <p className="text-sm font-semibold mt-1">{fmtCurrency(rateioValor)}</p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div
-                    className={`flex items-center justify-between rounded-md px-3 py-2 text-sm ${
-                      Math.abs(totalRateio - 100) <= 0.01
-                        ? "bg-green-500/10 text-green-600 dark:text-green-400"
-                        : "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      {Math.abs(totalRateio - 100) > 0.01 && <AlertTriangle className="h-3.5 w-3.5" />}
-                      <span>
-                        Total do rateio: <strong>{totalRateio}%</strong>
-                      </span>
-                      {Math.abs(totalRateio - 100) > 0.01 && <span className="text-xs">(deve ser 100%)</span>}
+                        );
+                      })}
                     </div>
-                    <span className="font-semibold">{fmtCurrency((totalRateio / 100) * valorTotalItens)}</span>
-                  </div>
-                </>
-              )}
+                    <div
+                      className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm tabular-nums ${
+                        Math.abs(totalRateio - 100) <= 0.01
+                          ? "border-border bg-muted/40 text-foreground"
+                          : "border-warning/40 bg-warning/10 text-foreground"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {Math.abs(totalRateio - 100) <= 0.01 ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                        ) : (
+                          <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                        )}
+                        <span>
+                          Total do rateio: <strong>{totalRateio}%</strong>
+                        </span>
+                        {Math.abs(totalRateio - 100) > 0.01 && <span className="text-xs">(deve ser 100%)</span>}
+                      </div>
+                      <span className="font-semibold">{fmtCurrency((totalRateio / 100) * valorTotalItens)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
 
-          <DialogFooter className="px-4 py-3 sm:px-6 border-t border-border shrink-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                resetForm();
-                setDialogOpen(false);
-              }}
-              className="w-full sm:w-auto"
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={saving || (editingReq?.status === "enviado" && !isAdmin)}
-              className="w-full sm:w-auto"
-            >
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {editingReq ? "Salvar Alterações" : "Criar Pedido de Compra"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter className="px-4 py-3 sm:px-6 border-t border-border shrink-0">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  resetForm();
+                  setDialogOpen(false);
+                }}
+                className="w-full sm:w-auto"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={saving || (editingReq?.status === "enviado" && !isAdmin)}
+                className="w-full sm:w-auto"
+              >
+                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {editingReq ? "Salvar Alterações" : "Criar Pedido de Compra"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      {/* Send to Alvo confirmation */}
-      <AlertDialog
-        open={!!enviarTarget}
-        onOpenChange={(v) => {
-          if (!v) setEnviarTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Enviar ao ERP Alvo</AlertDialogTitle>
-            <AlertDialogDescription>
-              Criar pedido de compra no ERP Alvo para o pedido de compra "{enviarTarget?.descricao}"? Esta ação não pode
-              ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleEnviarAlvo} className="bg-blue-600 hover:bg-blue-700">
-              Enviar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        {/* Send to Alvo confirmation */}
+        <AlertDialog
+          open={!!enviarTarget}
+          onOpenChange={(v) => {
+            if (!v) setEnviarTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Enviar ao ERP Alvo</AlertDialogTitle>
+              <AlertDialogDescription>
+                Criar no Alvo o pedido de compra #{enviarTarget?.sequencia} "{enviarTarget?.descricao}" (
+                {fmtMoeda(Number(enviarTarget?.valor_total) || 0)})? Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleEnviarAlvo}>Enviar ao ERP</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
-      {/* Delete confirmation */}
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(v) => {
-          if (!v) setDeleteTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir Pedido de Compra</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja excluir o pedido de compra "{deleteTarget?.descricao}"?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+        {/* Delete confirmation */}
+        <AlertDialog
+          open={!!deleteTarget}
+          onOpenChange={(v) => {
+            if (!v) setDeleteTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir Pedido de Compra</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir o pedido de compra "{deleteTarget?.descricao}"?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </TooltipProvider>
   );
 }
