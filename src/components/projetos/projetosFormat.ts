@@ -38,3 +38,21 @@ export const pct = (valor: number, base: number) => (base > 0 ? (valor / base) *
 
 /** Percentual para exibir: inteiro, ou uma casa abaixo de 10%. */
 export const fmtPct = (p: number) => `${p < 10 && p > 0 ? p.toFixed(1).replace(".", ",") : Math.round(p)}%`;
+
+/**
+ * Etapa do pedido no funil do Rastreio de Compras (ESPELHO do Alvo, atualizado
+ * de hora em hora) — informativa. Etapa nova que o Rastreio venha a criar cai
+ * no tom neutro, sem quebrar a tela.
+ */
+const TOM_ETAPA: Record<string, Tom> = {
+  "Pedido em aprovação": "neutro",
+  "Aguardando NF": "info",
+  "Em inspeção (laudo)": "info",
+  "Aguardando pagamento": "atencao",
+  "Adiantamento pago (sem NF)": "sucesso",
+  "Pago (1ª parcela)": "sucesso",
+  "Encerrado sem NF ligada": "neutro",
+  Cancelado: "perigo",
+};
+
+export const tomEtapa = (etapa: string): Tom => TOM_ETAPA[etapa] ?? "neutro";

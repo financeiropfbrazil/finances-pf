@@ -51,16 +51,39 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { ProductCombobox } from "@/components/ProductCombobox";
-import { enviarRequisicaoAlvo, validarLinhasRateio } from "@/services/alvoProjetoPedidoService";
+import { enviarRequisicaoAlvo, fetchLinhasCondicao, validarLinhasRateio } from "@/services/alvoProjetoPedidoService";
 import {
   salvarPedido,
   excluirPedido,
   marcarEmailAprovacao,
   descricaoErro,
   falhou,
+  listarEtapasDoProjeto,
   type ArquivoPedidoProjeto,
   type DadosPedido,
 } from "@/services/projetosService";
+import {
+  BASES_PARCELAS_PROJETO,
+  BASE_PARCELAS_PROJETO_PADRAO,
+  DIAS_ENTREGA_PADRAO,
+  adicionarParcela,
+  alterarDias,
+  alterarValor,
+  alterarVencimento,
+  calcularParcelasProjeto,
+  ehDataValida,
+  fmtDataBR,
+  hojeYMD,
+  linhasDoResumo,
+  normalizarBaseParcelas,
+  recalcularDias,
+  removerParcela,
+  somaParcelas,
+  somarDias,
+  validarParcelas,
+  type BaseParcelasProjeto,
+  type ParcelaProjeto,
+} from "@/services/projetoParcelas";
 import {
   ACCEPT_ANEXOS,
   MAX_ANEXOS_PEDIDO,
@@ -74,7 +97,7 @@ import {
 } from "@/services/projetoArquivosService";
 import { sincronizarPedidosDoProjeto, getStatusAlvoDoPedido } from "@/services/projetoAlvoLoadService";
 import { BarraConsumo, CabecalhoSecao, FaseChip, Indicador, StatusChip } from "@/components/projetos/ProjetosUI";
-import { STATUS_PEDIDO, fmtData, fmtMoeda, fmtPct } from "@/components/projetos/projetosFormat";
+import { STATUS_PEDIDO, fmtData, fmtMoeda, fmtPct, tomEtapa } from "@/components/projetos/projetosFormat";
 
 const fmtCurrency = fmtMoeda;
 
@@ -155,6 +178,15 @@ export default function ProjetoRequisicoes() {
   ]);
   const [classeRateio, setClasseRateio] = useState<ClasseRateio[]>([]);
 
+  // ── Entrega e parcelas (L11 — só Actual) ──
+  // `parcelasManuais` = a pessoa mexeu: o envio manda exatamente o que ficou.
+  // Automáticas são recalculadas no envio, com a data do dia.
+  const [dataEntrega, setDataEntrega] = useState<string>(() => somarDias(hojeYMD(), DIAS_ENTREGA_PADRAO));
+  const [baseParcelas, setBaseParcelas] = useState<BaseParcelasProjeto>(BASE_PARCELAS_PROJETO_PADRAO);
+  const [parcelas, setParcelas] = useState<ParcelaProjeto[]>([]);
+  const [parcelasManuais, setParcelasManuais] = useState(false);
+  const [erroCalculoParcelas, setErroCalculoParcelas] = useState<string | null>(null);
+
   // Fetch project
   const { data: projeto, isLoading: loadingProjeto } = useQuery({
     queryKey: ["projeto", projetoId],
@@ -220,7 +252,10 @@ export default function ProjetoRequisicoes() {
   const { data: condicoes = [] } = useQuery({
     queryKey: ["condicoes-pagamento"],
     queryFn: async () => {
-      const { data } = await supabase.from("condicoes_pagamento").select("codigo, nome").order("nome");
+      const { data } = await supabase
+        .from("condicoes_pagamento")
+        .select("codigo, nome, quantidade_parcelas, dias_entre_parcelas, primeiro_vencimento_apos")
+        .order("nome");
       return data || [];
     },
   });
@@ -289,6 +324,77 @@ export default function ProjetoRequisicoes() {
     for (const a of arquivosProjeto) (mapa[a.requisicao_id] ||= []).push(a);
     return mapa;
   }, [arquivosProjeto]);
+
+  // ── Parcelas (L11) ──
+  const hoje = hojeYMD();
+  /** Data de onde os prazos contam: o dia do envio (Data do Pedido) ou a Data da Entrega. */
+  const dataBaseParcelas = baseParcelas === "Data da Entrega" && ehDataValida(dataEntrega) ? dataEntrega : hoje;
+  const valorPedidoForm = Math.round(valorTotalItens * 100) / 100;
+
+  const { data: linhasCondicao, isFetching: carregandoCondicao } = useQuery({
+    queryKey: ["condicao-parcelas", condPag],
+    queryFn: () => fetchLinhasCondicao(condPag),
+    enabled: dialogOpen && currentFase === "actual" && !!condPag,
+    staleTime: 5 * 60_000,
+  });
+
+  // Automáticas acompanham condição, valor e data base. Editadas à mão, não:
+  // "Recalcular do zero" é a decisão explícita de voltar ao padrão.
+  useEffect(() => {
+    if (!dialogOpen || currentFase !== "actual" || parcelasManuais) return;
+    if (!condPag || valorPedidoForm <= 0 || !linhasCondicao) {
+      setParcelas([]);
+      setErroCalculoParcelas(null);
+      return;
+    }
+    try {
+      const resumo = (condicoes as any[]).find((c) => c.codigo === condPag) ?? {};
+      const linhas = linhasCondicao.length > 0 ? linhasCondicao : linhasDoResumo(resumo);
+      setParcelas(calcularParcelasProjeto(linhas, valorPedidoForm, dataBaseParcelas));
+      setErroCalculoParcelas(null);
+    } catch (err: any) {
+      setParcelas([]);
+      setErroCalculoParcelas(err?.message || "Não foi possível calcular as parcelas.");
+    }
+  }, [dialogOpen, currentFase, parcelasManuais, condPag, valorPedidoForm, linhasCondicao, dataBaseParcelas, condicoes]);
+
+  function editarParcelas(novas: ParcelaProjeto[]) {
+    setParcelas(novas);
+    setParcelasManuais(true);
+  }
+
+  function trocarDataEntrega(nova: string) {
+    setDataEntrega(nova);
+    // Editadas à mão contando da entrega: os vencimentos ficam, os "dias" da 1ª acompanham.
+    if (parcelasManuais && baseParcelas === "Data da Entrega" && ehDataValida(nova)) {
+      setParcelas((ps) => recalcularDias(ps, nova));
+    }
+  }
+
+  function trocarBaseParcelas(nova: BaseParcelasProjeto) {
+    if (nova === baseParcelas) return;
+    setBaseParcelas(nova);
+    setParcelasManuais(false); // trocar a base é decisão explícita: refaz do zero
+  }
+
+  // ── Etapa (L11 — Rastreio de Compras, só informativa) ──
+  const temPedidoNoAlvo = useMemo(
+    () => (requisicoes as any[]).some((r) => r.fase === "actual" && !!r.numero_pedido_alvo),
+    [requisicoes],
+  );
+  const { data: etapas, error: erroEtapas } = useQuery({
+    queryKey: ["projeto-etapas", projetoId],
+    queryFn: async () => {
+      const r = await listarEtapasDoProjeto(projetoId!);
+      if (falhou(r)) throw new Error(descricaoErro(r));
+      return r.dados;
+    },
+    enabled: !!projetoId && temPedidoNoAlvo,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const etapaPorNumero = useMemo(() => new Map((etapas?.pedidos ?? []).map((e) => [e.numero, e])), [etapas]);
+  const etapasAtualizadoEm = etapas?.atualizado_em ? format(new Date(etapas.atualizado_em), "dd/MM 'às' HH:mm") : null;
 
   // ── Open-load do Alvo (L7-A) ──────────────────────────────────────────────
   // Roda UMA vez por abertura do projeto, só para linhas com numero_pedido_alvo.
@@ -385,6 +491,11 @@ export default function ProjetoRequisicoes() {
     ]);
     setClasseRateio([]);
     setArquivosNovos([]);
+    setDataEntrega(somarDias(hojeYMD(), DIAS_ENTREGA_PADRAO));
+    setBaseParcelas(BASE_PARCELAS_PROJETO_PADRAO);
+    setParcelas([]);
+    setParcelasManuais(false);
+    setErroCalculoParcelas(null);
     setEditingReq(null);
   }
 
@@ -439,6 +550,21 @@ export default function ProjetoRequisicoes() {
         percentual: Number(c.percentual) || 0,
       })),
     );
+    // L11: pedido anterior às parcelas (sem entrega gravada) abre com o padrão.
+    const entrega = ehDataValida(r.data_entrega) ? r.data_entrega : somarDias(hojeYMD(), DIAS_ENTREGA_PADRAO);
+    const base = r.data_base_parcelas ? normalizarBaseParcelas(r.data_base_parcelas) : BASE_PARCELAS_PROJETO_PADRAO;
+    setDataEntrega(entrega);
+    setBaseParcelas(base);
+    setErroCalculoParcelas(null);
+    if (r.parcelas_manuais && Array.isArray(r.parcelas) && r.parcelas.length > 0) {
+      // "dias" refeitos contra a data base de HOJE — os vencimentos gravados ficam.
+      const baseHoje = base === "Data da Entrega" ? entrega : hojeYMD();
+      setParcelas(recalcularDias(r.parcelas as ParcelaProjeto[], baseHoje));
+      setParcelasManuais(true);
+    } else {
+      setParcelas([]);
+      setParcelasManuais(false);
+    }
     setDialogOpen(true);
   }
 
@@ -470,6 +596,28 @@ export default function ProjetoRequisicoes() {
 
     const vt = validItens.reduce((s, i) => s + i.quantidade * i.valor_unitario, 0);
 
+    // L11: entrega e parcelas (Actual). Sem condição escolhida não há parcelas —
+    // o envio recusa depois, como já fazia.
+    if (currentFase === "actual") {
+      if (!ehDataValida(dataEntrega)) {
+        toast({ title: "Informe a Data da Entrega", variant: "destructive" });
+        return;
+      }
+      if (dataEntrega < hojeYMD() && dataEntrega !== editingReq?.data_entrega) {
+        toast({ title: "A Data da Entrega não pode ser anterior a hoje", variant: "destructive" });
+        return;
+      }
+      if (condPag && parcelas.length > 0) {
+        const problema = validarParcelas(parcelas, Math.round(vt * 100) / 100, {
+          hoje: parcelasManuais ? hojeYMD() : undefined,
+        });
+        if (problema) {
+          toast({ title: "Parcelas inválidas", description: problema, variant: "destructive" });
+          return;
+        }
+      }
+    }
+
     // Budget check per fase
     const totalFase = currentFase === "budget" ? totalBudget : totalActual;
     const outrasReqs = editingReq ? totalFase - (Number(editingReq.valor_total) || 0) : totalFase;
@@ -497,6 +645,14 @@ export default function ProjetoRequisicoes() {
       classe_rateio: classeRateio,
       valor_total: vt,
       fase: currentFase,
+      ...(currentFase === "actual"
+        ? {
+            data_entrega: dataEntrega,
+            data_base_parcelas: baseParcelas,
+            parcelas: condPag ? parcelas : [],
+            parcelas_manuais: !!condPag && parcelas.length > 0 && parcelasManuais,
+          }
+        : {}),
     };
 
     const res = await salvarPedido(projetoId!, editingReq?.id ?? null, dados);
@@ -969,6 +1125,45 @@ export default function ProjetoRequisicoes() {
     );
   };
 
+  // ── Etapa (espelho do Rastreio de Compras — informativa, atualizada de hora em hora) ──
+  const celulaEtapa = (r: any) => {
+    if (!r.numero_pedido_alvo) return <span className="text-xs text-muted-foreground">—</span>;
+    const e = etapaPorNumero.get(r.numero_pedido_alvo);
+    const fonte = etapasAtualizadoEm
+      ? `Rastreio de Compras · dados de ${etapasAtualizadoEm} (atualiza de hora em hora)`
+      : "Rastreio de Compras (atualiza de hora em hora)";
+    if (!e) {
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help whitespace-nowrap text-xs text-muted-foreground">
+              {erroEtapas ? "—" : "Aguardando atualização"}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            {erroEtapas
+              ? `Etapa indisponível: ${(erroEtapas as Error).message}`
+              : `Este pedido ainda não apareceu no ${fonte}. Pedido recém-enviado entra na próxima atualização.`}
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex cursor-help">
+            <StatusChip tom={tomEtapa(e.etapa)}>{e.etapa}</StatusChip>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs">
+          {e.qtd_nf > 1 && <div>{e.qtd_nf} NFs ligadas — mostra a etapa menos avançada.</div>}
+          {e.qtd_nf === 1 && <div>1 NF ligada.</div>}
+          <div className="opacity-70">{fonte}. Só informativo.</div>
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
+
   // ── Detalhe de um pedido (linha expandida): itens, rateio e dados do envio ──
   const detalhePedido = (r: any, fase: "budget" | "actual") => {
     const rItens = (r.itens as any[]) || [];
@@ -1099,6 +1294,18 @@ export default function ProjetoRequisicoes() {
             </span>
           )}
           {r.cond_pagamento_nome && <span>Cond. pagamento: {r.cond_pagamento_nome}</span>}
+          {fase === "actual" && ehDataValida(r.data_entrega) && <span>Entrega: {fmtDataBR(r.data_entrega)}</span>}
+          {fase === "actual" && r.parcelas_manuais && Array.isArray(r.parcelas) && r.parcelas.length > 0 && (
+            <span>
+              Parcelas (editadas):{" "}
+              {(r.parcelas as ParcelaProjeto[])
+                .map((pp) => `${fmtDataBR(pp.data_vencimento)} ${fmtMoeda(Number(pp.valor_parcela) || 0)}`)
+                .join(" · ")}
+            </span>
+          )}
+          {fase === "actual" && !r.parcelas_manuais && r.status !== "enviado" && r.cond_pagamento_codigo && (
+            <span>Parcelas: calculadas pela condição no envio</span>
+          )}
           {r.fornecedor_cnpj && <span>CNPJ: {r.fornecedor_cnpj}</span>}
           {r.alvo_synced_at && (
             <span>Status lido do ERP em {format(new Date(r.alvo_synced_at), "dd/MM/yyyy HH:mm")}</span>
@@ -1124,7 +1331,7 @@ export default function ProjetoRequisicoes() {
     }
 
     const total = pedidos.reduce((s: number, r: any) => s + (Number(r.valor_total) || 0), 0);
-    const colunas = fase === "actual" ? 7 : 5;
+    const colunas = fase === "actual" ? 8 : 5;
     const colunasRotulo = fase === "actual" ? 2 : 3;
     const podeEditar = (r: any) => (fase === "budget" ? canEditBudget : canEditActualRow(r));
 
@@ -1154,8 +1361,11 @@ export default function ProjetoRequisicoes() {
                       {r.fornecedor_nome || "Sem fornecedor"}
                       {r.numero_pedido_alvo ? ` · Alvo ${r.numero_pedido_alvo}` : ""}
                     </p>
-                    {fase === "actual" && (r.status_alvo || r.alvo_nao_encontrado_em) && (
-                      <div className="mt-1">{celulaErp(r)}</div>
+                    {fase === "actual" && (r.status_alvo || r.alvo_nao_encontrado_em || r.numero_pedido_alvo) && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {celulaErp(r)}
+                        {r.numero_pedido_alvo && celulaEtapa(r)}
+                      </div>
                     )}
                   </div>
                   <div className="shrink-0 text-right">
@@ -1188,6 +1398,9 @@ export default function ProjetoRequisicoes() {
                   <>
                     <TableHead className="h-9 px-3 text-xs">Situação no Hub</TableHead>
                     <TableHead className="h-9 px-3 text-xs">Status no ERP</TableHead>
+                    <TableHead className="h-9 px-3 text-xs" title="Funil do Rastreio de Compras — informativo">
+                      Etapa
+                    </TableHead>
                     <TableHead className="h-9 px-3 text-xs">Nº Alvo</TableHead>
                   </>
                 )}
@@ -1209,7 +1422,7 @@ export default function ProjetoRequisicoes() {
                           {r.sequencia}
                         </div>
                       </TableCell>
-                      <TableCell className="max-w-[360px] px-3 py-2">
+                      <TableCell className={`${fase === "actual" ? "max-w-[260px]" : "max-w-[360px]"} px-3 py-2`}>
                         <p className="flex items-center gap-1.5 text-sm font-medium" title={r.descricao}>
                           <span className="truncate">{r.descricao}</span>
                           {clipeAnexos(r)}
@@ -1230,6 +1443,7 @@ export default function ProjetoRequisicoes() {
                         <>
                           <TableCell className="px-3 py-2">{celulaSituacao(r)}</TableCell>
                           <TableCell className="px-3 py-2">{celulaErp(r)}</TableCell>
+                          <TableCell className="px-3 py-2">{celulaEtapa(r)}</TableCell>
                           <TableCell className="whitespace-nowrap px-3 py-2 font-mono text-sm">
                             {r.numero_pedido_alvo || <span className="text-muted-foreground">—</span>}
                           </TableCell>
@@ -1320,6 +1534,7 @@ export default function ProjetoRequisicoes() {
           faseAtual === "actual" ? (
             <span className="inline-flex flex-wrap items-center gap-x-1 tabular-nums">
               {pedidosActual.length} pedido(s) · {fmtMoeda(totalActual)} · {enviadosActual} enviado(s) ao ERP
+              {etapasAtualizadoEm && <span> · etapas do Rastreio de {etapasAtualizadoEm}</span>}
               {syncAlvoRodando && (
                 <span className="inline-flex items-center gap-1">
                   · <Loader2 className="h-3 w-3 animate-spin" /> lendo status no ERP…
@@ -1925,6 +2140,241 @@ export default function ProjetoRequisicoes() {
                 )}
               </div>
 
+              {/* Section 3b: Entrega e parcelas (L11 — só Actual) */}
+              {currentFase === "actual" &&
+                (() => {
+                  const podeMexer = editingReq
+                    ? canEditActualRow(editingReq)
+                    : faseAtual === "actual" && (isAdmin || (canPedidosCreate && isResponsavel));
+                  const soma = somaParcelas(parcelas);
+                  const fechou = Math.round(soma * 100) === Math.round(valorPedidoForm * 100);
+                  const problema =
+                    parcelas.length > 0
+                      ? validarParcelas(parcelas, valorPedidoForm, { hoje: parcelasManuais ? hoje : undefined })
+                      : null;
+                  const nomeCond = (condicoes as any[]).find((c) => c.codigo === condPag)?.nome;
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Entrega e parcelas
+                          </h3>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {nomeCond ? (
+                              <>
+                                Calculadas a partir de <span className="font-medium text-foreground">{nomeCond}</span>.
+                                Dá para editar vencimento, dias ou valor — vai assim para o ERP.
+                              </>
+                            ) : (
+                              "Escolha a condição de pagamento para calcular as parcelas."
+                            )}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0 gap-1.5 text-xs"
+                          onClick={() => setParcelasManuais(false)}
+                          disabled={!podeMexer || !condPag || !parcelasManuais}
+                          title="Volta às parcelas da condição de pagamento"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          Recalcular do zero
+                        </Button>
+                      </div>
+
+                      <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 sm:grid-cols-[170px_1fr]">
+                        <div>
+                          <Label className="text-xs">Data da Entrega</Label>
+                          <Input
+                            type="date"
+                            value={dataEntrega}
+                            min={hoje}
+                            onChange={(e) => trocarDataEntrega(e.target.value)}
+                            disabled={!podeMexer}
+                            className="mt-1 h-9"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <Label className="text-xs">Prazos contam a partir de</Label>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {BASES_PARCELAS_PROJETO.map((b) => (
+                              <Button
+                                key={b.valor}
+                                type="button"
+                                size="sm"
+                                variant={baseParcelas === b.valor ? "default" : "outline"}
+                                onClick={() => trocarBaseParcelas(b.valor)}
+                                disabled={!podeMexer}
+                                className="h-9 text-xs"
+                              >
+                                {b.valor}
+                                <span className="ml-1.5 tabular-nums opacity-80">
+                                  {fmtDataBR(b.valor === "Data da Entrega" ? dataEntrega : hoje)}
+                                </span>
+                              </Button>
+                            ))}
+                          </div>
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            {BASES_PARCELAS_PROJETO.find((b) => b.valor === baseParcelas)?.ajuda} Vai ao ERP como
+                            "Data Base Parcelas".
+                          </p>
+                        </div>
+                      </div>
+
+                      {erroCalculoParcelas && (
+                        <p className="flex items-center gap-1.5 text-xs text-danger">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          {erroCalculoParcelas}
+                        </p>
+                      )}
+
+                      {condPag && valorPedidoForm <= 0 && (
+                        <p className="text-xs text-muted-foreground">Informe o valor dos itens para calcular as parcelas.</p>
+                      )}
+
+                      {condPag && carregandoCondicao && parcelas.length === 0 && (
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Calculando parcelas…
+                        </p>
+                      )}
+
+                      {parcelas.length > 0 && (
+                        <div className="overflow-x-auto rounded-md border border-border">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted/40 text-muted-foreground">
+                              <tr>
+                                <th className="w-10 px-2 py-1.5 text-left font-medium">Nº</th>
+                                <th className="px-2 py-1.5 text-left font-medium">Vencimento</th>
+                                <th
+                                  className="w-24 px-2 py-1.5 text-center font-medium"
+                                  title="1ª parcela: dias depois da data base · demais: dias depois da parcela anterior"
+                                >
+                                  Dias
+                                </th>
+                                <th className="w-36 px-2 py-1.5 text-right font-medium">Valor (R$)</th>
+                                <th className="w-10" />
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                              {parcelas.map((pp, idx) => (
+                                <tr key={idx}>
+                                  <td className="px-2 py-1.5 tabular-nums text-muted-foreground">{pp.sequencia}</td>
+                                  <td className="px-2 py-1.5">
+                                    <Input
+                                      type="date"
+                                      value={pp.data_vencimento}
+                                      min={hoje}
+                                      onChange={(e) =>
+                                        editarParcelas(alterarVencimento(parcelas, idx, e.target.value, dataBaseParcelas))
+                                      }
+                                      disabled={!podeMexer}
+                                      className="h-8 w-[150px] text-xs"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      value={pp.dias_entre_parcelas}
+                                      onChange={(e) =>
+                                        editarParcelas(alterarDias(parcelas, idx, Number(e.target.value), dataBaseParcelas))
+                                      }
+                                      disabled={!podeMexer}
+                                      className="h-8 text-center text-xs tabular-nums"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step="0.01"
+                                      value={pp.valor_parcela}
+                                      onChange={(e) => editarParcelas(alterarValor(parcelas, idx, Number(e.target.value)))}
+                                      disabled={!podeMexer}
+                                      className="h-8 text-right text-xs tabular-nums"
+                                    />
+                                  </td>
+                                  <td className="px-1 py-1.5 text-center">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-muted-foreground hover:text-danger"
+                                      onClick={() => editarParcelas(removerParcela(parcelas, idx, dataBaseParcelas))}
+                                      disabled={!podeMexer || parcelas.length === 1}
+                                      title={parcelas.length === 1 ? "Pelo menos 1 parcela" : "Remover parcela"}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                      <span className="sr-only">Remover parcela</span>
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="border-t border-border bg-muted/30">
+                              <tr>
+                                <td colSpan={3} className="px-2 py-1.5 text-right font-medium text-muted-foreground">
+                                  Total das parcelas
+                                </td>
+                                <td
+                                  className={`px-2 py-1.5 text-right font-semibold tabular-nums ${fechou ? "text-success" : "text-danger"}`}
+                                >
+                                  {fmtMoeda(soma)}
+                                </td>
+                                <td />
+                              </tr>
+                              <tr>
+                                <td colSpan={3} className="px-2 pb-1.5 text-right text-muted-foreground">
+                                  Valor do pedido
+                                </td>
+                                <td className="px-2 pb-1.5 text-right tabular-nums text-muted-foreground">
+                                  {fmtMoeda(valorPedidoForm)}
+                                </td>
+                                <td />
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
+
+                      {parcelas.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1.5 text-xs"
+                            onClick={() => editarParcelas(adicionarParcela(parcelas, dataBaseParcelas, valorPedidoForm))}
+                            disabled={!podeMexer}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Adicionar parcela
+                          </Button>
+                          {parcelasManuais ? (
+                            <span className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground">
+                              Editadas à mão — vão ao ERP exatamente assim. "Recalcular do zero" volta à condição.
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">
+                              Automáticas — no envio são recalculadas com a data do dia.
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {problema && (
+                        <p className="flex items-center gap-1.5 text-xs text-danger">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          {problema}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
               {/* Section 4: Anexos (L9 — só Actual) */}
               {currentFase === "actual" &&
                 (() => {
@@ -2062,6 +2512,20 @@ export default function ProjetoRequisicoes() {
                 {(arquivosPorPedido[enviarTarget?.id]?.length ?? 0) > 0 &&
                   `, com ${arquivosPorPedido[enviarTarget.id].length} anexo(s)`}
                 ? Esta ação não pode ser desfeita.
+                {enviarTarget && (
+                  <span className="mt-2 block text-xs">
+                    {ehDataValida(enviarTarget.data_entrega) && `Entrega ${fmtDataBR(enviarTarget.data_entrega)} · `}
+                    {enviarTarget.parcelas_manuais && (enviarTarget.parcelas?.length ?? 0) > 0
+                      ? `Parcelas editadas: ${(enviarTarget.parcelas as ParcelaProjeto[])
+                          .map((pp) => `${fmtDataBR(pp.data_vencimento)} ${fmtMoeda(Number(pp.valor_parcela) || 0)}`)
+                          .join(" · ")}`
+                      : `Parcelas calculadas agora pela condição (${enviarTarget.cond_pagamento_nome || "—"}), contando de ${
+                          enviarTarget.data_base_parcelas === "Data da Entrega" && ehDataValida(enviarTarget.data_entrega)
+                            ? `${fmtDataBR(enviarTarget.data_entrega)} (entrega)`
+                            : "hoje"
+                        }.`}
+                  </span>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

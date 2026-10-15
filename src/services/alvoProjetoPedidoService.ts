@@ -2,6 +2,20 @@ import { supabase } from "@/integrations/supabase/client";
 import { marcarEnviado, marcarArquivosEnviados, descricaoErro, falhou } from "./projetosService";
 import { resolverUsuarioAlvoOuNull, type ConsolidacaoRateio } from "./pedidosService";
 import { baixarAnexosParaEnvio, listarArquivosDoPedido } from "./projetoArquivosService";
+import {
+  calcularParcelasProjeto,
+  datasParaAlvo,
+  ehDataValida,
+  fmtDataBR,
+  hojeYMD,
+  linhasDoResumo,
+  parcelasParaAlvo,
+  recalcularDias,
+  validarParcelas,
+  type DatasPedidoAlvo,
+  type LinhaCondicao,
+  type ParcelaProjeto,
+} from "./projetoParcelas";
 
 /**
  * L7-B — o envio passa pelo erp-proxy, não mais direto ao Alvo.
@@ -21,20 +35,20 @@ const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 
 const SERVICO_TIPOS = ["05", "06", "07", "08", "09"];
 
-function fmtDate(d: Date): string {
-  return d.toISOString().split("T")[0] + "T00:00:00";
-}
-
-function hoje(): Date {
-  return new Date();
-}
-
 // ── Fetch & Validate ──
+
+/** Colunas do L11 — ainda fora do types.ts gerado. */
+interface CamposParcelasL11 {
+  data_entrega?: string | null;
+  data_base_parcelas?: string | null;
+  parcelas?: unknown;
+  parcelas_manuais?: boolean | null;
+}
 
 async function fetchRequisicao(requisicaoId: string) {
   const { data, error } = await supabase.from("projeto_requisicoes").select("*").eq("id", requisicaoId).single();
   if (error || !data) throw new Error("Requisição não encontrada");
-  return data;
+  return data as typeof data & CamposParcelasL11;
 }
 
 // ── P7: Gate de segurança — só permite POST ao Alvo se projeto está aprovado ──
@@ -48,6 +62,49 @@ async function fetchCondPag(codigo: string) {
   const { data, error } = await supabase.from("condicoes_pagamento").select("*").eq("codigo", codigo).single();
   if (error || !data) throw new Error(`Condição de pagamento "${codigo}" não encontrada`);
   return data;
+}
+
+/** Linhas da condição (prazo e fração por parcela) — a mesma tabela do Suprimentos. */
+export async function fetchLinhasCondicao(codigo: string): Promise<LinhaCondicao[]> {
+  const { data, error } = await (supabase as any)
+    .from("condicoes_pagamento_parcelas")
+    .select("numero, dias_prazo, percentual_fracao")
+    .eq("codigo_cond_pag", codigo)
+    .order("numero", { ascending: true });
+  if (error) throw new Error(`Erro ao ler as parcelas da condição ${codigo}: ${error.message}`);
+  return (data || []) as LinhaCondicao[];
+}
+
+/**
+ * L11 — parcelas que vão ao Alvo.
+ * · editadas à mão (`parcelas_manuais`): exatamente as gravadas;
+ * · automáticas (ou pedido anterior ao L11): recalculadas AGORA, com a data
+ *   base do dia do envio — rascunho parado não leva vencimento velho.
+ * Condição sem linhas em `condicoes_pagamento_parcelas` cai no resumo de
+ * `condicoes_pagamento` (o cálculo de antes do L11).
+ */
+export async function resolverParcelasParaEnvio(
+  req: any,
+  condPag: any,
+  datas: DatasPedidoAlvo,
+  linhas?: LinhaCondicao[],
+): Promise<ParcelaProjeto[]> {
+  const valorTotal = Number(req.valor_total) || 0;
+  if (req.parcelas_manuais && Array.isArray(req.parcelas) && req.parcelas.length > 0) {
+    const gravadas = (req.parcelas as any[]).map((p, i) => ({
+      sequencia: i + 1,
+      dias_entre_parcelas: Number(p.dias_entre_parcelas) || 0,
+      valor_parcela: Number(p.valor_parcela) || 0,
+      data_vencimento: String(p.data_vencimento || ""),
+    }));
+    // Vencimentos são os gravados; os "dias" são refeitos contra a data base do
+    // envio, para o Alvo não receber dias e vencimentos contraditórios.
+    return gravadas.every((p) => ehDataValida(p.data_vencimento))
+      ? recalcularDias(gravadas, datas.dataBase)
+      : gravadas;
+  }
+  const ls = linhas ?? (await fetchLinhasCondicao(req.cond_pagamento_codigo));
+  return calcularParcelasProjeto(ls.length > 0 ? ls : linhasDoResumo(condPag), valorTotal, datas.dataBase);
 }
 
 /**
@@ -283,9 +340,17 @@ function validarPedidoVsProjeto(req: any, projetoFase: { fase_atual: string; sta
 
 // ── Build Payload ──
 
-function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario: string) {
-  const now = hoje();
-  const nowStr = fmtDate(now);
+export function buildPayload(
+  req: any,
+  condPag: any,
+  projetoNome: string,
+  codigoUsuario: string,
+  parcelasPedido: ParcelaProjeto[],
+  datas: DatasPedidoAlvo,
+) {
+  // Data LOCAL do envio (a mesma da base das parcelas). Antes saía a data UTC de
+  // `toISOString()` — depois das 21h de Brasília, o pedido nascia com o dia seguinte.
+  const nowStr = `${hojeYMD()}T00:00:00`;
   const itens = req.itens as any[];
   const rateio = req.classe_rateio as any[];
   const valorTotal = Number(req.valor_total) || 0;
@@ -367,32 +432,11 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
     };
   });
 
-  // ── Parcelas ──
-  const qtdParcelas = condPag.quantidade_parcelas || 1;
-  const diasEntre = condPag.dias_entre_parcelas || 0;
-  const primeiroApos = condPag.primeiro_vencimento_apos || 0;
-  const valorParcela = Math.floor((valorTotal / qtdParcelas) * 100) / 100;
-
-  const parcelas = [];
-  for (let i = 0; i < qtdParcelas; i++) {
-    const diasOffset = primeiroApos + diasEntre * i;
-    const venc = new Date(now);
-    venc.setDate(venc.getDate() + diasOffset);
-
-    const isLast = i === qtdParcelas - 1;
-    const valor = isLast ? valorTotal - valorParcela * (qtdParcelas - 1) : valorParcela;
-
-    parcelas.push({
-      CodigoEmpresaFilial: "",
-      NumeroPedComp: "",
-      Sequencia: i + 1,
-      NumeroDuplicata: qtdParcelas === 1 ? "1" : `${i + 1}/${qtdParcelas}`,
-      DiasEntreParcelas: i === 0 ? primeiroApos : diasEntre,
-      PercentualFracao: Number(((valor / valorTotal) * 100).toFixed(4)),
-      ValorParcela: Number(valor.toFixed(2)),
-      DataVencimento: fmtDate(venc),
-    });
-  }
+  // ── Parcelas (L11) ──
+  // Vêm resolvidas de `resolverParcelasParaEnvio` (gravadas pela pessoa ou
+  // recalculadas no envio). O formato do bloco é o mesmo de antes do L11.
+  void condPag;
+  const parcelas = parcelasParaAlvo(parcelasPedido, valorTotal);
 
   // ── Classe header-level ──
   // Mesma consolidação do item, agora sobre o valor do PEDIDO. O cabeçalho não
@@ -442,9 +486,10 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
     Comprado: "Não",
     DataPedido: nowStr,
     DataCadastro: nowStr,
-    DataValidade: nowStr,
-    DataBaseVencimento: nowStr,
-    DataBaseVencimentoParcela: "Data do Pedido",
+    // L11: entrega/validade/base vêm do pedido; pedido anterior ao L11 sai como antes (tudo hoje).
+    DataValidade: datas.DataValidade,
+    DataBaseVencimento: datas.DataBaseVencimento,
+    DataBaseVencimentoParcela: datas.DataBaseVencimentoParcela,
     DataCompetencia: dataCompetencia,
     CodigoEntidade: req.fornecedor_codigo,
     // b3 — CodigoComprador SEMPRE null (decisão de 22/06, ver pedidosService.ts:281).
@@ -467,7 +512,7 @@ function buildPayload(req: any, condPag: any, projetoNome: string, codigoUsuario
     CodigoTipoPagRec: "0000016",
     CodigoIndEconomico: "0000001",
     CodigoEntidadeTransportadora: req.fornecedor_codigo,
-    DataEntrega: nowStr,
+    DataEntrega: datas.DataEntrega,
     ExecutaOnAfterSave: false,
     ImpostoZerado: "Não",
     CondPagPedCompObject: {
@@ -644,7 +689,20 @@ export async function enviarRequisicaoAlvo(
     }
 
     const condPag = await fetchCondPag(req.cond_pagamento_codigo);
-    const payload = buildPayload(req, condPag, projetoNome, codigoUsuario);
+
+    // L11: datas e parcelas resolvidas e validadas ANTES de qualquer chamada ao ERP.
+    const hoje = hojeYMD();
+    if (ehDataValida(req.data_entrega) && req.data_entrega < hoje) {
+      throw new Error(
+        `A Data da Entrega (${fmtDataBR(req.data_entrega)}) já passou. Edite o pedido e ajuste a data antes de enviar.`,
+      );
+    }
+    const datas = datasParaAlvo(req, hoje);
+    const parcelasPedido = await resolverParcelasParaEnvio(req, condPag, datas);
+    const problemaParcelas = validarParcelas(parcelasPedido, Number(req.valor_total) || 0, { hoje });
+    if (problemaParcelas) throw new Error(problemaParcelas);
+
+    const payload = buildPayload(req, condPag, projetoNome, codigoUsuario, parcelasPedido, datas);
 
     // L9: os anexos são carregados ANTES de qualquer chamada ao ERP — se um não
     // puder ser lido, nada é enviado (e o pedido fica em 'erro', reenviável).

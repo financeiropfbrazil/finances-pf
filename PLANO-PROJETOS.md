@@ -347,6 +347,7 @@ Tabelas fechadas no RLS (SELECT com escopo; INSERT/UPDATE/DELETE sem policy p/ a
 | L8 | Revisão de código do módulo + visual padrão ERP (lista em grade, detalhe com Actual/Budget em largura total, tokens do tema, sem brilho) — corrige B1–B7 do diário de 15/10 | finances-pf (front-only) | 🟡 15/10 — no `main` (preview); **aguarda conferência e Publish do Pedro** |
 | L9 | Anexos no pedido de compra (fase Actual): até 3 arquivos PDF/JPG/PNG de 5 MB, tabela + bucket próprios, envio pela rota existente `/ped-comp/insert-multipart` | SQL (Pedro aprova) + finances-pf | 🟡 15/10 — SQL aplicado e validado (dry-run Ana/Fernando/Hugo); código no `main` (preview); **aguarda Publish do Pedro e 1º envio real com anexo** |
 | L10 | Envio já com `UserEnviarAprovacao: "Sim"` (só o comando, nunca `UserEnviouAprovacao`), com aviso explícito na confirmação, evento de autorização no Hub e guarda contra reenvio duplicado | SQL (Pedro aprova) + finances-pf | ⏳ planejado — **depois do L9**, com teste controlado de valor baixo |
+| L11 | Parcelas editáveis no pedido do Actual (Data da Entrega, data base, vencimento × dias ligados, soma = valor do pedido; automáticas recalculadas no envio) + coluna **Etapa** informativa (funil do Rastreio de Compras, por RPC com a regra de visão do projeto) | SQL (Pedro aprova) + finances-pf | 🟡 15/10 — código no branch da sessão, testado (25 testes); **SQL aguarda OK do Pedro** — decisões: as duas juntas, prazos da Data do Pedido, entrega hoje + 30 |
 
 Ordem: **L0 → L1 → L2 → L3 → L4 → L5 → L6**. L3 só depois de L2 (as RPCs precisam existir antes de fechar a escrita, senão o módulo para). L4 só depois de L3 (o front novo pressupõe o banco novo).
 
@@ -952,6 +953,8 @@ Constraints: **só** `PRIMARY KEY (id)` + `FK projeto_id → projetos(id) ON DEL
 | `sql/PROJ-L7B-b5-alvo_usuario_ana.sql` | `profiles.alvo_usuario` da Ana (D-17) | ✅ aplicado 07/08 — `ANA.SANCHES` gravado |
 | `sql/PROJ-L9-anexos.sql` | L9 completo: pasta `projetos-pedidos`, tabela `projeto_pedido_arquivos`, funções de regra, policies, 3 RPCs (fonte de referência + verificação + rollback) | ✅ aplicado 15/10 (MCP, em partes — ver diário) |
 | `sql/PROJ-L9-anexos-parte-final.sql` | a parte com DELETE (RPC de excluir anexo + 3 policies da pasta) | ✅ aplicado 15/10 pelo Pedro no SQL Editor |
+| `sql/PROJ-L11-parcelas-e-etapa.sql` | 4 colunas de entrega/parcelas, `projeto_pedido_salvar` grava e valida, RPC `projeto_pedidos_etapa` | ⏳ aguarda OK |
+| `sql/PROJ-L11-rollback.sql` | fonte exata da `projeto_pedido_salvar` anterior (md5 conferido) + drop da RPC de etapa | — (só se precisar) |
 
 Ordem de execução: **L1 → L2.0 → L2.1 → L2.2 → L2.3 → L2.4 → L2.9**. Cada arquivo termina com verificação por leitura e bloco de rollback comentado. O rollback do L2.4 é o fonte original preservado na seção 10.3.
 

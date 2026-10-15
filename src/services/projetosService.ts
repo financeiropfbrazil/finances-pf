@@ -78,6 +78,14 @@ export interface DadosPedido {
   classe_rateio: unknown[];
   valor_total: number;
   fase: "budget" | "actual";
+  /** L11 (só Actual): "Data da Entrega" no Alvo, YYYY-MM-DD. */
+  data_entrega?: string | null;
+  /** L11: de qual data os prazos da condição contam. */
+  data_base_parcelas?: "Data do Pedido" | "Data da Entrega" | null;
+  /** L11: parcelas como a pessoa deixou; o banco recusa se não somarem o valor. */
+  parcelas?: { sequencia: number; dias_entre_parcelas: number; valor_parcela: number; data_vencimento: string }[];
+  /** L11: true = editadas à mão (vão ao Alvo como estão); false = recalculadas no envio. */
+  parcelas_manuais?: boolean;
 }
 
 // ── Núcleo ───────────────────────────────────────────────────────────
@@ -246,4 +254,29 @@ export async function marcarArquivosEnviados(
     p_requisicao_id: requisicaoId,
     p_numero_alvo: numeroAlvo,
   });
+}
+
+// ── Etapa do pedido (L11 — fonte: Rastreio de Compras) ───────────────
+
+export interface EtapaPedidoProjeto {
+  numero: string;
+  etapa: string;
+  etapa_ordem: number | null;
+  qtd_nf: number;
+}
+
+export interface EtapasDoProjeto {
+  success: true;
+  /** Hora da última atualização do Rastreio (roda de hora em hora, aos :55). */
+  atualizado_em: string | null;
+  pedidos: EtapaPedidoProjeto[];
+}
+
+/**
+ * Etapa de cada pedido do projeto já enviado ao Alvo, lida da mesma base do
+ * Rastreio de Compras. Só informativa: o Hub não decide nada com ela.
+ * Pedido com 2+ NFs vem com a etapa menos avançada.
+ */
+export async function listarEtapasDoProjeto(projetoId: string): Promise<ResultadoRpc<EtapasDoProjeto>> {
+  return chamarRpc<EtapasDoProjeto>("projeto_pedidos_etapa", { p_projeto_id: projetoId });
 }
