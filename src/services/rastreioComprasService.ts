@@ -35,7 +35,6 @@ export const ETAPAS_ORDEM = [
   "Em inspeção (laudo)",
   "Aguardando pagamento",
   "Adiantamento pago (sem NF)",
-  "Pago (NF não ligada)",
   "Pago (1ª parcela)",
   "Encerrado sem NF ligada",
   "Cancelado",
@@ -150,8 +149,26 @@ export interface LinhaRastreio {
   tit_p1_valor_pago: number | null;
   tit_p1_situacao: string | null;
   tit_qtd_parcelas: number | null;
+  /** Parcelas pagas COM PROVA (ver ClassePagamento): saída bancária ou quitação por adiantamento. */
   tit_qtd_pagas: number | null;
   tit_ligacao: string | null;
+  // Pagamento — título da NF, todas as parcelas (LR-PAG Fase 1). Valores da NF
+  // inteira: se a NF atende vários pedidos, se repetem em cada linha.
+  // MOEDAS: total e em aberto vêm na moeda do título (tit_moeda); pago e
+  // quitado vêm SEMPRE em reais (o DocFin grava ValorPago convertido).
+  tit_total?: number | null;
+  tit_total_pago?: number | null;
+  tit_total_quitado_adto?: number | null;
+  tit_total_em_aberto?: number | null;
+  /** Código de moeda do DocFin ("0000001" BRL, "0000002" USD, "0000003" EUR, "MISTA"). */
+  tit_moeda?: string | null;
+  /** Agrupadas em fatura, baixadas sem movimento bancário ou de situação desconhecida. */
+  tit_qtd_nao_confirmadas?: number | null;
+  tit_ultimo_pagamento?: string | null;
+  /** Leitura mais antiga do DocFin entre as parcelas da NF (timestamptz). */
+  tit_lido_em?: string | null;
+  /** Quantos pedidos a NF desta linha atende. */
+  nf_qtd_pedidos?: number | null;
   // Consolidado
   primeiro_pagamento: string | null;
   primeiro_pagamento_origem: string | null;
@@ -232,6 +249,66 @@ export async function listarTudo(
     );
   }
   return todas;
+}
+
+/**
+ * Regra "pago só com prova" — a MESMA função do banco
+ * (`rastreio_classe_pagamento`), aplicada a cada parcela do DocFin:
+ *   pago          02.002 com movimento bancário (o dinheiro saiu)
+ *   quitado_adto  02.002 quitado compensando um adiantamento
+ *   agrupado      02.007: foi para uma fatura agrupadora; o pagamento é dela
+ *   baixa_sem_mov 02.002 sem movimento bancário nem cobrança conhecida
+ *   aberto        02.001
+ *   desconhecido  qualquer outro código — nunca conta como pago
+ * Só `pago` e `quitado_adto` entram em "pagas" e no 1º pagamento.
+ */
+export type ClassePagamento = "pago" | "quitado_adto" | "agrupado" | "baixa_sem_mov" | "aberto" | "desconhecido";
+
+export interface ParcelaPagamento {
+  titulo: string | null;
+  especie: string | null;
+  sequencia: number | null;
+  parcial: number | null;
+  vencimento: string | null;
+  valor: number | null;
+  pago_em: string | null;
+  valor_pago: number | null;
+  classe: ClassePagamento;
+  situacao: string | null;
+  situacao_nome: string | null;
+  cobranca: string | null;
+  mov_bancario: string | null;
+  moeda: string | null;
+  lido_em: string | null;
+}
+
+export interface PagamentoNf {
+  chave_movestq: number;
+  lido_em: string | null;
+  parcelas: ParcelaPagamento[];
+  pedidos: { pedido: string; valor_na_nf: number | null }[];
+}
+
+/** Código de moeda do DocFin → ISO (mesma tabela da MV: 0000002 USD, 0000003 EUR, resto BRL). */
+export function moedaDocFin(codigo: string | null | undefined): string | null {
+  if (!codigo) return null;
+  if (codigo === "0000002") return "USD";
+  if (codigo === "0000003") return "EUR";
+  if (codigo === "0000001") return "BRL";
+  return null;
+}
+
+/** Parcelas do título de uma NF, classificadas (RPC `rastreio_pagamento_nf`). */
+export async function pagamentoDaNf(chaveMovEstq: number): Promise<PagamentoNf> {
+  const { data, error } = await (supabase as any).rpc("rastreio_pagamento_nf", { p_chave_movestq: chaveMovEstq });
+  if (error) throw new Error(error.message);
+  const r = (data ?? {}) as Partial<PagamentoNf>;
+  return {
+    chave_movestq: Number(r.chave_movestq ?? chaveMovEstq),
+    lido_em: r.lido_em ?? null,
+    parcelas: Array.isArray(r.parcelas) ? r.parcelas : [],
+    pedidos: Array.isArray(r.pedidos) ? r.pedidos : [],
+  };
 }
 
 /** Recalcula a materialized view (~5 s). Devolve o novo "atualizado em". */

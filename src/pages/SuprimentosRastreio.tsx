@@ -70,10 +70,14 @@ import {
   isoDia,
   listarRastreio,
   listarTudo,
+  moedaDocFin,
+  pagamentoDaNf,
   type CampoData,
+  type ClassePagamento,
   type FiltroRastreio,
   type LinhaRastreio,
   type NfCandidata,
+  type ParcelaPagamento,
 } from "@/services/rastreioComprasService";
 import { exportarRastreioXLSX } from "@/services/rastreioComprasExport";
 
@@ -94,6 +98,11 @@ function fMoeda(v: number | null | undefined, moeda: string | null = "BRL"): str
   } catch {
     return Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
+}
+
+function fDataHora(iso: string | null | undefined): string {
+  const d = dataLocal(iso);
+  return d ? format(d, "dd/MM/yyyy HH:mm", { locale: ptBR }) : "—";
 }
 
 function fDias(v: number | null | undefined): string {
@@ -126,7 +135,6 @@ const ESTILO_ETAPA: Record<string, string> = {
   "Em inspeção (laudo)": "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300",
   "Aguardando pagamento": "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300",
   "Adiantamento pago (sem NF)": "border-emerald-300 bg-white text-emerald-700 dark:border-emerald-800 dark:bg-transparent dark:text-emerald-300",
-  "Pago (NF não ligada)": "border-emerald-300 bg-white text-emerald-700 dark:border-emerald-800 dark:bg-transparent dark:text-emerald-300",
   "Pago (1ª parcela)": "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
   "Encerrado sem NF ligada": "border-border bg-muted text-muted-foreground",
   Cancelado: "border-border bg-muted text-muted-foreground line-through",
@@ -388,6 +396,218 @@ function CandidataNf({ c, podeAbrirNf }: { c: NfCandidata; podeAbrirNf: boolean 
   );
 }
 
+// ════════════════════════════════════════════════════════════
+// PAGAMENTO — título da NF com a regra "pago só com prova"
+// (rastreio_classe_pagamento no banco; ver ClassePagamento)
+// ════════════════════════════════════════════════════════════
+const ESTILO_ALERTA =
+  "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300";
+
+const CLASSE: Record<ClassePagamento, { rotulo: string; dica: string; estilo: string }> = {
+  pago: {
+    rotulo: "Pago",
+    dica: "Baixado no DocFin com movimento bancário: o dinheiro saiu.",
+    estilo:
+      "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  },
+  quitado_adto: {
+    rotulo: "Quitado c/ adiantamento",
+    dica: "Quitado compensando um adiantamento: não houve saída de caixa nesta data.",
+    estilo: "border-teal-300 bg-teal-50 text-teal-800 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-300",
+  },
+  agrupado: {
+    rotulo: "Agrupado em fatura",
+    dica: "Juntado numa fatura agrupadora. O pagamento é da fatura e ainda não é conferido aqui — não conta como pago.",
+    estilo: ESTILO_ALERTA,
+  },
+  baixa_sem_mov: {
+    rotulo: "Baixado sem mov. bancário",
+    dica: "Baixado no DocFin sem movimento bancário: não dá para confirmar a saída do dinheiro — não conta como pago.",
+    estilo: ESTILO_ALERTA,
+  },
+  aberto: {
+    rotulo: "Em aberto",
+    dica: "Ainda não pago.",
+    estilo: "border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-transparent dark:text-slate-300",
+  },
+  desconhecido: {
+    rotulo: "Situação desconhecida",
+    dica: "Código de situação que o Hub não reconhece — não conta como pago.",
+    estilo: "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300",
+  },
+};
+
+function ParcelaLinha({ p }: { p: ParcelaPagamento }) {
+  const c = CLASSE[p.classe] ?? CLASSE.desconhecido;
+  const n = p.sequencia != null ? `${p.sequencia}${p.parcial ? `.${p.parcial}` : ""}` : "—";
+  // ValorPago vem em reais; o valor da parcela, na moeda do título.
+  const quitada = p.classe === "pago" || p.classe === "quitado_adto";
+  const moeda = moedaDocFin(p.moeda);
+  // Medido em 15/10: 10% das parcelas pagas têm pago ≠ valor (juros, multa,
+  // desconto, retenção…). Mostra os dois, sem afirmar a causa.
+  const pagoDifere =
+    quitada && (moeda ?? "BRL") === "BRL" && p.valor != null && p.valor_pago != null &&
+    Math.abs(Number(p.valor_pago) - Number(p.valor)) > 0.01;
+  const situacao = p.situacao ? ` (${p.situacao}${p.situacao_nome ? ` ${p.situacao_nome}` : ""})` : "";
+  return (
+    <div className="flex flex-col gap-0.5 rounded border bg-muted/30 px-2 py-1">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="text-muted-foreground">
+          Parc. {n} · vence {fData(p.vencimento)}
+        </span>
+        <span className="font-medium">
+          {quitada ? fMoeda(p.valor_pago) : fMoeda(p.valor, moeda)}
+        </span>
+      </div>
+      {pagoDifere && (
+        <span className="text-[11px] text-muted-foreground">
+          Valor da parcela {fMoeda(p.valor)} · pago {fMoeda(p.valor_pago)}
+        </span>
+      )}
+      <div className="flex items-center justify-between gap-2">
+        <Badge
+          variant="outline"
+          title={`${c.dica}${situacao}`}
+          className={cn("w-fit whitespace-nowrap px-1.5 py-0 text-[10px] font-medium", c.estilo)}
+        >
+          {c.rotulo}
+        </Badge>
+        {p.pago_em && p.classe !== "aberto" && (
+          <span className="text-[11px] text-muted-foreground">{fData(p.pago_em)}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PagamentoPasso({ l }: { l: LinhaRastreio }) {
+  const [verParcelas, setVerParcelas] = useState(false);
+  const temTitulo = (l.tit_qtd_parcelas ?? 0) > 0;
+  // Sem as colunas da Fase 1 (MV antiga), os totais aparecem como "—".
+  const comTotais = l.tit_total !== undefined;
+  const moedaTit = moedaDocFin(l.tit_moeda);
+  const estrangeira = !!moedaTit && moedaTit !== "BRL";
+  const naoConfirmadas = l.tit_qtd_nao_confirmadas ?? 0;
+  const quitado =
+    comTotais &&
+    temTitulo &&
+    (l.tit_total_em_aberto ?? 0) === 0 &&
+    naoConfirmadas === 0 &&
+    (l.tit_qtd_pagas ?? 0) > 0;
+
+  const parcelas = useQuery({
+    queryKey: ["rastreio-pagamento-nf", l.chave_movestq],
+    queryFn: () => pagamentoDaNf(l.chave_movestq as number),
+    enabled: verParcelas && l.chave_movestq != null,
+    staleTime: 60_000,
+  });
+
+  const resumo = temTitulo
+    ? `${l.tit_qtd_pagas ?? 0} de ${l.tit_qtd_parcelas} parcela(s) paga(s)` +
+      (l.tit_ultimo_pagamento ? ` · último ${fData(l.tit_ultimo_pagamento)}` : "")
+    : l.adto_pagamento
+      ? `Adiantamento pago ${fData(l.adto_pagamento)}`
+      : l.nf_numero
+        ? "Nenhum título desta NF no DocFin"
+        : "Nenhum pagamento identificado";
+
+  return (
+    <Passo
+      titulo="Pagamento"
+      icone={<Wallet className="h-4 w-4" />}
+      estado={quitado ? "feito" : "pendente"}
+      resumo={resumo}
+    >
+      {temTitulo && (
+        <>
+          <Campo label="Título da NF" valor={l.tit_numero} />
+          <Campo
+            label={estrangeira ? `Valor original do título (${moedaTit})` : "Valor original do título"}
+            valor={fMoeda(l.tit_total, moedaTit)}
+          />
+          <Campo label="Pago (saída bancária)" valor={comTotais ? fMoeda(l.tit_total_pago ?? 0) : "—"} />
+          {(l.tit_total_quitado_adto ?? 0) > 0 && (
+            <Campo label="Quitado c/ adiantamento" valor={fMoeda(l.tit_total_quitado_adto)} />
+          )}
+          <Campo
+            label={estrangeira ? `Em aberto (${moedaTit})` : "Em aberto"}
+            valor={comTotais ? fMoeda(l.tit_total_em_aberto ?? 0, moedaTit) : "—"}
+          />
+          {naoConfirmadas > 0 && (
+            <span className="text-[11px] leading-snug text-amber-800 dark:text-amber-300">
+              {naoConfirmadas === 1 ? "1 parcela baixada" : `${naoConfirmadas} parcelas baixadas`} sem prova de pagamento
+              (fatura agrupadora ou baixa sem movimento bancário): não conta como paga.
+            </span>
+          )}
+          {estrangeira && (
+            <span className="text-[11px] leading-snug text-muted-foreground">
+              Título em {moedaTit}; o valor pago está em reais, convertido pelo DocFin.
+            </span>
+          )}
+          {(l.nf_qtd_pedidos ?? 0) > 1 && (
+            <span className="text-[11px] leading-snug text-amber-800 dark:text-amber-300">
+              Esta NF atende {l.nf_qtd_pedidos} pedidos: os valores são da NF inteira. Parte deste pedido na NF:{" "}
+              {fMoeda(l.valor_pedido_na_nf)}.
+            </span>
+          )}
+          <Campo label="DocFin lido em" valor={fDataHora(l.tit_lido_em)} />
+          {comTotais && l.chave_movestq != null && (
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto w-fit p-0 text-[11px]"
+              onClick={() => setVerParcelas((v) => !v)}
+            >
+              {verParcelas ? "Ocultar parcelas" : `Ver parcelas (${l.tit_qtd_parcelas})`}
+            </Button>
+          )}
+          {verParcelas &&
+            (parcelas.isLoading ? (
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Carregando parcelas…
+              </span>
+            ) : parcelas.isError ? (
+              <span className="text-[11px] text-destructive">
+                Não foi possível carregar as parcelas: {(parcelas.error as Error).message}
+              </span>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {(parcelas.data?.parcelas ?? []).map((p) => (
+                  <ParcelaLinha key={`${p.titulo}-${p.sequencia}-${p.parcial}`} p={p} />
+                ))}
+              </div>
+            ))}
+        </>
+      )}
+      {!temTitulo && l.nf_numero && (
+        <span className="text-[11px] leading-snug text-muted-foreground">
+          O espelho do DocFin não tem título para esta NF. Ele é lido uma vez por dia (06h40).
+        </span>
+      )}
+      {l.proj_p1_vencimento && (
+        <>
+          <Campo label="Projeção · vencimento" valor={fData(l.proj_p1_vencimento)} />
+          <Campo label="Projeção · realizada" valor={fData(l.proj_p1_pagamento)} />
+          {l.proj_p1_pagamento && (
+            <span className="text-[11px] leading-snug text-muted-foreground">
+              Projeção realizada = NF lançada no Alvo; não é pagamento.
+            </span>
+          )}
+        </>
+      )}
+      {l.adto_situacao && (
+        <Campo
+          label="Adiantamento"
+          valor={`${fMoeda(l.adto_valor)} · ${l.adto_pagamento ? `pago ${fData(l.adto_pagamento)}` : l.adto_situacao}`}
+        />
+      )}
+      {!temTitulo && !l.nf_numero && !l.proj_p1_vencimento && !l.adto_situacao && (
+        <span className="text-xs text-muted-foreground">Sem título, projeção ou adiantamento no DocFin.</span>
+      )}
+    </Passo>
+  );
+}
+
 function Detalhe({ l, podeAbrirNf }: { l: LinhaRastreio; podeAbrirNf: boolean }) {
   const candidatas = l.nf_numero ? [] : (l.nf_candidatas ?? []);
   const estoqueEstado: Estado =
@@ -525,40 +745,7 @@ function Detalhe({ l, podeAbrirNf }: { l: LinhaRastreio; podeAbrirNf: boolean })
           <Campo label="Resultado" valor={l.laudo_resultado} />
         </Passo>
 
-        <Passo
-          titulo="Pagamento"
-          icone={<Wallet className="h-4 w-4" />}
-          estado={l.primeiro_pagamento ? "feito" : "pendente"}
-          resumo={
-            l.primeiro_pagamento
-              ? `1º pagamento ${fData(l.primeiro_pagamento)} · ${l.primeiro_pagamento_origem}`
-              : "Nenhum pagamento identificado"
-          }
-        >
-          {l.tit_numero && (
-            <>
-              <Campo label="Título da NF" valor={`${l.tit_numero} (${l.tit_qtd_pagas ?? 0}/${l.tit_qtd_parcelas ?? 0} pagas)`} />
-              <Campo label="Parc. 1 · vencimento" valor={fData(l.tit_p1_prorrogacao ?? l.tit_p1_vencimento)} />
-              <Campo label="Parc. 1 · pago em" valor={fData(l.tit_p1_pagamento)} />
-              <Campo label="Parc. 1 · valor pago" valor={fMoeda(l.tit_p1_valor_pago)} />
-            </>
-          )}
-          {l.proj_p1_vencimento && (
-            <>
-              <Campo label="Projeção · vencimento" valor={fData(l.proj_p1_vencimento)} />
-              <Campo label="Projeção · realizada" valor={fData(l.proj_p1_pagamento)} />
-            </>
-          )}
-          {l.adto_situacao && (
-            <Campo
-              label="Adiantamento"
-              valor={`${fMoeda(l.adto_valor)} · ${l.adto_pagamento ? `pago ${fData(l.adto_pagamento)}` : l.adto_situacao}`}
-            />
-          )}
-          {!l.tit_numero && !l.proj_p1_vencimento && !l.adto_situacao && (
-            <span className="text-xs text-muted-foreground">Sem título, projeção ou adiantamento no DocFin.</span>
-          )}
-        </Passo>
+        <PagamentoPasso l={l} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
