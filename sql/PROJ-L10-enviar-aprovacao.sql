@@ -6,7 +6,8 @@
 --   botão avulso para pedido já criado; 1º teste no pedido 0004799 (R$ 100,
 --   projeto "teste").
 --
--- ESTADO: PENDENTE de aplicação (aguarda OK do Pedro).
+-- ESTADO: APLICADO em 15/10/2026 (OK do Pedro) pelo MCP, migration
+--   proj_l10_enviar_aprovacao (seções 1–2, sem os comentários).
 -- Sem DELETE/DROP — pode ir pelo MCP. Rollback em PROJ-L10-rollback.sql.
 --
 -- DESENHO (o mesmo caminho manual do Suprimentos, já usado em 111+ pedidos):
