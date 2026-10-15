@@ -1,8 +1,6 @@
-import { authenticateAlvo, clearAlvoToken } from "./alvoService";
 import { extrairMoedaDoLoad } from "./moedaPedido";
 import { supabase } from "@/integrations/supabase/client";
 
-const ERP_BASE_URL = "https://pef.it4you.inf.br/api";
 const ERP_PROXY_URL = "https://erp-proxy.onrender.com";
 
 /**
@@ -267,66 +265,6 @@ function extrairVinculoRequisicao(data: any): {
     req_comp_itens: reqsItens.length > 0 ? reqsItens : null,
     vinculo_requisicao: temVinculo ? "com_vinculo" : "sem_vinculo",
   };
-}
-
-export async function baixarAnexoPedido(
-  nomeArquivo: string,
-  caminhoOriginal: string,
-  storagePath?: string | null,
-): Promise<void> {
-  // 1. Tentar Supabase Storage primeiro
-  if (storagePath) {
-    const { data, error } = await supabase.storage.from("attachments").download(storagePath);
-
-    if (data && !error) {
-      const url = URL.createObjectURL(data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = nomeArquivo;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      return;
-    }
-  }
-
-  // 2. Fallback: baixar do ERP
-  const auth = await authenticateAlvo();
-  if (!auth.token) {
-    throw new Error("Anexo não disponível. Peça ao administrador para sincronizar os pedidos.");
-  }
-
-  const resp = await fetch(`${ERP_BASE_URL}/pedComp/DownloadFile`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "riosoft-token": auth.token,
-    },
-    body: JSON.stringify({
-      property: "Arquivo",
-      classVincul: "PedCompArquivo",
-      nameFile: nomeArquivo,
-      pathFile: caminhoOriginal,
-    }),
-  });
-
-  if (resp.status === 409) {
-    clearAlvoToken();
-    throw new Error("Conflito de sessão. Tente novamente.");
-  }
-
-  if (!resp.ok) throw new Error(`Erro HTTP ${resp.status}`);
-
-  const blob = await resp.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = nomeArquivo;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 /** Resultado do open-load, para a página informar o usuário. */

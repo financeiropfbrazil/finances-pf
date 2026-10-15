@@ -23,7 +23,6 @@ import FixedAssetsItems from "./pages/FixedAssetsItems";
 import Closing from "./pages/Closing";
 import NfEntrada from "./pages/NfEntrada";
 import ComprasNotasFiscais from "./pages/ComprasNotasFiscais";
-import ComprasPedidosCompra from "./pages/ComprasPedidosCompra";
 import Entidades from "./pages/Entidades";
 import EntidadesUploadCodigos from "./pages/EntidadesUploadCodigos";
 import Commodatum from "./pages/Commodatum";
@@ -398,14 +397,6 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="compras">
               <ComprasNotasFiscais />
-            </PermissionRoute>
-          }
-        />
-        <Route
-          path="/compras/pedidos-compra"
-          element={
-            <PermissionRoute permKey="compras">
-              <ComprasPedidosCompra />
             </PermissionRoute>
           }
         />

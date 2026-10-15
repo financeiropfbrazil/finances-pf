@@ -5,7 +5,6 @@ import {
   Package,
   Building2,
   Handshake,
-  PackageCheck,
   Wallet,
   Receipt,
   CreditCard,
@@ -103,10 +102,6 @@ const routePermMap: Record<string, string> = {
 
 const inventorySubItems = [{ label: "Importação de Produtos", url: "/inventory/import", icon: Upload }];
 
-const comprasSubItems = [
-  { label: "Pedidos de Compra", url: "/compras/pedidos-compra", icon: ClipboardList },
-];
-
 // `perm` opcional: item só aparece para quem tem a permissão (o grupo
 // Suprimentos inteiro é liberado por suprimentos_requisicoes, mas nem todo
 // mundo que vê o módulo pode sincronizar cadastros).
@@ -194,10 +189,11 @@ export function AppSidebar() {
   const location = useLocation();
   const isFixedAssetsActive = location.pathname.startsWith("/fixed-assets");
   const isInventoryActive = location.pathname.startsWith("/inventory");
-  const isComprasActive = location.pathname.startsWith("/compras");
   const isEntidadesActive = location.pathname.startsWith("/entidades");
   const isContasPagarActive = location.pathname.startsWith("/contas-a-pagar");
-  const isSuprimentosActive = location.pathname.startsWith("/suprimentos");
+  // /compras/notas-fiscais mora no grupo Suprimentos desde que o grupo Compras saiu.
+  const isSuprimentosActive =
+    location.pathname.startsWith("/suprimentos") || location.pathname.startsWith("/compras");
   const isProducaoActive = location.pathname.startsWith("/producao");
   const isRecebimentoActive = location.pathname.startsWith("/recebimento");
   const isIntercompanyActive = location.pathname.startsWith("/intercompany");
@@ -300,7 +296,6 @@ export function AppSidebar() {
   add("dashboard", true, () => itemSolto("/"));
 
   // 2) cadeia física: comprar → receber → estocar → produzir
-  add("compras", hasAccess("compras"), () => renderComprasGroup(t, isComprasActive));
   add("suprimentos", hasAccess("suprimentos_requisicoes"), () =>
     renderSuprimentosGroup(t, isSuprimentosActive, hasAccess, { "/suprimentos/aprovacoes": aprovacoesPendentes }),
   );
@@ -458,44 +453,6 @@ function renderFixedAssetsGroup(t: any, isActive: boolean) {
         <CollapsibleContent>
           <SidebarMenuSub>
             {fixedAssetsSubItems.map((sub) => (
-              <SidebarMenuSubItem key={sub.url}>
-                <SidebarMenuSubButton asChild>
-                  <NavLink
-                    to={sub.url}
-                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                  >
-                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
-                    <span>{sub.label}</span>
-                  </NavLink>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ))}
-          </SidebarMenuSub>
-        </CollapsibleContent>
-      </SidebarMenuItem>
-    </Collapsible>
-  );
-}
-
-function renderComprasGroup(t: any, isActive: boolean) {
-  return (
-    <Collapsible defaultOpen={isActive} className="group/collapsible-compras">
-      <SidebarMenuItem>
-        <CollapsibleTrigger asChild>
-          <SidebarMenuButton
-            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
-              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
-            }`}
-          >
-            <PackageCheck className="h-4 w-4 shrink-0" />
-            <span className="flex-1 text-left">Compras</span>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-compras:rotate-[-90deg]" />
-          </SidebarMenuButton>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <SidebarMenuSub>
-            {comprasSubItems.map((sub) => (
               <SidebarMenuSubItem key={sub.url}>
                 <SidebarMenuSubButton asChild>
                   <NavLink

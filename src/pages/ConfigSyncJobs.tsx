@@ -43,7 +43,6 @@ const syncRouteMap: Record<string, string> = {
   produtos: "/configuracoes/conexao-api?autoSync=true",
   classes_rec_desp: "/configuracoes/classes?autoSync=true",
   condicoes_pagamento: "/configuracoes/conexao-api?autoSync=true",
-  pedidos_compra: "/compras/pedidos-compra?autoSync=true",
   contas_pagar: "/contas-a-pagar?autoSync=true",
   nfe_sefaz: "/compras/notas-fiscais?autoSync=true",
 };
