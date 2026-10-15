@@ -11,6 +11,8 @@
 --      em rascunho; o "delete" é da linha do anexo, dentro da função).
 --   2. As 3 regras da pasta 'projetos-pedidos': ler, gravar, apagar arquivo.
 --
+-- ESTADO: APLICADO pelo Pedro em 15/10/2026 (verificado por leitura depois).
+--
 -- O SQL Editor vai avisar "destructive operation" por causa da palavra
 -- DELETE. Pode confirmar: nenhuma linha existente é afetada.
 -- =====================================================================

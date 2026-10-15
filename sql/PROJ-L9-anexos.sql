@@ -5,11 +5,12 @@
 --   so fase Actual; ate 3 arquivos PDF/JPG/PNG de ate 5 MB (os limites da rota
 --   /ped-comp/insert-multipart do erp-proxy, que ja leva os anexos do Suprimentos).
 --
--- ESTADO (15/10/2026, OK do Pedro): aplicado pelo MCP em 6 migrations
+-- ESTADO (15/10/2026, OK do Pedro): aplicado pelo MCP em 5 migrations
 --   proj_l9_a_tabela_anexos, proj_l9_b_funcoes_regra_anexos,
 --   proj_l9_c_privilegios_e_policy_tabela, proj_l9_d_rpcs_registrar_e_marcar,
 --   proj_l9_f_pasta_projetos_pedidos. A parte com DELETE (RPC de excluir anexo
---   + 3 policies da pasta) vai pelo SQL Editor: PROJ-L9-anexos-parte-final.sql.
+--   + 3 policies da pasta) foi colada pelo Pedro no SQL Editor em 15/10
+--   (PROJ-L9-anexos-parte-final.sql) — "Success. No rows returned".
 --   Motivo: o MCP trava (timeout 60 s) em qualquer SQL com DELETE/DROP — pede
 --   uma confirmacao que o Claude Code nao exibe. A tentativa proj_l9_e (excluir)
 --   travou e NAO foi aplicada (conferido por leitura).
