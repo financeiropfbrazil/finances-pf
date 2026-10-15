@@ -69,3 +69,9 @@ verify_jwt = false
 # verify_jwt é lido NO DEPLOY, não em runtime ⇒ mudar isto exige redeploy.
 [functions.sync-reqmat]
 verify_jwt = false
+
+# sync-parcelas-pagar-cron (Rastreio, LR-PAG F2): reachable sem JWT — o cron/pg_net
+# não manda JWT. A auth real é o gate CRON_SECRET (header x-cron-secret) na função.
+# Mesmo motivo do bloco do sync-reqmat: sem isto o deploy pelo CLI liga verify_jwt.
+[functions.sync-parcelas-pagar-cron]
+verify_jwt = false
