@@ -4,7 +4,8 @@
 -- Pedido do Pedro em 16/10/2026: o Diego deve ver E mexer em todos os
 -- projetos. Escolha: permissão nova (não admin do Hub, não trocar responsável).
 --
--- ESTADO: PENDENTE de aplicação (aguarda OK do Pedro).
+-- ESTADO: APLICADO em 16/10/2026 (OK do Pedro) pelo MCP, migration
+--   proj_l13b_gerenciar_todos_os_projetos (ensaiado antes no banco e desfeito).
 -- Sem DROP/DELETE — pode ir pelo MCP. Rollback em PROJ-L13b-rollback.sql.
 --
 -- REGRA NOVA: onde o banco exigia "ser o responsável do projeto", passa a
