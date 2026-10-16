@@ -75,3 +75,8 @@ verify_jwt = false
 # Mesmo motivo do bloco do sync-reqmat: sem isto o deploy pelo CLI liga verify_jwt.
 [functions.sync-parcelas-pagar-cron]
 verify_jwt = false
+
+# nfse-adn-sonda (PLANO-NFSE, NFSE-0.3): chamada manual via pg_net/servidor, sem JWT.
+# A auth real é o gate CRON_SECRET (header x-cron-secret) na função.
+[functions.nfse-adn-sonda]
+verify_jwt = false
