@@ -96,6 +96,7 @@ export default function Projetos() {
   const canViewAll = useHasPermission(PERMISSIONS.PROJETOS_VIEW_ALL);
   const canEditOwn = useHasPermission(PERMISSIONS.PROJETOS_EDIT_OWN);
   const canDeleteOwn = useHasPermission(PERMISSIONS.PROJETOS_DELETE_OWN);
+  const canManageAll = useHasPermission(PERMISSIONS.PROJETOS_MANAGE_ALL);
 
   const [search, setSearch] = useState("");
   const [filterFase, setFilterFase] = useState("todos");
@@ -323,10 +324,10 @@ export default function Projetos() {
   // Titularidade é do RESPONSÁVEL (é o que as policies de UPDATE/DELETE checam),
   // não de quem criou o registro.
   const canEditThis = (p: Projeto) =>
-    isAdmin || (canEditOwn && p.responsavel_id === user?.id && p.fase_atual === "budget");
+    isAdmin || (canEditOwn && (p.responsavel_id === user?.id || canManageAll) && p.fase_atual === "budget");
 
   const canDeleteThis = (p: Projeto) =>
-    isAdmin || (canDeleteOwn && p.responsavel_id === user?.id && p.fase_atual === "budget");
+    isAdmin || (canDeleteOwn && (p.responsavel_id === user?.id || canManageAll) && p.fase_atual === "budget");
 
   /**
    * Excluir o projeto apaga em cascata os pedidos E a trilha de auditoria. Com

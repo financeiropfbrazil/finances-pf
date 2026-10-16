@@ -61,6 +61,8 @@ export const PERMISSIONS = {
   PROJETOS_DELETE_OWN: "projetos.delete_own",
   PROJETOS_VIEW_OWN: "projetos.view_own",
   PROJETOS_VIEW_ALL: "projetos.view_all",
+  /** L13b: age como responsável em qualquer projeto (não aprova Budget). */
+  PROJETOS_MANAGE_ALL: "projetos.manage_all",
   PROJETOS_APPROVE: "projetos.approve",
   PROJETOS_PEDIDOS_CREATE: "projetos.pedidos.create",
   PROJETOS_PEDIDOS_REENVIAR: "projetos.pedidos.reenviar",

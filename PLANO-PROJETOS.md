@@ -349,6 +349,7 @@ Tabelas fechadas no RLS (SELECT com escopo; INSERT/UPDATE/DELETE sem policy p/ a
 | L10 | Envio já com `UserEnviarAprovacao: "Sim"` (só o comando, nunca `UserEnviouAprovacao`), com aviso explícito na confirmação, evento de autorização no Hub e guarda contra reenvio duplicado | SQL (Pedro aprova) + finances-pf | 🟡 15/10 — SQL aplicado e validado (dry-run desfeito); código no `main` (preview); **aguarda Publish, teste real no 0004799 e 1º uso da Ana (não-admin)**. Desenho: dois passos como o Suprimentos (cria → lê o Alvo → liga só `UserEnviarAprovacao`), pré-voo de permissão no banco antes do comando, botão avulso para pedido já criado. 1º teste real: 0004799 (R$ 100, projeto "teste") |
 | L11 | Parcelas editáveis no pedido do Actual (Data da Entrega, data base, vencimento × dias ligados, soma = valor do pedido; automáticas recalculadas no envio) + coluna **Etapa** informativa (funil do Rastreio de Compras, por RPC com a regra de visão do projeto) | SQL (Pedro aprova) + finances-pf | 🟡 15/10 — SQL aplicado e validado (dry-run Ana/Fernando/Hugo, desfeito); código no `main` (preview); **aguarda Publish e 1º envio real com parcelas editadas** — decisões: as duas juntas, prazos da Data do Pedido, entrega hoje + 30 |
 | L12 | Ajuste do L11 a pedido do Pedro ("não gostei do layout e não confio nas datas"): seção vira **Previsão de pagamento** (só data e valor por parcela, calendário dd/mm/aaaa — o campo de data do navegador mostrava mm/dd/aaaa), sai Data da Entrega e "prazos contam a partir de"; o detalhe do pedido mostra **previsão × pagamento real** (títulos do Alvo após a NF, regra de prova do Rastreio) | SQL (Pedro aprova) + finances-pf | 🟡 15/10 — código no branch da sessão; **SQL (RPC só de leitura) aguarda OK** |
+| L13 | Acesso amplo ao Diego: **L13a** papel `visualizador_projetos` (ver todos) · **L13b** permissão `projetos.manage_all` + papel `gestor_projetos` (agir como responsável em qualquer projeto; não aprova Budget) | SQL (Pedro aprova) + finances-pf | L13a ✅ 16/10 aplicado · L13b 🟡 SQL escrito e ensaiado no banco (desfeito); **aguarda OK** |
 
 Ordem: **L0 → L1 → L2 → L3 → L4 → L5 → L6**. L3 só depois de L2 (as RPCs precisam existir antes de fechar a escrita, senão o módulo para). L4 só depois de L3 (o front novo pressupõe o banco novo).
 
@@ -964,6 +965,8 @@ Constraints: **só** `PRIMARY KEY (id)` + `FK projeto_id → projetos(id) ON DEL
 | `sql/PROJ-L12-pagamentos-do-pedido.sql` | RPC `projeto_pedidos_pagamentos` (previsão do pedido no Alvo + títulos da NF, mesmas fontes do Rastreio) | ⏳ aguarda OK |
 | `sql/PROJ-L12-rollback.sql` | drop da RPC (só leitura) | — (só se precisar) |
 | `sql/PROJ-L13a-visualizador-projetos.sql` | papel `visualizador_projetos` + atribuição ao Diego (rollback = revogar, comentado no arquivo) | ✅ aplicado 16/10 (MCP) |
+| `sql/PROJ-L13b-gerenciar-todos-os-projetos.sql` | permissão `projetos.manage_all`, papel `gestor_projetos` → Diego; troca de 1 trecho em 9 funções (conferida) + 2 `ALTER POLICY` | ⏳ aguarda OK |
+| `sql/PROJ-L13b-rollback.sql` | troca inversa com conferência de md5 de cada função + policies originais + devolve o Visualizador | — (só se precisar) |
 
 Ordem de execução: **L1 → L2.0 → L2.1 → L2.2 → L2.3 → L2.4 → L2.9**. Cada arquivo termina com verificação por leitura e bloco de rollback comentado. O rollback do L2.4 é o fonte original preservado na seção 10.3.
 

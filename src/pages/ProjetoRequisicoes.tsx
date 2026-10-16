@@ -153,6 +153,7 @@ export default function ProjetoRequisicoes() {
   const canPedidosCreate = useHasPermission(PERMISSIONS.PROJETOS_PEDIDOS_CREATE);
   const canReenviar = useHasPermission(PERMISSIONS.PROJETOS_PEDIDOS_REENVIAR);
   const canApprove = useHasPermission(PERMISSIONS.PROJETOS_APPROVE);
+  const canManageAll = useHasPermission(PERMISSIONS.PROJETOS_MANAGE_ALL);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingReq, setEditingReq] = useState<any>(null);
@@ -458,7 +459,9 @@ export default function ProjetoRequisicoes() {
 
   // ── Helpers de autorização específicos deste projeto ──
   const projetoAny = projeto as any;
-  const isResponsavel = !!user && projetoAny?.responsavel_id === user.id;
+  // L13b: "Gerenciar todos os projetos" age como responsável em qualquer projeto —
+  // a mesma regra do banco (as permissões específicas e as travas de fase continuam).
+  const isResponsavel = (!!user && projetoAny?.responsavel_id === user.id) || canManageAll;
   const isAprovador = !!user && projetoAny?.aprovador_id === user.id;
 
   // Pode criar/editar/excluir pedidos em Budget
