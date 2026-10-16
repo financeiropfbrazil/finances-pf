@@ -52,7 +52,7 @@ Regras de conduta obrigatórias:
 - 🔴 **`revoke ... from public` NÃO tranca RPC nova — use `revoke ... from anon` com a assinatura completa.** Medido em 08/08/2026: `pg_default_acl` tem um `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role` (padrão do Supabase) ⇒ **toda função nova em `public` nasce com EXECUTE concedido NOMINALMENTE a `anon`**, não herdado de PUBLIC — e revogar de PUBLIC não alcança um grant nominal. Toda RPC nova precisa de `revoke execute on function public.<nome>(<assinatura completa>) from anon;` **depois** do `create` (um `create or replace` sobre função existente preserva o ACL; só a criação pega o default). Aconteceu na OP-2.7 e teve de ser corrigido à mão. **Dimensão do passivo, medida:** **196 das 284 funções não-trigger de `public` são chamáveis por `anon` hoje** — na maioria o gate interno (`user_has_permission` com `auth.uid()` null) recusa, mas as 8 `call_sync_*_cron` **não têm gate** (é o BL-27 do PLANO-OP). Detalhe em PLANO-OP.md §6.3-N.
 - UPDATE/DELETE sempre com WHERE revisado; ao alterar view (`CREATE OR REPLACE`), salvar o DDL anterior para rollback imediato.
 - **NUNCA `supabase db push` neste projeto:** histórico de migrations divergente do banco (Lovable/MCP escrevem direto — 58 arquivos locais constam como não-aplicados; push tentaria rodar migrations de fev/mar em produção). DDL pontual = SQL editor (Pedro cola) ou psql com connection string.
-- **4 projetos Supabase na conta** (`Hub de IA`, `IBBIC`, `Inveentory`, `financeiropfbrazil's Project` = este). Só `hbtggrbauguukewiknew` está `linked`, mas comando sem `--project-ref` explícito ou MCP mal configurado cai no projeto errado. SEMPRE fingerprint (`count` em `compras_pedidos` ~1.650) antes de qualquer escrita.
+- **4 projetos Supabase na conta** (`Hub de IA`, `IBBIC`, `Inveentory`, `financeiropfbrazil's Project` = este). Só `hbtggrbauguukewiknew` está `linked`, mas comando sem `--project-ref` explícito ou MCP mal configurado cai no projeto errado. SEMPRE fingerprint (`count` em `compras_pedidos` — ~2.300 em out/2026; cresce ~200/mês) antes de qualquer escrita.
 - `status_local` é enum `public.compras_pedido_status_local` (não texto livre). Novos valores exigem `ALTER TYPE` aplicado por fora **antes** do código usá-los.
 
 ## Gateway erp-proxy (repo separado — mudanças de PDF, mappers, sync)
@@ -81,7 +81,11 @@ Regras de conduta obrigatórias:
 
 - Entidade Áustria no Alvo: `CodigoEntidade=0000017` · Filial `1.01` · Moedas: `0000001` BRL, `0000003` EUR · CFOP exportação serviço `7.933.001` · NFS-e série 001.
 - Número intercompany oficial = `DocFinUserFieldsObject.UserInvoice` (só vem no `DocFin/Load` com `loadOneToOne=All`, não no `RetrievePage`).
-- pg_cron do sync intercompany: jobid 14 (`30 10,15,19 * * 1-5`).
+- pg_cron do sync intercompany: jobid 14 (`30 10,15,19 * * 1-5`) — **desligado desde 06/10/2026** (ver abaixo).
+
+## Crons desligados de propósito (decisão do Pedro, 06/10/2026)
+
+Entre 10h e 12h de 06/10/2026 o Pedro desligou no `cron.job` (`active = false`; os kill-switches do `sync_settings` seguem ligados) os jobs **3** sync-despesas, **9** sync-docfin, **14** sync-intercompany, **15** tomticket-onboarding, **17** sync-empregare, **25** sync-reqmat, **26** imob_qr_purgar_tentativas, **27/28/29** sync-estoque. **Não religar nem "corrigir" sem ordem expressa** — os espelhos de intercompany, despesas e estoque param em 05–06/10 por isso, não por defeito. Confirmado em 16/10/2026: nenhum deve voltar por ora. O reqmat já não gravava desde 11/09 (antes do desligamento) — também fica como está, por decisão do Pedro.
 
 ##Para trabalho no módulo de Despesas, leia e mantenha PLANO-DESPESAS.md
 ##Para trabalho no módulo de Suprimentos (Requisições e Pedidos), leia e mantenha PLANO-PEDIDOS.md — atualize o status ao concluir cada prompt e registre achados no diário (seção 8)
