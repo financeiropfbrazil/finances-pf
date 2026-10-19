@@ -111,6 +111,8 @@ const suprimentosSubItems: { label: string; url: string; icon: any; perm?: strin
   { label: "Aprovações", url: "/suprimentos/aprovacoes", icon: ClipboardCheck, perm: "compras.requisicoes.aprovar" },
   { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
   { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
+  // NFS-e recebidas pelo ADN × Alvo (só leitura). Gate real: RPCs nfse_recebidas_* (compras.nfse.access).
+  { label: "Notas de Serviço", url: "/compras/notas-servico", icon: Receipt, perm: "compras.nfse.access" },
   // Rastreio Req → Pagamento — admin ou papel visualizador_rastreio.
   // O gate real é a RPC (admin ou compras.rastreio.access).
   { label: "Rastreio de Compras", url: "/suprimentos/rastreio", icon: FileBarChart, perm: "compras.rastreio.access" },

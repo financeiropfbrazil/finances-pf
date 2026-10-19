@@ -22,6 +22,7 @@ import FixedAssetsReconciliation from "./pages/FixedAssetsReconciliation";
 import FixedAssetsItems from "./pages/FixedAssetsItems";
 import Closing from "./pages/Closing";
 import ComprasNotasFiscais from "./pages/ComprasNotasFiscais";
+import ComprasNotasServico from "./pages/ComprasNotasServico";
 import Entidades from "./pages/Entidades";
 import EntidadesUploadCodigos from "./pages/EntidadesUploadCodigos";
 import Commodatum from "./pages/Commodatum";
@@ -388,6 +389,15 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="compras">
               <ComprasNotasFiscais />
+            </PermissionRoute>
+          }
+        />
+        {/* NFS-e recebidas pelo ADN × Alvo (PLANO-NFSE NFSE-1.7). Gate real: RPCs nfse_recebidas_* */}
+        <Route
+          path="/compras/notas-servico"
+          element={
+            <PermissionRoute permKey="compras.nfse.access">
+              <ComprasNotasServico />
             </PermissionRoute>
           }
         />

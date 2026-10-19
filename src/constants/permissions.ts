@@ -32,6 +32,9 @@ export const PERMISSIONS = {
   // Rastreio Requisição → Pedido → NF → Estoque → Pagamento (só leitura + Excel).
   // Papel: visualizador_rastreio. Gate real nas RPCs rastreio_compras_*.
   COMPRAS_RASTREIO_ACCESS: "compras.rastreio.access",
+  // Suprimentos → Notas de Serviço (NFS-e recebidas pelo ADN × Alvo, só leitura — PLANO-NFSE NFSE-1.1).
+  // Papéis: analista_compras, analista_fiscal. Gate real nas RPCs nfse_recebidas_listar / nfse_recebida_xml.
+  COMPRAS_NFSE_ACCESS: "compras.nfse.access",
   // ─── Administração global ───────────────────────────────────────
   ADMIN_USERS_MANAGE: "admin.users.manage",
 
