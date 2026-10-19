@@ -65,7 +65,6 @@ const navItems = [
   // Inventory handled separately as expandable
   // Fixed Assets handled separately as expandable
   { titleKey: "nav.commodatum", url: "/commodatum", icon: Handshake },
-  { titleKey: "nav.nf_entrada", url: "/nf-entrada", icon: FileText },
   // Compras handled separately as expandable
   // Entidades handled separately as expandable
   // Contas a Pagar handled separately as expandable
@@ -85,7 +84,6 @@ const routePermMap: Record<string, string> = {
   "/receivables": "receivables",
   "/sales": "sales",
   "/commodatum": "commodatum",
-  "/nf-entrada": "nf_entrada",
   "/email-nfe": "nf_entrada",
   "/entidades": "entidades",
   "/loans": "loans",
@@ -299,7 +297,6 @@ export function AppSidebar() {
   add("suprimentos", hasAccess("suprimentos_requisicoes"), () =>
     renderSuprimentosGroup(t, isSuprimentosActive, hasAccess, { "/suprimentos/aprovacoes": aprovacoesPendentes }),
   );
-  add("nf-entrada", true, () => itemSolto("/nf-entrada"));
   add("email-nfe", true, () => itemEmailNfe());
   add("recebimento", isAdmin, () => renderRecebimentoGroup(t, isRecebimentoActive));
   add("estoques", hasAccess("inventory"), () => renderInventoryGroup(t, isInventoryActive));

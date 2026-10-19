@@ -21,7 +21,6 @@ import FixedAssetsDashboard from "./pages/FixedAssetsDashboard";
 import FixedAssetsReconciliation from "./pages/FixedAssetsReconciliation";
 import FixedAssetsItems from "./pages/FixedAssetsItems";
 import Closing from "./pages/Closing";
-import NfEntrada from "./pages/NfEntrada";
 import ComprasNotasFiscais from "./pages/ComprasNotasFiscais";
 import Entidades from "./pages/Entidades";
 import EntidadesUploadCodigos from "./pages/EntidadesUploadCodigos";
@@ -228,14 +227,6 @@ function AppRoutes() {
           element={
             <PermissionRoute permKey="commodatum">
               <Commodatum />
-            </PermissionRoute>
-          }
-        />
-        <Route
-          path="/nf-entrada"
-          element={
-            <PermissionRoute permKey="nf_entrada">
-              <NfEntrada />
             </PermissionRoute>
           }
         />

@@ -88,13 +88,13 @@ function montar(cfg: { hasAccess?: (k: string) => boolean; isAdmin?: boolean } =
  * Ordem selada na REC-1.8 (validada no app publicado em 28/07/2026).
  * Ajustes posteriores, intencionais: o grupo "Compras" saiu em 15/10/2026
  * (`c990cef` — Notas Fiscais mora em Suprimentos) e "Movimentação de Salas"
- * entrou depois de Produção (`a9f5ab1`, FS3-3).
+ * entrou depois de Produção (`a9f5ab1`, FS3-3). "NF Entrada" (/nf-entrada)
+ * saiu em 19/10/2026 (parada desde 03/06, sem uso).
  */
 const ORDEM_ESPERADA = [
   "nav.dashboard",
   // cadeia física: comprar → receber → estocar → produzir
   "Suprimentos",
-  "nav.nf_entrada",
   "Email NF-e",
   "Recebimento",
   "nav.inventory",
@@ -126,8 +126,8 @@ describe("AppSidebar — ordem", () => {
     expect(montar()).toEqual(ORDEM_ESPERADA);
   });
 
-  it("tem 24 entradas de topo", () => {
-    expect(montar()).toHaveLength(24);
+  it("tem 23 entradas de topo", () => {
+    expect(montar()).toHaveLength(23);
   });
 });
 
@@ -155,7 +155,7 @@ describe("AppSidebar — gates", () => {
       ["receivables", ["nav.receivables"]],
       ["sales", ["nav.sales"]],
       ["commodatum", ["nav.commodatum"]],
-      ["nf_entrada", ["nav.nf_entrada", "Email NF-e"]],
+      ["nf_entrada", ["Email NF-e"]],
       ["entidades", ["nav.entidades"]],
       ["loans", ["nav.loans"]],
       ["taxes", ["nav.taxes"]],

@@ -10,7 +10,6 @@ const translations = {
   "nav.sales": { pt: "Receita de Vendas", en: "Sales Revenue" },
   "nav.inventory": { pt: "Estoques", en: "Inventory" },
   "nav.fixed_assets": { pt: "Imobilizado", en: "Fixed Assets" },
-  "nav.nf_entrada": { pt: "NF Entrada", en: "Incoming Invoices" },
   "nav.loans": { pt: "Empréstimos", en: "Loans" },
   "nav.taxes": { pt: "Impostos Parcelados", en: "Installment Taxes" },
   "nav.intercompany": { pt: "Intercompany", en: "Intercompany" },
