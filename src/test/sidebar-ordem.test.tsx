@@ -34,6 +34,9 @@ vi.mock("@/contexts/LanguageContext", () => ({
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ profile: { is_admin: permissoes.isAdmin } }),
 }));
+vi.mock("@/hooks/useAprovacoesPendentes", () => ({
+  useAprovacoesPendentes: () => ({ total: 0, podeAprovar: false, refetch: () => {} }),
+}));
 vi.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({
     hasAccess: (k: string) => permissoes.hasAccess(k),
@@ -81,17 +84,22 @@ function montar(cfg: { hasAccess?: (k: string) => boolean; isAdmin?: boolean } =
   return ordemDeTopo();
 }
 
-/** Ordem selada na REC-1.8 (validada no app publicado em 28/07/2026). */
+/**
+ * Ordem selada na REC-1.8 (validada no app publicado em 28/07/2026).
+ * Ajustes posteriores, intencionais: o grupo "Compras" saiu em 15/10/2026
+ * (`c990cef` — Notas Fiscais mora em Suprimentos) e "Movimentação de Salas"
+ * entrou depois de Produção (`a9f5ab1`, FS3-3).
+ */
 const ORDEM_ESPERADA = [
   "nav.dashboard",
   // cadeia física: comprar → receber → estocar → produzir
-  "Compras",
   "Suprimentos",
   "nav.nf_entrada",
   "Email NF-e",
   "Recebimento",
   "nav.inventory",
   "Produção",
+  "Movimentação de Salas",
   // financeiro
   "nav.cash",
   "nav.receivables",
@@ -159,7 +167,9 @@ describe("AppSidebar — gates", () => {
       ["intercompany", ["Intercompany"]],
       ["inventory", ["nav.inventory"]],
       ["fixed_assets", ["nav.fixed_assets"]],
-      ["compras", ["Compras"]],
+      // Notas Fiscais (`compras`) mora dentro de Suprimentos: sozinha não mostra nada.
+      ["compras", []],
+      ["salas.access", ["Movimentação de Salas"]],
       // BL-2: Ferramentas segue amarrado a `closing` (dívida preservada de
       // propósito na REC-1.8) — sozinha, a permissão dele não mostra nada.
       ["ferramentas_bulk_edit_produtos_campos", []],
