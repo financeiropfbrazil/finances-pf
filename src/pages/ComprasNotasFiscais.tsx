@@ -24,7 +24,6 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
-  FileText,
   Hash,
   Package,
   ChevronDown,
@@ -33,18 +32,14 @@ import {
   Copy,
   Link as LinkIcon,
   Unlink,
-  RotateCcw,
-  Send,
   RefreshCw,
-  Boxes,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { VincularPedidoNfeDialog } from "@/components/compras/VincularPedidoNfeDialog";
-import { LancarNfeModalV2 } from "@/components/compras/LancarNfeModalV2";
 import { UploadXmlButton } from "@/components/compras/UploadXmlButton";
-import { carregarMovEstq } from "@/services/alvoMovEstqLoadService";
+import { listarNfeNoAlvo, type NfeNoAlvo } from "@/services/comprasNfeNoAlvoService";
 
 // ── Types ──
 interface NfeItemExtraido {
@@ -57,13 +52,6 @@ interface NfeItemExtraido {
   quantidade: number;
   valor_unitario: number;
   valor_total: number;
-}
-interface LoteGerado {
-  numeroLote: string;
-  dataValidade: string | null;
-  dataFabricacao: string | null;
-  quantidade: number;
-  produto: string;
 }
 interface NfeRow {
   id: string;
@@ -95,9 +83,6 @@ interface NfeRow {
   pedido_compra_centro_custo: string | null;
   pedido_compra_cond_pagamento: string | null;
   pedido_compra_valor: number | null;
-  erp_chave_movestq: number | null;
-  lancado_por: string | null;
-  lancado_em: string | null;
 }
 
 // ── Helpers ──
@@ -162,7 +147,12 @@ const ComprasNotasFiscais = () => {
   const [rows, setRows] = useState<NfeRow[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get("busca") ?? "");
-  const [filtroLancamento, setFiltroLancamento] = useState("todos");
+  // Dois eixos, cada filtro diz qual pergunta faz (regra LIVRO × ESPELHO do CLAUDE.md):
+  // "No Alvo" = o Alvo já tem a nota? (espelho) · "Pedido no Hub" = vínculo feito nesta tela.
+  const [filtroAlvo, setFiltroAlvo] = useState<"todas" | "lancada" | "nao_encontrada">("todas");
+  const [filtroVinculo, setFiltroVinculo] = useState<"todos" | "vinculada" | "sem_vinculo">("todos");
+  const [noAlvo, setNoAlvo] = useState<Map<string, NfeNoAlvo>>(new Map());
+  const [erroAlvo, setErroAlvo] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [xmlDialog, setXmlDialog] = useState<{
     open: boolean;
@@ -183,12 +173,7 @@ const ComprasNotasFiscais = () => {
     open: false,
     nfe: null,
   });
-  const [lancarModal, setLancarModal] = useState<{ open: boolean; nfe: NfeRow | null }>({ open: false, nfe: null });
-  const [alertAction, setAlertAction] = useState<{ type: "desvincular" | "reverter"; nfe: NfeRow } | null>(null);
-
-  // Cache de lotes por nota (Estratégia 1: cacheia na sessão, botão atualiza)
-  const [lotesCache, setLotesCache] = useState<Record<string, LoteGerado[]>>({});
-  const [loadingLotes, setLoadingLotes] = useState<string | null>(null);
+  const [alertAction, setAlertAction] = useState<{ type: "desvincular"; nfe: NfeRow } | null>(null);
 
   // ── Fetch ──
   const fetchRows = useCallback(async () => {
@@ -197,14 +182,29 @@ const ComprasNotasFiscais = () => {
     const startDate = `${ano}-${padM}-01`;
     const lastDay = new Date(ano, mes, 0).getDate();
     const endDate = `${ano}-${padM}-${String(lastDay).padStart(2, "0")}`;
-    const { data, error } = await supabase
-      .from("compras_nfe")
-      .select("*")
-      .gte("data_emissao", startDate)
-      .lte("data_emissao", endDate)
-      .order("data_emissao", { ascending: false });
-    if (error) toast({ title: "Erro", description: error.message, variant: "destructive" });
-    else setRows((data ?? []) as unknown as NfeRow[]);
+    const [resNotas, resAlvo] = await Promise.allSettled([
+      supabase
+        .from("compras_nfe")
+        .select("*")
+        .gte("data_emissao", startDate)
+        .lte("data_emissao", endDate)
+        .order("data_emissao", { ascending: false }),
+      listarNfeNoAlvo(startDate, endDate),
+    ]);
+    if (resNotas.status === "rejected" || resNotas.value.error) {
+      const msg = resNotas.status === "rejected" ? String(resNotas.reason) : resNotas.value.error!.message;
+      toast({ title: "Erro", description: msg, variant: "destructive" });
+    } else {
+      setRows((resNotas.value.data ?? []) as unknown as NfeRow[]);
+    }
+    // Sem a resposta do Alvo, a coluna fica "?" — nunca "não encontrada" por falta de dado.
+    if (resAlvo.status === "fulfilled") {
+      setNoAlvo(resAlvo.value);
+      setErroAlvo(null);
+    } else {
+      setNoAlvo(new Map());
+      setErroAlvo(resAlvo.reason instanceof Error ? resAlvo.reason.message : String(resAlvo.reason));
+    }
     setLoadingRows(false);
   }, [ano, mes, toast]);
 
@@ -212,55 +212,20 @@ const ComprasNotasFiscais = () => {
     fetchRows();
   }, [fetchRows]);
 
-  // ── Lotes (lê do Alvo, cacheado) ──
-  const carregarLotes = useCallback(
-    async (nfe: NfeRow, force = false) => {
-      if (!nfe.erp_chave_movestq) return;
-      if (!force && lotesCache[nfe.id]) return; // usa cache
-      setLoadingLotes(nfe.id);
-      try {
-        const data = await carregarMovEstq(nfe.erp_chave_movestq);
-        const itens = (data?.ItemMovEstqChildList || []) as any[];
-        const lotes: LoteGerado[] = [];
-        for (const item of itens) {
-          const ctrlLotes = (item?.CtrlLoteItemMovEstqChildList || []) as any[];
-          for (const cl of ctrlLotes) {
-            lotes.push({
-              numeroLote: cl.NumeroCtrlLote,
-              dataValidade: cl.DataValidadeCtrlLote,
-              dataFabricacao: cl.DataFabricacao,
-              quantidade: cl.QuantidadeProdUnidMedPrincipal,
-              produto: item.NomeProduto || item.CodigoProduto || "—",
-            });
-          }
-        }
-        setLotesCache((prev) => ({ ...prev, [nfe.id]: lotes }));
-      } catch (e: any) {
-        toast({ title: "Erro ao carregar lotes", description: e?.message || String(e), variant: "destructive" });
-      } finally {
-        setLoadingLotes(null);
-      }
-    },
-    [lotesCache, toast],
-  );
-
   const toggleExpand = (nfe: NfeRow) => {
-    if (expandedId === nfe.id) {
-      setExpandedId(null);
-      return;
-    }
-    setExpandedId(nfe.id);
-    // se lançada, busca lotes (cacheado)
-    if (nfe.status_lancamento === "lancada" && nfe.erp_chave_movestq) {
-      carregarLotes(nfe);
-    }
+    setExpandedId(expandedId === nfe.id ? null : nfe.id);
   };
+
+  const estaVinculada = (r: NfeRow) => r.status_lancamento === "vinculada";
 
   // ── Filtering ──
   const filtered = useMemo(() => {
     let list = rows;
-    if (filtroLancamento !== "todos") {
-      list = list.filter((r) => (r.status_lancamento || "pendente") === filtroLancamento);
+    if (filtroAlvo !== "todas" && !erroAlvo) {
+      list = list.filter((r) => (noAlvo.has(r.id) ? "lancada" : "nao_encontrada") === filtroAlvo);
+    }
+    if (filtroVinculo !== "todos") {
+      list = list.filter((r) => (estaVinculada(r) ? "vinculada" : "sem_vinculo") === filtroVinculo);
     }
     if (searchTerm.trim()) {
       const s = searchTerm.toLowerCase();
@@ -272,37 +237,53 @@ const ComprasNotasFiscais = () => {
       );
     }
     return list;
-  }, [rows, filtroLancamento, searchTerm]);
+  }, [rows, filtroAlvo, filtroVinculo, searchTerm, noAlvo, erroAlvo]);
 
   const summary = useMemo(() => {
     const total = rows.length;
-    const pendentes = rows.filter((r) => (r.status_lancamento || "pendente") === "pendente").length;
-    const vinculadas = rows.filter((r) => r.status_lancamento === "vinculada").length;
-    const lancadas = rows.filter((r) => r.status_lancamento === "lancada").length;
+    const lancadas = rows.filter((r) => noAlvo.has(r.id)).length;
+    const naoEncontradas = total - lancadas;
+    const vinculadas = rows.filter(estaVinculada).length;
     const valorTotal = rows.reduce((s, r) => s + (r.valor_total || 0), 0);
-    return { total, pendentes, vinculadas, lancadas, valorTotal };
-  }, [rows]);
+    return { total, lancadas, naoEncontradas, vinculadas, valorTotal };
+  }, [rows, noAlvo]);
 
   const footerTotal = useMemo(() => filtered.reduce((s, r) => s + (r.valor_total || 0), 0), [filtered]);
 
-  const statusLancBadge = (r: NfeRow) => {
-    const st = r.status_lancamento || "pendente";
-    if (st === "vinculada")
+  const noAlvoBadge = (r: NfeRow) => {
+    if (erroAlvo)
       return (
-        <Badge className="bg-info text-info-foreground hover:bg-info/90 text-[10px]">
-          Vinculada (Ped. {r.pedido_compra_numero})
+        <Badge variant="outline" className="text-[10px]" title={`Não foi possível consultar o Alvo: ${erroAlvo}`}>
+          ?
         </Badge>
       );
-    if (st === "lancada")
-      return <Badge className="bg-success text-success-foreground hover:bg-success/90 text-[10px]">Lançada</Badge>;
+    const a = noAlvo.get(r.id);
+    if (a)
+      return (
+        <Badge
+          className="bg-success text-success-foreground hover:bg-success/90 text-[10px]"
+          title={`Achada em: ${a.fonte}${a.chave_movestq ? ` · MovEstq ${a.chave_movestq}` : ""}`}
+        >
+          Lançada{a.data_entrada ? ` ${formatDate(a.data_entrada)}` : ""}
+        </Badge>
+      );
     return (
       <Badge variant="outline" className="text-[10px]">
-        Pendente
+        Não encontrada
       </Badge>
     );
   };
 
-  // ── Desvincular / Reverter ──
+  const vinculoBadge = (r: NfeRow) =>
+    estaVinculada(r) ? (
+      <Badge className="bg-info text-info-foreground hover:bg-info/90 text-[10px]">
+        Ped. {r.pedido_compra_numero}
+      </Badge>
+    ) : (
+      <span className="text-[10px] text-muted-foreground">—</span>
+    );
+
+  // ── Desvincular ──
   const handleConfirmAction = async () => {
     if (!alertAction) return;
     const { type, nfe } = alertAction;
@@ -324,16 +305,6 @@ const ComprasNotasFiscais = () => {
       });
       if (error) toast({ title: "Erro", description: error.message, variant: "destructive" });
       else toast({ title: "Vinculação removida" });
-    } else if (type === "reverter") {
-      const { error } = await upsertNfe({
-        status_lancamento: "vinculada",
-        lancado_por: null,
-        lancado_em: null,
-        erp_chave_movestq: null,
-        updated_at: new Date().toISOString(),
-      });
-      if (error) toast({ title: "Erro", description: error.message, variant: "destructive" });
-      else toast({ title: "Lançamento revertido" });
     }
     setAlertAction(null);
     fetchRows();
@@ -344,8 +315,7 @@ const ComprasNotasFiscais = () => {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Notas Fiscais (NF-e)</h1>
         <p className="text-muted-foreground">
-          Recebimento e lançamento de NF-e de produto no Alvo. As notas chegam via integração (API) ou upload manual de
-          XML.
+          NF-e de produto recebidas (via integração ou upload manual de XML) e a situação de cada uma no Alvo.
         </p>
       </div>
 
@@ -389,9 +359,9 @@ const ComprasNotasFiscais = () => {
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {[
           { label: "Total NF-e", value: summary.total, icon: Hash },
-          { label: "Pendentes", value: summary.pendentes, icon: FileText },
-          { label: "Vinculadas", value: summary.vinculadas, icon: LinkIcon },
-          { label: "Lançadas", value: summary.lancadas, icon: CheckCircle2 },
+          { label: "No Alvo: lançadas", value: erroAlvo ? "?" : summary.lancadas, icon: CheckCircle2 },
+          { label: "No Alvo: não encontradas", value: erroAlvo ? "?" : summary.naoEncontradas, icon: XCircle },
+          { label: "Pedido vinculado no Hub", value: summary.vinculadas, icon: LinkIcon },
           { label: "Valor Total", value: formatCurrency(summary.valorTotal), icon: Package },
         ].map((c) => (
           <Card key={c.label}>
@@ -414,18 +384,32 @@ const ComprasNotasFiscais = () => {
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
-        <Select value={filtroLancamento} onValueChange={setFiltroLancamento}>
-          <SelectTrigger className="h-8 w-40 text-xs">
+        <Select value={filtroAlvo} onValueChange={(v) => setFiltroAlvo(v as typeof filtroAlvo)} disabled={!!erroAlvo}>
+          <SelectTrigger className="h-8 w-52 text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todos os status</SelectItem>
-            <SelectItem value="pendente">Pendentes</SelectItem>
-            <SelectItem value="vinculada">Vinculadas</SelectItem>
-            <SelectItem value="lancada">Lançadas</SelectItem>
+            <SelectItem value="todas">No Alvo: todas</SelectItem>
+            <SelectItem value="lancada">No Alvo: lançadas</SelectItem>
+            <SelectItem value="nao_encontrada">No Alvo: não encontradas</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={filtroVinculo} onValueChange={(v) => setFiltroVinculo(v as typeof filtroVinculo)}>
+          <SelectTrigger className="h-8 w-52 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Pedido no Hub: todos</SelectItem>
+            <SelectItem value="vinculada">Pedido no Hub: vinculado</SelectItem>
+            <SelectItem value="sem_vinculo">Pedido no Hub: sem vínculo</SelectItem>
           </SelectContent>
         </Select>
       </div>
+      <p className="text-[11px] text-muted-foreground -mt-4">
+        {erroAlvo
+          ? `Não foi possível consultar o Alvo agora (${erroAlvo}). A coluna "No Alvo" ficou como "?".`
+          : "No Alvo: conferido nos espelhos do Alvo — o contas a pagar é lido 1× por dia, às 06h40, então nota lançada hoje aparece amanhã. Remessa, retorno e bonificação sem título a pagar podem não aparecer."}
+      </p>
 
       {/* Tabela */}
       <Card>
@@ -447,15 +431,15 @@ const ComprasNotasFiscais = () => {
                   <TableHead className="text-xs text-right px-2">V. Total</TableHead>
                   <TableHead className="text-xs px-2">Data</TableHead>
                   <TableHead className="text-xs px-2">Situação</TableHead>
-                  <TableHead className="text-xs px-2">Lançamento</TableHead>
+                  <TableHead className="text-xs px-2">No Alvo</TableHead>
+                  <TableHead className="text-xs px-2">Pedido no Hub</TableHead>
                   <TableHead className="text-xs px-2">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map((r) => {
                   const itens = (r.dados_extraidos?.itens || []) as NfeItemExtraido[];
-                  const isLancada = r.status_lancamento === "lancada";
-                  const lotes = lotesCache[r.id] || [];
+                  const alvo = noAlvo.get(r.id);
                   return (
                     <TooltipProvider key={r.id}>
                       <>
@@ -484,68 +468,39 @@ const ComprasNotasFiscais = () => {
                           </TableCell>
                           <TableCell className="text-xs px-2 tabular-nums">{formatDate(r.data_emissao)}</TableCell>
                           <TableCell className="px-2">{situacaoBadge(r.situacao)}</TableCell>
-                          <TableCell className="px-2">{statusLancBadge(r)}</TableCell>
+                          <TableCell className="px-2">{noAlvoBadge(r)}</TableCell>
+                          <TableCell className="px-2">{vinculoBadge(r)}</TableCell>
                           <TableCell className="px-2" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-1">
-                              {(() => {
-                                const st = r.status_lancamento || "pendente";
-                                if (st === "pendente")
-                                  return (
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="gap-1 text-xs h-7"
-                                      onClick={() => setVincularDialog({ open: true, nfe: r })}
-                                    >
-                                      <LinkIcon className="h-3 w-3" /> Vincular
-                                    </Button>
-                                  );
-                                if (st === "vinculada")
-                                  return (
-                                    <>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="gap-1 text-xs h-7"
-                                        onClick={() => setLancarModal({ open: true, nfe: r })}
-                                      >
-                                        <Send className="h-3 w-3" /> Lançar
-                                      </Button>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="gap-1 text-xs h-7"
-                                        onClick={() => setAlertAction({ type: "desvincular", nfe: r })}
-                                      >
-                                        <Unlink className="h-3 w-3" />
-                                      </Button>
-                                    </>
-                                  );
-                                if (st === "lancada")
-                                  return (
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-[10px] text-muted-foreground">
-                                        Chave {r.erp_chave_movestq}
-                                      </span>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-7 w-7 p-0"
-                                        onClick={() => setAlertAction({ type: "reverter", nfe: r })}
-                                      >
-                                        <RotateCcw className="h-3 w-3" />
-                                      </Button>
-                                    </div>
-                                  );
-                                return null;
-                              })()}
+                              {estaVinculada(r) ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1 text-xs h-7"
+                                  title="Desvincular o pedido"
+                                  onClick={() => setAlertAction({ type: "desvincular", nfe: r })}
+                                >
+                                  <Unlink className="h-3 w-3" />
+                                </Button>
+                              ) : !alvo && !erroAlvo ? (
+                                // Vincular serve às notas que o Alvo ainda não tem (o Rastreio usa o
+                                // vínculo para sugerir a NF ao pedido). Nota já lançada traz o pedido do Alvo.
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1 text-xs h-7"
+                                  onClick={() => setVincularDialog({ open: true, nfe: r })}
+                                >
+                                  <LinkIcon className="h-3 w-3" /> Vincular
+                                </Button>
+                              ) : null}
                             </div>
                           </TableCell>
                         </TableRow>
 
                         {expandedId === r.id && (
                           <TableRow>
-                            <TableCell colSpan={9} className="bg-surface-1 p-4">
+                            <TableCell colSpan={10} className="bg-surface-1 p-4">
                               <div className="space-y-3">
                                 {/* Dados da Nota */}
                                 <DataSection title="Dados da Nota">
@@ -574,6 +529,16 @@ const ComprasNotasFiscais = () => {
                                     <div className="col-span-3">
                                       <span className="text-muted-foreground">Chave:</span>{" "}
                                       <span className="font-mono text-[10px]">{r.chave_acesso}</span>
+                                    </div>
+                                    <div className="col-span-3">
+                                      <span className="text-muted-foreground">No Alvo:</span>{" "}
+                                      {erroAlvo
+                                        ? "não foi possível consultar agora"
+                                        : alvo
+                                          ? `lançada${alvo.data_entrada ? ` em ${formatDate(alvo.data_entrada)}` : ""}${
+                                              alvo.chave_movestq ? ` · MovEstq ${alvo.chave_movestq}` : ""
+                                            } · achada em: ${alvo.fonte}`
+                                          : "não encontrada nos espelhos do Alvo"}
                                     </div>
                                   </div>
                                 </DataSection>
@@ -642,76 +607,6 @@ const ComprasNotasFiscais = () => {
                                     </div>
                                   )}
                                 </DataSection>
-
-                                {/* Lotes gerados (só p/ lançadas — lidos do Alvo) */}
-                                {isLancada && (
-                                  <DataSection
-                                    title="Lotes Gerados no Alvo"
-                                    icon={<Boxes className="h-3.5 w-3.5" />}
-                                    action={
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 gap-1 text-[10px]"
-                                        onClick={() => carregarLotes(r, true)}
-                                        disabled={loadingLotes === r.id}
-                                      >
-                                        {loadingLotes === r.id ? (
-                                          <Loader2 className="h-3 w-3 animate-spin" />
-                                        ) : (
-                                          <RefreshCw className="h-3 w-3" />
-                                        )}{" "}
-                                        Atualizar
-                                      </Button>
-                                    }
-                                    flush
-                                  >
-                                    {loadingLotes === r.id ? (
-                                      <div className="flex items-center gap-2 text-xs text-muted-foreground p-4">
-                                        <Loader2 className="h-3 w-3 animate-spin" /> Carregando lotes do Alvo...
-                                      </div>
-                                    ) : lotes.length === 0 ? (
-                                      <p className="text-xs text-muted-foreground italic p-4">
-                                        Nenhum lote gerado para esta nota (ou produto sem controle de lote).
-                                      </p>
-                                    ) : (
-                                      <div className="overflow-auto">
-                                        <Table>
-                                          <TableHeader>
-                                            <TableRow>
-                                              <TableHead className="text-[10px]">Lote</TableHead>
-                                              <TableHead className="text-[10px]">Produto</TableHead>
-                                              <TableHead className="text-[10px] text-right">Qtd.</TableHead>
-                                              <TableHead className="text-[10px]">Fabricação</TableHead>
-                                              <TableHead className="text-[10px]">Validade</TableHead>
-                                            </TableRow>
-                                          </TableHeader>
-                                          <TableBody>
-                                            {lotes.map((l, i) => (
-                                              <TableRow key={`${l.numeroLote}-${i}`}>
-                                                <TableCell className="text-[10px] font-mono tabular-nums">
-                                                  {l.numeroLote}
-                                                </TableCell>
-                                                <TableCell className="text-[10px] max-w-[220px] truncate">
-                                                  {l.produto}
-                                                </TableCell>
-                                                <TableCell className="text-[10px] text-right tabular-nums">
-                                                  {l.quantidade}
-                                                </TableCell>
-                                                <TableCell className="text-[10px] tabular-nums">
-                                                  {formatDate(l.dataFabricacao)}
-                                                </TableCell>
-                                                <TableCell className="text-[10px] tabular-nums">
-                                                  {formatDate(l.dataValidade)}
-                                                </TableCell>
-                                              </TableRow>
-                                            ))}
-                                          </TableBody>
-                                        </Table>
-                                      </div>
-                                    )}
-                                  </DataSection>
-                                )}
 
                                 {/* Valores e Impostos */}
                                 <DataSection title="Valores e Impostos">
@@ -793,7 +688,7 @@ const ComprasNotasFiscais = () => {
                   <TableCell className="text-xs text-right font-semibold tabular-nums">
                     {formatCurrency(footerTotal)}
                   </TableCell>
-                  <TableCell colSpan={4} />
+                  <TableCell colSpan={5} />
                 </TableRow>
               </TableFooter>
             </Table>
@@ -858,18 +753,7 @@ const ComprasNotasFiscais = () => {
         />
       )}
 
-      {/* Lançar */}
-      <LancarNfeModalV2
-        open={lancarModal.open}
-        onOpenChange={(open) => setLancarModal((prev) => ({ ...prev, open }))}
-        nfe={lancarModal.nfe as any}
-        onLancado={() => {
-          setLancarModal({ open: false, nfe: null });
-          fetchRows();
-        }}
-      />
-
-      {/* Desvincular / Reverter */}
+      {/* Desvincular */}
       <AlertDialog
         open={!!alertAction}
         onOpenChange={(open) => {
@@ -878,14 +762,9 @@ const ComprasNotasFiscais = () => {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {alertAction?.type === "desvincular" && "Confirmar Desvinculação"}
-              {alertAction?.type === "reverter" && "Reverter Lançamento"}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Confirmar Desvinculação</AlertDialogTitle>
             <AlertDialogDescription>
-              {alertAction?.type === "desvincular" && `Desvincular NF-e #${alertAction.nfe.numero} do pedido?`}
-              {alertAction?.type === "reverter" &&
-                `Reverter lançamento da NF-e #${alertAction.nfe.numero}? Isso NÃO remove o lançamento do Alvo — apenas volta o status aqui para "vinculada".`}
+              {alertAction && `Desvincular NF-e #${alertAction.nfe.numero} do pedido?`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -12,8 +12,8 @@
  *  - nf_vinculada=true marcado em TODOS os pedidos selecionados.
  *  - Reabrir o modal pré-marca os pedidos já vinculados (modo edição).
  *
- * A edição fina de classe/CC por item NÃO acontece aqui — fica no de-para de
- * itens do lançamento (LancarNfeModal). Aqui só se amarra NFe ↔ pedidos.
+ * Aqui só se amarra NFe ↔ pedidos. O lançamento da NF-e pelo Hub foi removido
+ * em 19/10/2026 (NFE-S1): a nota é lançada direto no Alvo.
  */
 
 import { useState, useEffect } from "react";

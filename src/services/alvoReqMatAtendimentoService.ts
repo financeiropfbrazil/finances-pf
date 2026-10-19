@@ -401,7 +401,7 @@ async function chamarAlvo(endpoint: string, method: "GET" | "POST", payload?: un
  * 🔴 NÃO derivar do fuso do navegador: o Hub é usado no Brasil **e na Áustria**,
  *    e um `DataEntrega` com offset `+02:00` seria interpretado errado pelo ERP.
  *    Também não passa por `toISOString().split("T")[0] + "T00:00:00-03:00"` (o
- *    padrão de `buildMovEstqPayloadService.ts:468`), que **erra o dia** entre
+ *    padrão do antigo `buildMovEstqPayloadService.ts`, removido em 19/10/2026), que **erra o dia** entre
  *    21h e meia-noite BRT — ali a data UTC já virou.
  *
  * O cálculo é sobre o instante absoluto: desloca o epoch em −3 h e formata as
