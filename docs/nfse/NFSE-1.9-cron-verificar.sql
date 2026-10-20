@@ -27,4 +27,7 @@ select max(nsu) as nsu_max, count(*) as docs, max(nsu) - count(*) as buracos fro
 -- Consulta separada: 30 '40 9,15 * * 1-5' ligado; 35 '0,30 10-21 * * 1-5' ligado; kill-switches ligados.
 -- 1ª execução automática do job 35: cron 11h00m00 (succeeded) → run pg_cron 11h01m10–11h01m14, NSU 1.656→1.658,
 --   2 NFS-e novas, parou em fim_da_fila, 0 erro, carimbo "edge nfse-adn-sonda v2-2026-10-20"; NSU 1..1.658 sem buraco.
--- Job 30: 1ª leitura nova às 12h40 (a conferir pela consulta 3).
+-- Job 30, 1ª leitura das 12h40 (conferida às 12h49): cron succeeded; run [lista] 12h40m00–12h40m49, 3.795 títulos,
+--   0 erro, meses ok 5/5, ausentes +3 (2 projeções PC de Compras e 1 NF-e de Vendas que saíram do Alvo de manhã — a
+--   regra normal, com os 5 meses lidos inteiros; a das 06h40 marcou 25); job 34 sem fila (títulos/NFs/pedidos 0,
+--   estacionados 0).
