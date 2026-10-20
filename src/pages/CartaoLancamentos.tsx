@@ -61,6 +61,8 @@ import {
   parsePlanilhaCartao,
   emitirLinhaNoAlvo,
   marcarLinhaEmitida,
+  definirBaseVencimento,
+  baseVencimentoDaLinha,
   type CartaoLote,
   type CartaoItem,
   type ClasseOption,
@@ -80,6 +82,10 @@ const CARTOES_TIPO_PAGREC = [
 
 const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtData = (iso: string | null) => (iso ? format(new Date(iso + "T00:00:00"), "dd/MM/yyyy") : "—");
+const msgErro = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+// Data completa e com ano plausível — o input date aceita ano "0202" no meio da digitação
+const dataValida = (iso: string) => /^(20\d{2})-\d{2}-\d{2}$/.test(iso) && !isNaN(new Date(iso + "T00:00:00").getTime());
 
 const statusLinhaBadge = (s: string) => {
   switch (s) {
@@ -470,6 +476,9 @@ function ImportDialog({
           <div className="space-y-2">
             <Label>Vencimento da fatura *</Label>
             <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+            <p className="text-xs text-muted-foreground">
+              Vira a base de vencimento de todas as linhas — dá para mudar linha a linha antes do envio.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -530,6 +539,50 @@ function ImportDialog({
   );
 }
 
+/* ════════ BASE DE VENCIMENTO (célula) ════════ */
+
+// Grava só ao sair do campo (ou Enter): o input date dispara onChange a cada dígito do ano.
+function BaseVencimentoInput({
+  value,
+  onCommit,
+  disabled,
+}: {
+  value: string;
+  onCommit: (data: string) => void;
+  disabled?: boolean;
+}) {
+  const [rascunho, setRascunho] = useState(value);
+
+  useEffect(() => {
+    setRascunho(value);
+  }, [value]);
+
+  const confirmar = () => {
+    if (rascunho === value) return;
+    if (!dataValida(rascunho)) {
+      toast({ title: "Data inválida", description: "Informe a base de vencimento completa.", variant: "destructive" });
+      setRascunho(value);
+      return;
+    }
+    onCommit(rascunho);
+  };
+
+  return (
+    <Input
+      type="date"
+      className="h-8 text-xs"
+      value={rascunho}
+      disabled={disabled}
+      onChange={(e) => setRascunho(e.target.value)}
+      onBlur={confirmar}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      aria-label="Base de vencimento"
+    />
+  );
+}
+
 /* ════════ DETALHE DO LOTE ════════ */
 
 function DetalheLote({
@@ -550,6 +603,7 @@ function DetalheLote({
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   const [massaClasse, setMassaClasse] = useState("");
   const [massaCentro, setMassaCentro] = useState("");
+  const [massaBaseVenc, setMassaBaseVenc] = useState("");
   const [aplicando, setAplicando] = useState(false);
   const [emitindo, setEmitindo] = useState(false);
   const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null);
@@ -596,6 +650,17 @@ function DetalheLote({
     }
   };
 
+  const patchBaseVencimento = async (item: CartaoItem, data: string) => {
+    aplicarLinhaLocal({ ...item, data_base_vencimento: data });
+    try {
+      const [atualizada] = await definirBaseVencimento([item.id], data);
+      if (atualizada) aplicarLinhaLocal(atualizada);
+    } catch (e) {
+      toast({ title: "Erro ao salvar", description: msgErro(e), variant: "destructive" });
+      aplicarLinhaLocal(item);
+    }
+  };
+
   const toggleMarcada = (id: string) => {
     setMarcadas((prev) => {
       const n = new Set(prev);
@@ -626,6 +691,28 @@ function DetalheLote({
       toast({ title: `Aplicado a ${alvos.length} linha(s).` });
     } catch (e: any) {
       toast({ title: "Erro ao aplicar em massa", description: e.message, variant: "destructive" });
+    }
+    setAplicando(false);
+  };
+
+  // Base de vencimento em massa: uma chamada só, tudo ou nada (a RPC recusa se houver linha emitida).
+  const aplicarBaseVencimentoEmMassa = async () => {
+    if (!dataValida(massaBaseVenc) || marcadas.size === 0) return;
+    const alvos = itens.filter(
+      (i) => marcadas.has(i.id) && i.status_linha !== "emitido" && i.status_linha !== "ignorado",
+    );
+    if (alvos.length === 0) return;
+    setAplicando(true);
+    try {
+      const atualizadas = await definirBaseVencimento(
+        alvos.map((i) => i.id),
+        massaBaseVenc,
+      );
+      const porId = new Map(atualizadas.map((l) => [l.id, l]));
+      setItens((prev) => prev.map((i) => porId.get(i.id) ?? i));
+      toast({ title: `Base de vencimento aplicada a ${atualizadas.length} linha(s).` });
+    } catch (e) {
+      toast({ title: "Erro ao aplicar em massa", description: msgErro(e), variant: "destructive" });
     }
     setAplicando(false);
   };
@@ -735,7 +822,7 @@ function DetalheLote({
               Nº {lote.numero_onfly} · Comp.{" "}
               {format(new Date(lote.competencia + "T00:00:00"), "MMM/yyyy", { locale: ptBR })}
               {lote.data_entrada ? ` · Entrada ${fmtData(lote.data_entrada)}` : ""}
-              {" · "}Venc. {fmtData(lote.data_vencimento)} · {itens.length} linhas · {fmtBRL(totalValor)}
+              {" · "}Venc. fatura {fmtData(lote.data_vencimento)} · {itens.length} linhas · {fmtBRL(totalValor)}
             </p>
           </div>
         </div>
@@ -806,6 +893,24 @@ function DetalheLote({
               Aplicar centro
             </Button>
           </div>
+          <div className="flex items-center gap-2">
+            <Input
+              type="date"
+              className="h-8 w-[150px] text-xs"
+              value={massaBaseVenc}
+              onChange={(e) => setMassaBaseVenc(e.target.value)}
+              aria-label="Base de vencimento"
+              title="Base de vencimento"
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!dataValida(massaBaseVenc) || aplicando}
+              onClick={aplicarBaseVencimentoEmMassa}
+            >
+              Aplicar base venc.
+            </Button>
+          </div>
           <Button size="sm" variant="ghost" onClick={() => setMarcadas(new Set())}>
             Limpar seleção
           </Button>
@@ -826,6 +931,9 @@ function DetalheLote({
               <TableHead className="w-[170px]">Fornecedor</TableHead>
               <TableHead className="w-[120px]">Classe</TableHead>
               <TableHead className="w-[120px]">Centro</TableHead>
+              <TableHead className="w-[130px]" title="Base de vencimento">
+                Base venc.
+              </TableHead>
               <TableHead className="w-[64px]">Status</TableHead>
               <TableHead className="w-[36px]" />
             </TableRow>
@@ -833,13 +941,13 @@ function DetalheLote({
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                   Carregando...
                 </TableCell>
               </TableRow>
             ) : itens.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                   Lote sem linhas.
                 </TableCell>
               </TableRow>
@@ -910,6 +1018,13 @@ function DetalheLote({
                           ))}
                         </SelectContent>
                       </Select>
+                    </TableCell>
+                    <TableCell>
+                      <BaseVencimentoInput
+                        value={baseVencimentoDaLinha(item, lote)}
+                        onCommit={(data) => patchBaseVencimento(item, data)}
+                        disabled={!editavel}
+                      />
                     </TableCell>
                     <TableCell>{statusLinhaBadge(item.status_linha)}</TableCell>
                     <TableCell>
