@@ -68,12 +68,14 @@ import {
   type ParseResult,
 } from "@/services/cartaoImportService";
 
-// Cartões disponíveis (Tipo Contas Pagar/Receber no Alvo) — hardcoded
+// Cartões disponíveis (Tipo Contas Pagar/Receber no Alvo) — hardcoded, na ordem e com os nomes do Alvo (20/10/2026)
 const CARTOES_TIPO_PAGREC = [
-  { codigo: "0000013", label: "MasterCard - FINAL 2196 - FINANCEIRO" },
-  { codigo: "0000012", label: "MasterCard - FINAL 5401 - JORGE" },
+  { codigo: "0000003", label: "ITAU - CARDIO" },
+  { codigo: "0000027", label: "ITAU VISA - 1473 - FINANCEIRO" },
   { codigo: "0000016", label: "SANTANDER - PF" },
-  { codigo: "0000007", label: "BAIXA DE ADT DESPACHANTE ADUANEIROS" },
+  { codigo: "0000013", label: "SANTANDER MASTER - 2196 - FINANCEIRO" },
+  { codigo: "0000012", label: "SANTANDER MASTER - 5401 - JORGE" },
+  { codigo: "0000023", label: "SANTANDER MASTER - 6216 - GUILHERME" },
 ];
 
 const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -447,7 +449,7 @@ function ImportDialog({
               <SelectContent>
                 {CARTOES_TIPO_PAGREC.map((c) => (
                   <SelectItem key={c.codigo} value={c.codigo}>
-                    {c.label}
+                    {c.codigo} - {c.label}
                   </SelectItem>
                 ))}
               </SelectContent>
