@@ -42,6 +42,7 @@ export interface CartaoItem {
   codigo_entidade: string | null;
   codigo_classe_rec_desp: string | null;
   codigo_centro_ctrl: string | null;
+  data_base_vencimento: string | null; // null só em linhas anteriores a 20/10/2026 → usar lote.data_vencimento
   status_linha: StatusLinha;
   motivo_ignorado: string | null;
   ignorado_by: string | null;
@@ -311,6 +312,7 @@ export async function criarLoteComLinhas(params: {
     valor_original: l.valor,
     justificativa: l.justificativa,
     codigo_entidade: l.codigo_entidade,
+    data_base_vencimento: params.data_vencimento, // nasce com o vencimento da fatura; editável por linha até a emissão
   }));
 
   if (payload.length > 0) {
@@ -366,6 +368,21 @@ export async function atualizarLinha(
   });
   if (error) throw new Error(`Erro ao atualizar linha: ${error.message}`);
   return data as CartaoItem;
+}
+
+/** Define a base de vencimento de uma ou várias linhas — tudo ou nada; a RPC recusa linha já emitida. */
+export async function definirBaseVencimento(itemIds: string[], dataBaseVencimento: string): Promise<CartaoItem[]> {
+  const { data, error } = await sb.rpc("fn_cartao_definir_base_vencimento", {
+    p_item_ids: itemIds,
+    p_data_base_vencimento: dataBaseVencimento,
+  });
+  if (error) throw new Error(`Erro ao definir base de vencimento: ${error.message}`);
+  return (data || []) as CartaoItem[];
+}
+
+/** Base de vencimento efetiva da linha: a própria ou, em linhas antigas (sem o campo), o vencimento do lote. */
+export function baseVencimentoDaLinha(item: CartaoItem, lote: CartaoLote): string {
+  return item.data_base_vencimento ?? lote.data_vencimento;
 }
 
 export async function ignorarLinha(itemId: string, motivo: string): Promise<void> {
@@ -491,7 +508,9 @@ export async function emitirLinhaNoAlvo(params: {
     codigo_centro_ctrl: item.codigo_centro_ctrl,
     valor: item.valor,
     data_transacao: item.data_transacao, // Emissão — por LINHA (planilha)
-    data_vencimento: lote.data_vencimento,
+    // Base de vencimento — por LINHA. O gateway usa este campo em DataBaseVencimento e no
+    // vencimento/prorrogação da parcela única (sem condição de pagamento, parcela = base).
+    data_vencimento: baseVencimentoDaLinha(item, lote),
     competencia: lote.competencia, // digitada no lote
     data_entrada: lote.data_entrada ?? undefined, // Entrada + Entrega; null nos lotes antigos
     titular: lote.titular,
