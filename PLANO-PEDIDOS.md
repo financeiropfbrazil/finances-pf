@@ -397,3 +397,10 @@ Autorização do Pedro: "Pode aplicar o F2-aplicar.sql e deployar a Edge v9 segu
 **Rollback disponível:** kill-switch → redeploy da v8 (commit próprio no git) → `F2-rollback.sql` (corpo do portão com md5 conferido) → kill-switch religado.
 **Job 34 em operação:** primeira execução às 13:45:00 BRT (no horário do `*/3`), `succeeded` em 88 ms — portão com filas vazias devolveu `null` sem chamar a Edge, como esperado. Última execução do job 31: 13:42:00.
 **Pendente:** commit/push (v8 original num commit próprio, depois v9 + SQL + config + plano). Observar a primeira falha real para ver `rastreio_tentativa` em ação (espera 15 min na 1ª falha).
+
+## 20/10/2026 — Job 30 com 2ª leitura diária (12h40), pedido do módulo NFS-e
+
+**Ordem do Pedro** ("ligue os jobs de acordo com suas sugestões"), registrada como **NFSE-1.13** em `PLANO-NFSE.md`. O job 30 `sync-parcelas-pagar-diario` passou de `40 9 * * 1-5` para **`40 9,15 * * 1-5`** (06h40 e 12h40 BRT), às 10h54 BRT; o job 34 (`*/3`, passo NF) não mudou. Texto do kill-switch `sync_settings('sync-parcelas-pagar').schedule_cron` atualizado para o novo horário (`enabled` intocado).
+**Por quê (medido em 20/10):** NFS-e lançada no Alvo leva p50 19 h / p90 70 h para ter MovEstq e título no Hub — todo o atraso é a espera da leitura única das 06h40 (fila do job 34 vazia; desde 16/10 o MovEstq entra 0–1 min depois do título). A leitura `[lista]` = ~3.800 títulos em 52–80 s, 0 erro (19 e 20/10).
+**Por que é seguro rodar duas vezes:** a Edge v9 grava por upsert; a marcação `ausente_no_alvo_em` só acontece depois de um mês lido por inteiro e só para o que não foi visto nessa leitura; a função `call_sync_parcelas_pagar_cron` não tem trava diária a respeitar. O job 34 já convive com a execução das 06h40 (o portão dele não sobrepõe execução aberta há < 4 min).
+**Arquivos:** `docs/nfse/NFSE-1.9-cron-aplicar.sql` · `-verificar.sql` · `-rollback.sql` (volta a `40 9 * * 1-5` e ao texto anterior do kill-switch).
