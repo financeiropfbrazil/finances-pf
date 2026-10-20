@@ -8,7 +8,7 @@
  * Eixos sempre com nome (PLANO-NFSE D6): "No fisco" é o ADN; "No Alvo" são os espelhos do Alvo
  * (MovEstq em rastreio_nf, títulos em fin_parcelas_pagar) — com o horário da última leitura à vista.
  */
-import { Fragment, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -158,7 +158,7 @@ function Coluna({
   return (
     <section
       ref={colRef}
-      className="flex min-h-[300px] snap-start flex-col overflow-hidden rounded-md border border-border bg-background shadow-sm"
+      className="flex min-h-[300px] flex-col overflow-hidden rounded-md border border-border bg-background shadow-sm"
     >
       <div className={cn("h-1 shrink-0", e.barra)} />
       <header className="flex flex-col gap-1 border-b border-border px-3 py-2.5">
@@ -183,6 +183,38 @@ function Coluna({
       {rodape && <footer className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/30 px-3 py-2">{rodape}</footer>}
     </section>
   );
+}
+
+/**
+ * Largura visível da área que rola a tabela (o detalhe fica preso nela, `sticky left-0`) — ou a do próprio
+ * bloco, fora de tabela. As colunas se ajustam a ela, nunca o contrário: com largura mínima por coluna, as 6
+ * juntas alargavam a tabela e a página inteira passava da tela (20/10/2026).
+ */
+function useLarguraVisivel(ref: RefObject<HTMLElement>) {
+  const [medida, setMedida] = useState({ largura: 0, presa: false });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let rolador = el.parentElement;
+    while (rolador && !/(auto|scroll)/.test(getComputedStyle(rolador).overflowX)) rolador = rolador.parentElement;
+    const alvo = rolador ?? el;
+    const medir = () => setMedida({ largura: alvo.clientWidth, presa: rolador !== null });
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(alvo);
+    return () => ro.disconnect();
+  }, [ref]);
+  return medida;
+}
+
+const LARGURA_MIN_COLUNA = 230;
+const VAO = 12;
+
+/** 6 lado a lado quando cabem; senão 3 + 3, 2 + 2 + 2 ou uma embaixo da outra — sem rolagem para o lado. */
+function colunasPorLinha(largura: number) {
+  if (!largura) return 3;
+  const util = largura - 32; // p-4
+  return [6, 3, 2].find((n) => n * LARGURA_MIN_COLUNA + (n - 1) * VAO <= util) ?? 1;
 }
 
 /** Régua das 6 etapas: mostra o andamento e leva até a coluna ao clicar. */
@@ -213,6 +245,8 @@ function Regua({ etapas, onIr }: { etapas: { titulo: string; estado: EstadoEtapa
     </ol>
   );
 }
+
+const emitidaHa = (dias: number) => (dias <= 0 ? "emitida hoje" : dias === 1 ? "emitida há 1 dia" : `emitida há ${dias} dias`);
 
 function Aviso({ children, tom = "neutro" }: { children: ReactNode; tom?: "neutro" | "atencao" }) {
   return (
@@ -517,6 +551,9 @@ function Etapas({
   atualizando: boolean;
   colunas: MutableRefObject<(HTMLElement | null)[]>;
 }) {
+  const raiz = useRef<HTMLDivElement>(null);
+  const visivel = useLarguraVisivel(raiz);
+  const porLinha = colunasPorLinha(visivel.largura);
   const n = d.nota;
   const hoje = hojeBrt();
   const espelhoDesde = formatDate(d.meta.alvo_espelho_desde);
@@ -548,17 +585,22 @@ function Etapas({
     { titulo: "PDF do boleto", estado: e5 },
     { titulo: "DocFin", estado: e6 },
   ];
-  const ir = (i: number) => colunas.current[i]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+  const ir = (i: number) => colunas.current[i]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
   const ref = (i: number) => (el: HTMLElement | null) => {
     colunas.current[i] = el;
   };
   const issRetido = n.iss_retido === "2" ? "Sim" : n.iss_retido === "1" ? "Não" : null;
 
+  // minmax(0, 1fr) em tudo: nada aqui dentro empurra a largura da tabela.
   return (
-    <div className="flex flex-col gap-3 bg-muted/40 p-4">
+    <div
+      ref={raiz}
+      className={cn("grid grid-cols-[minmax(0,1fr)] gap-3 bg-muted/40 p-4", visivel.presa && "sticky left-0")}
+      style={visivel.presa && visivel.largura ? { width: visivel.largura } : undefined}
+    >
       <Regua etapas={regua} onIr={ir} />
 
-      <div className="grid snap-x auto-cols-[minmax(250px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-1">
+      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${porLinha}, minmax(0, 1fr))` }}>
         {/* 1 — NOTA FISCAL */}
         <Coluna
           n={1}
@@ -702,7 +744,7 @@ function Etapas({
           ) : (
             <>
               <Aviso tom="atencao">
-                Não lançada no Alvo{n.dias_desde_emissao != null ? ` · emitida há ${n.dias_desde_emissao} dias` : ""}.
+                Não lançada no Alvo{n.dias_desde_emissao != null ? ` · ${emitidaHa(n.dias_desde_emissao)}` : ""}.
               </Aviso>
               {candidatos[0] ? (
                 <>
@@ -768,14 +810,14 @@ function Etapas({
                 <LinhaParcela key={`${p.chave_docfin}-${p.sequencia}-${i}`} p={p} total={parcelas.length} hoje={hoje} />
               ))}
               <p className="mt-1 text-[10px] text-muted-foreground">
-                Títulos lidos do Alvo em {formatInstanteBrt(d.meta.titulos_lidos_em)} (1× por dia, 06h40)
+                Títulos lidos do Alvo em {formatInstanteBrt(d.meta.titulos_lidos_em)} (06h40 e 12h40, dias úteis)
               </p>
             </>
           ) : (
             <Aviso>
               {semDado
                 ? `O espelho do contas a pagar começa em ${espelhoDesde}.`
-                : "A nota ainda não tem título no contas a pagar do Alvo. O título aparece no dia seguinte ao lançamento."}
+                : "A nota ainda não tem título no contas a pagar do Alvo. Depois do lançamento, o título aparece na próxima leitura (06h40 ou 12h40, dias úteis)."}
             </Aviso>
           )}
         </Coluna>

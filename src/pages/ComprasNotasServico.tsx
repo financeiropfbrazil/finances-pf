@@ -293,14 +293,15 @@ const ComprasNotasServico = () => {
       </div>
       <p className="text-[11px] text-muted-foreground -mt-4">
         No fisco: o que o ambiente nacional diz da nota (eventos de cancelamento e substituição). No Alvo: título da
-        nota no contas a pagar do Alvo (CNPJ do prestador + número), lido 1× por dia às 06h40 — nota lançada hoje
-        aparece amanhã. O espelho só tem títulos com vencimento a partir de {espelhoDesde}: nota mais antiga fica
+        nota no contas a pagar do Alvo (CNPJ do prestador + número), lido às 06h40 e às 12h40 (dias úteis) — nota
+        lançada aparece na leitura seguinte. O espelho só tem títulos com vencimento a partir de {espelhoDesde}: nota mais antiga fica
         "Sem dado do Alvo".
       </p>
 
       {/* Tabela */}
       <Card>
-        <CardContent className="p-0">
+        {/* minmax(0, 1fr): se a lista não couber, ela rola dentro do card em vez de alargar a página inteira. */}
+        <CardContent className="grid grid-cols-[minmax(0,1fr)] p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -432,14 +433,14 @@ function NotaLinha({
         <TableCell className="text-xs max-w-[200px] truncate px-2" title={r.prestador_nome || ""}>
           {r.prestador_nome || "—"}
         </TableCell>
-        <TableCell className="text-xs font-mono px-2 tabular-nums">{formatDoc(r.prestador_doc)}</TableCell>
+        <TableCell className="text-xs whitespace-nowrap px-2 tabular-nums">{formatDoc(r.prestador_doc)}</TableCell>
         <TableCell className="text-xs max-w-[140px] truncate px-2">{r.municipio_emissor || "—"}</TableCell>
         <TableCell className="text-xs text-right whitespace-nowrap font-medium px-2 tabular-nums">
           {formatCurrency(r.valor_servico)}
         </TableCell>
         <TableCell className="text-xs px-2 tabular-nums">{formatDate(r.data_emissao)}</TableCell>
-        <TableCell className="px-2">{fiscoBadge}</TableCell>
-        <TableCell className="px-2">{alvoBadge}</TableCell>
+        <TableCell className="whitespace-nowrap px-2">{fiscoBadge}</TableCell>
+        <TableCell className="whitespace-nowrap px-2">{alvoBadge}</TableCell>
         <TableCell className="text-xs px-2 tabular-nums">{r.alvo_pedido || "—"}</TableCell>
       </TableRow>
 
