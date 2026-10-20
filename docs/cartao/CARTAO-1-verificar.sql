@@ -21,3 +21,13 @@ select p.oid::regprocedure, p.prosecdef,
 -- select l.numero_onfly, l.data_vencimento as venc_fatura, i.data_transacao, i.valor, i.data_base_vencimento, i.status_linha
 --   from public.cartao_import_item i join public.cartao_import_lote l on l.id = i.lote_id
 --  where l.created_at > now() - interval '1 day' order by l.created_at desc, i.data_transacao;
+
+-- ── Resultado (20/10/2026 ~09h15 BRT, MCP apply_migration "cartao_1_base_vencimento_por_linha", OK do Pedro) ──
+-- pré-voo: compras_pedidos 2.312 · cartao_import_item 583 (todas emitidas) · coluna e função inexistentes
+-- 1. data_base_vencimento date nullable · 583 linhas / 0 com base / 0 com updated_at alterado (sem backfill)
+-- 2. fn_cartao_definir_base_vencimento(uuid[],date) SECURITY DEFINER, ACL {postgres, authenticated, service_role},
+--    anon = false
+-- 3. sem login → "Sem permissao cartao.edit"
+-- 3b. sessão simulada da operadora (is_admin = false, com cartao.edit; role authenticated; transação desfeita)
+--    sobre linha emitida → "1 linha(s) ja emitida(s) no Alvo…" — passou o gate e recusou; nada gravado
+-- 4. PENDENTE: teste na tela após merge + Publish (import → base pré-preenchida → edição por linha e em massa)
