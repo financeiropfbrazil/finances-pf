@@ -102,14 +102,10 @@ const ESTADO: Record<EstadoEtapa, { rotulo: string; barra: string; chip: string;
 const ESTILO_FORCA: Record<PedidoCandidato["forca"], string> = {
   1: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300",
   2: "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-300",
-  3: "border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-300",
-  4: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300",
 };
 const ROTULO_FORCA: Record<PedidoCandidato["forca"], string> = {
   1: "Citado na nota",
   2: "Saldo ±20%",
-  3: "Contrato recorrente",
-  4: "Valor ±20%",
 };
 
 // ════════════════════════════════════════════════════════════
@@ -322,7 +318,7 @@ function SituacaoPedido({ p }: { p: PedidoCandidato | PedidoVinculado }) {
 }
 
 function CartaoCandidato({ c, destaque }: { c: PedidoCandidato; destaque?: boolean }) {
-  const pct = Number(c.diferenca_pct);
+  const sobra = Number(c.diferenca);
   return (
     <div
       className={cn(
@@ -341,8 +337,15 @@ function CartaoCandidato({ c, destaque }: { c: PedidoCandidato; destaque?: boole
       <Campo label="Valor do pedido" valor={formatCurrency(c.valor_pedido)} mono />
       <Campo label="Saldo" valor={formatCurrency(c.saldo)} mono />
       <Campo
-        label="Diferença"
-        valor={`${pct > 0 ? "+" : ""}${pct.toLocaleString("pt-BR")}%`}
+        label="Saldo após a nota"
+        valor={
+          <span
+            className={sobra < 0 ? "text-amber-700 dark:text-amber-300" : undefined}
+            title={sobra < 0 ? "A nota passa o saldo do pedido" : "O que sobra no pedido depois desta nota"}
+          >
+            {formatCurrency(sobra)}
+          </span>
+        }
         mono
       />
       <Etiquetas
@@ -892,14 +895,15 @@ function Etapas({
                 <CartaoCandidato key={c.numero} c={c} destaque={i === 0} />
               ))}
               <p className="text-[11px] leading-snug text-muted-foreground">
-                Sugestão automática: mesmo fornecedor, pedido em R$, valor ou saldo dentro de ±20% do valor da nota.
+                Sugestão automática: mesmo fornecedor, pedido em R$ com saldo dentro de ±20% do valor da nota. Saldo = valor
+                do pedido − notas já ligadas a ele no Alvo.
               </p>
             </>
           ) : (
             <Aviso tom={semDado ? "neutro" : "atencao"}>
               {lancada
-                ? "Lançada no Alvo sem pedido, e nenhum pedido do fornecedor bate com o valor."
-                : "Nenhum pedido do mesmo fornecedor com valor ou saldo dentro de ±20% (pedidos em R$ de 400 dias antes até 60 dias depois da emissão). Pode ser que o pedido ainda não tenha sido criado."}
+                ? "Lançada no Alvo sem pedido, e nenhum pedido do fornecedor tem saldo parecido com o valor da nota."
+                : "Nenhum pedido do mesmo fornecedor com saldo dentro de ±20% do valor da nota (pedidos em R$ de 400 dias antes até 60 dias depois da emissão). Pode ser que o pedido ainda não tenha sido criado."}
             </Aviso>
           )}
         </Coluna>

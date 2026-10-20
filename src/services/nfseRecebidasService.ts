@@ -127,9 +127,10 @@ export interface PedidoCandidato {
   proximo_aprovador: string | null;
   natureza: string | null;
   so_raiz_cnpj: boolean;
-  /** 1 citado na nota · 2 saldo ±20% · 3 contrato recorrente · 4 valor do pedido ±20% */
-  forca: 1 | 2 | 3 | 4;
+  /** Só entra pedido com saldo dentro de ±20% da nota (NFSE-1.11-B): 1 também citado na nota · 2 só pelo saldo */
+  forca: 1 | 2;
   motivo: string;
+  /** saldo − valor da nota: o que sobra no pedido depois desta nota (negativo = a nota passa o saldo) */
   diferenca: number;
   diferenca_pct: number;
 }
