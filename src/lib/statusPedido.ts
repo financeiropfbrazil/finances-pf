@@ -273,6 +273,72 @@ export function getStatusPedido(ped: any): StatusPedidoVisual {
 }
 
 /**
+ * APROVAÇÃO DO PEDIDO — eixo à parte do status (NFSE-1.11-A, 20/10/2026).
+ *
+ * O status acima diz em que ponto do ciclo o pedido está; este diz só se a alçada
+ * aprovou. Um não se deduz do outro: o censo de 20/10/2026 tem pedido Encerrado sem
+ * aprovação (5) e Cancelado com aprovação total (13).
+ *
+ * 100% aprovado = Aprovado='Total' E StatusAprovacao='Finalizada' (no censo, 'Total'
+ * só aparece com 'Finalizada'). A regra futura "só lança NFS-e com pedido aprovado"
+ * deve ler `aprovado100` daqui — nunca refazer a conta em outra tela.
+ */
+export interface AprovacaoPedido {
+  aprovado100: boolean;
+  label: string;
+  Icon: LucideIcon;
+  className: string;
+  tooltip: string;
+}
+
+type EixosAprovacao = {
+  aprovado?: string | null;
+  status_aprovacao?: string | null;
+  enviou_aprovacao?: string | null;
+  proximo_aprovador?: string | null;
+};
+
+export function getAprovacaoPedido(ped: EixosAprovacao | null | undefined): AprovacaoPedido {
+  const aprovado = ped?.aprovado;
+  const statusAprovacao = ped?.status_aprovacao;
+  const enviouAprovacao = ped?.enviou_aprovacao;
+  const proximoAprovador = ped?.proximo_aprovador;
+  const cru = `No ERP: Aprovado="${aprovado ?? "—"}", StatusAprovacao="${statusAprovacao ?? "—"}", Enviou p/ aprovação="${enviouAprovacao ?? "—"}"`;
+
+  if (aprovado === "Total" && statusAprovacao === "Finalizada") {
+    return {
+      aprovado100: true,
+      label: "100% aprovado",
+      Icon: CheckCircle2,
+      className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+      tooltip: `Aprovação concluída no ERP. ${cru}`,
+    };
+  }
+
+  const motivo =
+    aprovado === "Parcial"
+      ? "aprovado só em parte"
+      : statusAprovacao === "Em Andamento"
+        ? proximoAprovador
+          ? `aprovação em andamento, com ${proximoAprovador}`
+          : "aprovação em andamento"
+        : statusAprovacao === "Reavaliar"
+          ? "devolvido para reavaliação"
+          : statusAprovacao === "Nenhum"
+            ? enviouAprovacao === "Sim"
+              ? "enviado para aprovação, workflow ainda não começou"
+              : "ainda não enviado para aprovação"
+            : "combinação fora do censo";
+  return {
+    aprovado100: false,
+    label: aprovado === "Parcial" ? "Aprovação parcial" : "Não aprovado",
+    Icon: XCircle,
+    className: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30",
+    tooltip: `Não está 100% aprovado: ${motivo}. ${cru}`,
+  };
+}
+
+/**
  * Opções do dropdown de filtro, em ordem OPERACIONAL (do início ao fim do
  * ciclo, terminais e excepcionais no fim) — não alfabética, não a ordem de
  * precedência interna.

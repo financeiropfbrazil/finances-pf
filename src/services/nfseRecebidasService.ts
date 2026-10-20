@@ -96,6 +96,13 @@ export interface PedidoVinculado {
   data_pedido: string | null;
   valor_pedido: number | null;
   status: string | null;
+  /** Eixos crus do Alvo (NFSE-1.11-A) — a tela traduz por `getStatusPedido` / `getAprovacaoPedido`. */
+  status_local: string | null;
+  status_aprovacao: string | null;
+  aprovado: string | null;
+  comprado: string | null;
+  enviou_aprovacao: string | null;
+  proximo_aprovador: string | null;
   natureza: string | null;
   no_hub: boolean;
 }
@@ -109,7 +116,15 @@ export interface PedidoCandidato {
   saldo: number;
   nfs_ligadas: number;
   status: string | null;
+  /** = status_aprovacao (chave antiga da NFSE-1.11, mantida). */
   aprovacao: string | null;
+  /** Eixos crus do Alvo (NFSE-1.11-A) — a tela traduz por `getStatusPedido` / `getAprovacaoPedido`. */
+  status_local: string | null;
+  status_aprovacao: string | null;
+  aprovado: string | null;
+  comprado: string | null;
+  enviou_aprovacao: string | null;
+  proximo_aprovador: string | null;
   natureza: string | null;
   so_raiz_cnpj: boolean;
   /** 1 citado na nota · 2 saldo ±20% · 3 contrato recorrente · 4 valor do pedido ±20% */

@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { getAprovacaoPedido, getStatusPedido } from "@/lib/statusPedido";
 import {
   anexarPdfNfse,
   buscarDetalheNfse,
@@ -57,6 +58,7 @@ import {
   type NfseRecebida,
   type ParcelaDocFin,
   type PedidoCandidato,
+  type PedidoVinculado,
   type TipoAnexoNfse,
 } from "@/services/nfseRecebidasService";
 import { formatBytes, formatCurrency, formatDate, formatDoc, formatInstanteBrt, hojeBrt } from "./nfseFormatos";
@@ -295,8 +297,30 @@ function Aviso({ children, tom = "neutro" }: { children: ReactNode; tom?: "neutr
 }
 
 // ════════════════════════════════════════════════════════════
-// ETAPA 2 — CANDIDATO A PEDIDO
+// ETAPA 2 — SITUAÇÃO E CANDIDATO A PEDIDO
 // ════════════════════════════════════════════════════════════
+/**
+ * Status e aprovação do pedido no espelho do Alvo (NFSE-1.11-A) — a mesma tradução da tela de Pedidos
+ * (`statusPedido.ts`). A aprovação vai à parte porque a regra futura "só lança com pedido 100% aprovado" lê só ela.
+ */
+function SituacaoPedido({ p }: { p: PedidoCandidato | PedidoVinculado }) {
+  const st = getStatusPedido(p);
+  const ap = getAprovacaoPedido(p);
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className="text-[10px] text-muted-foreground">No Alvo</span>
+      <Badge variant="outline" className={cn("gap-1 px-1.5 py-0 text-[10px] font-medium", st.className)} title={st.tooltip}>
+        <st.Icon className={cn("h-3 w-3", st.iconAnimate && "animate-spin")} />
+        {st.label}
+      </Badge>
+      <Badge variant="outline" className={cn("gap-1 px-1.5 py-0 text-[10px] font-medium", ap.className)} title={ap.tooltip}>
+        <ap.Icon className="h-3 w-3" />
+        {ap.label}
+      </Badge>
+    </div>
+  );
+}
+
 function CartaoCandidato({ c, destaque }: { c: PedidoCandidato; destaque?: boolean }) {
   const pct = Number(c.diferenca_pct);
   return (
@@ -312,6 +336,7 @@ function CartaoCandidato({ c, destaque }: { c: PedidoCandidato; destaque?: boole
           {ROTULO_FORCA[c.forca]}
         </Badge>
       </div>
+      <SituacaoPedido p={c} />
       <Campo label="Pedido em" valor={formatDate(c.data_pedido)} />
       <Campo label="Valor do pedido" valor={formatCurrency(c.valor_pedido)} mono />
       <Campo label="Saldo" valor={formatCurrency(c.saldo)} mono />
@@ -323,7 +348,6 @@ function CartaoCandidato({ c, destaque }: { c: PedidoCandidato; destaque?: boole
       <Etiquetas
         itens={[
           c.natureza && { texto: c.natureza },
-          c.status && { texto: c.status },
           c.nfs_ligadas > 0 && { texto: `${c.nfs_ligadas} NF(s) já ligada(s)` },
           c.so_raiz_cnpj && { texto: "CNPJ de outra filial", alerta: true },
         ]}
@@ -849,14 +873,14 @@ function Etapas({
             vinculados.map((p) => (
               <div key={p.numero} className="flex flex-col gap-1 rounded-md border border-emerald-200 bg-emerald-50/40 p-2 dark:border-emerald-900 dark:bg-emerald-950/20">
                 <span className="text-xs font-semibold tabular-nums">Pedido {p.numero}</span>
+                {p.no_hub && <SituacaoPedido p={p} />}
                 <Campo label="Pedido em" valor={formatDate(p.data_pedido)} />
                 <Campo label="Valor do pedido" valor={formatCurrency(p.valor_pedido)} mono />
                 <Campo label="Nesta nota" valor={formatCurrency(p.valor_na_nf)} mono />
                 <Etiquetas
                   itens={[
                     p.natureza && { texto: p.natureza },
-                    p.status && { texto: p.status },
-                    !p.no_hub && { texto: "pedido fora do Hub", alerta: true },
+                    !p.no_hub && { texto: "pedido fora do Hub — sem status e aprovação", alerta: true },
                   ]}
                 />
               </div>
