@@ -3,7 +3,7 @@
 //
 // Lê do ADN (Ambiente de Dados Nacional da NFS-e) os documentos em que a P&F
 // aparece, pela rota /nfse-adn do erp-proxy (que faz o mTLS com o certificado),
-// e grava em nfse_adn_doc. SEM CRON nesta fase: disparo manual.
+// e grava em nfse_adn_doc. Disparo manual ou pelo pg_cron (NFSE-1.5: call_nfse_adn_cron, triggered_by "pg_cron").
 //
 // POST, header x-cron-secret (= CRON_SECRET), corpo JSON:
 //   { "modo": "teste",   "nsu": 1, "lote": true }      → 1 chamada a /nfse-adn/teste; NÃO grava
@@ -12,7 +12,7 @@
 //                                                       → lê lotes a partir do NSU e grava em nfse_adn_doc
 //     nsu_inicial: opcional; padrão = maior NSU já gravado, ou 0 com a tabela vazia.
 //     Reexecutável: continua de onde parou. Para no 1º erro (429, rejeição, gravação), sem insistir.
-//   "triggered_by": "manual_admin" (padrão) ou "test".
+//   "triggered_by": "manual_admin" (padrão), "pg_cron" (NFSE-1.4) ou "test" — os valores do CHECK de sync_runs.
 //
 // Cada execução abre e fecha uma linha em sync_runs (job_type 'nfse_adn', exige NFSE-0.3-sync-runs-aplicar.sql)
 // com o carimbo "edge nfse-adn-sonda <VERSAO>" na observação.
@@ -83,7 +83,7 @@ Deno.serve(async (req: Request) => {
 
   const modo = body?.modo === "teste" || body?.modo === "drenar" ? body.modo as "teste" | "drenar" : null;
   if (!modo) return json({ error: 'Informe "modo": "teste" ou "drenar".' }, 400);
-  const trigger = ["manual_admin", "test"].includes(body?.triggered_by) ? body.triggered_by : "manual_admin";
+  const trigger = ["manual_admin", "pg_cron", "test"].includes(body?.triggered_by) ? body.triggered_by : "manual_admin";
 
   const nsuTeste = inteiro(body?.nsu, 1, 0, 1e15);
   const nsuInicialPedido = inteiro(body?.nsu_inicial, null, 0, 1e15);

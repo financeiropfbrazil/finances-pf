@@ -4,7 +4,7 @@
 // =====================================================================
 
 // Carimbo gravado em sync_runs.observacao: prova qual versão rodou.
-export const VERSAO = "v1-2026-10-16";
+export const VERSAO = "v2-2026-10-20";
 
 /** Um documento como a rota /nfse-adn/dfe/:nsu do erp-proxy devolve. */
 export type DocAdn = {
