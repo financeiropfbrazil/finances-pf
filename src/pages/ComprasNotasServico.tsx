@@ -70,6 +70,7 @@ const ROTULO_ALVO: Record<SituacaoAlvo, string> = {
   lancada_nfse: "Lançada",
   lancada_outra_especie: "Lançada (outra espécie)",
   nao_lancada: "Não lançada",
+  sem_dado_alvo: "Sem dado do Alvo",
 };
 const ROTULO_PAGAMENTO: Record<PagamentoAlvo, string> = {
   pago: "Pago",
@@ -153,6 +154,7 @@ const ComprasNotasServico = () => {
 
   const footerTotal = useMemo(() => filtered.reduce((s, r) => s + (r.valor_servico || 0), 0), [filtered]);
   const ind = dados?.indicadores;
+  const espelhoDesde = formatDate(dados?.alvo_espelho_desde);
 
   // ── Badges ──
   const fiscoBadge = (r: NfseRecebida) => {
@@ -180,6 +182,16 @@ const ComprasNotasServico = () => {
       return (
         <Badge className="bg-info text-info-foreground hover:bg-info/90 text-[10px]" title={r.alvo_especies || ""}>
           Lançada como {r.alvo_especies || "outra espécie"}
+        </Badge>
+      );
+    if (r.situacao_alvo === "sem_dado_alvo")
+      return (
+        <Badge
+          variant="outline"
+          className="text-[10px] text-muted-foreground"
+          title={`O espelho do contas a pagar do Alvo só tem títulos com vencimento a partir de ${espelhoDesde}`}
+        >
+          Sem dado do Alvo
         </Badge>
       );
     if (r.situacao_fisco !== "normal")
@@ -319,13 +331,15 @@ const ComprasNotasServico = () => {
             <SelectItem value="lancada_nfse">No Alvo: lançada</SelectItem>
             <SelectItem value="lancada_outra_especie">No Alvo: lançada em outra espécie</SelectItem>
             <SelectItem value="nao_lancada">No Alvo: não lançada</SelectItem>
+            <SelectItem value="sem_dado_alvo">No Alvo: sem dado (nota antiga)</SelectItem>
           </SelectContent>
         </Select>
       </div>
       <p className="text-[11px] text-muted-foreground -mt-4">
         No fisco: o que o ambiente nacional diz da nota (eventos de cancelamento e substituição). No Alvo: título da
         nota no contas a pagar do Alvo (CNPJ do prestador + número), lido 1× por dia às 06h40 — nota lançada hoje
-        aparece amanhã.
+        aparece amanhã. O espelho só tem títulos com vencimento a partir de {espelhoDesde}: nota mais antiga fica
+        "Sem dado do Alvo".
       </p>
 
       {/* Tabela */}
@@ -360,6 +374,7 @@ const ComprasNotasServico = () => {
                     r={r}
                     expandida={expandedId === r.chave_acesso}
                     onToggle={() => setExpandedId(expandedId === r.chave_acesso ? null : r.chave_acesso)}
+                    espelhoDesde={espelhoDesde}
                     fiscoBadge={fiscoBadge(r)}
                     alvoBadge={alvoBadge(r)}
                     carregandoXml={carregandoXml === r.chave_acesso}
@@ -432,6 +447,7 @@ const ComprasNotasServico = () => {
 
 function NotaLinha({
   r,
+  espelhoDesde,
   expandida,
   onToggle,
   fiscoBadge,
@@ -441,6 +457,7 @@ function NotaLinha({
   onBaixarXml,
 }: {
   r: NfseRecebida;
+  espelhoDesde: string;
   expandida: boolean;
   onToggle: () => void;
   fiscoBadge: JSX.Element;
@@ -449,7 +466,7 @@ function NotaLinha({
   onVerXml: () => void;
   onBaixarXml: () => void;
 }) {
-  const lancada = r.situacao_alvo !== "nao_lancada";
+  const lancada = r.situacao_alvo === "lancada_nfse" || r.situacao_alvo === "lancada_outra_especie";
   return (
     <>
       <TableRow
@@ -546,6 +563,11 @@ function NotaLinha({
                       {r.alvo_pagamento ? ROTULO_PAGAMENTO[r.alvo_pagamento] : "—"}
                     </div>
                   </div>
+                ) : r.situacao_alvo === "sem_dado_alvo" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Não dá para saber: o espelho do contas a pagar do Alvo só tem títulos com vencimento a partir de{" "}
+                    {espelhoDesde}, e esta nota é anterior.
+                  </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
                     Sem título desta nota no contas a pagar do Alvo

@@ -7,13 +7,15 @@
  *
  * Dois eixos, sempre com nome (PLANO-NFSE D6):
  *   - "No fisco": o que o ADN diz da nota (normal / cancelada / substituída);
- *   - "No Alvo": se o Alvo tem a nota (título no contas a pagar, regra da NFSE-0.6).
+ *   - "No Alvo": se o Alvo tem a nota (título no contas a pagar, regra da NFSE-0.6). O espelho só
+ *     tem títulos com vencimento a partir de `alvo_espelho_desde`: nota não achada emitida antes
+ *     disso é `sem_dado_alvo` (o Hub não sabe), nunca `nao_lancada` (NFSE-1.2-A).
  * O espelho do ADN só anda quando a sonda roda — `atualizado_em` diz até quando.
  */
 import { supabase } from "@/integrations/supabase/client";
 
 export type SituacaoFisco = "normal" | "cancelada" | "substituida";
-export type SituacaoAlvo = "lancada_nfse" | "lancada_outra_especie" | "nao_lancada";
+export type SituacaoAlvo = "lancada_nfse" | "lancada_outra_especie" | "nao_lancada" | "sem_dado_alvo";
 export type PagamentoAlvo = "pago" | "em_aberto" | "parcial" | "agrupado" | "baixa_sem_prova";
 
 export interface NfseRecebida {
@@ -53,11 +55,14 @@ export interface IndicadoresNfse {
   nao_lancadas_15d_valor: number;
   canceladas: number;
   canceladas_e_lancadas: number;
+  sem_dado_alvo: number;
 }
 
 export interface ResultadoNfseRecebidas {
   total: number;
   atualizado_em: string | null;
+  /** Menor vencimento no espelho do contas a pagar — antes disso o eixo "No Alvo" não tem dado. */
+  alvo_espelho_desde: string | null;
   indicadores: IndicadoresNfse;
   itens: NfseRecebida[];
 }
