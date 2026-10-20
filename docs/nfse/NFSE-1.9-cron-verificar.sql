@@ -31,3 +31,8 @@ select max(nsu) as nsu_max, count(*) as docs, max(nsu) - count(*) as buracos fro
 --   0 erro, meses ok 5/5, ausentes +3 (2 projeções PC de Compras e 1 NF-e de Vendas que saíram do Alvo de manhã — a
 --   regra normal, com os 5 meses lidos inteiros; a das 06h40 marcou 25); job 34 sem fila (títulos/NFs/pedidos 0,
 --   estacionados 0).
+-- Fim do 1º dia útil (conferência agendada, 20/10/2026 18h46 BRT): consulta 2 — job 35 com 16 execuções de 11h00 a
+--   18h30, todas succeeded; consulta 3 — 16 runs pg_cron no mesmo intervalo, 0 erro, 1,7–6,3 s, NSU 1.656→1.668
+--   (12 docs, entre eles 2 eventos de cancelamento às 16h30); consulta 4 — 0 erro, 0 aberta; NSU 1..1.668 sem buraco.
+--   A run pg_cron das 08h26 é o teste manual da call_nfse_adn_cron (NFSE-1.5); a das 12h53 é manual_admin.
+--   Critério da NFSE-1.9 cumprido (✅). A NFSE-1.8 segue pendente.
