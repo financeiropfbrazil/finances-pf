@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DataSection } from "@/components/DataSection";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -15,7 +14,6 @@ import {
   Clock,
   Copy,
   Download,
-  Eye,
   Hash,
   Loader2,
   Package,
@@ -26,60 +24,18 @@ import {
   buscarXmlNfse,
   listarNfseRecebidas,
   type NfseRecebida,
-  type PagamentoAlvo,
   type ResultadoNfseRecebidas,
   type SituacaoAlvo,
   type SituacaoFisco,
 } from "@/services/nfseRecebidasService";
-
-// ── Helpers ──
-const formatCurrency = (v: number | null | undefined) =>
-  v != null ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v) : "—";
-const formatDate = (d: string | null | undefined) => {
-  if (!d) return "—";
-  // "YYYY-MM-DD" formatado por split, sem fuso (new Date() recuaria 1 dia em UTC-3).
-  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : d;
-};
-// Instante (timestamptz) sempre no horário de Brasília — o Hub também é usado na Áustria.
-const formatInstanteBrt = (iso: string | null | undefined) =>
-  iso
-    ? new Date(iso).toLocaleString("pt-BR", {
-        timeZone: "America/Sao_Paulo",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "—";
-const formatDoc = (doc: string | null) => {
-  if (!doc) return "—";
-  const c = doc.replace(/\D/g, "");
-  if (c.length === 14) return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`;
-  if (c.length === 11) return `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9)}`;
-  return doc;
-};
+import { NfseDetalheEtapas } from "@/components/nfse/NfseDetalheEtapas";
+import { formatCurrency, formatDate, formatDoc, formatInstanteBrt } from "@/components/nfse/nfseFormatos";
 
 const ROTULO_FISCO: Record<SituacaoFisco, string> = {
   normal: "Normal",
   cancelada: "Cancelada",
   substituida: "Substituída",
 };
-const ROTULO_ALVO: Record<SituacaoAlvo, string> = {
-  lancada_nfse: "Lançada",
-  lancada_outra_especie: "Lançada (outra espécie)",
-  nao_lancada: "Não lançada",
-  sem_dado_alvo: "Sem dado do Alvo",
-};
-const ROTULO_PAGAMENTO: Record<PagamentoAlvo, string> = {
-  pago: "Pago",
-  em_aberto: "Em aberto",
-  parcial: "Parcialmente pago",
-  agrupado: "Agrupado em fatura",
-  baixa_sem_prova: "Baixado sem prova de pagamento",
-};
-
 /** Nome no padrão de download do ADN: <chave>-NFSe.xml. */
 function baixarXml(xml: string, chave: string, numero: string | null) {
   const conteudo = xml.trimStart().startsWith("<?xml") ? xml : `<?xml version="1.0" encoding="UTF-8"?>\n${xml}`;
@@ -374,7 +330,6 @@ const ComprasNotasServico = () => {
                     r={r}
                     expandida={expandedId === r.chave_acesso}
                     onToggle={() => setExpandedId(expandedId === r.chave_acesso ? null : r.chave_acesso)}
-                    espelhoDesde={espelhoDesde}
                     fiscoBadge={fiscoBadge(r)}
                     alvoBadge={alvoBadge(r)}
                     carregandoXml={carregandoXml === r.chave_acesso}
@@ -447,7 +402,6 @@ const ComprasNotasServico = () => {
 
 function NotaLinha({
   r,
-  espelhoDesde,
   expandida,
   onToggle,
   fiscoBadge,
@@ -457,7 +411,6 @@ function NotaLinha({
   onBaixarXml,
 }: {
   r: NfseRecebida;
-  espelhoDesde: string;
   expandida: boolean;
   onToggle: () => void;
   fiscoBadge: JSX.Element;
@@ -466,7 +419,6 @@ function NotaLinha({
   onVerXml: () => void;
   onBaixarXml: () => void;
 }) {
-  const lancada = r.situacao_alvo === "lancada_nfse" || r.situacao_alvo === "lancada_outra_especie";
   return (
     <>
       <TableRow
@@ -492,117 +444,14 @@ function NotaLinha({
       </TableRow>
 
       {expandida && (
-        <TableRow>
-          <TableCell colSpan={10} className="bg-surface-1 p-4">
-            <div className="space-y-3">
-              <DataSection title="Dados da Nota (fisco)">
-                <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
-                  <div>
-                    <span className="text-muted-foreground">Prestador:</span> {r.prestador_nome || "—"}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">CNPJ/CPF:</span> {formatDoc(r.prestador_doc)}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Município emissor:</span> {r.municipio_emissor || "—"}
-                    {r.cmun_emissor ? ` (IBGE ${r.cmun_emissor})` : ""}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Tomador:</span> {formatDoc(r.tomador_doc)}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Intermediário:</span> {formatDoc(r.intermediario_doc)}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Situação no fisco:</span> {ROTULO_FISCO[r.situacao_fisco]}
-                    {r.cancelada_em ? ` em ${formatInstanteBrt(r.cancelada_em)}` : ""}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">V. Serviço:</span> {formatCurrency(r.valor_servico)}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">V. Líquido:</span> {formatCurrency(r.valor_liquido)}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">NSU:</span> {r.nsu}
-                  </div>
-                  <div className="col-span-3">
-                    <span className="text-muted-foreground">Chave:</span>{" "}
-                    <span className="font-mono text-[10px]">{r.chave_acesso}</span>
-                  </div>
-                </div>
-              </DataSection>
-
-              <DataSection title="No Alvo">
-                {lancada ? (
-                  <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
-                    <div>
-                      <span className="text-muted-foreground">Situação:</span> {ROTULO_ALVO[r.situacao_alvo]}
-                      {r.situacao_alvo === "lancada_outra_especie" && r.alvo_especies ? ` (${r.alvo_especies})` : ""}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Entrada:</span> {formatDate(r.alvo_data_entrada)}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Valor no Alvo:</span> {formatCurrency(r.alvo_valor)}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">DocFin:</span> {r.alvo_chave_docfin ?? "—"}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">MovEstq:</span> {r.alvo_chave_movestq ?? "—"}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Pedido:</span> {r.alvo_pedido || "—"}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Parcelas:</span> {r.alvo_parcelas ?? "—"}
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">Pagamento:</span>{" "}
-                      {r.alvo_pagamento ? ROTULO_PAGAMENTO[r.alvo_pagamento] : "—"}
-                    </div>
-                  </div>
-                ) : r.situacao_alvo === "sem_dado_alvo" ? (
-                  <p className="text-xs text-muted-foreground">
-                    Não dá para saber: o espelho do contas a pagar do Alvo só tem títulos com vencimento a partir de{" "}
-                    {espelhoDesde}, e esta nota é anterior.
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Sem título desta nota no contas a pagar do Alvo
-                    {r.dias_desde_emissao != null ? ` (emitida há ${r.dias_desde_emissao} dias)` : ""}.
-                  </p>
-                )}
-              </DataSection>
-
-              <div className="flex gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1 text-xs"
-                  disabled={carregandoXml}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onVerXml();
-                  }}
-                >
-                  {carregandoXml ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />} Ver XML
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1 text-xs"
-                  disabled={carregandoXml}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBaixarXml();
-                  }}
-                >
-                  <Download className="h-3 w-3" /> Baixar XML
-                </Button>
-              </div>
-            </div>
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={10} className="p-0">
+            <NfseDetalheEtapas
+              nota={r}
+              carregandoXml={carregandoXml}
+              onVerXml={onVerXml}
+              onBaixarXml={onBaixarXml}
+            />
           </TableCell>
         </TableRow>
       )}
