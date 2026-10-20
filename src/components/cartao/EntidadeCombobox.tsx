@@ -107,9 +107,11 @@ export function EntidadeCombobox({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
+          title={selecionada ? labelEntidade(selecionada) : undefined}
           className={cn("h-8 w-full justify-between text-left font-normal", !value && "text-muted-foreground")}
         >
-          <span className="truncate text-xs">
+          {/* min-w-0: sem ele o span não encolhe dentro do botão flex e o nome inteiro estica a coluna */}
+          <span className="min-w-0 truncate text-xs">
             {selecionada ? labelEntidade(selecionada) : value ? value : placeholder}
           </span>
           <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
