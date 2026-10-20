@@ -1,5 +1,5 @@
 // src/pages/CartaoLancamentos.tsx
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, type RefObject } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -85,7 +85,8 @@ const fmtData = (iso: string | null) => (iso ? format(new Date(iso + "T00:00:00"
 const msgErro = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Data completa e com ano plausível — o input date aceita ano "0202" no meio da digitação
-const dataValida = (iso: string) => /^(20\d{2})-\d{2}-\d{2}$/.test(iso) && !isNaN(new Date(iso + "T00:00:00").getTime());
+const dataValida = (iso: string) =>
+  /^(20\d{2})-\d{2}-\d{2}$/.test(iso) && !isNaN(new Date(iso + "T00:00:00").getTime());
 
 const statusLinhaBadge = (s: string) => {
   switch (s) {
@@ -183,8 +184,9 @@ function ListaLotes({
     setDeleteId(null);
   };
 
+  // [contain:inline-size]: a tabela rola dentro da própria caixa em vez de alargar o layout do app (ver DetalheLote)
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6 [contain:inline-size]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
@@ -583,6 +585,29 @@ function BaseVencimentoInput({
   );
 }
 
+/* ════════ LARGURA ÚTIL ════════ */
+
+// Largura mínima em que a tabela de linhas cabe sem rolar (medida em 20/10/2026). Abaixo disso → cartões.
+const LARGURA_MIN_TABELA = 1120;
+
+// Largura útil do elemento (já sem o menu lateral). Medida antes da pintura para não piscar tabela → cartões.
+function useLarguraUtil(ref: RefObject<HTMLElement>) {
+  const [largura, setLargura] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const medir = () => {
+      const s = getComputedStyle(el);
+      setLargura(el.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight));
+    };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return largura;
+}
+
 /* ════════ DETALHE DO LOTE ════════ */
 
 function DetalheLote({
@@ -607,6 +632,9 @@ function DetalheLote({
   const [aplicando, setAplicando] = useState(false);
   const [emitindo, setEmitindo] = useState(false);
   const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null);
+  const raizRef = useRef<HTMLDivElement>(null);
+  const largura = useLarguraUtil(raizRef);
+  const emCartoes = largura !== null && largura < LARGURA_MIN_TABELA; // tabela não cabe (celular, tablet, menu aberto)
 
   const fetchItens = useCallback(async () => {
     setLoading(true);
@@ -808,16 +836,114 @@ function DetalheLote({
 
   const marcadasProntas = itens.filter((i) => marcadas.has(i.id) && i.status_linha === "pronto").length;
 
+  /* ── Controles de uma linha: os mesmos na tabela (tela larga) e nos cartões (tela estreita) ── */
+
+  const caixaLinha = (item: CartaoItem, editavel: boolean) =>
+    editavel && (
+      <Checkbox
+        checked={marcadas.has(item.id)}
+        onCheckedChange={() => toggleMarcada(item.id)}
+        aria-label="Selecionar linha"
+      />
+    );
+
+  const descricaoLinha = (item: CartaoItem) => (
+    <>
+      <div className="text-sm font-medium leading-tight">{item.descricao_estabelecimento}</div>
+      {item.justificativa && <div className="text-xs text-muted-foreground">{item.justificativa}</div>}
+      {item.cnpj_bruto && !item.cnpj_normalizado && (
+        <div className="text-xs text-amber-600">CNPJ inválido: {item.cnpj_bruto}</div>
+      )}
+    </>
+  );
+
+  const campoFornecedor = (item: CartaoItem, editavel: boolean) => (
+    <EntidadeCombobox
+      value={item.codigo_entidade}
+      onChange={(cod) => patchCampo(item, "codigo_entidade", cod)}
+      disabled={!editavel}
+    />
+  );
+
+  const campoClasse = (item: CartaoItem, editavel: boolean) => (
+    <Select
+      value={item.codigo_classe_rec_desp ?? ""}
+      onValueChange={(v) => patchCampo(item, "codigo_classe_rec_desp", v || null)}
+      disabled={!editavel}
+    >
+      <SelectTrigger className="h-8 text-xs">
+        <SelectValue placeholder="Classe..." />
+      </SelectTrigger>
+      <SelectContent>
+        {classes.map((c) => (
+          <SelectItem key={c.codigo} value={c.codigo} className="text-xs">
+            {c.codigo} — {c.nome}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  const campoCentro = (item: CartaoItem, editavel: boolean) => (
+    <Select
+      value={item.codigo_centro_ctrl ?? ""}
+      onValueChange={(v) => patchCampo(item, "codigo_centro_ctrl", v || null)}
+      disabled={!editavel}
+    >
+      <SelectTrigger className="h-8 text-xs">
+        <SelectValue placeholder="Centro..." />
+      </SelectTrigger>
+      <SelectContent>
+        {centros.map((c) => (
+          <SelectItem key={c.erp_code} value={c.erp_code} className="text-xs">
+            {c.name} ({c.erp_code})
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  const campoBaseVenc = (item: CartaoItem, editavel: boolean) => (
+    <BaseVencimentoInput
+      value={baseVencimentoDaLinha(item, lote)}
+      onCommit={(data) => patchBaseVencimento(item, data)}
+      disabled={!editavel}
+    />
+  );
+
+  const acaoLinha = (item: CartaoItem) =>
+    item.status_linha === "emitido" ? (
+      <span className="text-xs text-muted-foreground" title={`DocFin ${item.docfin_chave ?? ""}`}>
+        {item.docfin_numero ?? "—"}
+      </span>
+    ) : item.status_linha === "ignorado" ? (
+      <Button variant="ghost" size="icon" className="h-8 w-8" title="Reativar" onClick={() => handleReativar(item)}>
+        <RotateCcw className="h-4 w-4" />
+      </Button>
+    ) : (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 text-muted-foreground"
+        title="Ignorar"
+        onClick={() => setIgnorarItem(item)}
+      >
+        <Ban className="h-4 w-4" />
+      </Button>
+    );
+
+  // [contain:inline-size]: a largura da tabela não empurra o layout do app (a coluna flex-1 do AppLayout não tem
+  // min-w-0) — a tabela rola dentro da própria caixa e o cabeçalho do app e o botão de envio ficam sempre visíveis.
   return (
-    <div className="space-y-4 p-6 max-w-full overflow-hidden">
-      <div className="flex flex-row items-center justify-between gap-4">
+    <div ref={raizRef} className="space-y-4 p-4 sm:p-6 max-w-full overflow-hidden [contain:inline-size]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="icon" className="shrink-0" onClick={onVoltar}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-foreground truncate">{lote.titular}</h1>
-            <p className="text-sm text-muted-foreground truncate">
+            <p className="text-sm text-muted-foreground sm:truncate">
               {lote.final_cartao ? `•••• ${lote.final_cartao} · ` : ""}
               Nº {lote.numero_onfly} · Comp.{" "}
               {format(new Date(lote.competencia + "T00:00:00"), "MMM/yyyy", { locale: ptBR })}
@@ -829,7 +955,7 @@ function DetalheLote({
         <Button
           onClick={emitirSelecionadas}
           disabled={emitindo || marcadasProntas === 0}
-          className="shrink-0 whitespace-nowrap"
+          className="w-full shrink-0 whitespace-nowrap sm:w-auto"
         >
           {emitindo ? (
             <>
@@ -849,9 +975,9 @@ function DetalheLote({
           <span className="flex items-center gap-1.5 text-sm font-medium">
             <Layers className="h-4 w-4" /> {marcadas.size} selecionada(s)
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <Select value={massaClasse} onValueChange={setMassaClasse}>
-              <SelectTrigger className="h-8 w-[200px] text-xs">
+              <SelectTrigger className="h-8 flex-1 text-xs sm:w-[200px] sm:flex-none">
                 <SelectValue placeholder="Classe..." />
               </SelectTrigger>
               <SelectContent>
@@ -871,9 +997,9 @@ function DetalheLote({
               Aplicar classe
             </Button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <Select value={massaCentro} onValueChange={setMassaCentro}>
-              <SelectTrigger className="h-8 w-[200px] text-xs">
+              <SelectTrigger className="h-8 flex-1 text-xs sm:w-[200px] sm:flex-none">
                 <SelectValue placeholder="Centro..." />
               </SelectTrigger>
               <SelectContent>
@@ -893,10 +1019,10 @@ function DetalheLote({
               Aplicar centro
             </Button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <Input
               type="date"
-              className="h-8 w-[150px] text-xs"
+              className="h-8 flex-1 text-xs sm:w-[150px] sm:flex-none"
               value={massaBaseVenc}
               onChange={(e) => setMassaBaseVenc(e.target.value)}
               aria-label="Base de vencimento"
@@ -918,149 +1044,125 @@ function DetalheLote({
         </div>
       )}
 
-      <div className="rounded-md border overflow-x-auto">
-        <Table className="w-full text-xs [&_th]:px-2 [&_td]:px-2 [&_th]:h-9 [&_td]:py-1.5">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[32px] px-1">
-                <Checkbox checked={todasMarcadas} onCheckedChange={toggleTodas} aria-label="Selecionar todas" />
-              </TableHead>
-              <TableHead className="w-[68px]">Data</TableHead>
-              <TableHead className="min-w-[120px]">Estabelecimento</TableHead>
-              <TableHead className="w-[72px] text-right">Valor</TableHead>
-              <TableHead className="w-[170px]">Fornecedor</TableHead>
-              <TableHead className="w-[120px]">Classe</TableHead>
-              <TableHead className="w-[120px]">Centro</TableHead>
-              <TableHead className="w-[130px]" title="Base de vencimento">
-                Base venc.
-              </TableHead>
-              <TableHead className="w-[64px]">Status</TableHead>
-              <TableHead className="w-[36px]" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                  Carregando...
-                </TableCell>
-              </TableRow>
-            ) : itens.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                  Lote sem linhas.
-                </TableCell>
-              </TableRow>
-            ) : (
-              itens.map((item) => {
-                const bloqueado = item.status_linha === "emitido";
+      {emCartoes ? (
+        /* Tela estreita: um cartão por linha, com os mesmos controles da tabela */
+        <div className="space-y-3">
+          {editaveis.length > 0 && (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Checkbox checked={todasMarcadas} onCheckedChange={toggleTodas} aria-label="Selecionar todas" />
+              Selecionar todas
+            </label>
+          )}
+          {loading ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Carregando...</p>
+          ) : itens.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Lote sem linhas.</p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {itens.map((item) => {
                 const ignorado = item.status_linha === "ignorado";
-                const editavel = !bloqueado && !ignorado;
+                const editavel = item.status_linha !== "emitido" && !ignorado;
                 return (
-                  <TableRow key={item.id} className={ignorado ? "opacity-50" : ""}>
-                    <TableCell>
-                      {editavel && (
-                        <Checkbox
-                          checked={marcadas.has(item.id)}
-                          onCheckedChange={() => toggleMarcada(item.id)}
-                          aria-label="Selecionar linha"
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs">{fmtData(item.data_transacao)}</TableCell>
-                    <TableCell>
-                      <div className="text-sm font-medium leading-tight">{item.descricao_estabelecimento}</div>
-                      {item.justificativa && <div className="text-xs text-muted-foreground">{item.justificativa}</div>}
-                      {item.cnpj_bruto && !item.cnpj_normalizado && (
-                        <div className="text-xs text-amber-600">CNPJ inválido: {item.cnpj_bruto}</div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums">{fmtBRL(item.valor)}</TableCell>
-                    <TableCell>
-                      <EntidadeCombobox
-                        value={item.codigo_entidade}
-                        onChange={(cod) => patchCampo(item, "codigo_entidade", cod)}
-                        disabled={!editavel}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={item.codigo_classe_rec_desp ?? ""}
-                        onValueChange={(v) => patchCampo(item, "codigo_classe_rec_desp", v || null)}
-                        disabled={!editavel}
-                      >
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue placeholder="Classe..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {classes.map((c) => (
-                            <SelectItem key={c.codigo} value={c.codigo} className="text-xs">
-                              {c.codigo} — {c.nome}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={item.codigo_centro_ctrl ?? ""}
-                        onValueChange={(v) => patchCampo(item, "codigo_centro_ctrl", v || null)}
-                        disabled={!editavel}
-                      >
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue placeholder="Centro..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {centros.map((c) => (
-                            <SelectItem key={c.erp_code} value={c.erp_code} className="text-xs">
-                              {c.name} ({c.erp_code})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      <BaseVencimentoInput
-                        value={baseVencimentoDaLinha(item, lote)}
-                        onCommit={(data) => patchBaseVencimento(item, data)}
-                        disabled={!editavel}
-                      />
-                    </TableCell>
-                    <TableCell>{statusLinhaBadge(item.status_linha)}</TableCell>
-                    <TableCell>
-                      {bloqueado ? (
-                        <span className="text-xs text-muted-foreground" title={`DocFin ${item.docfin_chave ?? ""}`}>
-                          {item.docfin_numero ?? "—"}
-                        </span>
-                      ) : ignorado ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          title="Reativar"
-                          onClick={() => handleReativar(item)}
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground"
-                          title="Ignorar"
-                          onClick={() => setIgnorarItem(item)}
-                        >
-                          <Ban className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                  <div key={item.id} className={`space-y-2 rounded-md border p-3 ${ignorado ? "opacity-50" : ""}`}>
+                    <div className="flex items-start gap-2">
+                      <div className="w-4 shrink-0 pt-0.5">{caixaLinha(item, editavel)}</div>
+                      <div className="min-w-0 flex-1">
+                        {descricaoLinha(item)}
+                        <div className="mt-0.5 text-xs text-muted-foreground">{fmtData(item.data_transacao)}</div>
+                      </div>
+                      <div className="shrink-0 space-y-1 text-right">
+                        <div className="text-sm font-medium tabular-nums">{fmtBRL(item.valor)}</div>
+                        {statusLinhaBadge(item.status_linha)}
+                      </div>
+                    </div>
+                    {campoFornecedor(item, editavel)}
+                    <div className="grid grid-cols-2 gap-2">
+                      {campoClasse(item, editavel)}
+                      {campoCentro(item, editavel)}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 text-xs text-muted-foreground">Base venc.</span>
+                      <div className="flex-1">{campoBaseVenc(item, editavel)}</div>
+                      {acaoLinha(item)}
+                    </div>
+                  </div>
                 );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-md border overflow-x-auto">
+          <Table className="w-full text-xs [&_th]:px-2 [&_td]:px-2 [&_th]:h-9 [&_td]:py-1.5">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[32px] px-1">
+                  <Checkbox checked={todasMarcadas} onCheckedChange={toggleTodas} aria-label="Selecionar todas" />
+                </TableHead>
+                <TableHead className="w-[76px]">Data</TableHead>
+                <TableHead className="min-w-[140px]">Estabelecimento</TableHead>
+                <TableHead className="w-[84px] text-right">Valor</TableHead>
+                <TableHead className="w-[160px]">Fornecedor</TableHead>
+                <TableHead className="w-[110px]">Classe</TableHead>
+                <TableHead className="w-[120px]">Centro</TableHead>
+                <TableHead className="w-[140px]" title="Base de vencimento">
+                  Base venc.
+                </TableHead>
+                <TableHead className="w-[64px]">Status</TableHead>
+                <TableHead className="w-[36px]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                    Carregando...
+                  </TableCell>
+                </TableRow>
+              ) : itens.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                    Lote sem linhas.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                itens.map((item) => {
+                  const ignorado = item.status_linha === "ignorado";
+                  const editavel = item.status_linha !== "emitido" && !ignorado;
+                  return (
+                    <TableRow key={item.id} className={ignorado ? "opacity-50" : ""}>
+                      <TableCell>{caixaLinha(item, editavel)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">{fmtData(item.data_transacao)}</TableCell>
+                      <TableCell>{descricaoLinha(item)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right text-sm tabular-nums">
+                        {fmtBRL(item.valor)}
+                      </TableCell>
+                      {/* larguras fixas: numa tabela automática o conteúdo inteiro viraria a largura mínima da coluna */}
+                      <TableCell>
+                        <div className="w-[160px]">{campoFornecedor(item, editavel)}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="w-[110px]">{campoClasse(item, editavel)}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="w-[120px]">{campoCentro(item, editavel)}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="w-[140px]">{campoBaseVenc(item, editavel)}</div>
+                      </TableCell>
+                      <TableCell>
+                        {statusLinhaBadge(item.status_linha)}
+                        {item.status_linha === "emitido" && <div className="mt-0.5">{acaoLinha(item)}</div>}
+                      </TableCell>
+                      <TableCell>{item.status_linha !== "emitido" && acaoLinha(item)}</TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       <Dialog
         open={!!ignorarItem}
