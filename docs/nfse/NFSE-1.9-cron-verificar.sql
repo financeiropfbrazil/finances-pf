@@ -25,3 +25,6 @@ select max(nsu) as nsu_max, count(*) as docs, max(nsu) - count(*) as buracos fro
 -- ── Resultado (20/10/2026) ──
 -- Aplicado às 10h54 BRT pelo MCP (arquivo NFSE-1.9-cron-aplicar.sql sem alteração; pré-voo e conferência ok).
 -- Consulta separada: 30 '40 9,15 * * 1-5' ligado; 35 '0,30 10-21 * * 1-5' ligado; kill-switches ligados.
+-- 1ª execução automática do job 35: cron 11h00m00 (succeeded) → run pg_cron 11h01m10–11h01m14, NSU 1.656→1.658,
+--   2 NFS-e novas, parou em fim_da_fila, 0 erro, carimbo "edge nfse-adn-sonda v2-2026-10-20"; NSU 1..1.658 sem buraco.
+-- Job 30: 1ª leitura nova às 12h40 (a conferir pela consulta 3).
