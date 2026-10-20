@@ -13,6 +13,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Banknote,
+  Copy,
   Download,
   Eye,
   FileText,
@@ -243,6 +244,30 @@ function Regua({ etapas, onIr }: { etapas: { titulo: string; estado: EstadoEtapa
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Chave do MovEstq no Alvo em destaque, com cópia — é por ela que se acha o lançamento no Alvo. */
+function ChaveMovEstq({ chave }: { chave: number }) {
+  const { toast } = useToast();
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(String(chave));
+      toast({ title: "Chave do MovEstq copiada", description: String(chave) });
+    } catch {
+      toast({ title: "Não foi possível copiar", description: String(chave), variant: "destructive" });
+    }
+  };
+  return (
+    <div className="mb-1 flex items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-2">
+      <div className="flex min-w-0 flex-col">
+        <span className="text-[10px] text-muted-foreground">Chave do MovEstq no Alvo</span>
+        <span className="text-base font-semibold tabular-nums text-foreground">{chave}</span>
+      </div>
+      <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-[11px]" onClick={copiar} title="Copiar a chave">
+        <Copy className="h-3 w-3" /> Copiar
+      </Button>
+    </div>
   );
 }
 
@@ -705,7 +730,9 @@ function Etapas({
             d.movestq
               ? `Lançada · chave ${d.movestq.chave_movestq}`
               : lancada
-                ? `Lançada como ${n.alvo_especies ?? "outra espécie"}`
+                ? n.alvo_chave_movestq != null
+                  ? `Lançada · chave ${n.alvo_chave_movestq}`
+                  : `Lançada como ${n.alvo_especies ?? "outra espécie"}`
                 : semDado
                   ? `Sem dado do Alvo (nota anterior a ${espelhoDesde})`
                   : "Não lançada no Alvo"
@@ -724,6 +751,7 @@ function Etapas({
         >
           {d.movestq ? (
             <>
+              <ChaveMovEstq chave={d.movestq.chave_movestq} />
               <Campo label="Espécie" valor={`${d.movestq.especie ?? "—"}${d.movestq.serie ? ` · série ${d.movestq.serie}` : ""}`} />
               <Campo label="Tipo de lançamento" valor={d.movestq.codigo_tipo_lanc} mono />
               <Campo label="Entrada" valor={formatDate(d.movestq.data_entrada)} />
@@ -738,7 +766,14 @@ function Etapas({
               <p className="mt-1 text-[10px] text-muted-foreground">Lido do Alvo em {formatInstanteBrt(d.movestq.carregado_em)}</p>
             </>
           ) : lancada ? (
-            <Aviso>O título está no contas a pagar do Alvo; o MovEstq ainda não foi lido pelo Hub.</Aviso>
+            <>
+              {n.alvo_chave_movestq != null && <ChaveMovEstq chave={n.alvo_chave_movestq} />}
+              <Aviso>
+                {n.alvo_chave_movestq != null
+                  ? "Chave tirada do título no contas a pagar do Alvo; os dados do MovEstq ainda não foram lidos pelo Hub."
+                  : "O título está no contas a pagar do Alvo; o MovEstq ainda não foi lido pelo Hub."}
+              </Aviso>
+            </>
           ) : semDado ? (
             <Aviso>O espelho do Alvo no Hub começa em {espelhoDesde}. Não dá para saber se esta nota foi lançada.</Aviso>
           ) : (
