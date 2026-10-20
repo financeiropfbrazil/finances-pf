@@ -133,6 +133,10 @@ export interface PedidoCandidato {
   /** saldo − valor da nota: o que sobra no pedido depois desta nota (negativo = a nota passa o saldo) */
   diferenca: number;
   diferenca_pct: number;
+  /** Outras NFS-e do fornecedor ainda não lançadas que cabem no mesmo saldo, da mais parecida à menos (NFSE-1.11-C) */
+  disputa: { numero: string; valor: number; data_emissao: string }[];
+  /** Pedido anterior ao início do espelho do Alvo: NFs lançadas antes disso não estão no Hub (NFSE-1.11-C) */
+  saldo_nao_confirmado: boolean;
 }
 
 export interface MovEstqNfse {

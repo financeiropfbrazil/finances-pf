@@ -317,8 +317,9 @@ function SituacaoPedido({ p }: { p: PedidoCandidato | PedidoVinculado }) {
   );
 }
 
-function CartaoCandidato({ c, destaque }: { c: PedidoCandidato; destaque?: boolean }) {
+function CartaoCandidato({ c, destaque, espelhoDesde }: { c: PedidoCandidato; destaque?: boolean; espelhoDesde: string }) {
   const sobra = Number(c.diferenca);
+  const [primeira, ...outras] = c.disputa ?? [];
   return (
     <div
       className={cn(
@@ -355,6 +356,17 @@ function CartaoCandidato({ c, destaque }: { c: PedidoCandidato; destaque?: boole
           c.so_raiz_cnpj && { texto: "CNPJ de outra filial", alerta: true },
         ]}
       />
+      {primeira && (
+        <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+          Também serve para a NF {primeira.numero} ({formatDate(primeira.data_emissao)}, {formatCurrency(primeira.valor)})
+          {outras.length > 0 && ` e mais ${outras.length}`}, ainda não lançada{outras.length > 0 ? "s" : ""}.
+        </p>
+      )}
+      {c.saldo_nao_confirmado && (
+        <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+          Pedido anterior a {espelhoDesde}: NFs lançadas antes disso não estão no Hub — saldo não confirmado.
+        </p>
+      )}
     </div>
   );
 }
@@ -892,11 +904,11 @@ function Etapas({
             <>
               {lancada && <Aviso>Lançada no Alvo sem pedido. Estes pedidos poderiam ser desta nota:</Aviso>}
               {candidatos.map((c, i) => (
-                <CartaoCandidato key={c.numero} c={c} destaque={i === 0} />
+                <CartaoCandidato key={c.numero} c={c} destaque={i === 0} espelhoDesde={espelhoDesde} />
               ))}
               <p className="text-[11px] leading-snug text-muted-foreground">
-                Sugestão automática: mesmo fornecedor, pedido em R$ com saldo dentro de ±20% do valor da nota. Saldo = valor
-                do pedido − notas já ligadas a ele no Alvo.
+                Sugestão automática: mesmo fornecedor, pedido em R$ com saldo dentro de ±20% do valor da nota; pedido
+                encerrado no Alvo não entra. Saldo = valor do pedido − notas já ligadas a ele no Alvo.
               </p>
             </>
           ) : (
@@ -972,7 +984,7 @@ function Etapas({
               {candidatos[0] ? (
                 <>
                   <span className="mt-1 text-[11px] font-medium text-foreground">Pedido sugerido para o lançamento</span>
-                  <CartaoCandidato c={candidatos[0]} destaque />
+                  <CartaoCandidato c={candidatos[0]} destaque espelhoDesde={espelhoDesde} />
                 </>
               ) : (
                 <span className="text-[11px] text-muted-foreground">Sem pedido candidato para sugerir.</span>
