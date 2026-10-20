@@ -13,6 +13,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Banknote,
+  CheckCircle2,
   Copy,
   Download,
   Eye,
@@ -22,10 +23,12 @@ import {
   PackageCheck,
   Receipt,
   RefreshCw,
+  ScanLine,
   Send,
   ShoppingCart,
   Trash2,
   Upload,
+  XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,10 +47,13 @@ import { cn } from "@/lib/utils";
 import {
   anexarPdfNfse,
   buscarDetalheNfse,
+  lerBoletoNfse,
   linkAnexoNfse,
   removerAnexoNfse,
   type AnexoNfse,
+  type BoletoConferidoIA,
   type DetalheNfse,
+  type LeituraBoletoIA,
   type NfseRecebida,
   type ParcelaDocFin,
   type PedidoCandidato,
@@ -466,6 +472,160 @@ function AreaAnexo({
 }
 
 // ════════════════════════════════════════════════════════════
+// ETAPA 5 — LEITURA DO BOLETO PELA IA (teste da Fase B: só lê, não salva nada)
+// ════════════════════════════════════════════════════════════
+const ROTULO_BENEFICIARIO: Record<BoletoConferidoIA["confere"]["beneficiario"], { texto: string; ok: boolean | null }> = {
+  igual_prestador: { texto: "Beneficiário = prestador", ok: true },
+  mesma_raiz: { texto: "Beneficiário: mesma raiz do prestador", ok: true },
+  diferente: { texto: "Beneficiário DIFERENTE do prestador", ok: false },
+  sem_dado: { texto: "Beneficiário sem conferência", ok: null },
+};
+
+function Selo({ ok, children }: { ok: boolean | null; children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium",
+        ok === true && ESTADO.feito.chip,
+        ok === false && ESTADO.atencao.chip,
+        ok === null && ESTADO.na.chip,
+      )}
+    >
+      {ok === true ? <CheckCircle2 className="h-3 w-3" /> : ok === false ? <XCircle className="h-3 w-3" /> : null}
+      {children}
+    </span>
+  );
+}
+
+function CartaoBoletoLido({ b, indice, total }: { b: BoletoConferidoIA; indice: number; total: number }) {
+  const { toast } = useToast();
+  const c = b.conferencia;
+  const linha = c.linha_formatada ?? b.lido.linha_digitavel;
+  const benef = ROTULO_BENEFICIARIO[b.confere.beneficiario];
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(c.linha || linha);
+      toast({ title: "Linha digitável copiada" });
+    } catch {
+      toast({ title: "Não foi possível copiar", variant: "destructive" });
+    }
+  };
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-1.5 rounded-md border p-2",
+        b.perfeita ? "border-emerald-300 dark:border-emerald-800" : "border-rose-300 dark:border-rose-800",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold">
+          {total > 1 ? `Boleto ${indice + 1} de ${total}` : "Boleto"}
+          {c.banco ? ` · banco ${c.banco}` : ""}
+        </span>
+        <Selo ok={b.perfeita}>{b.perfeita ? "Linha perfeita" : "Revisar"}</Selo>
+      </div>
+      <div className="flex items-start gap-1">
+        <code className="min-w-0 flex-1 break-all rounded bg-muted/50 px-1.5 py-1 font-mono text-[11px] leading-relaxed">{linha}</code>
+        <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5" onClick={copiar} title="Copiar a linha digitável">
+          <Copy className="h-3 w-3" />
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        <Selo ok={c.valida}>{c.valida ? "Dígitos verificadores ok" : "Dígito verificador falhou"}</Selo>
+        <Selo ok={b.confere.valor}>Valor {formatCurrency(c.valor)}</Selo>
+        {c.tipo === "bancario" && <Selo ok={b.confere.vencimento}>Vence {formatDate(c.vencimento)}</Selo>}
+        <Selo ok={b.confere.pagador_pf}>Pagador P&amp;F</Selo>
+        <Selo ok={benef.ok}>{benef.texto}</Selo>
+      </div>
+      {c.erros.length > 0 && <p className="text-[10px] text-rose-700 dark:text-rose-300">{c.erros.join(" · ")}</p>}
+      {!b.lido.linha_legivel && <p className="text-[10px] text-rose-700 dark:text-rose-300">A IA marcou dígito ilegível.</p>}
+      <div className="text-[10px] leading-snug text-muted-foreground">
+        {b.lido.beneficiario_nome ?? "—"} · {formatDoc(b.lido.beneficiario_cnpj)}
+        {b.lido.numero_documento ? ` · doc. ${b.lido.numero_documento}` : ""}
+        {b.lido.nosso_numero ? ` · nosso nº ${b.lido.nosso_numero}` : ""}
+        {b.confere.valor === false && ` · impresso ${formatCurrency(b.lido.valor_documento)}`}
+        {b.confere.vencimento === false && ` · vencimento impresso ${formatDate(b.lido.vencimento)}`}
+      </div>
+    </div>
+  );
+}
+
+/** Botões "Ler linha digitável" (boleto anexado) e "Testar outro PDF" (não salva), e o resultado. */
+function LeituraBoleto({ anexo }: { anexo: AnexoNfse | undefined }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [lendo, setLendo] = useState<"anexo" | "teste" | null>(null);
+  const [resultado, setResultado] = useState<{ origem: string; leitura: LeituraBoletoIA } | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const ler = async (entrada: { anexo: AnexoNfse } | { arquivo: File }) => {
+    const origem = "anexo" in entrada ? entrada.anexo.nome_original : entrada.arquivo.name;
+    setLendo("anexo" in entrada ? "anexo" : "teste");
+    setErro(null);
+    setResultado(null);
+    try {
+      setResultado({ origem, leitura: await lerBoletoNfse(entrada) });
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLendo(null);
+      if (input.current) input.current.value = "";
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-dashed border-border pt-2">
+      <input
+        ref={input}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) ler({ arquivo: f });
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        {anexo && (
+          <Button size="sm" className="h-7 gap-1 text-xs" disabled={lendo !== null} onClick={() => ler({ anexo })}>
+            {lendo === "anexo" ? <Loader2 className="h-3 w-3 animate-spin" /> : <ScanLine className="h-3 w-3" />} Ler linha digitável
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 text-[11px] text-muted-foreground"
+          disabled={lendo !== null}
+          onClick={() => input.current?.click()}
+          title="Lê um PDF qualquer sem anexar à nota"
+        >
+          {lendo === "teste" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Testar outro PDF (não salva)
+        </Button>
+      </div>
+      {lendo && <p className="text-[11px] text-muted-foreground">Lendo com IA e conferindo os dígitos… leva alguns segundos.</p>}
+      {erro && <Aviso tom="atencao">Leitura falhou: {erro}</Aviso>}
+      {resultado && (
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground">{resultado.origem}</span> ·{" "}
+            {resultado.leitura.boletos.length === 0
+              ? "nenhuma linha digitável encontrada"
+              : `${resultado.leitura.boletos.length} boleto(s) · ${resultado.leitura.todas_perfeitas ? "todas as linhas perfeitas" : "revisar"}`}
+          </p>
+          {resultado.leitura.boletos.map((b, i) => (
+            <CartaoBoletoLido key={b.conferencia.linha || i} b={b} indice={i} total={resultado.leitura.boletos.length} />
+          ))}
+          <p className="text-[10px] text-muted-foreground">
+            Teste — nada foi salvo. {resultado.leitura.uso.modelo_usado ?? resultado.leitura.uso.modelo_solicitado} ·{" "}
+            {resultado.leitura.uso.input_tokens ?? "?"}+{resultado.leitura.uso.output_tokens ?? "?"} tokens ·{" "}
+            {(resultado.leitura.uso.duracao_ms / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} s
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
 // ETAPA 6 — PARCELA DO DOCFIN
 // ════════════════════════════════════════════════════════════
 const ROTULO_CLASSE: Record<string, { rotulo: string; estilo: string }> = {
@@ -815,6 +975,7 @@ function Etapas({
           colRef={ref(4)}
         >
           <AreaAnexo chave={n.chave_acesso} tipo="boleto" anexo={anexoBoleto} onMudou={onAtualizar} />
+          <LeituraBoleto key={anexoBoleto?.id ?? "sem-anexo"} anexo={anexoBoleto} />
           <p className="text-[10px] leading-snug text-muted-foreground">
             Será pré-requisito para lançar a nota pelo Hub (regra em definição).
           </p>

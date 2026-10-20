@@ -80,3 +80,8 @@ verify_jwt = false
 # A auth real é o gate CRON_SECRET (header x-cron-secret) na função.
 [functions.nfse-adn-sonda]
 verify_jwt = false
+
+# nfse-ler-boleto (PLANO-NFSE, Fase B — teste de leitura): chamada pelo app (supabase.functions.invoke) ou pelo
+# banco. A auth real está na função: usuário com compras.nfse.access (nfse_pode_acessar) ou x-cron-secret.
+[functions.nfse-ler-boleto]
+verify_jwt = false

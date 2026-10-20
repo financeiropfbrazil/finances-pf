@@ -49,7 +49,10 @@ pagamento), ou (c) o boleto como pré-requisito do "Lançar" (etapa 3).
 **Arrecadação (concessionária/tributo)** — 48 dígitos começando por `8`, 4 blocos de 11 + DV; o 3º dígito diz
 o módulo (6/7 → 10; 8/9 → 11). Normalmente sem vencimento no código.
 
-Ou seja: **banco, valor e vencimento saem da linha digitável com certeza matemática**. A IA serve para:
+Ou seja: **banco, valor e vencimento saem da linha digitável** — mas atenção (achado no teste de 20/10): o DV
+geral do boleto bancário **não pega toda troca de dígito no fator ou no valor**, porque a regra Febraban leva os
+restos 0, 1 e 10 ao mesmo DV (1). Por isso a linha só vale como "perfeita" com o DV certo **e** o valor e o
+vencimento impressos (lidos à parte) iguais aos tirados da linha. A IA serve para:
 - achar e transcrever a linha digitável (inclusive em boleto escaneado) — um erro de leitura quebra o DV e é
   pego na hora;
 - ler o que **não** está no código: **beneficiário (nome e CNPJ)**, pagador (deve ser a P&F), nosso número,

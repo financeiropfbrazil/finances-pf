@@ -237,3 +237,91 @@ export async function removerAnexoNfse(id: string): Promise<void> {
   if (error) throw new Error(error.message);
   if (!data?.success) throw new Error(data?.mensagem ?? "Não foi possível remover o anexo.");
 }
+
+// ════════════════════════════════════════════════════════════
+// LEITURA DO BOLETO PELA IA (teste da Fase B — Edge nfse-ler-boleto, só leitura)
+// ════════════════════════════════════════════════════════════
+
+export interface BoletoLidoIA {
+  linha_digitavel: string;
+  linha_legivel: boolean;
+  banco_impresso: string | null;
+  beneficiario_nome: string | null;
+  beneficiario_cnpj: string | null;
+  pagador_cnpj: string | null;
+  vencimento: string | null;
+  valor_documento: number | null;
+  nosso_numero: string | null;
+  numero_documento: string | null;
+  pix_copia_e_cola: string | null;
+}
+
+export interface BoletoConferidoIA {
+  lido: BoletoLidoIA;
+  conferencia: {
+    valida: boolean;
+    tipo: "bancario" | "arrecadacao" | null;
+    linha: string;
+    linha_formatada: string | null;
+    codigo_barras: string | null;
+    banco: string | null;
+    valor: number | null;
+    vencimento: string | null;
+    erros: string[];
+  };
+  confere: {
+    vencimento: boolean | null;
+    valor: boolean | null;
+    pagador_pf: boolean | null;
+    beneficiario: "igual_prestador" | "mesma_raiz" | "diferente" | "sem_dado";
+  };
+  /** DV válido + valor e vencimento impressos iguais aos da linha. */
+  perfeita: boolean;
+}
+
+export interface LeituraBoletoIA {
+  versao: string;
+  boletos: BoletoConferidoIA[];
+  todas_perfeitas: boolean;
+  prestador_doc: string | null;
+  uso: { modelo_solicitado: string; modelo_usado: string | null; input_tokens: number | null; output_tokens: number | null; duracao_ms: number };
+}
+
+const lerArquivoBase64 = (arquivo: File) =>
+  new Promise<string>((resolve, reject) => {
+    const leitor = new FileReader();
+    leitor.onload = () => resolve(String(leitor.result).split(",")[1] ?? "");
+    leitor.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    leitor.readAsDataURL(arquivo);
+  });
+
+/**
+ * Lê a(s) linha(s) digitável(is) do boleto com o Claude e confere por regra. Não salva nada.
+ * Com `anexo` lê o boleto anexado na etapa 5; com `arquivo`, um PDF de teste que não vai para a pasta.
+ */
+export async function lerBoletoNfse(entrada: { anexo: AnexoNfse } | { arquivo: File }): Promise<LeituraBoletoIA> {
+  let corpo: Record<string, string>;
+  if ("anexo" in entrada) {
+    corpo = { anexo_id: entrada.anexo.id };
+  } else {
+    if (entrada.arquivo.type !== "application/pdf" && !entrada.arquivo.name.toLowerCase().endsWith(".pdf")) {
+      throw new Error("O arquivo deve ser um PDF.");
+    }
+    if (entrada.arquivo.size > TAMANHO_MAX_ANEXO) throw new Error("O PDF passa de 10 MB.");
+    corpo = { pdfBase64: await lerArquivoBase64(entrada.arquivo) };
+  }
+  const { data, error } = await supabase.functions.invoke("nfse-ler-boleto", { body: corpo });
+  if (error) {
+    let mensagem = error.message;
+    try {
+      const resposta = await (error as { context?: { json?: () => Promise<{ erro?: string }> } }).context?.json?.();
+      if (resposta?.erro) mensagem = resposta.erro;
+    } catch {
+      /* mantém a mensagem do cliente */
+    }
+    throw new Error(mensagem);
+  }
+  if (!data?.ok) throw new Error(data?.erro ?? "A leitura do boleto falhou.");
+  return data as LeituraBoletoIA;
+}
+
