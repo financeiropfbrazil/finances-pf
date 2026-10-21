@@ -44,6 +44,9 @@ export interface NfseRecebida {
   alvo_pagamento: PagamentoAlvo | null;
   alvo_pedido: string | null;
   dias_desde_emissao: number | null;
+  /** Como o título do Alvo foi achado (NFSE-1.2-B): pelo número da NFS-e ou pelo número que a nota cita (ex.: fatura) */
+  alvo_vinculo: "numero" | "citado_na_nota" | null;
+  alvo_doc_numero: string | null;
 }
 
 export interface IndicadoresNfse {

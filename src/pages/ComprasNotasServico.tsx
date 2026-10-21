@@ -136,7 +136,14 @@ const ComprasNotasServico = () => {
       );
     if (r.situacao_alvo === "lancada_outra_especie")
       return (
-        <Badge className="bg-info text-info-foreground hover:bg-info/90 text-[10px]" title={r.alvo_especies || ""}>
+        <Badge
+          className="bg-info text-info-foreground hover:bg-info/90 text-[10px]"
+          title={
+            r.alvo_vinculo === "citado_na_nota"
+              ? `No Alvo como ${r.alvo_especies ?? "outra espécie"} ${r.alvo_doc_numero ?? ""} — número citado na própria nota`
+              : r.alvo_especies || ""
+          }
+        >
           Lançada como {r.alvo_especies || "outra espécie"}
         </Badge>
       );

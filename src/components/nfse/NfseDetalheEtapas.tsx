@@ -785,6 +785,14 @@ function Etapas({
   const candidatos = d.pedidos.candidatos ?? [];
   const lancada = n.situacao_alvo === "lancada_nfse" || n.situacao_alvo === "lancada_outra_especie";
   const semDado = n.situacao_alvo === "sem_dado_alvo";
+  // NFSE-1.2-B: título achado pelo número que a nota cita (ex.: fatura da Microsoft lançada como DIV)
+  const avisoCitado =
+    n.alvo_vinculo === "citado_na_nota" ? (
+      <Aviso>
+        No Alvo com outro número: {n.alvo_especies ?? "outra espécie"} {n.alvo_doc_numero}, que a própria nota cita na
+        descrição (mesmo CNPJ e mesmo valor).
+      </Aviso>
+    ) : null;
   const anexoNf = d.anexos.find((a) => a.tipo === "nf");
   const anexoBoleto = d.anexos.find((a) => a.tipo === "boleto");
   const parcelas = d.docfin.parcelas ?? [];
@@ -932,7 +940,7 @@ function Etapas({
               : lancada
                 ? n.alvo_chave_movestq != null
                   ? `Lançada · chave ${n.alvo_chave_movestq}`
-                  : `Lançada como ${n.alvo_especies ?? "outra espécie"}`
+                  : `Lançada como ${n.alvo_especies ?? "outra espécie"}${n.alvo_vinculo === "citado_na_nota" && n.alvo_doc_numero ? ` ${n.alvo_doc_numero}` : ""}`
                 : semDado
                   ? `Sem dado do Alvo (nota anterior a ${espelhoDesde})`
                   : "Não lançada no Alvo"
@@ -952,6 +960,7 @@ function Etapas({
           {d.movestq ? (
             <>
               <ChaveMovEstq chave={d.movestq.chave_movestq} />
+              {avisoCitado}
               <Campo label="Espécie" valor={`${d.movestq.especie ?? "—"}${d.movestq.serie ? ` · série ${d.movestq.serie}` : ""}`} />
               <Campo label="Tipo de lançamento" valor={d.movestq.codigo_tipo_lanc} mono />
               <Campo label="Entrada" valor={formatDate(d.movestq.data_entrada)} />
@@ -968,6 +977,7 @@ function Etapas({
           ) : lancada ? (
             <>
               {n.alvo_chave_movestq != null && <ChaveMovEstq chave={n.alvo_chave_movestq} />}
+              {avisoCitado}
               <Aviso>
                 {n.alvo_chave_movestq != null
                   ? "Chave tirada do título no contas a pagar do Alvo; os dados do MovEstq ainda não foram lidos pelo Hub."
