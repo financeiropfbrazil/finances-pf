@@ -170,3 +170,83 @@ Correção simples (ligar `verify_jwt` ou exigir permissão, ou desativá-la) �
 | B2 | Medir em 10–20 boletos reais: acerto, custo, divergências achadas | Não |
 | B3 | Boleto por parcela (notas com 2+ parcelas) | Não |
 | B4 | Rota `/docfin/parcela-boleto` no erp-proxy + botão "Gravar no DocFin" com as travas da §6 | **Sim** |
+
+## 11. Investigação de 21/10/2026 — onde o DocFin guarda a linha digitável e como casar boleto × parcela
+
+Pedido do Pedro: "como o Alvo pede, no DocFin, para inserir a linha digitável" e "como garantir que o boleto seja da
+parcela correta quando houver mais de uma". Só leitura (payloads do Alvo guardados no Hub, código do erp-proxy,
+espelho `fin_parcelas_pagar`); nenhuma chamada ao Alvo.
+
+### 11.1 O que o DocFin tem (medido em 2.123 parcelas de `desp_docfin_doc.payload_alvo->ParcDocFinChildList`)
+
+A linha digitável é **da parcela**, não do documento: cada item de `ParcDocFinChildList` (chave = `ChaveDocFin` +
+`Sequencia`, e `Parcial` quando há pagamento parcial) tem os campos abaixo — **todos vazios nas 2.123 parcelas**:
+
+| Campo da parcela | Para quê | Preenchido |
+|---|---|---|
+| `LinhaDigitavel` | a linha do boleto | 0 |
+| `CodigoBarras` | os 44 dígitos | 0 |
+| `NossoNumero` | identificação do boleto no banco | 0 |
+| `NumeroBanco`, `NumeroAgBancaria` (+ `…Cobrador`/`…Cobradora`) | banco/agência do boleto | 0 |
+| `PixCopiaCola`, `CodigoQR` | PIX do boleto híbrido | 0 |
+| `ObservacaoBoleto` | texto livre | 0 |
+| `UsoLeitor` | provavelmente "como o código entrou" (leitor) | sempre "Nenhum" |
+| `SegmentoPagamento` | provavelmente o segmento do CNAB de pagamento | sempre "Nenhum" |
+| `CodigoTipoCobranca` | forma de pagamento | sempre preenchido |
+| `DataHoraCtrlConcorrencia`, `UsuarioCtrlConcorrencia` | controle de concorrência do Alvo | 1.472 |
+
+Formas de pagamento (tabela do Alvo, `fin_parcelas_pagar.tipo_cobranca`) que importam aqui: `0000003 DDA` (570
+parcelas de NFS-e), `0000021 BOLETO OUTROS BANCOS` (25), `0000011 BOLETO ITAU` (7), `0000022 BOLETOS CONTAS CONSUMO`
+(1), `0000009 AGUARDANDO BOLETO` (1), `0000025 PIX QRCODE`. Existe, portanto, o estado "aguardando boleto" — é o
+ponto natural para a leitura do boleto entrar.
+
+**Como gravar (padrão já provado no erp-proxy, `services/alvo-anexar-pdf.ts`):** `DocFin/Load` (DocFin completo,
+com as listas filhas) → alterar só a parcela → `DocFin/SaveMultiPart?action=Update&savePartial=false` com o objeto
+inteiro (e o PDF, se for anexar) → `DocFin/Load` de novo e comparar. O objeto inteiro volta junto, por isso o Load
+imediatamente antes e a comparação depois.
+
+**Não há documentação pública da Riosoft sobre esses campos** (busca na web sem resultado). O que só o Lab (B0) ou
+a Riosoft respondem:
+1. Formato aceito em `LinhaDigitavel`: só os 47/48 dígitos, ou formatada (`74891.12628 …`)? Tamanho máximo?
+2. O Alvo valida o DV? Preenche `CodigoBarras` sozinho a partir da linha (e o que muda em `UsoLeitor`)?
+3. DocFin de **origem Estoque** (gerado pelo MovEstq) aceita `Update` pela API nesses campos?
+4. `SegmentoPagamento` precisa ser preenchido para boleto? Quais valores existem?
+5. Trocar `CodigoTipoCobranca` (ex.: AGUARDANDO BOLETO → BOLETO OUTROS BANCOS / BOLETO ITAU pelo banco da linha) é
+   permitido e desejado?
+6. O controle de concorrência recusa um Save com `DataHoraCtrlConcorrencia` velho (alguém alterou entre o Load e o
+   Save)? É a proteção que se quer.
+
+**Roteiro do teste no Lab (1 título de teste com 2+ parcelas, origem Estoque):** Load e guardar o JSON → mudar só
+`LinhaDigitavel` da parcela 2 (47 dígitos) → Save → Load e comparar campo a campo (formato guardado, `CodigoBarras`,
+`UsoLeitor`, `DataHoraCtrlConcorrencia`, parcela 1 intacta) → repetir com a linha formatada e com DV errado → Save
+com `DataHoraCtrlConcorrencia` velho → ver onde a linha aparece na tela do DocFin.
+
+### 11.2 Boleto × parcela quando há mais de uma (medido em `fin_parcelas_pagar`, vencimentos de 2026)
+
+- A parcela tem número próprio no Alvo, no formato `documento/parcela-total` (`131/2-3`, `5645/ 2-36`), e duas
+  datas: **`data_vencimento`** (a do fornecedor) e **`data_prorrogacao`** (a que a P&F programou para pagar —
+  ex.: 24/09 → 28/09, 08/10 → 06/10). O boleto traz o vencimento do fornecedor.
+- NFS-e: **1.126 títulos, 32 parcelados** (máx. 10 parcelas). **Só o valor** separa as parcelas em 6 dos 32 (é
+  comum parcelas iguais: 3 × R$ 3.900, 4 × R$ 154,16); **valor + `data_vencimento` separa em todos os 32 (0
+  ambíguos)**; com `data_prorrogacao` no lugar haveria 1 ambíguo — por isso o casamento usa o vencimento original.
+- Os 28 títulos de NFS-e pagos por boleto comum (BOLETO OUTROS BANCOS/ITAU/CONTAS CONSUMO/AGUARDANDO) têm **todos
+  parcela única**; os parcelados de hoje são DDA (10), PIX (10), cartão (7) e outros (5). O caso "vários boletos"
+  é raro, mas acontece (ex.: Lucipharma, NF-e, 3 boletos num PDF só).
+- NF-e (para quando a leitura se estender): 194 parcelados de 1.402; 3 ambíguos mesmo com valor + data.
+
+**Regra proposta (a IA só lê; quem casa é a regra):**
+1. Escopo: parcelas do título da nota no Alvo **abertas** (sem pagamento), **não agrupadas**, não projeção.
+2. De cada boleto com DV válido, usar o **valor e o vencimento do próprio código** (fator de vencimento) — não o
+   texto impresso, que só serve para conferir.
+3. **Casa sozinho** só quando exatamente 1 parcela aberta tem valor = valor da linha (±R$ 0,01) **e**
+   `data_vencimento` = vencimento da linha (aceitar `data_prorrogacao` só como 2ª opção), e essa parcela não está
+   casada com outro boleto.
+4. Desempate: o "Nº do documento" impresso (`131/2` → sequência 2, comparado com o `Numero` da parcela `131/2-3`) e
+   o nosso número, se a parcela já tiver um.
+5. Sem casamento único, ou com valor/data divergentes (2ª via com juros, boleto pelo bruto e parcela pelo líquido,
+   data diferente como no caso TOTVS 08/09 × 29/09): **nada automático** — a tela mostra as parcelas abertas lado a
+   lado e a pessoa escolhe; fica registrado quem escolheu.
+6. Travas: 1 boleto ↔ 1 parcela; a mesma linha não vai para duas parcelas (nem de títulos diferentes); parcela que já
+   tem linha diferente → para e mostra; parcela paga ou agrupada → não grava; PDF com vários boletos → casa o
+   conjunto de uma vez (1 para 1) e só segue se todos casarem.
+7. Gravação no Alvo (fase B4) só com botão e confirmação, com o antes/depois guardado.
