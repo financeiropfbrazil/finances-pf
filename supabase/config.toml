@@ -85,3 +85,6 @@ verify_jwt = false
 # banco. A auth real está na função: usuário com compras.nfse.access (nfse_pode_acessar) ou x-cron-secret.
 [functions.nfse-ler-boleto]
 verify_jwt = false
+
+[functions.extrair-nfe]
+verify_jwt = false

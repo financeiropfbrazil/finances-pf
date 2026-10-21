@@ -154,6 +154,13 @@ API da Anthropic com a chave do projeto. Qualquer pessoa com a URL (o ref do pro
 mandar PDFs e **gastar créditos**. Não expõe dado. Nenhuma tela do Hub chama essa função hoje (grep em `src/`).
 Correção simples (ligar `verify_jwt` ou exigir permissão, ou desativá-la) — **aguarda ordem do Pedro**.
 
+> **Corrigido em 21/10/2026 (ordem do Pedro: "corrija"), Edge v14:** a função exige usuário logado com
+> `compras.nfe.access` (admin passa). `verify_jwt` segue `false` de propósito — a chave pública (anon) do app também é
+> um JWT válido e passaria pelo gateway; o controle real é o usuário + permissão no código. Provas pelo banco
+> (`net.http_post`): antes, POST sem login → 400 "pdfBase64 obrigatório" (a função rodava); depois, sem login,
+> token falso e chave pública → **401**. Caminho de usuário com permissão não testado daqui (não há como gerar o
+> JWT de um usuário pelo banco); nenhuma tela chama a função hoje.
+
 ## 10. Fases propostas (cada uma com OK)
 
 | Fase | O quê | Toca o Alvo? |

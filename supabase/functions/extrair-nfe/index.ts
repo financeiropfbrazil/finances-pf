@@ -7,13 +7,17 @@
 // NÃO toca em tabela, pasta ou dedup. É a peça isolada e testável:
 //   POST { pdfBase64, arquivoNome? } -> { ok, extracao, conferencia, uso }
 //
-// Teste rápido (depois de deploy):
-//   supabase functions invoke extrair-nfe --no-verify-jwt \
-//     --data "{\"pdfBase64\":\"<BASE64_DO_PDF>\",\"arquivoNome\":\"zomus.pdf\"}"
+// Acesso (21/10/2026, PLANO-NFSE §6): usuário logado com compras.nfe.access (ou admin), pelo Authorization do app.
+// Até a v13 a função estava aberta (verify_jwt = false e nenhuma checagem), gastando a chave da Anthropic para
+// quem tivesse a URL. verify_jwt continua false porque a chave pública (anon) também é um JWT válido — o gate
+// real é o usuário + permissão abaixo.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-4-6";
 
@@ -178,6 +182,25 @@ function extrairJsonDoTexto(texto: string): any {
 }
 
 // ──────────────────────────────────────────────────────────────
+/** Usuário logado com a permissão de Notas Fiscais (admin passa pela própria user_has_permission). */
+async function autorizado(req: Request): Promise<{ ok: true } | { ok: false; status: number; erro: string }> {
+  const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!token) return { ok: false, status: 401, erro: "Não autorizado" };
+  const cliente = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false },
+  });
+  const { data: usuario } = await cliente.auth.getUser(token);
+  if (!usuario?.user) return { ok: false, status: 401, erro: "Não autorizado" };
+  const { data: pode, error } = await cliente.rpc("user_has_permission", {
+    p_user_id: usuario.user.id,
+    p_permission_code: "compras.nfe.access",
+  });
+  if (error || pode !== true) return { ok: false, status: 403, erro: "Sem permissão de Notas Fiscais" };
+  return { ok: true };
+}
+
+// ──────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -185,6 +208,8 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
     return json({ ok: false, erro: "Use POST" }, 405);
   }
+  const acesso = await autorizado(req);
+  if (!acesso.ok) return json({ ok: false, erro: acesso.erro }, acesso.status);
 
   try {
     const body = await req.json().catch(() => ({}));
