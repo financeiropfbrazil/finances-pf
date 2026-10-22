@@ -282,3 +282,25 @@ Salvamento de um DocFin pela tela web do Alvo, com o F12 > Network (só o que fo
 **Ainda falta (uma 2ª captura):** digitar a linha digitável na parcela e salvar, e copiar o **Payload em "view
 source"** (JSON bruto, sem o resumo do Chrome) e a Response. Isso responde o formato aceito, se o Alvo calcula o
 `CodigoBarras`/`NossoNumero`/`NumeroBanco` sozinho, o que muda em `UsoLeitor` e se ele valida o DV.
+
+### 11.4 Teste com a linha digitável (Pedro, 22/10/2026) — DocFin 33962, parcela 1
+
+Linha **de teste** montada no Hub com DV válido (banco 341, R$ 544,29, venc. 29/10/2026, nosso número `99999999`,
+agência e conta zeradas — não registrada na CIP, impagável), colada na tela do Alvo e salva com o F12 aberto:
+
+- **Payload:** a tela mandou na parcela só `{CodigoEmpresaFilial, ChaveDocFin, Sequencia, Parcial, LinhaDigitavel}`.
+  **`LinhaDigitavel` foi com o código de barras de 44 dígitos** (`34199161400000544291099999999970000000000000`),
+  não com a linha de 47 colada: a tela converte linha → código de barras antes de enviar.
+- **Response:** `LinhaDigitavel` gravado exatamente assim (44 dígitos, sem formatação); `CodigoBarras`,
+  `NossoNumero` e `NumeroBanco` seguiram `null`; `UsoLeitor` e `SegmentoPagamento` seguiram "Nenhum";
+  `DataUltimaAtualizacao` da parcela mudou (22:01:07); `InformationResult: []`. Parcela de DocFin **origem
+  Estoque** aceitou a alteração.
+- Se o servidor confere o DV não deu para ver (a tela converte antes). Para o Hub não importa: a linha só segue para o
+  Alvo depois da conferência por DV, valor e vencimento.
+
+**Desenho da gravação (B4) revisto com isso:** `DocFin/Load` (antes) → `POST DocFin/SavePartial?action=Update` com o
+corpo da tela (chaves do DocFin + flags de controle + `DocFinClasseRecDespChildList` como veio do Load) e
+**só a parcela casada** com as 4 chaves + `LinhaDigitavel` = os 44 dígitos (`conferirLinhaDigitavel().codigo_barras`)
+→ a resposta já é o "depois" (comparar campo a campo; nenhum outro campo da parcela pode mudar). Não preencher
+`CodigoBarras`/`NossoNumero`/`NumeroBanco`, porque a tela também não preenche. Comparar boleto lido × o que está no
+Alvo sempre pelo código de barras (44). Pendente: o Payload da limpeza do campo (`null` × `""`).
