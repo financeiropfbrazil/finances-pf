@@ -250,3 +250,35 @@ com `DataHoraCtrlConcorrencia` velho → ver onde a linha aparece na tela do Doc
    tem linha diferente → para e mostra; parcela paga ou agrupada → não grava; PDF com vários boletos → casa o
    conjunto de uma vez (1 para 1) e só segue se todos casarem.
 7. Gravação no Alvo (fase B4) só com botão e confirmação, com o antes/depois guardado.
+
+### 11.3 Captura do Network da tela do Alvo (Pedro, 22/10/2026) — DocFin 33962 (NFS-e 142255 MEDLAB)
+
+Salvamento de um DocFin pela tela web do Alvo, com o F12 > Network (só o que foi colado; nenhuma chamada feita daqui):
+
+- **A tela usa `POST {ALVO}/api/DocFin/SavePartial?action=Update`**, com JSON, sem multipart. O erp-proxy usa outra
+  rota hoje (`SaveMultiPart?action=Update&savePartial=false`, objeto inteiro), por causa do PDF.
+- **O corpo é parcial:** as chaves do DocFin (`CodigoEmpresaFilial`, `Chave`), as flags de controle que a tela sempre
+  manda (`OkFinanceiro`, `OkFiscal`, `OkContabil`, `PermiteAlterarContabil`, `TipoFormulario`, `IsHistorico`,
+  `IsRegistrarPagamento`, `DistribuicaoParcelas`, `AlteracaoEmLote`, `AlterouFonte`, `CONFCRECCALPARCIRRF`,
+  `UploadIdentify`…) e as listas filhas. **A parcela foi só com as chaves**: `{CodigoEmpresaFilial, ChaveDocFin,
+  Sequencia, Parcial}`. O rateio de classe foi com mais campos. Ou seja, o Alvo aceita um "delta". Gravar a linha
+  digitável seria mandar a parcela com as 4 chaves + os campos do boleto, **sem reenviar o DocFin inteiro** — menos
+  risco de sobrescrever alguma coisa (a confirmar com a captura em que a linha é de fato digitada).
+- **A resposta traz o DocFin inteiro já salvo:** o "depois" para comparar vem na mesma chamada. Vêm também
+  `InformationResult: []` (mensagens), `parcDocFin: []` e `itemCobBanc: []` (itens de cobrança bancária).
+- **DocFin gerado pelo estoque aceitou o Update:** `ModuloOrigem = "Estoque"`, `ChaveMovEstq = 21371`, "Documento
+  integrado pelo estoque", e o Save passou (`DataUltimaAtualizacao` do documento mudou para 21/10 21:55). Isso
+  responde, em parte, a pergunta 3 do Lab. Falta ver se vale também para os campos da parcela.
+- **Na parcela, `LinhaDigitavel`, `CodigoBarras`, `NossoNumero` e `NumeroBanco` seguiram `null`; `UsoLeitor` e
+  `SegmentoPagamento` seguiram "Nenhum".** A `DataUltimaAtualizacao` da parcela não mudou (17:25), então este
+  salvamento não alterou a parcela. Os campos `UsuarioCtrlConcorrencia`/`DataHoraCtrlConcorrencia` da parcela vieram
+  `null`.
+- **A forma de pagamento já era `0000011 BOLETO ITAU`** (venc. 29/10, prorrogação 27/10).
+- **Valor:** a parcela tem `ValorOriginal` **544,29** (líquido) e `ValorBruto` **570,83**. A diferença são as retenções
+  de PIS 3,71 + COFINS 17,12 + CSLL 5,71. Nas NFS-e de 2026, **227 de 1.223 parcelas (18,6%)** têm bruto ≠ líquido.
+  Por isso o casamento precisa aceitar o boleto pelo **líquido** (o normal) **ou** pelo **bruto**, com aviso de
+  "retenção não descontada no boleto" — no pagamento isso significa pagar a retenção ao fornecedor.
+
+**Ainda falta (uma 2ª captura):** digitar a linha digitável na parcela e salvar, e copiar o **Payload em "view
+source"** (JSON bruto, sem o resumo do Chrome) e a Response. Isso responde o formato aceito, se o Alvo calcula o
+`CodigoBarras`/`NossoNumero`/`NumeroBanco` sozinho, o que muda em `UsoLeitor` e se ele valida o DV.
