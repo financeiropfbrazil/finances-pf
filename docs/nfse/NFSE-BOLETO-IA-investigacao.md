@@ -303,4 +303,17 @@ corpo da tela (chaves do DocFin + flags de controle + `DocFinClasseRecDespChildL
 **só a parcela casada** com as 4 chaves + `LinhaDigitavel` = os 44 dígitos (`conferirLinhaDigitavel().codigo_barras`)
 → a resposta já é o "depois" (comparar campo a campo; nenhum outro campo da parcela pode mudar). Não preencher
 `CodigoBarras`/`NossoNumero`/`NumeroBanco`, porque a tela também não preenche. Comparar boleto lido × o que está no
-Alvo sempre pelo código de barras (44). Pendente: o Payload da limpeza do campo (`null` × `""`).
+Alvo sempre pelo código de barras (44).
+
+**Limpeza (Pedro, 22/10/2026):** a linha de teste foi apagada na tela e salva. O Payload mandou a parcela com as 4 chaves
++ **`LinhaDigitavel: ""`** (string vazia, não `null`), com o mesmo corpo de controle do DocFin e o
+`DocFinClasseRecDespChildList` de novo. A Response desse salvamento não foi copiada, então não se sabe se o Alvo guarda
+`""` ou converte para `null`. Consequências para o B4:
+
+- **desfazer** uma linha gravada pelo Hub = o mesmo `SavePartial` com `LinhaDigitavel: ""`, como a tela faz;
+- **"parcela sem linha"** = `null` **ou** `""` (ou só espaços). A trava "parar se a parcela já tem outra linha" não
+  pode tratar `""` como linha existente.
+
+Com isso o roteiro desta investigação fecha: formato de escrita, corpo parcial, origem Estoque e limpeza estão vistos
+na tela. Continuam sem prova o DV conferido pelo servidor (a tela converte antes) e o comportamento de
+`CodigoBarras`/`NossoNumero`/`PixCopiaCola`, que a tela não preenche e o B4 também não vai preencher.
