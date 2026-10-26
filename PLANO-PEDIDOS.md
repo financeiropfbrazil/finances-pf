@@ -68,6 +68,7 @@ Filtro do dropdown = essa lista (Enviando fica como estado transitório do card;
 | LR-PAG F1 | Rastreio › Pagamento: regra "pago só com prova", totais do título da NF, parcelas no card; corrige o falso "pago" da projeção | SQL (MV + 2 funções) + finances-pf (src) | 🟡 **SQL APLICADO 15/10 10:32 BRT** (MCP de escrita, autorizado pelo Pedro) e verificado; frontend no working tree, **aguarda push + Publish**; `mv_rastreio_compras_v1` guardada para rollback até a limpeza |
 | LR-PAG F2 | Seguir a fatura agrupadora (02.007 → `Agrupamento` → FAT) — Edge `sync-parcelas-pagar-cron` v9 + coluna | finances-pf (Edge) + SQL | ⬜ depois da F1 validada |
 | LR-PAG F2-A | **Ajuste de escopo (Pedro, 15/10):** só o fim do laço do cron do passo NF — `rastreio_tentativa` + portão + Edge v9 (espera 15 min/1 h/6 h/24 h, estaciona na 5ª falha) + job renomeado `sync-parcelas-pagar-nf-fila`. Fatura agrupadora **adiada**: os 467 títulos `02.007` são CT-e/NFS-e e **nenhum** está ligado a pedido | SQL + finances-pf (Edge) | ✅ **em produção 15/10 ~13:44 BRT** — SQL aplicado, Edge **v9** deployada e provada (versão 9, probe 401 da própria função, execução de teste com carimbo `edge v9-2026-10-15`); job agora é o **34** |
+| LC-RAT | **Gerar pedido a partir da requisição leva o rateio classe × CC** da requisição (multi-CC da tela e lançada por e-mail); sem rateio gravado, igual a antes | finances-pf (src) | 🟡 **preparado 26/10** — branch `claude/purchase-request-automation-19r2px`, testes/tsc/build OK; aguarda merge + Publish e o teste da operadora (ver diário 26/10) |
 
 Ordem: **L0 → L1 → L3 → L2 → LD → L4 → L5 → L6** (L4 consome statusPedido + delta + open-load de uma vez).
 
@@ -404,3 +405,34 @@ Autorização do Pedro: "Pode aplicar o F2-aplicar.sql e deployar a Edge v9 segu
 **Por quê (medido em 20/10):** NFS-e lançada no Alvo leva p50 19 h / p90 70 h para ter MovEstq e título no Hub — todo o atraso é a espera da leitura única das 06h40 (fila do job 34 vazia; desde 16/10 o MovEstq entra 0–1 min depois do título). A leitura `[lista]` = ~3.800 títulos em 52–80 s, 0 erro (19 e 20/10).
 **Por que é seguro rodar duas vezes:** a Edge v9 grava por upsert; a marcação `ausente_no_alvo_em` só acontece depois de um mês lido por inteiro e só para o que não foi visto nessa leitura; a função `call_sync_parcelas_pagar_cron` não tem trava diária a respeitar. O job 34 já convive com a execução das 06h40 (o portão dele não sobrepõe execução aberta há < 4 min).
 **Arquivos:** `docs/nfse/NFSE-1.9-cron-aplicar.sql` · `-verificar.sql` · `-rollback.sql` (volta a `40 9 * * 1-5` e ao texto anterior do kill-switch).
+
+## 26/10/2026 — LC-RAT: "Gerar pedido" leva o rateio da requisição (pedido do Pedro)
+
+**Pedido do Pedro:** "quero que elas possam clonar os rateios". As operadoras geram o pedido a partir da requisição e hoje teriam de redigitar CC por CC.
+**Problema → causa:** `clonarDeRequisicao` (`pedidosService.ts`) copiava as classes do item e punha **cada classe 100% no CC do item**. Ele não lia `compras_requisicoes_rateio_classes`/`_cc`.
+- **Prova:** a 0001539 tinha 5 CCs de 20% e virou o pedido 0005032 (01/10) com **100% em 00008.00002.00001**.
+- **Caso que motivou:** a 0001622, lançada por e-mail com classe 19.05 em 13 CCs, nasceria com 100% em Design e Desenvolvimento.
+**Impacto:** rateio perdido em silêncio no pedido de toda requisição multi-CC.
+- Afeta toda requisição lançada **por e-mail**, porque o e-mail sempre grava o rateio.
+- O fluxo comum da tela, sem rateio gravado, não é afetado.
+**Solução:**
+- `carregarRateioDaRequisicao` lê o rateio. Em erro de leitura, **lança**, e não cai em silêncio no CC único.
+- `rateioSugeridoDoItem` monta o rateio sugerido de cada item:
+  - a classe do item leva os CCs da mesma classe no rateio da requisição;
+  - a classe sem rateio fica 100% no CC do item, como antes;
+  - o item sem classe própria usa as classes do rateio.
+- Nada muda no wizard, que já trabalha com rateio multi-CC por percentual, nem no banco ou no erp-proxy.
+**RLS conferida (26/10):** `compras_requisicoes_rateio_classes` e `_cc` têm policy `SELECT` para `authenticated` (`true`) e GRANT de leitura. Operadora sem `is_admin` consegue ler.
+**Testes:**
+- `src/test/clonar-rateio-requisicao.test.ts` com o rateio real da 0001622: 5 testes.
+  - Sem a mudança, os 4 de rateio **falham**.
+  - O de "requisição sem rateio" passa nas duas versões: é o guarda de que o fluxo comum não mudou.
+- Suíte completa: 261/261.
+- `tsc -p tsconfig.app.json`: os mesmos 2 erros antigos (`FixedAssets.tsx`), nenhum novo.
+- `vite build` OK.
+- Lint: +1 `no-explicit-any` (o `(supabase as any)` padrão dos services).
+- Dependências instaladas por `npm --no-save --no-package-lock`, porque a rede da sessão bloqueia o cache npm do Lovable. Nenhum lockfile foi tocado.
+**Risco:** baixo, porque só muda a sugestão inicial do wizard e a operadora ainda revisa antes de enviar. Requisição com rateio cuja classe não bate com a do item cai no comportamento antigo para aquela classe.
+**Rollback:** `git revert` do commit + push + Publish.
+**Validação pendente (L6):** depois do Publish, uma operadora **sem** `is_admin` abre a 0001622 → "Gerar pedido". O item tem de vir com a classe 19.05 e os 13 CCs (33,5% Design e Desenvolvimento … 0,1% Diretoria Executiva).
+**Fora daqui:** o pedido 0005143 (Anthropic, 100% Controladoria, status "Reavaliar" no Alvo) já existia antes da 0001622 e não é tocado.
