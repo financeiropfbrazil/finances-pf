@@ -2775,6 +2775,72 @@ export async function excluirPedido(pedidoId: string): Promise<void> {
 // CLONAR DE REQUISIÇÃO
 // ════════════════════════════════════════════════════════════
 
+/**
+ * Rateio classe × CC gravado na requisição (compras_requisicoes_rateio_classes/_cc):
+ * requisição multi-CC da tela ou lançada por e-mail. Vazio quando a requisição não tem.
+ */
+async function carregarRateioDaRequisicao(requisicaoId: string): Promise<RateioClasseInput[]> {
+  const { data: classesData, error: errClasses } = await (supabase as any)
+    .from("compras_requisicoes_rateio_classes")
+    .select("id, codigo_classe_rec_desp, classe_rec_desp_label, percentual")
+    .eq("requisicao_id", requisicaoId);
+  if (errClasses) throw new Error(`Erro ao carregar rateio da requisição: ${errClasses.message}`);
+  const classes = (classesData || []) as Array<{
+    id: string; codigo_classe_rec_desp: string; classe_rec_desp_label: string; percentual: number | string;
+  }>;
+  if (!classes.length) return [];
+
+  const { data: ccsData, error: errCcs } = await (supabase as any)
+    .from("compras_requisicoes_rateio_cc")
+    .select("rateio_classe_id, codigo_centro_ctrl, centro_ctrl_label, percentual")
+    .in("rateio_classe_id", classes.map((c) => c.id));
+  if (errCcs) throw new Error(`Erro ao carregar centros de custo do rateio da requisição: ${errCcs.message}`);
+  const ccs = (ccsData || []) as Array<{
+    rateio_classe_id: string; codigo_centro_ctrl: string; centro_ctrl_label: string | null; percentual: number | string;
+  }>;
+
+  return classes.map((c) => ({
+    codigo_classe_rec_desp: c.codigo_classe_rec_desp,
+    classe_rec_desp_label: c.classe_rec_desp_label,
+    percentual: Number(c.percentual),
+    ccs: ccs
+      .filter((cc) => cc.rateio_classe_id === c.id)
+      .map((cc) => ({
+        codigo_centro_ctrl: cc.codigo_centro_ctrl,
+        centro_ctrl_label: cc.centro_ctrl_label ?? undefined,
+        percentual: Number(cc.percentual),
+      }))
+      // Sem coluna de ordem no rateio: maior percentual primeiro, depois código.
+      .sort((a, b) => b.percentual - a.percentual || a.codigo_centro_ctrl.localeCompare(b.codigo_centro_ctrl)),
+  }));
+}
+
+/**
+ * Rateio sugerido de um item do pedido a partir da requisição.
+ * Cada classe do item leva os CCs da mesma classe no rateio da requisição; classe sem
+ * rateio gravado vai 100% no CC do item, como sempre foi. Item sem classe própria usa
+ * as classes do rateio da requisição.
+ */
+export function rateioSugeridoDoItem(
+  classesDoItem: Array<{ codigo_classe_rec_desp: string; classe_rec_desp_label: string; percentual: number }>,
+  ccDoItem: string,
+  rateioDaRequisicao: RateioClasseInput[],
+): RateioClasseInput[] {
+  const ccsPorClasse = new Map(rateioDaRequisicao.map((c) => [c.codigo_classe_rec_desp, c.ccs]));
+  const classes = classesDoItem.length ? classesDoItem : rateioDaRequisicao;
+  return classes.map((c) => {
+    const ccsDaRequisicao = ccsPorClasse.get(c.codigo_classe_rec_desp);
+    return {
+      codigo_classe_rec_desp: c.codigo_classe_rec_desp,
+      classe_rec_desp_label: c.classe_rec_desp_label,
+      percentual: Number(c.percentual),
+      ccs: ccsDaRequisicao?.length
+        ? ccsDaRequisicao.map((cc) => ({ ...cc }))
+        : [{ codigo_centro_ctrl: ccDoItem, percentual: 100 }],
+    };
+  });
+}
+
 export async function clonarDeRequisicao(requisicaoId: string): Promise<CloneReqResult> {
   const { data: req, error: errReq } = await (supabase as any)
     .from("compras_requisicoes")
@@ -2806,20 +2872,14 @@ export async function clonarDeRequisicao(requisicaoId: string): Promise<CloneReq
     throw new Error(`Erro ao carregar itens da requisição: ${errItens?.message}`);
   }
 
-  const itensClonados = itens.map((item: any) => {
-    const rateioReq = item.compras_requisicoes_itens_classe_rec_desp || [];
+  const rateioDaRequisicao = await carregarRateioDaRequisicao(requisicaoId);
 
-    const rateioSugerido: RateioClasseInput[] = rateioReq.map((r: any) => ({
-      codigo_classe_rec_desp: r.codigo_classe_rec_desp,
-      classe_rec_desp_label: r.classe_rec_desp_label,
-      percentual: Number(r.percentual),
-      ccs: [
-        {
-          codigo_centro_ctrl: item.codigo_centro_ctrl,
-          percentual: 100,
-        },
-      ],
-    }));
+  const itensClonados = itens.map((item: any) => {
+    const rateioSugerido = rateioSugeridoDoItem(
+      item.compras_requisicoes_itens_classe_rec_desp || [],
+      item.codigo_centro_ctrl,
+      rateioDaRequisicao,
+    );
 
     return {
       codigo_produto: item.codigo_produto,
