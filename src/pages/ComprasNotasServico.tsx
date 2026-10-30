@@ -30,6 +30,7 @@ import {
 } from "@/services/nfseRecebidasService";
 import { NfseDetalheEtapas } from "@/components/nfse/NfseDetalheEtapas";
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
+import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
 import { formatCurrency, formatDate, formatDoc, formatInstanteBrt } from "@/components/nfse/nfseFormatos";
 
 const ROTULO_FISCO: Record<SituacaoFisco, string> = {
@@ -105,6 +106,40 @@ const ComprasNotasServico = () => {
     }
     return list;
   }, [rows, filtroFisco, filtroAlvo, searchTerm]);
+
+  // ── Download de controle das etapas (NFSE-1.15): período e notas da lista no momento do clique ──
+  const [baixando, setBaixando] = useState(false);
+  const baixarExcel = async () => {
+    if (!periodo.de || !periodo.ate) return;
+    setBaixando(true);
+    try {
+      const chaves = new Set(filtered.map((r) => r.chave_acesso));
+      const linhas = (await buscarRelatorioEtapas("nfse", periodo.de, periodo.ate)).filter(
+        (l) => l.chave_acesso && chaves.has(l.chave_acesso),
+      );
+      if (linhas.length === 0) {
+        toast({ title: "Nada para baixar neste filtro" });
+        return;
+      }
+      const ROTULO_ALVO: Record<string, string> = {
+        lancada_nfse: "lançada",
+        lancada_outra_especie: "lançada em outra espécie",
+        nao_lancada: "não lançada",
+        sem_dado_alvo: "sem dado",
+      };
+      const filtros = [
+        filtroFisco !== "todas" && `No fisco: ${filtroFisco === "substituida" ? "substituída" : filtroFisco}`,
+        filtroAlvo !== "todas" && `No Alvo: ${ROTULO_ALVO[filtroAlvo] ?? filtroAlvo}`,
+        searchTerm.trim() && `Busca: "${searchTerm.trim()}"`,
+      ].filter(Boolean) as string[];
+      const r = await exportarEtapasXLSX("nfse", linhas, { de: periodo.de, ate: periodo.ate, filtros });
+      toast({ title: "Excel baixado", description: `${r.linhas} nota(s) · ${r.arquivo}` });
+    } catch (e) {
+      toast({ title: "Não foi possível gerar o Excel", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setBaixando(false);
+    }
+  };
 
   const footerTotal = useMemo(() => filtered.reduce((s, r) => s + (r.valor_servico || 0), 0), [filtered]);
   const ind = dados?.indicadores;
@@ -207,6 +242,16 @@ const ComprasNotasServico = () => {
           <span className="text-[11px] text-muted-foreground" title="Última leitura do ambiente nacional (horário de Brasília)">
             Notas do ADN lidas até {formatInstanteBrt(dados?.atualizado_em)}
           </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={baixarExcel}
+            disabled={baixando || loading || filtered.length === 0}
+            className="gap-1"
+            title="Excel de controle das etapas — com o período e os filtros da tela"
+          >
+            {baixando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Baixar Excel
+          </Button>
           <Button variant="outline" size="sm" onClick={fetchRows} disabled={loading} className="gap-1">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Atualizar
           </Button>

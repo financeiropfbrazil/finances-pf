@@ -43,6 +43,7 @@ import { listarNfeNoAlvo, type NfeNoAlvo } from "@/services/comprasNfeNoAlvoServ
 import { buscarXmlNfe, desvincularPedidosNfe, listarNotasDoPeriodo } from "@/services/nfeRecebidasService";
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { NfeDetalheEtapas, chaveDetalheNfe } from "@/components/nfe/NfeDetalheEtapas";
+import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
 import { useQueryClient } from "@tanstack/react-query";
 
 // ── Types ──
@@ -278,6 +279,32 @@ const ComprasNotasFiscais = () => {
 
   const footerTotal = useMemo(() => filtered.reduce((s, r) => s + (r.valor_total || 0), 0), [filtered]);
 
+  // ── Download de controle das etapas (NFE-6): período e notas da lista no momento do clique ──
+  const [baixando, setBaixando] = useState(false);
+  const baixarExcel = async () => {
+    if (!periodo.de || !periodo.ate) return;
+    setBaixando(true);
+    try {
+      const ids = new Set(filtered.map((r) => r.id));
+      const linhas = (await buscarRelatorioEtapas("nfe", periodo.de, periodo.ate)).filter((l) => l.id && ids.has(l.id));
+      if (linhas.length === 0) {
+        toast({ title: "Nada para baixar neste filtro" });
+        return;
+      }
+      const filtros = [
+        filtroAlvo !== "todas" && (filtroAlvo === "lancada" ? "No Alvo: lançadas" : "No Alvo: não encontradas"),
+        filtroVinculo !== "todos" && (filtroVinculo === "vinculada" ? "Pedido no Hub: vinculado" : "Pedido no Hub: sem vínculo"),
+        searchTerm.trim() && `Busca: "${searchTerm.trim()}"`,
+      ].filter(Boolean) as string[];
+      const r = await exportarEtapasXLSX("nfe", linhas, { de: periodo.de, ate: periodo.ate, filtros });
+      toast({ title: "Excel baixado", description: `${r.linhas} nota(s) · ${r.arquivo}` });
+    } catch (e) {
+      toast({ title: "Não foi possível gerar o Excel", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setBaixando(false);
+    }
+  };
+
   const noAlvoBadge = (r: NfeRow) => {
     if (erroAlvo)
       return (
@@ -346,6 +373,16 @@ const ComprasNotasFiscais = () => {
         </div>
         <div className="flex items-center gap-2">
           <UploadXmlButton onImported={fetchRows} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={baixarExcel}
+            disabled={baixando || loadingRows || filtered.length === 0}
+            className="gap-1"
+            title="Excel de controle das etapas — com o período e os filtros da tela"
+          >
+            {baixando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Baixar Excel
+          </Button>
           <Button variant="outline" size="sm" onClick={fetchRows} disabled={loadingRows} className="gap-1">
             {loadingRows ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Atualizar
           </Button>
