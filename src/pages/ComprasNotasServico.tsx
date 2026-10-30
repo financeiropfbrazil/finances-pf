@@ -14,6 +14,7 @@ import {
   Clock,
   Copy,
   Download,
+  FileSpreadsheet,
   Hash,
   Loader2,
   Package,
@@ -31,6 +32,7 @@ import {
 import { NfseDetalheEtapas } from "@/components/nfse/NfseDetalheEtapas";
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
+import { buscarRelatorioQuestor, exportarQuestorXLSX } from "@/services/notasQuestorExport";
 import { formatCurrency, formatDate, formatDoc, formatInstanteBrt } from "@/components/nfse/nfseFormatos";
 
 const ROTULO_FISCO: Record<SituacaoFisco, string> = {
@@ -107,7 +109,21 @@ const ComprasNotasServico = () => {
     return list;
   }, [rows, filtroFisco, filtroAlvo, searchTerm]);
 
-  // ── Download de controle das etapas (NFSE-1.15): período e notas da lista no momento do clique ──
+  // ── Downloads (NFSE-1.15 etapas · NFSE-1.16 contabilidade): período e notas da lista no momento do clique ──
+  const filtrosDaTela = () => {
+    const ROTULO_ALVO: Record<string, string> = {
+      lancada_nfse: "lançada",
+      lancada_outra_especie: "lançada em outra espécie",
+      nao_lancada: "não lançada",
+      sem_dado_alvo: "sem dado",
+    };
+    return [
+      filtroFisco !== "todas" && `No fisco: ${filtroFisco === "substituida" ? "substituída" : filtroFisco}`,
+      filtroAlvo !== "todas" && `No Alvo: ${ROTULO_ALVO[filtroAlvo] ?? filtroAlvo}`,
+      searchTerm.trim() && `Busca: "${searchTerm.trim()}"`,
+    ].filter(Boolean) as string[];
+  };
+
   const [baixando, setBaixando] = useState(false);
   const baixarExcel = async () => {
     if (!periodo.de || !periodo.ate) return;
@@ -121,23 +137,36 @@ const ComprasNotasServico = () => {
         toast({ title: "Nada para baixar neste filtro" });
         return;
       }
-      const ROTULO_ALVO: Record<string, string> = {
-        lancada_nfse: "lançada",
-        lancada_outra_especie: "lançada em outra espécie",
-        nao_lancada: "não lançada",
-        sem_dado_alvo: "sem dado",
-      };
-      const filtros = [
-        filtroFisco !== "todas" && `No fisco: ${filtroFisco === "substituida" ? "substituída" : filtroFisco}`,
-        filtroAlvo !== "todas" && `No Alvo: ${ROTULO_ALVO[filtroAlvo] ?? filtroAlvo}`,
-        searchTerm.trim() && `Busca: "${searchTerm.trim()}"`,
-      ].filter(Boolean) as string[];
-      const r = await exportarEtapasXLSX("nfse", linhas, { de: periodo.de, ate: periodo.ate, filtros });
+      const r = await exportarEtapasXLSX("nfse", linhas, { de: periodo.de, ate: periodo.ate, filtros: filtrosDaTela() });
       toast({ title: "Excel baixado", description: `${r.linhas} nota(s) · ${r.arquivo}` });
     } catch (e) {
       toast({ title: "Não foi possível gerar o Excel", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
     } finally {
       setBaixando(false);
+    }
+  };
+
+  const [baixandoQuestor, setBaixandoQuestor] = useState(false);
+  const baixarQuestor = async () => {
+    if (!periodo.de || !periodo.ate) return;
+    setBaixandoQuestor(true);
+    try {
+      const chaves = new Set(filtered.map((r) => r.chave_acesso));
+      const rel = await buscarRelatorioQuestor(periodo.de, periodo.ate);
+      const linhas = rel.linhas.filter((l) => chaves.has(l.chave_acesso));
+      if (linhas.length === 0) {
+        toast({ title: "Nada para baixar neste filtro" });
+        return;
+      }
+      const r = await exportarQuestorXLSX({ ...rel, linhas }, { de: periodo.de, ate: periodo.ate, filtros: filtrosDaTela() });
+      toast({
+        title: "Excel para a contabilidade baixado",
+        description: `${r.linhas} nota(s), ${r.semNatureza} sem natureza · ${r.arquivo}`,
+      });
+    } catch (e) {
+      toast({ title: "Não foi possível gerar o Excel", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setBaixandoQuestor(false);
     }
   };
 
@@ -251,6 +280,16 @@ const ComprasNotasServico = () => {
             title="Excel de controle das etapas — com o período e os filtros da tela"
           >
             {baixando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Baixar Excel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={baixarQuestor}
+            disabled={baixandoQuestor || loading || filtered.length === 0}
+            className="gap-1"
+            title="Natureza do Questor de cada nota, para a contabilidade — com o período e os filtros da tela"
+          >
+            {baixandoQuestor ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />} Excel p/ contabilidade
           </Button>
           <Button variant="outline" size="sm" onClick={fetchRows} disabled={loading} className="gap-1">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Atualizar

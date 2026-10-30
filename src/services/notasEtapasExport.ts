@@ -7,6 +7,7 @@
  * as notas que estão na lista no momento do clique — o arquivo sai igual ao que se vê (filtros de busca, "No Alvo" etc.).
  * Excel (ExcelJS), no padrão do download do Rastreio: blocos coloridos, datas de verdade, filtro, aba "Sobre".
  */
+import type { Workbook, Worksheet } from "exceljs";
 import { supabase } from "@/integrations/supabase/client";
 
 export type TipoNota = "nfe" | "nfse";
@@ -58,17 +59,20 @@ export async function buscarRelatorioEtapas(tipo: TipoNota, de: string, ate: str
 // ════════════════════════════════════════════════════════════
 type Tipo = "texto" | "data" | "datahora" | "valor" | "inteiro";
 
-interface Coluna {
+/** Coluna de uma aba com blocos coloridos — usada também pelo Excel da contabilidade (`notasQuestorExport`). */
+export interface ColunaPlanilha<L> {
   bloco: string;
   label: string;
   tipo: Tipo;
   largura: number;
   /** destaque em vermelho: "negativo" (nota antes do pedido) ou "positivo" (atraso) */
   alerta?: "negativo" | "positivo";
-  /** célula em itálico laranja — o número ainda está correndo (ex.: nota não lançada, contada até hoje) */
-  provisorio?: (l: LinhaEtapas) => boolean;
-  valor: (l: LinhaEtapas) => string | number | Date | null;
+  /** célula em itálico laranja — valor provisório (ex.: nota não lançada, contada até hoje) */
+  provisorio?: (l: L) => boolean;
+  valor: (l: L) => string | number | Date | null;
 }
+
+type Coluna = ColunaPlanilha<LinhaEtapas>;
 
 const BLOCOS: Record<string, string> = {
   Nota: "FF0891B2",
@@ -110,7 +114,8 @@ const dh = (v: string | null | undefined): Date | null => {
   );
   return new Date(Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute));
 };
-const ROTULO_FISCO: Record<string, string> = { normal: "Normal", cancelada: "Cancelada", substituida: "Substituída" };
+export const ROTULO_FISCO: Record<string, string> = { normal: "Normal", cancelada: "Cancelada", substituida: "Substituída" };
+export { t as celTexto, n as celNumero, d as celData, dh as celDataHora };
 
 function colunas(tipo: TipoNota): Coluna[] {
   return [
@@ -175,7 +180,7 @@ export interface ContextoExportEtapas {
   filtros: string[];
 }
 
-const fmtBR = (iso: string) => {
+export const fmtBR = (iso: string) => {
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 };
@@ -200,15 +205,16 @@ const REGRAS: [string, string][] = [
   ["Dias de atraso", "Maior atraso entre as parcelas, contra o vencimento do fornecedor: paga → pagamento − vencimento; em aberto e vencida → hoje − vencimento. Negativo = pago antes do vencimento. Positivo em vermelho."],
 ];
 
-/** Monta a planilha (sem baixar) — separado do download para poder ser testado. */
-export async function montarPlanilhaEtapas(tipo: TipoNota, linhas: LinhaEtapas[], ctx: ContextoExportEtapas) {
-  const ExcelJS = (await import("exceljs")).default;
-  const COLUNAS = colunas(tipo);
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "Financial Hub";
-  wb.created = new Date();
-
-  const ws = wb.addWorksheet(tipo === "nfe" ? "NF-e" : "NFS-e", { views: [{ state: "frozen", xSplit: 2, ySplit: 2 }] });
+/**
+ * Escreve uma aba no padrão dos downloads de notas: linha 1 com os blocos coloridos (mesclados), linha 2 com as
+ * colunas, uma linha por item, formatos de data/valor, destaques em vermelho (`alerta`) e filtro.
+ */
+export function escreverAbaComBlocos<L>(
+  ws: Worksheet,
+  COLUNAS: ColunaPlanilha<L>[],
+  linhas: L[],
+  cores: Record<string, string>,
+) {
   ws.columns = COLUNAS.map((c) => ({ width: c.largura }));
 
   // Linha 1: blocos mesclados
@@ -221,7 +227,7 @@ export async function montarPlanilhaEtapas(tipo: TipoNota, linhas: LinhaEtapas[]
       const cel = linhaBlocos.getCell(inicio);
       cel.value = atual;
       for (let c = inicio; c <= i; c++) {
-        linhaBlocos.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLOCOS[atual] } };
+        linhaBlocos.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: cores[atual] } };
       }
       cel.font = { bold: true, color: { argb: "FFFFFFFF" } };
       cel.alignment = { horizontal: "center", vertical: "middle" };
@@ -283,19 +289,12 @@ export async function montarPlanilhaEtapas(tipo: TipoNota, linhas: LinhaEtapas[]
   }
 
   ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2 + linhas.length, column: COLUNAS.length } };
+}
 
-  // Aba "Sobre"
+/** Aba de texto "chave → explicação" (aba "Sobre"). */
+export function escreverAbaSobre(wb: Workbook, info: [string, string][]) {
   const sobre = wb.addWorksheet("Sobre");
   sobre.columns = [{ width: 30 }, { width: 110 }];
-  const info: [string, string][] = [
-    ["Relatório", tipo === "nfe" ? "Notas Fiscais (NF-e) — controle das etapas" : "Notas de Serviço (NFS-e) — controle das etapas"],
-    ["Período (emissão)", `${fmtBR(ctx.de)} a ${fmtBR(ctx.ate)}`],
-    ["Filtros da tela", ctx.filtros.length ? ctx.filtros.join(" · ") : "Nenhum"],
-    ["Notas exportadas", String(linhas.length)],
-    ["Exportado em", new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) + " (Brasília)"],
-    ["", ""],
-    ...REGRAS,
-  ];
   info.forEach(([k, v], i) => {
     const r = sobre.getRow(i + 1);
     r.getCell(1).value = k;
@@ -303,6 +302,41 @@ export async function montarPlanilhaEtapas(tipo: TipoNota, linhas: LinhaEtapas[]
     r.getCell(1).font = { bold: true };
     r.getCell(2).alignment = { wrapText: true, vertical: "top" };
   });
+}
+
+/** Gera o .xlsx e dispara o download no navegador. */
+export async function baixarPlanilha(wb: Workbook, arquivo: string) {
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = arquivo;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/** Monta a planilha (sem baixar) — separado do download para poder ser testado. */
+export async function montarPlanilhaEtapas(tipo: TipoNota, linhas: LinhaEtapas[], ctx: ContextoExportEtapas) {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Financial Hub";
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet(tipo === "nfe" ? "NF-e" : "NFS-e", { views: [{ state: "frozen", xSplit: 2, ySplit: 2 }] });
+  escreverAbaComBlocos(ws, colunas(tipo), linhas, BLOCOS);
+
+  escreverAbaSobre(wb, [
+    ["Relatório", tipo === "nfe" ? "Notas Fiscais (NF-e) — controle das etapas" : "Notas de Serviço (NFS-e) — controle das etapas"],
+    ["Período (emissão)", `${fmtBR(ctx.de)} a ${fmtBR(ctx.ate)}`],
+    ["Filtros da tela", ctx.filtros.length ? ctx.filtros.join(" · ") : "Nenhum"],
+    ["Notas exportadas", String(linhas.length)],
+    ["Exportado em", new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) + " (Brasília)"],
+    ["", ""],
+    ...REGRAS,
+  ]);
 
   return wb;
 }
@@ -314,16 +348,7 @@ export async function exportarEtapasXLSX(
   ctx: ContextoExportEtapas,
 ): Promise<{ arquivo: string; linhas: number }> {
   const wb = await montarPlanilhaEtapas(tipo, linhas, ctx);
-  const buffer = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const arquivo = `${tipo === "nfe" ? "notas-fiscais" : "notas-servico"}-etapas_${ctx.de}_a_${ctx.ate}.xlsx`;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = arquivo;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  await baixarPlanilha(wb, arquivo);
   return { arquivo, linhas: linhas.length };
 }
