@@ -379,7 +379,7 @@ function CandidataNf({ c, podeAbrirNf }: { c: NfCandidata; podeAbrirNf: boolean 
           Também sugerida para o{c.outros_pedidos.length > 1 ? "s pedidos" : " pedido"} {c.outros_pedidos.join(", ")}
         </span>
       )}
-      {/* A tela de Notas Fiscais tem gate próprio (menu "compras"): sem ele, o
+      {/* A tela de Notas Fiscais tem gate próprio (compras.nfe.access): sem ele, o
           link levaria a "Acesso Restrito". */}
       {podeAbrirNf && (
         <Link
@@ -767,7 +767,7 @@ function Detalhe({ l, podeAbrirNf }: { l: LinhaRastreio; podeAbrirNf: boolean })
 export default function SuprimentosRastreio() {
   const { hasAccess, loading: permLoading } = usePermissions();
   const podeVer = hasAccess("compras.rastreio.access");
-  const podeAbrirNf = hasAccess("compras");
+  const podeAbrirNf = hasAccess("compras.nfe.access");
   const queryClient = useQueryClient();
 
   const [periodo, setPeriodo] = useState<Periodo>(() => atalhosPeriodo()[0].periodo);

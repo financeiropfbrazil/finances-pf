@@ -110,7 +110,7 @@ const suprimentosSubItems: { label: string; url: string; icon: any; perm?: strin
   // com o badge de contagem é o único sinal de que alguém está esperando decisão.
   { label: "Aprovações", url: "/suprimentos/aprovacoes", icon: ClipboardCheck, perm: "compras.requisicoes.aprovar" },
   { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
-  { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
+  { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText, perm: "compras.nfe.access" },
   // NFS-e recebidas pelo ADN × Alvo (só leitura). Gate real: RPCs nfse_recebidas_* (compras.nfse.access).
   { label: "Notas de Serviço", url: "/compras/notas-servico", icon: Receipt, perm: "compras.nfse.access" },
   // Rastreio Req → Pagamento — admin ou papel visualizador_rastreio.

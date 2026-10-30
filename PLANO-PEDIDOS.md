@@ -404,3 +404,11 @@ Autorização do Pedro: "Pode aplicar o F2-aplicar.sql e deployar a Edge v9 segu
 **Por quê (medido em 20/10):** NFS-e lançada no Alvo leva p50 19 h / p90 70 h para ter MovEstq e título no Hub — todo o atraso é a espera da leitura única das 06h40 (fila do job 34 vazia; desde 16/10 o MovEstq entra 0–1 min depois do título). A leitura `[lista]` = ~3.800 títulos em 52–80 s, 0 erro (19 e 20/10).
 **Por que é seguro rodar duas vezes:** a Edge v9 grava por upsert; a marcação `ausente_no_alvo_em` só acontece depois de um mês lido por inteiro e só para o que não foi visto nessa leitura; a função `call_sync_parcelas_pagar_cron` não tem trava diária a respeitar. O job 34 já convive com a execução das 06h40 (o portão dele não sobrepõe execução aberta há < 4 min).
 **Arquivos:** `docs/nfse/NFSE-1.9-cron-aplicar.sql` · `-verificar.sql` · `-rollback.sql` (volta a `40 9 * * 1-5` e ao texto anterior do kill-switch).
+
+## 30/10/2026 — Notas Fiscais: gate da tela trocado para `compras.nfe.access`
+
+**Pedido do Pedro:** "o hugo maffei não acessa as notas fiscais, por quê?" → "ok" para corrigir.
+**Causa (medida):** `/compras/notas-fiscais` conferia a chave **legada** `"compras"` (tabela `user_permissions`), sobra do antigo grupo Compras. **Nenhum usuário além do admin tem essa chave**, então só o Pedro abria a tela; o item do menu aparecia para todo o grupo Suprimentos e levava a "Acesso Restrito". O papel Analista Fiscal já dava `compras.nfe.access` (Hugo, Sandra, Viviane, Carolina Destefano), mas nada no frontend perguntava por ele.
+**Correção (só frontend):** a rota, o item "Notas Fiscais" da sidebar e o link "Abrir em Notas Fiscais" do Rastreio passam a usar `compras.nfe.access`. Quem só tem Operador de Compras deixa de ver o item (já não abria a tela). Build, tsc, 256 testes e lint (20 erros, iguais ao HEAD) ok. Como Hugo (sem admin, simulado): `get_user_permissions` traz `compras.nfe.access`; `compras_nfe` devolve 968 linhas. **Falta:** Publish no Lovable e o Hugo abrir a tela.
+**Achado lateral (não corrigido):** `compras_nfe`, `compras_nfe_pedidos` e `compras_nfe_fila_chaves` têm policy `ALL ... using (true)` para `authenticated` — qualquer usuário logado lê e grava pela API, sem permissão. Merece prompt próprio.
+**Rollback:** `git revert` do commit.

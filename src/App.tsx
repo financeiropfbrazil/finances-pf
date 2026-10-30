@@ -384,10 +384,12 @@ function AppRoutes() {
             Mesmo padrão das rotas de /despesas. */}
         <Route path="/recebimento/fila" element={<RecebimentoFila />} />
 
+        {/* Gate RBAC (papel Analista Fiscal). Antes era a chave legada "compras", que
+            ninguém além do admin tinha — a tela abria "Acesso Restrito" para todos. */}
         <Route
           path="/compras/notas-fiscais"
           element={
-            <PermissionRoute permKey="compras">
+            <PermissionRoute permKey="compras.nfe.access">
               <ComprasNotasFiscais />
             </PermissionRoute>
           }
