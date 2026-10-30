@@ -18,6 +18,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { vincularPedidosNfe } from "@/services/nfeRecebidasService";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -239,61 +240,9 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
       const principal = selOrdenados[0];
       if (!principal) throw new Error("Nenhum pedido selecionado");
 
-      const user = (await supabase.auth.getUser()).data.user;
-
-      // (a) compras_nfe — colunas legadas com o pedido PRINCIPAL
-      const { data: currentRow, error: loadError } = await supabase
-        .from("compras_nfe")
-        .select("*")
-        .eq("id", nfe.id)
-        .single();
-      if (loadError || !currentRow) throw loadError || new Error("NF-e não encontrada");
-
-      const condPagLegado = principal.codigo_cond_pag
-        ? `${principal.codigo_cond_pag}${principal.nome_cond_pag ? ` (${principal.nome_cond_pag})` : ""}`
-        : null;
-
-      const { error: nfeErr } = await supabase.from("compras_nfe").upsert(
-        {
-          ...currentRow,
-          status_lancamento: "vinculada",
-          pedido_compra_numero: principal.numero,
-          pedido_compra_entidade: principal.codigo_entidade,
-          pedido_compra_classe: principal.classe_rec_desp || null,
-          pedido_compra_centro_custo: principal.centro_custo || null,
-          pedido_compra_cond_pagamento: condPagLegado,
-          pedido_compra_valor: principal.valor_total,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "id" },
-      );
-      if (nfeErr) throw nfeErr;
-
-      // (b) compras_nfe_pedidos — limpa e regrava (idempotente p/ re-edição)
-      await supabase.from("compras_nfe_pedidos").delete().eq("nfe_id", nfe.id);
-
-      const vinculos = selOrdenados.map((p, idx) => ({
-        nfe_id: nfe.id,
-        pedido_numero: p.numero,
-        codigo_empresa_filial: p.codigo_empresa_filial || "1.01",
-        is_principal: idx === 0,
-        created_by: user?.id || null,
-      }));
-      const { error: vincErr } = await supabase.from("compras_nfe_pedidos").insert(vinculos);
-      if (vincErr) throw vincErr;
-
-      // (c) nf_vinculada=true em TODOS os selecionados
-      for (const p of selOrdenados) {
-        await supabase
-          .from("compras_pedidos")
-          .update({
-            nf_vinculada: true,
-            nf_vinculada_em: new Date().toISOString(),
-            nf_vinculada_tipo: "compras_nfe",
-          } as any)
-          .eq("numero", p.numero)
-          .eq("codigo_empresa_filial", p.codigo_empresa_filial || "1.01");
-      }
+      // Uma RPC só (PLANO-NFE NFE-1): colunas legadas de compras_nfe com o PRINCIPAL, compras_nfe_pedidos
+      // (limpa e regrava — idempotente p/ re-edição) e nf_vinculada=true em todos os selecionados.
+      await vincularPedidosNfe(nfe.id, selOrdenados);
 
       toast({
         title: `NF-e vinculada a ${selOrdenados.length} pedido${selOrdenados.length > 1 ? "s" : ""}`,

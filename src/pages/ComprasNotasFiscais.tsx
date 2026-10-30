@@ -40,6 +40,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { VincularPedidoNfeDialog } from "@/components/compras/VincularPedidoNfeDialog";
 import { UploadXmlButton } from "@/components/compras/UploadXmlButton";
 import { listarNfeNoAlvo, type NfeNoAlvo } from "@/services/comprasNfeNoAlvoService";
+import { desvincularPedidosNfe } from "@/services/nfeRecebidasService";
 
 // ── Types ──
 interface NfeItemExtraido {
@@ -287,24 +288,14 @@ const ComprasNotasFiscais = () => {
   const handleConfirmAction = async () => {
     if (!alertAction) return;
     const { type, nfe } = alertAction;
-    const upsertNfe = async (updates: Record<string, any>) => {
-      const { data: current } = await supabase.from("compras_nfe").select("*").eq("id", nfe.id).single();
-      if (!current) return { error: { message: "NF-e não encontrada" } };
-      return supabase.from("compras_nfe").upsert({ ...current, ...updates }, { onConflict: "id" });
-    };
     if (type === "desvincular") {
-      const { error } = await upsertNfe({
-        status_lancamento: "pendente",
-        pedido_compra_numero: null,
-        pedido_compra_entidade: null,
-        pedido_compra_classe: null,
-        pedido_compra_centro_custo: null,
-        pedido_compra_cond_pagamento: null,
-        pedido_compra_valor: null,
-        updated_at: new Date().toISOString(),
-      });
-      if (error) toast({ title: "Erro", description: error.message, variant: "destructive" });
-      else toast({ title: "Vinculação removida" });
+      // RPC compras_nfe_desvincular (PLANO-NFE NFE-1): limpa as colunas legadas e os vínculos múltiplos.
+      try {
+        await desvincularPedidosNfe(nfe.id);
+        toast({ title: "Vinculação removida" });
+      } catch (e) {
+        toast({ title: "Erro", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+      }
     }
     setAlertAction(null);
     fetchRows();

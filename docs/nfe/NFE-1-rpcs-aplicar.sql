@@ -12,8 +12,8 @@
 -- Gate: nfe_pode_gravar() (admin ou compras.nfe.create). Sem permissão = 42501.
 -- NÃO toca a entrada da Riosoft (Edge receber-nfe, chave de serviço).
 -- Rollback: NFE-1-rpcs-rollback.sql.
--- STATUS (30/10/2026): AINDA NÃO APLICADO — a 1ª tentativa pelo MCP parou na confirmação do servidor sem resposta;
--- conferido em pg_proc: nenhuma das 3 funções existe.
+-- STATUS: APLICADO em 30/10/2026 (migration nfe_1_rpcs_escrita, 2ª tentativa, aprovada pelo Pedro; a 1ª parou na
+-- confirmação do servidor sem resposta e não gravou nada). Conferência: NFE-1-rpcs-verificar.sql.
 -- =====================================================================
 
 do $$

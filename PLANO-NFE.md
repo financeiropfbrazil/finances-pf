@@ -42,7 +42,7 @@ gravava pela API.
 | ID | O quê | Onde | Status |
 |---|---|---|---|
 | NFE-0 | `nfe_pode_acessar()` / `nfe_pode_gravar()`; `compras_nfe_no_alvo` aceita `compras.nfe.access` (a coluna "No Alvo" dava 403 para quem não é admin) | SQL | ✅ 30/10 |
-| NFE-1 | RPCs de escrita (`compras_nfe_importar_xml`, `compras_nfe_vincular_pedidos`, `compras_nfe_desvincular`) + tela, upload e diálogo passam a usá-las | SQL + finances-pf | ⬜ |
+| NFE-1 | RPCs de escrita (`compras_nfe_importar_xml`, `compras_nfe_vincular_pedidos`, `compras_nfe_desvincular`) + tela, upload e diálogo passam a usá-las | SQL + finances-pf | ✅ 30/10 (falta Publish) |
 | NFE-2 | Fechar `compras_nfe`, `compras_nfe_pedidos` (leitura com gate, sem escrita direta) e `compras_nfe_fila_chaves` (só serviço); tirar `anon`/`authenticated` das 3 RPCs de cadastro | SQL | ⬜ |
 | NFE-3 | Anexos (buckets `nfe-nf-pdf` / `nfe-boleto-pdf`, `nfe_anexo`, RPCs) + RPC `nfe_recebida_detalhe` (6 etapas) | SQL | ⬜ |
 | NFE-4 | Tela de 6 etapas na NF-e + leitura da linha digitável do boleto anexado (Edge `nfse-ler-boleto` aceita anexo de NF-e) | finances-pf + Edge | ⬜ |
@@ -52,3 +52,4 @@ gravava pela API.
 | Data | Tarefa | Registro |
 |---|---|---|
 | 2026-10-30 | NFE-0 | Aplicado (migration `nfe_0_gate_no_alvo`). A coluna "No Alvo" dava 403 para quem não é admin desde a liberação da tela (commit 92ec62a): a RPC conferia a chave legada `compras`. Agora `nfe_pode_acessar()`. Hugo: 172 notas de setembro achadas (= admin); Mirlene (sem Analista Fiscal): 42501. md5 novo 1955aba6…; rollback devolve o corpo antigo exato (md5 d708176b… conferido localmente). |
+| 2026-10-30 | NFE-1 | RPCs aplicadas (migration `nfe_1_rpcs_escrita`; a 1ª tentativa parou na confirmação do servidor sem resposta e não gravou nada; a 2ª foi aprovada pelo Pedro). Upload de XML, "Vincular" e "Desvincular" passam pelas RPCs (`src/services/nfeRecebidasService.ts`). Correção junto: desvincular agora também apaga os vínculos de `compras_nfe_pedidos` (antes ficavam órfãos). Testes como Hugo e Mirlene em `NFE-1-rpcs-verificar.sql`. Build, tsc, 256 testes; lint dos 3 arquivos alterados caiu de 8 para 4 erros. **Achado fora do escopo:** `compras_pedidos` também tem policy `ALL using (true)` para `authenticated`. |
