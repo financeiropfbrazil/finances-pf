@@ -56,7 +56,7 @@ export async function buscarRelatorioEtapas(tipo: TipoNota, de: string, ate: str
 // ════════════════════════════════════════════════════════════
 // COLUNAS
 // ════════════════════════════════════════════════════════════
-type Tipo = "texto" | "data" | "datahora" | "valor" | "inteiro" | "misto";
+type Tipo = "texto" | "data" | "datahora" | "valor" | "inteiro";
 
 interface Coluna {
   bloco: string;
@@ -65,6 +65,8 @@ interface Coluna {
   largura: number;
   /** destaque em vermelho: "negativo" (nota antes do pedido) ou "positivo" (atraso) */
   alerta?: "negativo" | "positivo";
+  /** célula em itálico laranja — o número ainda está correndo (ex.: nota não lançada, contada até hoje) */
+  provisorio?: (l: LinhaEtapas) => boolean;
   valor: (l: LinhaEtapas) => string | number | Date | null;
 }
 
@@ -151,14 +153,11 @@ function colunas(tipo: TipoNota): Coluna[] {
     {
       bloco: "Controle",
       label: "Dias: emissão → lançamento",
-      tipo: "misto",
+      tipo: "inteiro",
       largura: 14,
-      valor: (l) =>
-        l.dias_emissao_lancamento !== null && l.dias_emissao_lancamento !== undefined
-          ? n(l.dias_emissao_lancamento)
-          : l.dias_em_aberto !== null && l.dias_em_aberto !== undefined
-            ? `em aberto há ${l.dias_em_aberto} ${l.dias_em_aberto === 1 ? "dia" : "dias"}`
-            : null,
+      // só número (Pedro, 30/10): nota ainda não lançada = dias desde a emissão até hoje, em itálico laranja
+      provisorio: (l) => n(l.dias_emissao_lancamento) === null && n(l.dias_em_aberto) !== null,
+      valor: (l) => n(l.dias_emissao_lancamento) ?? n(l.dias_em_aberto),
     },
     { bloco: "Controle", label: "Dias: emissão → digitação", tipo: "inteiro", largura: 12, valor: (l) => n(l.dias_emissao_digitacao) },
     { bloco: "Controle", label: "Dias: lançamento → pagamento", tipo: "inteiro", largura: 13, valor: (l) => n(l.dias_lancamento_pagamento) },
@@ -195,18 +194,14 @@ const REGRAS: [string, string][] = [
   ["Pago em", "A data de pagamento mais recente entre as parcelas pagas."],
   ["Situação do pagamento", "Pago (todas) · Vencido (alguma em aberto com vencimento passado) · Parcial · Em aberto. Vazio = sem título no Alvo."],
   ["Etapa atual", "A 1ª etapa não concluída: 2 · Pedidos · 3 · MovEstq · 4 · PDF da nota · 5 · Boleto · 6 · DocFin (todas as parcelas pagas) · Concluída. NF-e sem CFOP de venda (remessa, retorno…) pula pedido, boleto e DocFin."],
-  ["Dias: emissão → lançamento", "Data de entrada no Alvo − emissão. Nota ainda não lançada: \"em aberto há X dias\"."],
+  ["Dias: emissão → lançamento", "Data de entrada no Alvo − emissão. Nota ainda não lançada: dias desde a emissão até hoje, em itálico laranja (\"Lançado no Alvo em\" fica vazio)."],
   ["Dias: emissão → digitação", "Data da digitação − emissão."],
   ["Dias: lançamento → pagamento", "Pagamento da última parcela − data de entrada no Alvo (só quando todas estão pagas)."],
   ["Dias de atraso", "Maior atraso entre as parcelas, contra o vencimento do fornecedor: paga → pagamento − vencimento; em aberto e vencida → hoje − vencimento. Negativo = pago antes do vencimento. Positivo em vermelho."],
 ];
 
-/** Gera e baixa o Excel. Devolve o nome do arquivo e quantas linhas foram. */
-export async function exportarEtapasXLSX(
-  tipo: TipoNota,
-  linhas: LinhaEtapas[],
-  ctx: ContextoExportEtapas,
-): Promise<{ arquivo: string; linhas: number }> {
+/** Monta a planilha (sem baixar) — separado do download para poder ser testado. */
+export async function montarPlanilhaEtapas(tipo: TipoNota, linhas: LinhaEtapas[], ctx: ContextoExportEtapas) {
   const ExcelJS = (await import("exceljs")).default;
   const COLUNAS = colunas(tipo);
   const wb = new ExcelJS.Workbook();
@@ -247,14 +242,19 @@ export async function exportarEtapasXLSX(
   });
   linhaCab.height = 32;
 
-  for (const l of linhas) ws.addRow(COLUNAS.map((c) => c.valor(l)));
+  for (const l of linhas) {
+    const linha = ws.addRow(COLUNAS.map((c) => c.valor(l)));
+    COLUNAS.forEach((c, i) => {
+      if (c.provisorio?.(l)) linha.getCell(i + 1).font = { italic: true, color: { argb: "FFD97706" } };
+    });
+  }
 
   COLUNAS.forEach((c, i) => {
     const col = ws.getColumn(i + 1);
     if (c.tipo === "data") col.numFmt = "dd/mm/yyyy";
     else if (c.tipo === "datahora") col.numFmt = "dd/mm/yyyy hh:mm";
     else if (c.tipo === "valor") col.numFmt = "#,##0.00";
-    else if (c.tipo === "inteiro" || c.tipo === "misto") col.numFmt = "0";
+    else if (c.tipo === "inteiro") col.numFmt = "0";
   });
   for (const r of [1, 2]) {
     ws.getRow(r).eachCell({ includeEmpty: true }, (cel) => {
@@ -304,6 +304,16 @@ export async function exportarEtapasXLSX(
     r.getCell(2).alignment = { wrapText: true, vertical: "top" };
   });
 
+  return wb;
+}
+
+/** Gera e baixa o Excel. Devolve o nome do arquivo e quantas linhas foram. */
+export async function exportarEtapasXLSX(
+  tipo: TipoNota,
+  linhas: LinhaEtapas[],
+  ctx: ContextoExportEtapas,
+): Promise<{ arquivo: string; linhas: number }> {
+  const wb = await montarPlanilhaEtapas(tipo, linhas, ctx);
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const arquivo = `${tipo === "nfe" ? "notas-fiscais" : "notas-servico"}-etapas_${ctx.de}_a_${ctx.ate}.xlsx`;
