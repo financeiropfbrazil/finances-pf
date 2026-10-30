@@ -43,7 +43,7 @@ gravava pela API.
 |---|---|---|---|
 | NFE-0 | `nfe_pode_acessar()` / `nfe_pode_gravar()`; `compras_nfe_no_alvo` aceita `compras.nfe.access` (a coluna "No Alvo" dava 403 para quem não é admin) | SQL | ✅ 30/10 |
 | NFE-1 | RPCs de escrita (`compras_nfe_importar_xml`, `compras_nfe_vincular_pedidos`, `compras_nfe_desvincular`) + tela, upload e diálogo passam a usá-las | SQL + finances-pf | ✅ 30/10 (falta Publish) |
-| NFE-2 | Fechar `compras_nfe`, `compras_nfe_pedidos` (leitura com gate, sem escrita direta) e `compras_nfe_fila_chaves` (só serviço); tirar `anon`/`authenticated` das 3 RPCs de cadastro | SQL | ✅ 30/10 (conferir a próxima leva da Riosoft) |
+| NFE-2 | Fechar `compras_nfe`, `compras_nfe_pedidos` (leitura com gate, sem escrita direta) e `compras_nfe_fila_chaves` (só serviço); tirar `anon`/`authenticated` das 3 RPCs de cadastro | SQL | ✅ 30/10 (leva da Riosoft de 30/10 conferida: 13 de 13) |
 | NFE-3 | Anexos (buckets `nfe-nf-pdf` / `nfe-boleto-pdf`, `nfe_anexo`, RPCs) + RPC `nfe_recebida_detalhe` (6 etapas) | SQL | ✅ 30/10 |
 | NFE-4 | Tela de 6 etapas na NF-e + leitura da linha digitável do boleto anexado (Edge `nfse-ler-boleto` aceita anexo de NF-e) | finances-pf + Edge | ✅ 30/10 (falta Publish e teste com boleto real) |
 | NFE-3-A | Candidato desconta o vínculo feito no Hub: saldo = pedido − notas ligadas no Alvo − NF-e vinculadas no Hub que o Alvo ainda não tem; nota vinculada no Hub sai da disputa; cartão mostra "Vinculado no Hub à NF X" | SQL + finances-pf | ✅ 30/10 (falta Publish) |
