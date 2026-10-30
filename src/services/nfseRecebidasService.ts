@@ -322,16 +322,20 @@ const lerArquivoBase64 = (arquivo: File) =>
  * Lê a(s) linha(s) digitável(is) do boleto com o Claude e confere por regra. Não salva nada.
  * Com `anexo` lê o boleto anexado na etapa 5; com `arquivo`, um PDF de teste que não vai para a pasta.
  */
-export async function lerBoletoNfse(entrada: { anexo: AnexoNfse } | { arquivo: File }): Promise<LeituraBoletoIA> {
+export async function lerBoletoNfse(
+  entrada: { anexo: AnexoNfse } | { arquivo: File },
+  /** 'nfe' = anexo de NF-e (tabela nfe_anexo, gate de Notas Fiscais) — PLANO-NFE NFE-4. */
+  origem: "nfse" | "nfe" = "nfse",
+): Promise<LeituraBoletoIA> {
   let corpo: Record<string, string>;
   if ("anexo" in entrada) {
-    corpo = { anexo_id: entrada.anexo.id };
+    corpo = { anexo_id: entrada.anexo.id, origem };
   } else {
     if (entrada.arquivo.type !== "application/pdf" && !entrada.arquivo.name.toLowerCase().endsWith(".pdf")) {
       throw new Error("O arquivo deve ser um PDF.");
     }
     if (entrada.arquivo.size > TAMANHO_MAX_ANEXO) throw new Error("O PDF passa de 10 MB.");
-    corpo = { pdfBase64: await lerArquivoBase64(entrada.arquivo) };
+    corpo = { pdfBase64: await lerArquivoBase64(entrada.arquivo), origem };
   }
   const { data, error } = await supabase.functions.invoke("nfse-ler-boleto", { body: corpo });
   if (error) {

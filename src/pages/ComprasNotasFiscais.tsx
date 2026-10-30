@@ -41,6 +41,8 @@ import { VincularPedidoNfeDialog } from "@/components/compras/VincularPedidoNfeD
 import { UploadXmlButton } from "@/components/compras/UploadXmlButton";
 import { listarNfeNoAlvo, type NfeNoAlvo } from "@/services/comprasNfeNoAlvoService";
 import { desvincularPedidosNfe } from "@/services/nfeRecebidasService";
+import { NfeDetalheEtapas, chaveDetalheNfe } from "@/components/nfe/NfeDetalheEtapas";
+import { useQueryClient } from "@tanstack/react-query";
 
 // ── Types ──
 interface NfeItemExtraido {
@@ -103,12 +105,20 @@ const formatCnpj = (cnpj: string | null) => {
   if (c.length !== 14) return cnpj;
   return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`;
 };
+// A situação no fisco NÃO é acompanhada (PLANO-NFE, regra 2): a nota chega autorizada pela Riosoft e o Hub
+// não consulta a SEFAZ. "normal" é só o valor gravado na chegada — a tela diz isso em vez de "Ativa".
 const situacaoBadge = (sit: string | null) => {
   const s = (sit || "").toLowerCase();
-  if (s === "ativa" || s === "autorizada")
-    return <Badge className="bg-success text-success-foreground hover:bg-success/90">Ativa</Badge>;
   if (s === "cancelada") return <Badge variant="destructive">Cancelada</Badge>;
-  return <Badge variant="outline">{sit || "—"}</Badge>;
+  return (
+    <Badge
+      variant="outline"
+      className="text-[10px]"
+      title="Autorizada quando chegou. O Hub não acompanha cancelamento no fisco (a Riosoft envia só a nota autorizada)."
+    >
+      Recebida
+    </Badge>
+  );
 };
 
 /**
@@ -137,6 +147,7 @@ function baixarXmlNfe(nfe: { raw_xml: string | null; chave_acesso: string | null
 
 const ComprasNotasFiscais = () => {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const now = new Date();
   // Link direto (ex.: Rastreio de Compras → "Abrir em Notas Fiscais"):
   // ?mes=10&ano=2026&busca=1782 abre no mês da emissão já filtrado.
@@ -293,6 +304,7 @@ const ComprasNotasFiscais = () => {
       try {
         await desvincularPedidosNfe(nfe.id);
         toast({ title: "Vinculação removida" });
+        queryClient.invalidateQueries({ queryKey: chaveDetalheNfe(nfe.id) });
       } catch (e) {
         toast({ title: "Erro", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
       }
@@ -399,7 +411,7 @@ const ComprasNotasFiscais = () => {
       <p className="text-[11px] text-muted-foreground -mt-4">
         {erroAlvo
           ? `Não foi possível consultar o Alvo agora (${erroAlvo}). A coluna "No Alvo" ficou como "?".`
-          : "No Alvo: conferido nos espelhos do Alvo — o contas a pagar é lido 1× por dia, às 06h40, então nota lançada hoje aparece amanhã. Remessa, retorno e bonificação sem título a pagar podem não aparecer."}
+          : "No Alvo: conferido nos espelhos do Alvo — o contas a pagar é lido às 06h40 e às 12h40 (dias úteis), então a nota lançada aparece na leitura seguinte. Remessa, retorno e bonificação sem título a pagar podem não aparecer. Situação no fisco não é acompanhada (a Riosoft envia a nota já autorizada)."}
       </p>
 
       {/* Tabela */}
@@ -491,49 +503,24 @@ const ComprasNotasFiscais = () => {
 
                         {expandedId === r.id && (
                           <TableRow>
-                            <TableCell colSpan={10} className="bg-surface-1 p-4">
-                              <div className="space-y-3">
-                                {/* Dados da Nota */}
-                                <DataSection title="Dados da Nota">
-                                  <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
-                                    <div>
-                                      <span className="text-muted-foreground">Fornecedor:</span>{" "}
-                                      {r.emitente_nome || "—"}
-                                    </div>
-                                    <div>
-                                      <span className="text-muted-foreground">CNPJ:</span> {formatCnpj(r.emitente_cnpj)}
-                                    </div>
-                                    <div>
-                                      <span className="text-muted-foreground">IE:</span> {r.emitente_ie || "—"}
-                                    </div>
-                                    <div>
-                                      <span className="text-muted-foreground">UF:</span> {r.emitente_uf || "—"}
-                                    </div>
-                                    <div>
-                                      <span className="text-muted-foreground">Nat. Operação:</span>{" "}
-                                      {r.natureza_operacao || "—"}
-                                    </div>
-                                    <div>
-                                      <span className="text-muted-foreground">Recebido:</span>{" "}
-                                      {r.recebido ? "Sim" : "Não"}
-                                    </div>
-                                    <div className="col-span-3">
-                                      <span className="text-muted-foreground">Chave:</span>{" "}
-                                      <span className="font-mono text-[10px]">{r.chave_acesso}</span>
-                                    </div>
-                                    <div className="col-span-3">
-                                      <span className="text-muted-foreground">No Alvo:</span>{" "}
-                                      {erroAlvo
-                                        ? "não foi possível consultar agora"
-                                        : alvo
-                                          ? `lançada${alvo.data_entrada ? ` em ${formatDate(alvo.data_entrada)}` : ""}${
-                                              alvo.chave_movestq ? ` · MovEstq ${alvo.chave_movestq}` : ""
-                                            } · achada em: ${alvo.fonte}`
-                                          : "não encontrada nos espelhos do Alvo"}
-                                    </div>
-                                  </div>
-                                </DataSection>
-
+                            <TableCell colSpan={10} className="p-0">
+                              <NfeDetalheEtapas
+                                nfeId={r.id}
+                                onVerXml={() =>
+                                  setXmlDialog({
+                                    open: true,
+                                    numero: r.numero || "",
+                                    fornecedor: r.emitente_nome || "",
+                                    xml: r.raw_xml || "Sem XML disponível",
+                                    chave: r.chave_acesso || "",
+                                    temXml: !!r.raw_xml,
+                                  })
+                                }
+                                onBaixarXml={() => baixarXmlNfe(r)}
+                                onVincular={() => setVincularDialog({ open: true, nfe: r })}
+                                onDesvincular={() => setAlertAction({ type: "desvincular", nfe: r })}
+                              />
+                              <div className="space-y-3 bg-muted/40 px-4 pb-4">
                                 {/* Itens da Nota (do dados_extraidos) */}
                                 <DataSection
                                   title="Itens da Nota"
@@ -628,40 +615,6 @@ const ComprasNotasFiscais = () => {
                                   </div>
                                 </DataSection>
 
-                                {/* Ações de detalhe */}
-                                <div className="flex gap-2 pt-1">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1 text-xs"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setXmlDialog({
-                                        open: true,
-                                        numero: r.numero || "",
-                                        fornecedor: r.emitente_nome || "",
-                                        xml: r.raw_xml || "Sem XML disponível",
-                                        chave: r.chave_acesso || "",
-                                        temXml: !!r.raw_xml,
-                                      });
-                                    }}
-                                  >
-                                    <Eye className="h-3 w-3" /> Ver XML
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1 text-xs"
-                                    disabled={!r.raw_xml}
-                                    title={r.raw_xml ? "Baixar o XML autorizado (NF-e + protocolo)" : "Sem XML disponível"}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      baixarXmlNfe(r);
-                                    }}
-                                  >
-                                    <Download className="h-3 w-3" /> Baixar XML
-                                  </Button>
-                                </div>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -738,6 +691,7 @@ const ComprasNotasFiscais = () => {
             valor_total: vincularDialog.nfe.valor_total,
           }}
           onVinculado={() => {
+            if (vincularDialog.nfe) queryClient.invalidateQueries({ queryKey: chaveDetalheNfe(vincularDialog.nfe.id) });
             setVincularDialog({ open: false, nfe: null });
             fetchRows();
           }}

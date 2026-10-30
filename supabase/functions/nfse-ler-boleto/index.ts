@@ -4,10 +4,13 @@
 // SÓ LEITURA: não grava em tabela, pasta nem no Alvo. Devolve o que leu e a conferência de cada boleto.
 //
 // POST, corpo JSON — um dos dois:
-//   { "anexo_id": "<uuid>" }   boleto já anexado na etapa 5 (lido da pasta nfse-boleto-pdf pela service role)
+//   { "anexo_id": "<uuid>" }   boleto já anexado na etapa 5 (lido da pasta do boleto pela service role)
 //   { "pdfBase64": "..." }     teste com outro PDF, sem salvar nada
-// Acesso: usuário logado com compras.nfse.access (ou admin), pelo Authorization do app — ou x-cron-secret
-// (= CRON_SECRET) para chamada pelo banco. Deploy: verify_jwt = false (o gate está aqui), no config.toml.
+// + "origem": "nfse" (padrão — Notas de Serviço, tabela nfse_anexo) ou "nfe" (Notas Fiscais de produto, tabela
+//   nfe_anexo, PLANO-NFE NFE-4). A origem escolhe o gate, a tabela do anexo e o CNPJ que o beneficiário deve ter.
+// Acesso: usuário logado com a permissão da origem (compras.nfse.access / compras.nfe.access, ou admin), pelo
+// Authorization do app — ou x-cron-secret (= CRON_SECRET) para chamada pelo banco. Deploy: verify_jwt = false
+// (o gate está aqui), no config.toml.
 //
 // A IA lê; boleto.ts decide: DV módulo 10/11 da linha, e banco/valor/vencimento tirados da própria linha
 // comparados com o que está impresso. Só sai "perfeita" com o DV válido E o valor e o vencimento impressos
@@ -18,7 +21,7 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { conferirLinhaDigitavel, soDigitos, type LinhaConferida } from "./boleto.ts";
 
-export const VERSAO = "v1-2026-10-20";
+export const VERSAO = "v2-2026-10-30";
 const MODELO = "claude-opus-5-5";
 const CNPJ_PF = "26602204000196"; // P&F Brasil, a pagadora esperada
 const LIMITE_BYTES = 10 * 1024 * 1024; // o mesmo da pasta nfse-boleto-pdf
@@ -112,8 +115,10 @@ interface BoletoConferido {
 const json = (corpo: unknown, status = 200) =>
   new Response(JSON.stringify(corpo), { status, headers: { ...CORS, "content-type": "application/json" } });
 
-/** Usuário logado com a permissão de Notas de Serviço, ou chamada do banco com o segredo. */
-async function autorizado(req: Request): Promise<{ ok: true } | { ok: false; status: number; erro: string }> {
+type Origem = "nfse" | "nfe";
+
+/** Usuário logado com a permissão da origem (Notas de Serviço ou Notas Fiscais), ou chamada do banco com o segredo. */
+async function autorizado(req: Request, origem: Origem): Promise<{ ok: true } | { ok: false; status: number; erro: string }> {
   const segredo = req.headers.get("x-cron-secret");
   if (segredo && CRON_SECRET && segredo === CRON_SECRET) return { ok: true };
   const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
@@ -124,16 +129,18 @@ async function autorizado(req: Request): Promise<{ ok: true } | { ok: false; sta
   });
   const { data: usuario } = await cliente.auth.getUser(token);
   if (!usuario?.user) return { ok: false, status: 401, erro: "Não autorizado" };
-  const { data: pode, error } = await cliente.rpc("nfse_pode_acessar");
-  if (error || pode !== true) return { ok: false, status: 403, erro: "Sem permissão de Notas de Serviço" };
+  const { data: pode, error } = await cliente.rpc(origem === "nfe" ? "nfe_pode_acessar" : "nfse_pode_acessar");
+  if (error || pode !== true) {
+    return { ok: false, status: 403, erro: origem === "nfe" ? "Sem permissão de Notas Fiscais" : "Sem permissão de Notas de Serviço" };
+  }
   return { ok: true };
 }
 
-/** PDF do anexo de boleto (ativo) + CNPJ do prestador da nota, para conferir o beneficiário. */
-async function pdfDoAnexo(anexoId: string) {
+/** PDF do anexo de boleto (ativo) + CNPJ do prestador/emitente da nota, para conferir o beneficiário. */
+async function pdfDoAnexo(anexoId: string, origem: Origem) {
   const adm = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const { data: anexo, error } = await adm
-    .from("nfse_anexo")
+    .from(origem === "nfe" ? "nfe_anexo" : "nfse_anexo")
     .select("id, chave_acesso, tipo, bucket_id, storage_path, removido_em")
     .eq("id", anexoId)
     .maybeSingle();
@@ -143,6 +150,10 @@ async function pdfDoAnexo(anexoId: string) {
   const { data: arquivo, error: errArq } = await adm.storage.from(anexo.bucket_id).download(anexo.storage_path);
   if (errArq || !arquivo) throw new Error(`Arquivo: ${errArq?.message ?? "não encontrado"}`);
   const bytes = new Uint8Array(await arquivo.arrayBuffer());
+  if (origem === "nfe") {
+    const { data: nfe } = await adm.from("compras_nfe").select("emitente_cnpj").eq("chave_acesso", anexo.chave_acesso).maybeSingle();
+    return { bytes, prestadorDoc: soDigitos(nfe?.emitente_cnpj) || null };
+  }
   const { data: nota } = await adm
     .from("v_nfse_recebida")
     .select("prestador_doc")
@@ -183,17 +194,18 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ ok: false, erro: "Use POST" }, 405);
 
-  const acesso = await autorizado(req);
+  const corpo = await req.json().catch(() => ({}));
+  const origem: Origem = corpo?.origem === "nfe" ? "nfe" : "nfse";
+  const acesso = await autorizado(req, origem);
   if (!acesso.ok) return json({ ok: false, erro: acesso.erro }, acesso.status);
   if (!ANTHROPIC_API_KEY) return json({ ok: false, erro: "ANTHROPIC_API_KEY não configurada" }, 500);
 
   const t0 = Date.now();
   try {
-    const corpo = await req.json().catch(() => ({}));
     let pdf64: string;
     let prestadorDoc: string | null = null;
     if (typeof corpo?.anexo_id === "string") {
-      const r = await pdfDoAnexo(corpo.anexo_id);
+      const r = await pdfDoAnexo(corpo.anexo_id, origem);
       if (r.bytes.length > LIMITE_BYTES) return json({ ok: false, erro: "O PDF passa de 10 MB" }, 413);
       pdf64 = encodeBase64(r.bytes);
       prestadorDoc = r.prestadorDoc;

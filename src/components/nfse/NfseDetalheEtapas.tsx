@@ -66,9 +66,9 @@ import { formatBytes, formatCurrency, formatDate, formatDoc, formatInstanteBrt, 
 // ════════════════════════════════════════════════════════════
 // ESTADO DE CADA ETAPA
 // ════════════════════════════════════════════════════════════
-type EstadoEtapa = "feito" | "pendente" | "atencao" | "na";
+export type EstadoEtapa = "feito" | "pendente" | "atencao" | "na";
 
-const ESTADO: Record<EstadoEtapa, { rotulo: string; barra: string; chip: string; circulo: string; linha: string }> = {
+export const ESTADO: Record<EstadoEtapa, { rotulo: string; barra: string; chip: string; circulo: string; linha: string }> = {
   feito: {
     rotulo: "Concluída",
     barra: "bg-emerald-600",
@@ -111,7 +111,7 @@ const ROTULO_FORCA: Record<PedidoCandidato["forca"], string> = {
 // ════════════════════════════════════════════════════════════
 // PEÇAS DE LAYOUT
 // ════════════════════════════════════════════════════════════
-function Campo({ label, valor, mono }: { label: string; valor: ReactNode; mono?: boolean }) {
+export function Campo({ label, valor, mono }: { label: string; valor: ReactNode; mono?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <span className="shrink-0 text-muted-foreground">{label}</span>
@@ -125,7 +125,7 @@ function Campo({ label, valor, mono }: { label: string; valor: ReactNode; mono?:
 type Etiqueta = { texto: string; alerta?: boolean } | false | null | undefined | "";
 
 /** Linha de etiquetas "a · b · c" em texto corrido: ao quebrar, o "·" fica no fim da linha, não no começo. */
-function Etiquetas({ itens }: { itens: Etiqueta[] }) {
+export function Etiquetas({ itens }: { itens: Etiqueta[] }) {
   const lista = itens.filter(Boolean) as { texto: string; alerta?: boolean }[];
   if (lista.length === 0) return null;
   return (
@@ -140,7 +140,7 @@ function Etiquetas({ itens }: { itens: Etiqueta[] }) {
   );
 }
 
-function Coluna({
+export function Coluna({
   n,
   titulo,
   icone,
@@ -195,7 +195,7 @@ function Coluna({
  * bloco, fora de tabela. As colunas se ajustam a ela, nunca o contrário: com largura mínima por coluna, as 6
  * juntas alargavam a tabela e a página inteira passava da tela (20/10/2026).
  */
-function useLarguraVisivel(ref: RefObject<HTMLElement>) {
+export function useLarguraVisivel(ref: RefObject<HTMLElement>) {
   const [medida, setMedida] = useState({ largura: 0, presa: false });
   useLayoutEffect(() => {
     const el = ref.current;
@@ -216,14 +216,14 @@ const LARGURA_MIN_COLUNA = 230;
 const VAO = 12;
 
 /** 6 lado a lado quando cabem; senão 3 + 3, 2 + 2 + 2 ou uma embaixo da outra — sem rolagem para o lado. */
-function colunasPorLinha(largura: number) {
+export function colunasPorLinha(largura: number) {
   if (!largura) return 3;
   const util = largura - 32; // p-4
   return [6, 3, 2].find((n) => n * LARGURA_MIN_COLUNA + (n - 1) * VAO <= util) ?? 1;
 }
 
 /** Régua das 6 etapas: mostra o andamento e leva até a coluna ao clicar. */
-function Regua({ etapas, onIr }: { etapas: { titulo: string; estado: EstadoEtapa }[]; onIr: (i: number) => void }) {
+export function Regua({ etapas, onIr }: { etapas: { titulo: string; estado: EstadoEtapa }[]; onIr: (i: number) => void }) {
   return (
     <ol className="flex items-center overflow-x-auto rounded-md border border-border bg-background px-3 py-2">
       {etapas.map((et, i) => (
@@ -252,7 +252,7 @@ function Regua({ etapas, onIr }: { etapas: { titulo: string; estado: EstadoEtapa
 }
 
 /** Chave do MovEstq no Alvo em destaque, com cópia — é por ela que se acha o lançamento no Alvo. */
-function ChaveMovEstq({ chave }: { chave: number }) {
+export function ChaveMovEstq({ chave }: { chave: number }) {
   const { toast } = useToast();
   const copiar = async () => {
     try {
@@ -275,9 +275,9 @@ function ChaveMovEstq({ chave }: { chave: number }) {
   );
 }
 
-const emitidaHa = (dias: number) => (dias <= 0 ? "emitida hoje" : dias === 1 ? "emitida há 1 dia" : `emitida há ${dias} dias`);
+export const emitidaHa = (dias: number) => (dias <= 0 ? "emitida hoje" : dias === 1 ? "emitida há 1 dia" : `emitida há ${dias} dias`);
 
-function Aviso({ children, tom = "neutro" }: { children: ReactNode; tom?: "neutro" | "atencao" }) {
+export function Aviso({ children, tom = "neutro" }: { children: ReactNode; tom?: "neutro" | "atencao" }) {
   return (
     <p
       className={cn(
@@ -299,7 +299,12 @@ function Aviso({ children, tom = "neutro" }: { children: ReactNode; tom?: "neutr
  * Status e aprovação do pedido no espelho do Alvo (NFSE-1.11-A) — a mesma tradução da tela de Pedidos
  * (`statusPedido.ts`). A aprovação vai à parte porque a regra futura "só lança com pedido 100% aprovado" lê só ela.
  */
-function SituacaoPedido({ p }: { p: PedidoCandidato | PedidoVinculado }) {
+type EixosSituacaoPedido = Pick<
+  PedidoVinculado,
+  "status" | "status_local" | "status_aprovacao" | "aprovado" | "comprado" | "enviou_aprovacao" | "proximo_aprovador"
+>;
+
+export function SituacaoPedido({ p }: { p: EixosSituacaoPedido }) {
   const st = getStatusPedido(p);
   const ap = getAprovacaoPedido(p);
   return (
@@ -317,7 +322,7 @@ function SituacaoPedido({ p }: { p: PedidoCandidato | PedidoVinculado }) {
   );
 }
 
-function CartaoCandidato({ c, destaque, espelhoDesde }: { c: PedidoCandidato; destaque?: boolean; espelhoDesde: string }) {
+export function CartaoCandidato({ c, destaque, espelhoDesde }: { c: PedidoCandidato; destaque?: boolean; espelhoDesde: string }) {
   const sobra = Number(c.diferenca);
   const [primeira, ...outras] = c.disputa ?? [];
   return (
@@ -374,29 +379,40 @@ function CartaoCandidato({ c, destaque, espelhoDesde }: { c: PedidoCandidato; de
 // ════════════════════════════════════════════════════════════
 // ETAPAS 4 e 5 — ANEXO EM PDF
 // ════════════════════════════════════════════════════════════
-function AreaAnexo({
+/** Onde o anexo é gravado e removido. Padrão: NFS-e; a tela de NF-e passa as RPCs dela (PLANO-NFE NFE-4). */
+export type AcoesAnexo = {
+  anexar: (chave: string, tipo: TipoAnexoNfse, arquivo: File) => Promise<void>;
+  remover: (id: string) => Promise<void>;
+  /** Nome do documento da nota no texto do botão (NFS-e: "PDF da nota"; NF-e: "DANFE"). */
+  nomeNota?: string;
+};
+const ACOES_NFSE: AcoesAnexo = { anexar: anexarPdfNfse, remover: removerAnexoNfse };
+
+export function AreaAnexo({
   chave,
   tipo,
   anexo,
   onMudou,
+  acoes = ACOES_NFSE,
 }: {
   chave: string;
   tipo: TipoAnexoNfse;
   anexo: AnexoNfse | undefined;
   onMudou: () => void;
+  acoes?: AcoesAnexo;
 }) {
   const { toast } = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
   const [arrastando, setArrastando] = useState(false);
   const [confirmarRemocao, setConfirmarRemocao] = useState(false);
-  const nomeTipo = tipo === "nf" ? "PDF da nota" : "PDF do boleto";
+  const nomeTipo = tipo === "nf" ? (acoes.nomeNota ?? "PDF da nota") : "PDF do boleto";
 
   const enviar = async (arquivo: File | undefined) => {
     if (!arquivo) return;
     setEnviando(true);
     try {
-      await anexarPdfNfse(chave, tipo, arquivo);
+      await acoes.anexar(chave, tipo, arquivo);
       toast({ title: anexo ? `${nomeTipo} trocado` : `${nomeTipo} anexado`, description: arquivo.name });
       onMudou();
     } catch (e) {
@@ -419,7 +435,7 @@ function AreaAnexo({
   const remover = async () => {
     if (!anexo) return;
     try {
-      await removerAnexoNfse(anexo.id);
+      await acoes.remover(anexo.id);
       toast({ title: `${nomeTipo} removido` });
       onMudou();
     } catch (e) {
@@ -590,7 +606,14 @@ function CartaoBoletoLido({ b, indice, total }: { b: BoletoConferidoIA; indice: 
 }
 
 /** Botões "Ler linha digitável" (boleto anexado) e "Testar outro PDF" (não salva), e o resultado. */
-function LeituraBoleto({ anexo }: { anexo: AnexoNfse | undefined }) {
+export function LeituraBoleto({
+  anexo,
+  leitor = lerBoletoNfse,
+}: {
+  anexo: AnexoNfse | undefined;
+  /** Padrão: NFS-e; a tela de NF-e passa o leitor dela (o mesmo Edge, com origem 'nfe'). */
+  leitor?: (entrada: { anexo: AnexoNfse } | { arquivo: File }) => Promise<LeituraBoletoIA>;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [lendo, setLendo] = useState<"anexo" | "teste" | null>(null);
   const [resultado, setResultado] = useState<{ origem: string; leitura: LeituraBoletoIA } | null>(null);
@@ -602,7 +625,7 @@ function LeituraBoleto({ anexo }: { anexo: AnexoNfse | undefined }) {
     setErro(null);
     setResultado(null);
     try {
-      setResultado({ origem, leitura: await lerBoletoNfse(entrada) });
+      setResultado({ origem, leitura: await leitor(entrada) });
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
     } finally {
@@ -675,16 +698,16 @@ const ROTULO_CLASSE: Record<string, { rotulo: string; estilo: string }> = {
   aberto: { rotulo: "Em aberto", estilo: ESTADO.pendente.chip },
 };
 
-function parcelaPaga(p: ParcelaDocFin) {
+export function parcelaPaga(p: ParcelaDocFin) {
   return p.classe_pagamento === "pago" || p.classe_pagamento === "quitado_adto";
 }
 
-function parcelaVencida(p: ParcelaDocFin, hoje: string) {
+export function parcelaVencida(p: ParcelaDocFin, hoje: string) {
   const limite = p.data_prorrogacao || p.data_vencimento;
   return !parcelaPaga(p) && p.classe_pagamento === "aberto" && !!limite && limite < hoje;
 }
 
-function LinhaParcela({ p, total, hoje }: { p: ParcelaDocFin; total: number; hoje: string }) {
+export function LinhaParcela({ p, total, hoje }: { p: ParcelaDocFin; total: number; hoje: string }) {
   const classe = ROTULO_CLASSE[p.classe_pagamento ?? ""] ?? { rotulo: p.situacao ?? "—", estilo: ESTADO.na.chip };
   const vencida = parcelaVencida(p, hoje);
   return (
