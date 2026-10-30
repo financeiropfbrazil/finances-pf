@@ -19,6 +19,41 @@ import {
   type TipoAnexoNfse,
 } from "@/services/nfseRecebidasService";
 
+// ════════════════════════════════════════════════════════════
+// LISTA DO PERÍODO (NFE-5) — sem raw_xml, em blocos de 1000 (teto do PostgREST)
+// ════════════════════════════════════════════════════════════
+const COLUNAS_LISTA =
+  "id, numero, serie, chave_acesso, emitente_nome, emitente_cnpj, emitente_ie, emitente_uf, valor_produtos, valor_icms, " +
+  "valor_ipi, valor_frete, valor_desconto, valor_total, base_calculo_icms, data_emissao, natureza_operacao, situacao, origem, " +
+  "recebido, dados_extraidos, status_lancamento, pedido_compra_numero, pedido_compra_entidade, pedido_compra_classe, " +
+  "pedido_compra_centro_custo, pedido_compra_cond_pagamento, pedido_compra_valor";
+
+/** NF-e com emissão entre `de` e `ate` ("YYYY-MM-DD", inclusive), mais recentes primeiro. */
+export async function listarNotasDoPeriodo<T = Record<string, unknown>>(de: string, ate: string): Promise<T[]> {
+  const BLOCO = 1000;
+  const todas: T[] = [];
+  for (let inicio = 0; ; inicio += BLOCO) {
+    const { data, error } = await supabase
+      .from("compras_nfe")
+      .select(COLUNAS_LISTA)
+      .gte("data_emissao", de)
+      .lte("data_emissao", ate)
+      .order("data_emissao", { ascending: false })
+      .order("id", { ascending: true })
+      .range(inicio, inicio + BLOCO - 1);
+    if (error) throw new Error(error.message);
+    todas.push(...((data ?? []) as unknown as T[]));
+    if (!data || data.length < BLOCO) return todas;
+  }
+}
+
+/** XML autorizado (nfeProc) de uma NF-e — buscado só quando alguém pede para ver ou baixar. */
+export async function buscarXmlNfe(id: string): Promise<string | null> {
+  const { data, error } = await supabase.from("compras_nfe").select("raw_xml").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { raw_xml: string | null } | null)?.raw_xml ?? null;
+}
+
 export type ResultadoImportacaoXml = { status: "importada" | "duplicada" | "erro"; id?: string; mensagem?: string };
 
 /** Upload manual de um XML já lido pelo `parseNfeXml` (origem 'Upload'). Duplicada = a chave já existe. */

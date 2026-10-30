@@ -29,6 +29,7 @@ import {
   type SituacaoFisco,
 } from "@/services/nfseRecebidasService";
 import { NfseDetalheEtapas } from "@/components/nfse/NfseDetalheEtapas";
+import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { formatCurrency, formatDate, formatDoc, formatInstanteBrt } from "@/components/nfse/nfseFormatos";
 
 const ROTULO_FISCO: Record<SituacaoFisco, string> = {
@@ -52,9 +53,7 @@ function baixarXml(xml: string, chave: string, numero: string | null) {
 
 const ComprasNotasServico = () => {
   const { toast } = useToast();
-  const now = new Date();
-  const [mes, setMes] = useState(now.getMonth() + 1);
-  const [ano, setAno] = useState(now.getFullYear());
+  const [periodo, setPeriodo] = useState<Periodo>(() => atalhosPeriodo(false)[0].periodo);
   const [dados, setDados] = useState<ResultadoNfseRecebidas | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -71,18 +70,17 @@ const ComprasNotasServico = () => {
 
   // ── Fetch ──
   const fetchRows = useCallback(async () => {
+    if (!periodo.de || !periodo.ate) return;
     setLoading(true);
-    const padM = String(mes).padStart(2, "0");
-    const lastDay = new Date(ano, mes, 0).getDate();
     try {
-      setDados(await listarNfseRecebidas(`${ano}-${padM}-01`, `${ano}-${padM}-${String(lastDay).padStart(2, "0")}`));
+      setDados(await listarNfseRecebidas(periodo.de, periodo.ate));
     } catch (e) {
       setDados(null);
       toast({ title: "Erro", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [ano, mes, toast]);
+  }, [periodo.de, periodo.ate, toast]);
 
   useEffect(() => {
     fetchRows();
@@ -202,30 +200,8 @@ const ComprasNotasServico = () => {
       {/* Filtros de período */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
-            <SelectTrigger className="h-8 w-32 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Array.from({ length: 12 }, (_, i) => (
-                <SelectItem key={i + 1} value={String(i + 1)}>
-                  {new Date(2000, i).toLocaleString("pt-BR", { month: "long" }).replace(/^\w/, (c) => c.toUpperCase())}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
-            <SelectTrigger className="h-8 w-20 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
-                <SelectItem key={y} value={String(y)}>
-                  {y}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <PeriodoPicker valor={periodo} onChange={setPeriodo} permitirTudo={false} />
+          <span className="text-[11px] text-muted-foreground">pela data de emissão</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[11px] text-muted-foreground" title="Última leitura do ambiente nacional (horário de Brasília)">
@@ -240,7 +216,7 @@ const ComprasNotasServico = () => {
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {[
-          { label: "Recebidas no mês", value: ind?.recebidas ?? "—", icon: Hash },
+          { label: "Recebidas no período", value: ind?.recebidas ?? "—", icon: Hash },
           { label: "No Alvo: lançadas", value: ind?.lancadas ?? "—", icon: CheckCircle2 },
           {
             label: "No Alvo: não lançadas há +15 dias",

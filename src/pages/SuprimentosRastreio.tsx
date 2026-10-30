@@ -17,22 +17,11 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import type { DateRange } from "react-day-picker";
-import {
-  endOfMonth,
-  endOfYear,
-  format,
-  startOfMonth,
-  startOfYear,
-  subDays,
-  subMonths,
-  subYears,
-} from "date-fns";
+import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   AlertTriangle,
   ArrowRight,
-  Calendar as CalendarIcon,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -57,8 +46,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -67,7 +54,6 @@ import {
   FILTRO_NF_CANDIDATA,
   atualizarDados,
   dataLocal,
-  isoDia,
   listarRastreio,
   listarTudo,
   moedaDocFin,
@@ -80,6 +66,7 @@ import {
   type ParcelaPagamento,
 } from "@/services/rastreioComprasService";
 import { exportarRastreioXLSX } from "@/services/rastreioComprasExport";
+import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 
 const POR_PAGINA = 50;
 
@@ -153,115 +140,7 @@ const ordemEtapa = (e: string) => {
   return i < 0 ? 99 : i;
 };
 
-// ════════════════════════════════════════════════════════════
-// PERÍODO (DE / ATÉ)
-// ════════════════════════════════════════════════════════════
-interface Periodo {
-  de: string | null;
-  ate: string | null;
-}
-
-function atalhosPeriodo(): { label: string; periodo: Periodo }[] {
-  const hoje = new Date();
-  const mesAnt = subMonths(hoje, 1);
-  const anoAnt = subYears(hoje, 1);
-  return [
-    { label: "Este mês", periodo: { de: isoDia(startOfMonth(hoje)), ate: isoDia(endOfMonth(hoje)) } },
-    { label: "Mês anterior", periodo: { de: isoDia(startOfMonth(mesAnt)), ate: isoDia(endOfMonth(mesAnt)) } },
-    { label: "Últimos 30 dias", periodo: { de: isoDia(subDays(hoje, 29)), ate: isoDia(hoje) } },
-    { label: "Últimos 90 dias", periodo: { de: isoDia(subDays(hoje, 89)), ate: isoDia(hoje) } },
-    { label: "Ano atual", periodo: { de: isoDia(startOfYear(hoje)), ate: isoDia(endOfYear(hoje)) } },
-    { label: "Ano anterior", periodo: { de: isoDia(startOfYear(anoAnt)), ate: isoDia(endOfYear(anoAnt)) } },
-    { label: "Todo o histórico", periodo: { de: null, ate: null } },
-  ];
-}
-
-function rotuloPeriodo(p: Periodo): string {
-  if (!p.de && !p.ate) return "Todo o histórico";
-  const atalho = atalhosPeriodo().find((a) => a.periodo.de === p.de && a.periodo.ate === p.ate);
-  const faixa = `${p.de ? fData(p.de) : "início"} – ${p.ate ? fData(p.ate) : "hoje"}`;
-  return atalho ? `${atalho.label} · ${faixa}` : faixa;
-}
-
-function PeriodoPicker({ valor, onChange }: { valor: Periodo; onChange: (p: Periodo) => void }) {
-  const [aberto, setAberto] = useState(false);
-  const [rascunho, setRascunho] = useState<DateRange | undefined>();
-
-  useEffect(() => {
-    if (aberto) {
-      setRascunho({ from: dataLocal(valor.de) ?? undefined, to: dataLocal(valor.ate) ?? undefined });
-    }
-  }, [aberto, valor.de, valor.ate]);
-
-  const aplicar = (p: Periodo) => {
-    onChange(p);
-    setAberto(false);
-  };
-
-  return (
-    <Popover open={aberto} onOpenChange={setAberto}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" className="h-9 justify-start gap-2 font-normal">
-          <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-          <span className="truncate">{rotuloPeriodo(valor)}</span>
-          <ChevronDown className="ml-1 h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0">
-        <div className="flex flex-col sm:flex-row">
-          <div className="flex flex-row flex-wrap gap-1 border-b p-2 sm:w-40 sm:flex-col sm:flex-nowrap sm:border-b-0 sm:border-r">
-            {atalhosPeriodo().map((a) => (
-              <Button
-                key={a.label}
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "justify-start font-normal",
-                  a.periodo.de === valor.de && a.periodo.ate === valor.ate && "bg-accent font-medium",
-                )}
-                onClick={() => aplicar(a.periodo)}
-              >
-                {a.label}
-              </Button>
-            ))}
-          </div>
-          <div className="flex flex-col">
-            <CalendarComponent
-              mode="range"
-              numberOfMonths={2}
-              locale={ptBR}
-              selected={rascunho}
-              onSelect={setRascunho}
-              defaultMonth={rascunho?.from ?? subMonths(new Date(), 1)}
-              initialFocus
-            />
-            <div className="flex items-center justify-between gap-2 border-t p-3">
-              <span className="text-xs text-muted-foreground">
-                {rascunho?.from ? fData(isoDia(rascunho.from)) : "DE"} – {rascunho?.to ? fData(isoDia(rascunho.to)) : "ATÉ"}
-              </span>
-              <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setAberto(false)}>
-                  Cancelar
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={!rascunho?.from}
-                  onClick={() =>
-                    rascunho?.from &&
-                    aplicar({ de: isoDia(rascunho.from), ate: isoDia(rascunho.to ?? rascunho.from) })
-                  }
-                >
-                  Aplicar
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
+// Período De/Até: componente comum em @/components/PeriodoPicker (era daqui; PLANO-NFE NFE-5).
 // ════════════════════════════════════════════════════════════
 // LINHA EXPANDIDA — linha do tempo dos cinco elos
 // ════════════════════════════════════════════════════════════
@@ -327,8 +206,12 @@ function linkNotasFiscais(c: NfCandidata): string {
   const q = new URLSearchParams();
   const emissao = dataLocal(c.data_emissao);
   if (emissao) {
-    q.set("mes", String(emissao.getMonth() + 1));
-    q.set("ano", String(emissao.getFullYear()));
+    // a tela de Notas Fiscais filtra por De/Até (NFE-5): abre o mês inteiro da emissão
+    const p = (n: number) => String(n).padStart(2, "0");
+    const ano = emissao.getFullYear();
+    const mes = emissao.getMonth() + 1;
+    q.set("de", `${ano}-${p(mes)}-01`);
+    q.set("ate", `${ano}-${p(mes)}-${p(new Date(ano, mes, 0).getDate())}`);
   }
   if (c.nf_numero) q.set("busca", c.nf_numero.replace(/^0+(?=\d)/, ""));
   return `/compras/notas-fiscais?${q.toString()}`;

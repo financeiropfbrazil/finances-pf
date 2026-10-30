@@ -40,7 +40,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { VincularPedidoNfeDialog } from "@/components/compras/VincularPedidoNfeDialog";
 import { UploadXmlButton } from "@/components/compras/UploadXmlButton";
 import { listarNfeNoAlvo, type NfeNoAlvo } from "@/services/comprasNfeNoAlvoService";
-import { desvincularPedidosNfe } from "@/services/nfeRecebidasService";
+import { buscarXmlNfe, desvincularPedidosNfe, listarNotasDoPeriodo } from "@/services/nfeRecebidasService";
+import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { NfeDetalheEtapas, chaveDetalheNfe } from "@/components/nfe/NfeDetalheEtapas";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -77,7 +78,8 @@ interface NfeRow {
   situacao: string | null;
   origem: string | null;
   recebido: boolean | null;
-  raw_xml: string | null;
+  /** Não vem na lista (pesaria MB em período longo): buscado sob demanda em Ver/Baixar XML (NFE-5). */
+  raw_xml?: string | null;
   dados_extraidos: any;
   status_lancamento: string | null;
   pedido_compra_numero: string | null;
@@ -145,17 +147,28 @@ function baixarXmlNfe(nfe: { raw_xml: string | null; chave_acesso: string | null
   return true;
 }
 
+/** Período inicial: ?de&ate, ou ?mes&ano (links antigos), ou "Este mês". */
+function periodoDaUrl(sp: URLSearchParams): Periodo {
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  const de = sp.get("de");
+  const ate = sp.get("ate");
+  if (de && ate && iso.test(de) && iso.test(ate) && de <= ate) return { de, ate };
+  const mes = Number(sp.get("mes"));
+  const ano = Number(sp.get("ano"));
+  if (mes >= 1 && mes <= 12 && ano >= 2000 && ano <= 2100) {
+    const p = (n: number) => String(n).padStart(2, "0");
+    return { de: `${ano}-${p(mes)}-01`, ate: `${ano}-${p(mes)}-${p(new Date(ano, mes, 0).getDate())}` };
+  }
+  return atalhosPeriodo(false)[0].periodo;
+}
+
 const ComprasNotasFiscais = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const now = new Date();
-  // Link direto (ex.: Rastreio de Compras → "Abrir em Notas Fiscais"):
-  // ?mes=10&ano=2026&busca=1782 abre no mês da emissão já filtrado.
+  // Link direto (ex.: Rastreio de Compras → "Abrir em Notas Fiscais"): ?de=2026-10-01&ate=2026-10-31&busca=1782.
+  // ?mes=10&ano=2026 (links antigos) ainda abre o mês inteiro.
   const [searchParams] = useSearchParams();
-  const mesParam = Number(searchParams.get("mes"));
-  const anoParam = Number(searchParams.get("ano"));
-  const [mes, setMes] = useState(mesParam >= 1 && mesParam <= 12 ? mesParam : now.getMonth() + 1);
-  const [ano, setAno] = useState(Math.abs(anoParam - now.getFullYear()) <= 2 ? anoParam : now.getFullYear());
+  const [periodo, setPeriodo] = useState<Periodo>(() => periodoDaUrl(searchParams));
   const [rows, setRows] = useState<NfeRow[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get("busca") ?? "");
@@ -189,25 +202,18 @@ const ComprasNotasFiscais = () => {
 
   // ── Fetch ──
   const fetchRows = useCallback(async () => {
+    if (!periodo.de || !periodo.ate) return;
     setLoadingRows(true);
-    const padM = String(mes).padStart(2, "0");
-    const startDate = `${ano}-${padM}-01`;
-    const lastDay = new Date(ano, mes, 0).getDate();
-    const endDate = `${ano}-${padM}-${String(lastDay).padStart(2, "0")}`;
+    const startDate = periodo.de;
+    const endDate = periodo.ate;
     const [resNotas, resAlvo] = await Promise.allSettled([
-      supabase
-        .from("compras_nfe")
-        .select("*")
-        .gte("data_emissao", startDate)
-        .lte("data_emissao", endDate)
-        .order("data_emissao", { ascending: false }),
+      listarNotasDoPeriodo<NfeRow>(startDate, endDate),
       listarNfeNoAlvo(startDate, endDate),
     ]);
-    if (resNotas.status === "rejected" || resNotas.value.error) {
-      const msg = resNotas.status === "rejected" ? String(resNotas.reason) : resNotas.value.error!.message;
-      toast({ title: "Erro", description: msg, variant: "destructive" });
+    if (resNotas.status === "rejected") {
+      toast({ title: "Erro", description: String(resNotas.reason), variant: "destructive" });
     } else {
-      setRows((resNotas.value.data ?? []) as unknown as NfeRow[]);
+      setRows(resNotas.value);
     }
     // Sem a resposta do Alvo, a coluna fica "?" — nunca "não encontrada" por falta de dado.
     if (resAlvo.status === "fulfilled") {
@@ -218,7 +224,7 @@ const ComprasNotasFiscais = () => {
       setErroAlvo(resAlvo.reason instanceof Error ? resAlvo.reason.message : String(resAlvo.reason));
     }
     setLoadingRows(false);
-  }, [ano, mes, toast]);
+  }, [periodo.de, periodo.ate, toast]);
 
   useEffect(() => {
     fetchRows();
@@ -229,6 +235,16 @@ const ComprasNotasFiscais = () => {
   };
 
   const estaVinculada = (r: NfeRow) => r.status_lancamento === "vinculada";
+
+  /** XML sob demanda (a lista não traz o raw_xml). */
+  const xmlDaNota = async (r: NfeRow): Promise<string | null> => {
+    try {
+      return await buscarXmlNfe(r.id);
+    } catch (e) {
+      toast({ title: "Não foi possível carregar o XML", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+      return null;
+    }
+  };
 
   // ── Filtering ──
   const filtered = useMemo(() => {
@@ -325,30 +341,8 @@ const ComprasNotasFiscais = () => {
       {/* Filtros de período */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
-            <SelectTrigger className="h-8 w-32 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Array.from({ length: 12 }, (_, i) => (
-                <SelectItem key={i + 1} value={String(i + 1)}>
-                  {new Date(2000, i).toLocaleString("pt-BR", { month: "long" }).replace(/^\w/, (c) => c.toUpperCase())}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
-            <SelectTrigger className="h-8 w-20 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
-                <SelectItem key={y} value={String(y)}>
-                  {y}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <PeriodoPicker valor={periodo} onChange={setPeriodo} permitirTudo={false} />
+          <span className="text-[11px] text-muted-foreground">pela data de emissão</span>
         </div>
         <div className="flex items-center gap-2">
           <UploadXmlButton onImported={fetchRows} />
@@ -506,17 +500,21 @@ const ComprasNotasFiscais = () => {
                             <TableCell colSpan={10} className="p-0">
                               <NfeDetalheEtapas
                                 nfeId={r.id}
-                                onVerXml={() =>
+                                onVerXml={async () => {
+                                  const xml = await xmlDaNota(r);
                                   setXmlDialog({
                                     open: true,
                                     numero: r.numero || "",
                                     fornecedor: r.emitente_nome || "",
-                                    xml: r.raw_xml || "Sem XML disponível",
+                                    xml: xml || "Sem XML disponível",
                                     chave: r.chave_acesso || "",
-                                    temXml: !!r.raw_xml,
-                                  })
-                                }
-                                onBaixarXml={() => baixarXmlNfe(r)}
+                                    temXml: !!xml,
+                                  });
+                                }}
+                                onBaixarXml={async () => {
+                                  const xml = await xmlDaNota(r);
+                                  if (!baixarXmlNfe({ ...r, raw_xml: xml })) toast({ title: "Sem XML disponível" });
+                                }}
                                 onVincular={() => setVincularDialog({ open: true, nfe: r })}
                                 onDesvincular={() => setAlertAction({ type: "desvincular", nfe: r })}
                               />

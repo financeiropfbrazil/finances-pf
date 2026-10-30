@@ -70,15 +70,29 @@ export interface ResultadoNfseRecebidas {
   itens: NfseRecebida[];
 }
 
-/** Datas "YYYY-MM-DD" (emissão, inclusive). A RPC devolve até 1000 notas — um mês passa longe disso. */
+/**
+ * Datas "YYYY-MM-DD" (emissão, inclusive). A RPC devolve no máximo 1000 notas por chamada; com o período De/Até
+ * (NFSE-1.14) um ano passa disso, então busca em blocos até chegar ao `total`. Indicadores e meta vêm do 1º bloco
+ * (a RPC calcula sobre o período inteiro).
+ */
 export async function listarNfseRecebidas(de: string, ate: string): Promise<ResultadoNfseRecebidas> {
-  const { data, error } = await (supabase as any).rpc("nfse_recebidas_listar", {
-    p_de: de,
-    p_ate: ate,
-    p_limit: 1000,
-  });
-  if (error) throw new Error(error.message);
-  return data as ResultadoNfseRecebidas;
+  const BLOCO = 1000;
+  let primeiro: ResultadoNfseRecebidas | null = null;
+  const itens: NfseRecebida[] = [];
+  for (let offset = 0; ; offset += BLOCO) {
+    const { data, error } = await (supabase as any).rpc("nfse_recebidas_listar", {
+      p_de: de,
+      p_ate: ate,
+      p_limit: BLOCO,
+      p_offset: offset,
+    });
+    if (error) throw new Error(error.message);
+    const r = data as ResultadoNfseRecebidas;
+    primeiro ??= r;
+    itens.push(...(r.itens ?? []));
+    if (!r.itens || r.itens.length < BLOCO || itens.length >= r.total) break;
+  }
+  return { ...(primeiro as ResultadoNfseRecebidas), itens };
 }
 
 export async function buscarXmlNfse(chave: string): Promise<string | null> {
