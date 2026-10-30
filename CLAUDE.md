@@ -90,4 +90,6 @@ Entre 10h e 12h de 06/10/2026 o Pedro desligou no `cron.job` (`active = false`; 
 ##Para trabalho no módulo de Despesas, leia e mantenha PLANO-DESPESAS.md
 ##Para trabalho no módulo de Suprimentos (Requisições e Pedidos), leia e mantenha PLANO-PEDIDOS.md — atualize o status ao concluir cada prompt e registre achados no diário (seção 8)
 
+##Para trabalho em Notas Fiscais de produto (NF-e, /compras/notas-fiscais), leia e mantenha PLANO-NFE.md — a entrada das notas é a Edge `receber-nfe` (Riosoft/Arqimport, chave de serviço): não mexer nela; nada por certificado digital (ordem do Pedro, 30/10/2026).
+
 ##Para trabalho no módulo de Ordem de Produção (OP), leia e mantenha PLANO-OP.md — leia integralmente no início de toda sessão do módulo, atualize o status ao concluir cada tarefa e registre achados no diário (seção 7). O plano é autocontido: protocolo, modelo de dados, tarefas e decisões vivem lá.
