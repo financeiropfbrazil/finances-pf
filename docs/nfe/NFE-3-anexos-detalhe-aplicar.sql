@@ -17,6 +17,8 @@
 --     rastreio_atualizar_candidatas. Valor da nota = vNF (valor_total).
 --   - Situação no fisco: NÃO acompanhada (a Riosoft manda só a nota autorizada; sem certificado — ordem do Pedro).
 -- Rollback: NFE-3-anexos-detalhe-rollback.sql.
+-- Obs. (NFE-3-A): o corpo de nfe_recebida_detalhe aplicado no banco é este SEM as linhas de comentário internas
+-- (md5 0059fe2b35ec6335ef017d981780e163).
 -- =====================================================================
 
 do $$

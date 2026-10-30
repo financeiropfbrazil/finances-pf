@@ -140,6 +140,9 @@ export interface PedidoCandidato {
   disputa: { numero: string; valor: number; data_emissao: string }[];
   /** Pedido anterior ao início do espelho do Alvo: NFs lançadas antes disso não estão no Hub (NFSE-1.11-C) */
   saldo_nao_confirmado: boolean;
+  /** Só NF-e (NFE-3-A): valor de outras NF-e vinculadas a este pedido NO HUB, ainda fora do Alvo — já descontado do saldo. */
+  hub_reservado?: number;
+  vinculado_hub_a?: { numero: string; valor: number; data_emissao: string }[];
 }
 
 export interface MovEstqNfse {

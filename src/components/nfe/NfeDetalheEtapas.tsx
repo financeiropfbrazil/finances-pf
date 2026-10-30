@@ -339,7 +339,8 @@ function Etapas({
               <p className="text-[11px] leading-snug text-muted-foreground">
                 Sugestão automática: mesmo fornecedor, pedido em R$ com saldo dentro de ±20% do valor total da nota; pedido
                 encerrado no Alvo não entra. "Citado na nota" = número do pedido no &lt;xPed&gt; ou nas informações
-                complementares. Saldo = valor do pedido − notas já ligadas a ele no Alvo.
+                complementares. Saldo = valor do pedido − notas já ligadas a ele no Alvo − notas vinculadas a ele no Hub
+                que o Alvo ainda não tem.
               </p>
             </>
           )}

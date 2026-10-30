@@ -367,6 +367,12 @@ export function CartaoCandidato({ c, destaque, espelhoDesde }: { c: PedidoCandid
           {outras.length > 0 && ` e mais ${outras.length}`}, ainda não lançada{outras.length > 0 ? "s" : ""}.
         </p>
       )}
+      {(c.vinculado_hub_a?.length ?? 0) > 0 && (
+        <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+          Vinculado no Hub à NF {c.vinculado_hub_a!.map((h) => `${h.numero} (${formatCurrency(h.valor)})`).join(", ")}, ainda
+          não lançada no Alvo — já descontado do saldo.
+        </p>
+      )}
       {c.saldo_nao_confirmado && (
         <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
           Pedido anterior a {espelhoDesde}: NFs lançadas antes disso não estão no Hub — saldo não confirmado.
