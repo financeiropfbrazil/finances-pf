@@ -11,7 +11,7 @@
 | VND-1 | Captura de amostras no Alvo (Load completo com itens; tela de listagem) + respostas do fiscal | **concluído 05/11/2026 pelo Lab de API** (§11); restam chave de acesso, nº 5160 e perguntas ao fiscal |
 | VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | **concluído 05/11/2026** — Pedro liberou os dois endpoints do Ajuste A (erp-proxy `7dfe972`) e fez o deploy |
 | VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | **concluído 05/11/2026** — migration `vnd_3_nf_saida` (versão `20261105195613`) aplicada com ordem do Pedro; conferência pós-aplicação na §13.5 |
-| VND-4 | Edge `sync-nf-saida-cron` (lista + detalhe um a um) + teste | **código pronto e testado localmente** (§14) — aguardando aprovação do deploy e do teste em produção |
+| VND-4 | Edge `sync-nf-saida-cron` (lista + detalhe um a um) + teste | **deployada (v1)**; teste A barrado pelo CHECK de `sync_runs.job_type` — correção aguardando aprovação (§14.5) |
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | aguardando |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | aguardando |
 
@@ -299,6 +299,7 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | 2026-11-05 | VND-3 | Pedro aprovou as tabelas e o critério de venda pela classe (01 venda, 02 remessa…); perguntou pelo destino (Áustria, Latam, Brasil). Ajuste B (§13): destino já vinha da nota; entra a tabela `nf_saida_pais_regiao`. Script escrito e testado num Postgres 16 local com as amostras do Lab (ver §13.3). **Erro pego no teste:** número de 10 dígitos não convertia (regex `\d{1,9}`) — corrigido para `bigint`/`\d{1,18}`. Nada aplicado em produção. |
 | 2026-11-05 | VND-3 (aplicação) | Pedro autorizou ("sim, aplique"). Pré-voo: `compras_pedidos` = 2.414, objetos do intercompany presentes, 0 objetos `nf_saida*`, `_is_admin()` existe. `apply_migration vnd_3_nf_saida` → sucesso (versão `20261105195613`). Conferência na §13.5. Tabelas vazias; nenhum cron, Edge ou `sync_settings` tocado. |
 | 2026-11-05 | VND-4 (código) | Edge `sync-nf-saida-cron` v1 escrita (lógica separada em `logica.ts`, injetável). 11 testes Deno da lógica passam; `deno check` do `index.ts` limpo (modo estrito). Build do front ok (cópia com dependências do npm público — o `bun.lock` aponta para o cache privado do Lovable, inacessível daqui). `config.toml` com `verify_jwt=false`. Hashes esperados das 3 notas do Lab calculados (§14.4). **Não deployada.** |
+| 2026-11-05 | VND-4 (deploy + teste A) | Pedro deployou pelo CLI a partir de um `git worktree` do branch (o `main` local tinha alterações dele em `PLANO-NFSE.md` e `src/constants/permissions.ts`, intocadas). `get_edge_function`: versão 1, ACTIVE, `verify_jwt=false`, código = branch. Sonda sem segredo (net 36142) → **401 "Não autorizado"** da própria função. Teste A (net 36143) → **500 no início**: `sync_runs_job_type_check` não aceita `nf_saida` (lista fechada de 14 tipos). **Nada gravado** (0 runs `nf_saida`, 0 notas; o Alvo nem foi chamado). **Erro meu: não li as constraints de `sync_runs` antes** — violei o "nunca assuma schema". Correção em `sql/VND-4-sync-runs-job-type.sql`, aguardando aprovação. |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
 
@@ -543,3 +544,12 @@ Ajustes por chamada: `modelos`, `page_size` (1–300), `max_paginas` (1–20), `
 **Rollback:**
 - desativar via `sync_settings` (inserir a linha com `enabled=false`) ou apagar a função no painel;
 - os dados do teste ficam só nas tabelas `nf_saida*`, e o `VND-3-nf-saida-rollback.sql` remove tudo.
+
+### 14.5 Correção: `sync_runs.job_type` (aguardando aprovação)
+`sync_runs` tem `sync_runs_job_type_check` com **lista fechada** de 14 tipos. Todo job novo precisa entrar nessa lista antes da 1ª execução.
+
+- **Script:** `sql/VND-4-sync-runs-job-type.sql`. Recria o CHECK com as mesmas 14 entradas, na mesma ordem, mais `nf_saida` no fim.
+- **Execução:** uma transação, com lock rápido.
+- **Rollback:** `sql/VND-4-sync-runs-job-type-rollback.sql`.
+
+Depois de aplicado, refazer o Teste A (§14.4) sem mudar a Edge.
