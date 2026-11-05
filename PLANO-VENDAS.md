@@ -11,7 +11,7 @@
 | VND-1 | Captura de amostras no Alvo (Load completo com itens; tela de listagem) + respostas do fiscal | **concluído 05/11/2026 pelo Lab de API** (§11); restam chave de acesso, nº 5160 e perguntas ao fiscal |
 | VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | **concluído 05/11/2026** — Pedro liberou os dois endpoints do Ajuste A (erp-proxy `7dfe972`) e fez o deploy |
 | VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | **concluído 05/11/2026** — migration `vnd_3_nf_saida` (versão `20261105195613`) aplicada com ordem do Pedro; conferência pós-aplicação na §13.5 |
-| VND-4 | Edge `sync-nf-saida-cron` (varredura um a um) + teste com 5 notas | aguardando |
+| VND-4 | Edge `sync-nf-saida-cron` (lista + detalhe um a um) + teste | **código pronto e testado localmente** (§14) — aguardando aprovação do deploy e do teste em produção |
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | aguardando |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | aguardando |
 
@@ -298,6 +298,7 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | 2026-11-05 | VND-2 | Pedro liberou `notaFiscal/Load` e `notaFiscal/GetListForComponents` na whitelist e fez o deploy. Conferido no GitHub: commit `7dfe972`, só as duas linhas, grafia igual à do Lab. |
 | 2026-11-05 | VND-3 | Pedro aprovou as tabelas e o critério de venda pela classe (01 venda, 02 remessa…); perguntou pelo destino (Áustria, Latam, Brasil). Ajuste B (§13): destino já vinha da nota; entra a tabela `nf_saida_pais_regiao`. Script escrito e testado num Postgres 16 local com as amostras do Lab (ver §13.3). **Erro pego no teste:** número de 10 dígitos não convertia (regex `\d{1,9}`) — corrigido para `bigint`/`\d{1,18}`. Nada aplicado em produção. |
 | 2026-11-05 | VND-3 (aplicação) | Pedro autorizou ("sim, aplique"). Pré-voo: `compras_pedidos` = 2.414, objetos do intercompany presentes, 0 objetos `nf_saida*`, `_is_admin()` existe. `apply_migration vnd_3_nf_saida` → sucesso (versão `20261105195613`). Conferência na §13.5. Tabelas vazias; nenhum cron, Edge ou `sync_settings` tocado. |
+| 2026-11-05 | VND-4 (código) | Edge `sync-nf-saida-cron` v1 escrita (lógica separada em `logica.ts`, injetável). 11 testes Deno da lógica passam; `deno check` do `index.ts` limpo (modo estrito). Build do front ok (cópia com dependências do npm público — o `bun.lock` aponta para o cache privado do Lovable, inacessível daqui). `config.toml` com `verify_jwt=false`. Hashes esperados das 3 notas do Lab calculados (§14.4). **Não deployada.** |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
 
@@ -470,3 +471,75 @@ O 1º dígito da natureza bate 100% com o destino (5 estadual, 6 interestadual, 
 | Migration | registrada em `supabase_migrations.schema_migrations` como `vnd_3_nf_saida` |
 
 Rollback disponível: `sql/VND-3-nf-saida-rollback.sql` (só com ordem do Pedro — apaga os dados importados).
+
+## 14. VND-4 — Edge `sync-nf-saida-cron`
+
+### 14.1 Arquivos
+- `supabase/functions/sync-nf-saida-cron/index.ts` — handler. Responsável por:
+  - autenticação (`x-cron-secret` = `CRON_SECRET`);
+  - kill-switch `sync_settings('sync-nf-saida')`: sem linha = liberado; a linha entra no VND-6;
+  - `sync_runs` (`job_type='nf_saida'`, carimbo `edge v1-2026-11-05`);
+  - proxy e banco reais.
+- `supabase/functions/sync-nf-saida-cron/logica.ts` — passos `passoLista`, `passoDetalhe` e `passoNotas`, sem rede (dependências injetadas).
+- `supabase/functions/sync-nf-saida-cron/logica.test.ts` — 11 testes. Rodar com:
+  ```bash
+  deno test supabase/functions/sync-nf-saida-cron/logica.test.ts
+  ```
+- `supabase/config.toml` — `[functions.sync-nf-saida-cron] verify_jwt = false`.
+
+### 14.2 Modos (`body.modo`)
+
+| Modo | O que faz | Padrões |
+|---|---|---|
+| `rotina` (cron) | lista dos últimos 45 dias (NF-e e NFS-e) + detalhe das pendentes | até 3 páginas de 300; até 60 detalhes; 3 em paralelo; watchdog 110 s |
+| `lista` | só a lista, até `body.desde` (backfill) | até 10 páginas |
+| `detalhe` | só a fila de detalhe (backfill em lotes) | até 60 (máx. 200) |
+| `notas` | notas escolhidas `[{modelo, serie, numero}]` (até 20). Nota que o Alvo não tem e o Hub também não: só relatada | — |
+
+Ajustes por chamada: `modelos`, `page_size` (1–300), `max_paginas` (1–20), `max_detalhes` (0–200), `desde`.
+
+### 14.3 Regras de proteção (cobertas por teste)
+- **Página suspeita:** página da lista com qualquer linha de outra filial ou modelo é **recusada inteira**.
+- **Lista incompleta:** a lista para na 1ª página com emissão anterior ao corte, ou numa página curta. Se o limite de páginas acabar antes disso, a rodada sai como `LISTA INCOMPLETA` no `sync_runs`.
+- **Respostas do Load:**
+  - objeto → grava;
+  - `null` → `ausente_desde`;
+  - erro → `registrar_falha`, com espera crescente.
+- **Erro de RPC** (ex.: detalhe de outra nota) vira falha daquela nota; não derruba a rodada.
+- **Watchdog** interrompe antes de estourar o tempo da Edge.
+
+### 14.4 Teste em produção (depois do OK do Pedro)
+1. **Deploy**, por um dos dois caminhos:
+   - CLI do Pedro:
+     ```bash
+     supabase functions deploy sync-nf-saida-cron --project-ref hbtggrbauguukewiknew --no-verify-jwt --use-api
+     ```
+   - ou `deploy_edge_function` do MCP.
+
+   Os secrets já existem no projeto.
+2. **Sonda sem segredo** → **401** da própria função.
+3. **Teste A — `modo notas`** com NF-e 5100, 5099, 5160 e NFS-e 425. O `payload_hash` gravado tem de ser **igual** ao calculado das amostras do Lab, salvo se a nota mudou no Alvo desde então:
+
+   | Nota | Hash esperado (Lab) |
+   |---|---|
+   | NF-e 5100 | `9c890a9c222de2007571b56006e8b4fe` |
+   | NF-e 5099 | `6a86b31dea94e545ffdbd2006f6f7de9` |
+   | NFS-e 425 | `b7c7fbd6b95898f98e890658f9a6b499` |
+
+   A 5160 deve voltar `nao_existe_no_alvo` (responde a pendência §12.4) ou ser gravada.
+4. **Teste B — `modo rotina` pequeno:**
+   ```json
+   {"modelos":["NF-e"],"page_size":5,"max_paginas":1,"max_detalhes":5}
+   ```
+   Resultado esperado: 5 notas mais recentes listadas e detalhadas; `LISTA INCOMPLETA` é o esperado neste teste.
+5. **Conferências:**
+   - `sync_runs` sem erro;
+   - itens, lotes, séries, parcelas e classes coerentes com o Alvo;
+   - `v_nf_saida` com região e tipo;
+   - fingerprint de `compras_pedidos` inalterado.
+
+**Disparo do teste:** `net.http_post` avulso a partir do banco, com o segredo lido do Vault dentro do próprio SQL. Mesmo molde da "opção B" do PLANO-PEDIDOS: o segredo não sai do banco. A função `call_sync_nf_saida_cron` fica para o VND-6, junto com o cron.
+
+**Rollback:**
+- desativar via `sync_settings` (inserir a linha com `enabled=false`) ou apagar a função no painel;
+- os dados do teste ficam só nas tabelas `nf_saida*`, e o `VND-3-nf-saida-rollback.sql` remove tudo.

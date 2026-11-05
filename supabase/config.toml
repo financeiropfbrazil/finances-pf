@@ -88,3 +88,8 @@ verify_jwt = false
 
 [functions.extrair-nfe]
 verify_jwt = false
+
+# sync-nf-saida-cron (PLANO-VENDAS, VND-4): reachable sem JWT — o cron/pg_net não manda JWT.
+# A auth real é o x-cron-secret dentro da função.
+[functions.sync-nf-saida-cron]
+verify_jwt = false
