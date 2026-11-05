@@ -10,7 +10,7 @@
 | VND-0 | Diagnóstico: fonte, endpoints, estratégia, desenho das tabelas | **concluído 05/11/2026 (este documento)** — nada aplicado |
 | VND-1 | Captura de amostras no Alvo (Load completo com itens; tela de listagem) + respostas do fiscal | **concluído 05/11/2026 pelo Lab de API** (§11); restam chave de acesso, nº 5160 e perguntas ao fiscal |
 | VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | **concluído 05/11/2026** — Pedro liberou os dois endpoints do Ajuste A (erp-proxy `7dfe972`) e fez o deploy |
-| VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | **script pronto e testado em Postgres local** (`sql/VND-3-nf-saida.sql`, Ajuste B §13) — aguardando aprovação para aplicar |
+| VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | **concluído 05/11/2026** — migration `vnd_3_nf_saida` (versão `20261105195613`) aplicada com ordem do Pedro; conferência pós-aplicação na §13.5 |
 | VND-4 | Edge `sync-nf-saida-cron` (varredura um a um) + teste com 5 notas | aguardando |
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | aguardando |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | aguardando |
@@ -297,6 +297,7 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | 2026-11-05 | VND-1 | Pedro rodou 5 chamadas de leitura no Lab de API (§11). Confirmado: com `loadChild=All` vêm itens, lotes, séries, parcelas, classe e pedido de venda (achado 2.2 fechado). **`notaFiscal/GetListForComponents` funciona** com o envelope deduzido do padrão: 50 cabeçalhos, 161 campos, sem filhas. Número inexistente → corpo `null`. NFS-e 425 hoje = versão de 31/07 (achado 2.5 confirmado). Chave de acesso não existe na entidade `notaFiscal`. Desenho revisto no Ajuste A (§12). Nada aplicado. |
 | 2026-11-05 | VND-2 | Pedro liberou `notaFiscal/Load` e `notaFiscal/GetListForComponents` na whitelist e fez o deploy. Conferido no GitHub: commit `7dfe972`, só as duas linhas, grafia igual à do Lab. |
 | 2026-11-05 | VND-3 | Pedro aprovou as tabelas e o critério de venda pela classe (01 venda, 02 remessa…); perguntou pelo destino (Áustria, Latam, Brasil). Ajuste B (§13): destino já vinha da nota; entra a tabela `nf_saida_pais_regiao`. Script escrito e testado num Postgres 16 local com as amostras do Lab (ver §13.3). **Erro pego no teste:** número de 10 dígitos não convertia (regex `\d{1,9}`) — corrigido para `bigint`/`\d{1,18}`. Nada aplicado em produção. |
+| 2026-11-05 | VND-3 (aplicação) | Pedro autorizou ("sim, aplique"). Pré-voo: `compras_pedidos` = 2.414, objetos do intercompany presentes, 0 objetos `nf_saida*`, `_is_admin()` existe. `apply_migration vnd_3_nf_saida` → sucesso (versão `20261105195613`). Conferência na §13.5. Tabelas vazias; nenhum cron, Edge ou `sync_settings` tocado. |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
 
@@ -456,3 +457,16 @@ O 1º dígito da natureza bate 100% com o destino (5 estadual, 6 interestadual, 
    - ACL das funções sem `anon`/`authenticated`;
    - RLS ligado nas 8 tabelas.
 4. As tabelas ficam vazias até o VND-4. A carga começa pelas 4 amostras.
+
+### 13.5 Conferência pós-aplicação (05/11/2026, produção)
+| Item | Resultado |
+|---|---|
+| 8 tabelas | RLS ligado em todas, 1 policy de SELECT para admin em cada |
+| Permissão de tabela | `authenticated`: só SELECT (filtrado pelo RLS); `anon`: nenhuma |
+| 3 views | `security_invoker=true`; `authenticated`: só SELECT; `anon`: nenhuma |
+| 7 funções | `anon` e `authenticated` **sem** EXECUTE (conferido com `has_function_privilege`); `service_role` com EXECUTE. As 3 RPCs são `SECURITY DEFINER` |
+| Dados | `nf_saida` vazia; `nf_saida_pais_regiao` com os 5 países |
+| Fingerprint | `compras_pedidos` = 2.414 (inalterado) |
+| Migration | registrada em `supabase_migrations.schema_migrations` como `vnd_3_nf_saida` |
+
+Rollback disponível: `sql/VND-3-nf-saida-rollback.sql` (só com ordem do Pedro — apaga os dados importados).
