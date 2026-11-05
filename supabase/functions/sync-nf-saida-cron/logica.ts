@@ -47,11 +47,13 @@ export interface Opcoes {
   modelos: Modelo[];
   desde: string; // 'YYYY-MM-DD': a lista para na 1ª página com emissão anterior
   pageSize: number; // 1..300 (teto do GetListForComponents)
+  paginaInicial: number; // continua uma lista longa de onde a execução anterior parou
   maxPaginas: number;
   maxDetalhes: number;
   concorrencia: number;
   inicio: number; // ms do início da execução
   watchdogMs: number;
+  margemListaMs: number; // só começa página nova se sobrar esse tempo (uma página de 300 leva ~30 s)
 }
 
 export interface Resultado {
@@ -62,6 +64,7 @@ export interface Resultado {
   iguais: number;
   reconferir: number;
   lista_incompleta: string[]; // modelos cuja lista não chegou até a data de corte
+  proxima_pagina: Record<string, number>; // por modelo incompleto: de onde continuar (pagina_inicial)
   detalhes_tentados: number;
   nova_versao: number;
   sem_mudanca: number;
@@ -82,6 +85,7 @@ export function novoResultado(): Resultado {
     iguais: 0,
     reconferir: 0,
     lista_incompleta: [],
+    proxima_pagina: {},
     detalhes_tentados: 0,
     nova_versao: 0,
     sem_mudanca: 0,
@@ -152,8 +156,9 @@ const estourou = (deps: Deps, op: Opcoes) => deps.agora() - op.inicio > op.watch
 export async function passoLista(deps: Deps, op: Opcoes, res: Resultado): Promise<void> {
   for (const modelo of op.modelos) {
     let chegouNoCorte = false;
-    for (let pagina = 1; pagina <= op.maxPaginas; pagina++) {
-      if (estourou(deps, op)) {
+    let proxima = op.paginaInicial;
+    for (let pagina = op.paginaInicial; pagina < op.paginaInicial + op.maxPaginas; pagina++) {
+      if (deps.agora() - op.inicio > op.watchdogMs - op.margemListaMs) {
         res.parado_por_watchdog = true;
         break;
       }
@@ -192,6 +197,7 @@ export async function passoLista(deps: Deps, op: Opcoes, res: Resultado): Promis
         anotarErro(res, "lista/gravar", e?.message ?? String(e), { modelo, pagina });
         break;
       }
+      proxima = pagina + 1;
       const datas = linhas.map(dataEmissao).filter((d): d is string => d !== null);
       const maisAntiga = datas.length ? datas.reduce((a, b) => (a < b ? a : b)) : null;
       if ((maisAntiga !== null && maisAntiga < op.desde) || linhas.length < op.pageSize) {
@@ -199,7 +205,10 @@ export async function passoLista(deps: Deps, op: Opcoes, res: Resultado): Promis
         break;
       }
     }
-    if (!chegouNoCorte) res.lista_incompleta.push(modelo);
+    if (!chegouNoCorte) {
+      res.lista_incompleta.push(modelo);
+      res.proxima_pagina[modelo] = proxima;
+    }
   }
 }
 
@@ -331,8 +340,10 @@ export async function passoNotas(
 export function resumo(modo: string, op: Opcoes, res: Resultado, versao: string, extra: string[] = []): string {
   return [
     `[${modo}]`,
-    modo !== "detalhe" && modo !== "notas" ? `lista desde ${op.desde}: ${res.paginas} pág., ${res.linhas_lidas} linhas (novas ${res.novas}, mudaram ${res.mudaram}, iguais ${res.iguais}, reconferir ${res.reconferir})` : null,
-    res.lista_incompleta.length ? `LISTA INCOMPLETA: ${res.lista_incompleta.join(",")}` : null,
+    modo !== "detalhe" && modo !== "notas" ? `lista desde ${op.desde} a partir da pág. ${op.paginaInicial}: ${res.paginas} pág., ${res.linhas_lidas} linhas (novas ${res.novas}, mudaram ${res.mudaram}, iguais ${res.iguais}, reconferir ${res.reconferir})` : null,
+    res.lista_incompleta.length
+      ? `LISTA INCOMPLETA: ${res.lista_incompleta.map((m) => `${m} (continuar da pág. ${res.proxima_pagina[m]})`).join(", ")}`
+      : null,
     `detalhe ${res.detalhes_tentados} lidas (nova versão ${res.nova_versao}, sem mudança ${res.sem_mudanca}, ausentes ${res.ausentes}, falhas ${res.falhas})`,
     res.erros ? `erros ${res.erros}` : null,
     res.parado_por_watchdog ? "PARADO PELO WATCHDOG" : null,

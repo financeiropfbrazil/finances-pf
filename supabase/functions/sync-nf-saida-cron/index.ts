@@ -21,7 +21,11 @@
 //   "detalhe" só a fila de detalhe (backfill em lotes).
 //   "notas"   notas escolhidas: body.notas = [{modelo, serie, numero}] (≤ 20).
 // Ajustes opcionais: modelos ['NF-e','NFS-e'], page_size (1–300),
-//   max_paginas (1–20), max_detalhes (0–200).
+//   pagina_inicial (1–1000), max_paginas (1–20), max_detalhes (0–200).
+// v2 (05/11/2026): pagina_inicial. Uma página de 300 leva ~30 s no Alvo; com o
+//   watchdog de 110 s cabem ~3 páginas por execução — a carga histórica
+//   continua de onde parou (a resposta traz proxima_pagina por modelo).
+//   Lista só começa página nova com 40 s de folga até o watchdog.
 //
 // ACESSO AO ALVO: erp-proxy /alvo/passthrough com X-System-Secret.
 //   Whitelist: notaFiscal/Load e notaFiscal/GetListForComponents
@@ -50,12 +54,13 @@ import {
 } from "./logica.ts";
 
 // Carimbo gravado em sync_runs.observacao: prova qual versão rodou.
-const VERSAO = "v1-2026-11-05";
+const VERSAO = "v2-2026-11-05";
 const JOB_NAME = "sync-nf-saida";
 const JOB_TYPE = "nf_saida";
 const WATCHDOG_MS = 110_000;
 const JANELA_DIAS = 45;
 const CONCORRENCIA = 3;
+const MARGEM_LISTA_MS = 40_000; // não começa página da lista com menos de 40 s de folga
 
 // ── Gateway erp-proxy → /alvo/passthrough (molde do sync-parcelas-pagar) ──
 function criarProxy(erpUrl: string, systemSecret: string): Passthrough {
@@ -191,11 +196,13 @@ Deno.serve(async (req: Request) => {
     modelos: modelos.length ? modelos : [...MODELOS],
     desde: typeof body?.desde === "string" && reData.test(body.desde) ? body.desde : somarDias(hojeBrasil(), -JANELA_DIAS),
     pageSize: inteiro(body?.page_size, 300, 1, 300),
+    paginaInicial: inteiro(body?.pagina_inicial, 1, 1, 1000),
     maxPaginas: inteiro(body?.max_paginas, modo === "lista" ? 10 : 3, 1, 20),
     maxDetalhes: inteiro(body?.max_detalhes, modo === "lista" ? 0 : 60, 0, 200),
     concorrencia: CONCORRENCIA,
     inicio: t0,
     watchdogMs: WATCHDOG_MS,
+    margemListaMs: MARGEM_LISTA_MS,
   };
   const notas: Array<{ modelo: string; serie: string; numero: string }> = Array.isArray(body?.notas)
     ? (body.notas as any[])

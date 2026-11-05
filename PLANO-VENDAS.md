@@ -12,7 +12,7 @@
 | VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | **concluído 05/11/2026** — Pedro liberou os dois endpoints do Ajuste A (erp-proxy `7dfe972`) e fez o deploy |
 | VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | **concluído 05/11/2026** — migration `vnd_3_nf_saida` (versão `20261105195613`) aplicada com ordem do Pedro; conferência pós-aplicação na §13.5 |
 | VND-4 | Edge `sync-nf-saida-cron` (lista + detalhe um a um) + teste | **concluído 05/11/2026** — v1 em produção; testes A e B aprovados (§14.6) |
-| VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | aguardando |
+| VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | **em andamento 05/11/2026** — corte alterado pelo Pedro para **01/01/2025** |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | aguardando |
 
 ## 1. Objetivo e escopo

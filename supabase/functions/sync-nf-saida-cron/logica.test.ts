@@ -68,11 +68,13 @@ function opcoes(p: Partial<Opcoes> = {}): Opcoes {
     modelos: ["NF-e"],
     desde: "2026-10-01",
     pageSize: 3,
+    paginaInicial: 1,
     maxPaginas: 5,
     maxDetalhes: 10,
     concorrencia: 2,
     inicio: 0,
     watchdogMs: 1_000_000,
+    margemListaMs: 0,
     ...p,
   };
 }
@@ -236,4 +238,38 @@ Deno.test("notas: nota que já existe no Hub passa pelo mesmo caminho do detalhe
   await passoNotas(d, opcoes(), [{ modelo: "NFS-e", serie: "001", numero: "425" }], res);
   assertEquals(res.notas[0], { nota: "NFS-e 001 0000000425", ja_existia: true, desfecho: "nova_versao" });
   assertEquals(b.detalhes[0].id, "id-425");
+});
+
+Deno.test("lista continua de pagina_inicial e devolve de onde seguir quando para antes do corte", async () => {
+  const b = new FakeBanco();
+  const paginas: Record<number, unknown[]> = {
+    4: [linha(30, "2025-03-01"), linha(29, "2025-02-20"), linha(28, "2025-02-10")],
+    5: [linha(27, "2025-02-01"), linha(26, "2025-01-20"), linha(25, "2025-01-10")],
+    6: [linha(24, "2024-12-30"), linha(23, "2024-12-20"), linha(22, "2024-12-10")],
+  };
+  const d = deps(b, (_e, p) => ({ ok: true, status: 200, data: paginas[p.PageIndex] ?? [] }));
+  const res = novoResultado();
+  await passoLista(d, opcoes({ desde: "2025-01-01", paginaInicial: 4, maxPaginas: 2 }), res);
+  assertEquals(d.chamadas, ["notaFiscal/GetListForComponents#p4", "notaFiscal/GetListForComponents#p5"]);
+  assertEquals(res.lista_incompleta, ["NF-e"]);
+  assertEquals(res.proxima_pagina, { "NF-e": 6 });
+  const res2 = novoResultado();
+  await passoLista(d, opcoes({ desde: "2025-01-01", paginaInicial: 6, maxPaginas: 2 }), res2);
+  assertEquals(res2.lista_incompleta, []);
+  assertEquals(res2.proxima_pagina, {});
+});
+
+Deno.test("lista não começa página nova sem a margem de tempo", async () => {
+  const b = new FakeBanco();
+  let t = 0;
+  let n = 100;
+  const d = deps(b, () => {
+    t += 30; // cada página "leva" 30
+    return { ok: true, status: 200, data: [linha(n--, "2026-11-05"), linha(n--, "2026-11-05"), linha(n--, "2026-11-05")] };
+  }, () => t);
+  const res = novoResultado();
+  await passoLista(d, opcoes({ watchdogMs: 110, margemListaMs: 40, maxPaginas: 10 }), res);
+  assertEquals(res.paginas, 3); // começa em 0, 30 e 60; em 90 já não há 40 de folga
+  assert(res.parado_por_watchdog);
+  assertEquals(res.proxima_pagina, { "NF-e": 4 });
 });
