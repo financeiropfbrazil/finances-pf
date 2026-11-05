@@ -8,9 +8,9 @@
 | Prompt | O quê | Status |
 |---|---|---|
 | VND-0 | Diagnóstico: fonte, endpoints, estratégia, desenho das tabelas | **concluído 05/11/2026 (este documento)** — nada aplicado |
-| VND-1 | Captura de amostras no Alvo (Load completo com itens; tela de listagem) + respostas do fiscal | aguardando |
-| VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | aguardando VND-1 |
-| VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | aguardando VND-1 (itens) e aprovação do Pedro |
+| VND-1 | Captura de amostras no Alvo (Load completo com itens; tela de listagem) + respostas do fiscal | **concluído 05/11/2026 pelo Lab de API** (§11); restam chave de acesso, nº 5160 e perguntas ao fiscal |
+| VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | aguardando aprovação — **escopo alterado pelo Ajuste A (§12): dois endpoints** |
+| VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | aguardando aprovação do Pedro — **desenho substituído pelo Ajuste A (§12)** |
 | VND-4 | Edge `sync-nf-saida-cron` (varredura um a um) + teste com 5 notas | aguardando |
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | aguardando |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | aguardando |
@@ -294,3 +294,83 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | Data | Prompt | Registro |
 |---|---|---|
 | 2026-11-05 | VND-0 | Sessão de investigação, sem código e sem escrita no banco. erp-proxy clonado (somente leitura; HEAD `0c4900b`). Fonte definida: `notaFiscal/Load` (provado pelo intercompany). Achados 2.2 (Load sem itens), 2.4 (DocFin não é índice), 2.5 (NFS-e com número reaproveitado — 425 e 438), 2.6 (série compartilhada). Volume: ~96 NF-e/mês, ~7 NFS-e/mês. Desenho de 5 tabelas + RPC proposto (§4), não aplicado. |
+| 2026-11-05 | VND-1 | Pedro rodou 5 chamadas de leitura no Lab de API (§11). Confirmado: com `loadChild=All` vêm itens, lotes, séries, parcelas, classe e pedido de venda (achado 2.2 fechado). **`notaFiscal/GetListForComponents` funciona** com o envelope deduzido do padrão: 50 cabeçalhos, 161 campos, sem filhas. Número inexistente → corpo `null`. NFS-e 425 hoje = versão de 31/07 (achado 2.5 confirmado). Chave de acesso não existe na entidade `notaFiscal`. Desenho revisto no Ajuste A (§12). Nada aplicado. |
+
+## 11. VND-1 — resultados (Lab de API, 05/11/2026)
+
+Arquivos recebidos: `lead-nf_saida_1` (NF-e 5100), `_2` (NF-e 5099), `_3` (NFS-e 425), `_5` (lista). Chamada 4 (nº 0009999999) → corpo `null`.
+
+### 11.1 Load completo (`loadParent=All&loadChild=All&loadOneToOne=All`)
+| Nota | O que mostrou |
+|---|---|
+| NF-e 5100 (Áustria, 7.551) | Mesma nota que o intercompany guardou sem itens agora vem com **1 item** (001.016.052, impressora Zebra, NCM 84433299), 1 parcela (`0000005100/1-1`, **`ChaveDocFin` 33175**), classe `01.03`, pedido de venda `0002632`, vendedor. Achado 2.2 confirmado. |
+| NF-e 5099 (ENDOTEC, **5.917 consignação**) | `IntegradoFinanceiro="Não"`, parcela **sem `ChaveDocFin`** (prova do achado 2.4). Item com **lote** (`CtrlLoteLocArmItNfChildList`: `TS00058`, validade 27/01/2027, local `008`) e **série** (`NumSerieItemNfChildList`: `ControleNumSerie` 7418). Classe `02.04` (remessa). |
+| NFS-e 425 (Áustria) | Hoje o Alvo devolve a versão de **31/07, R$ 120.563,44, `NumeroRetornoNFSE`="425"**. A versão de 24/07 (R$ 64.992,38) não existe mais sob esse número (achado 2.5 confirmado). **A NFS-e tem 2 itens:** o serviço (002.035, 7.933.001) e um item de **produto a valor zero** (001.010.040, 5.101.003, 11 unidades com 11 séries). Classe `01.07`. |
+
+**Onde mora cada campo do item:**
+- natureza/CFOP: `CodigoNatOperacao` (ex.: `5.917`, `7.933.001`; CFOP = 5 primeiros caracteres);
+- NCM: `ItemNfFormPrecoObject.NCMNBS`;
+- tipo de lançamento: `ItemNfFormPrecoObject.CodigoTipoLanc`;
+- CBS/IBS do item: `ItemNfFormPrecoObject`;
+- demais campos: `CodigoProduto`, `CodigoAlternativoProduto`, `NomeProduto`, `ItemServico`, `CodigoProdUnidMed`, `Quantidade`, `ValorUnitario`, `ValorTotal`, `NumeroPedVenda`, `ControlaLote`, `PossuiNumSerie`, `Valor{ICMS,IPI,PIS,COFINS,ISS}`.
+
+🔴 **Campo volátil:** `NotaFiscalProtocoloObject.DataHora` vem com a **hora da leitura** (05/11 16:06 numa nota de 02/10). Precisa sair do hash, ou toda releitura vira "versão nova".
+
+🔴 **Chave de acesso:** `ChaveDocumentoEletronico` vem null e não há nenhum número de 44 dígitos nos três payloads. A chave não mora na entidade `notaFiscal`. Fica como pendência (VND-1b), sem bloquear o resto.
+
+### 11.2 Lista (`POST notaFiscal/GetListForComponents`)
+Envelope usado: `ClassInput "NotaFiscal"`, `ClassVinculo/ControllerForm/FormName "notaFiscal"`, `Input "gridTableNotaFiscal"`, `Shortcut "notafiscal"`, `Filter "( CodigoEmpresaFilial == '1.01' && ModeloCtrlDf == 'NF-e' )"`, `Order "Numero DESC"`, `PageSize 50`.
+
+Resultado:
+- 50 cabeçalhos: nº **5143 → 5193**, emissão 15/10 → 05/11/2026, 21 entidades.
+- 161 campos por linha, **sem listas filhas**. Traz `TipoNota`, natureza, entidade, valores, `Cancelada`/`DataCancelamento`, `NumeroRetornoNFSE`, `DocumentoHomologado`, `Substituida`. **Não traz `DataUltimaAtualizacao`.**
+- **39 Saída + 11 Entrada (22%)** — achado 2.6 confirmado. Entradas: 3.101.x (importação), 2.9xx.
+- **6 canceladas (12%)**: 5147, 5148, 5165, 5180, 5181, 5189.
+- **Lacuna única: 5160** (não veio na lista; verificar com Load).
+- Saídas com 18 naturezas: venda (5/6.101, 7.101) **e muita não-venda** — bonificação/outras (5.949, 6.910, 7.949), remessa para industrialização (5.901), conserto (5.915), consignação (6.917). Classificar é obrigatório.
+- Total das saídas não canceladas no período: R$ 759.668,67 (mistura venda e remessa — só ordem de grandeza).
+
+## 12. Ajuste A ao desenho (substitui §3 e §4 a partir do VND-1)
+
+### 12.1 Como pegar: lista como índice, Load para o detalhe
+1. **Lista** (`notaFiscal/GetListForComponents`, PageSize 300, `Order "Numero DESC"`), uma vez por modelo/série. Pagina até a primeira nota com emissão anterior à janela (rotina: 45 dias; backfill: 01/01/2026). Uma chamada traz até 300 cabeçalhos.
+2. Grava/atualiza o cabeçalho a partir da lista. Se a nota é nova, ou se mudou algum campo de controle (`Cancelada`, `DataCancelamento`, `ValorTotal`, `NumeroRetornoNFSE`, `Substituida`, `DocumentoHomologado`), marca `detalhe_status='pendente'`.
+3. **Load** (`loadChild=All&loadOneToOne=All`) das pendentes, **uma a uma** (concorrência 2), com as mesmas esperas de antes (15 min / 1 h / 6 h / 24 h; estaciona na 5ª). Load `null` ⇒ `ausente_desde`.
+4. **Lacunas** (números que faltam entre o menor e o maior da série) aparecem numa view. Cada uma é confirmada com um Load avulso; resposta `null` = número realmente vago.
+
+A varredura por número da §3 vira só o passo 4 (verificação de lacunas). Ganho: ~4 chamadas de lista substituem ~1.000 tentativas às cegas, e cancelamentos aparecem sem reler cada nota.
+
+### 12.2 Tabelas (substitui o rascunho da §4; continua NÃO aplicado)
+`nf_saida_serie` e `nf_saida_fila` saem: a fila passa a ser o próprio cabeçalho (`detalhe_status`) e as séries vêm da lista.
+
+| Tabela | Chave | Conteúdo |
+|---|---|---|
+| `nf_saida` | id; único (filial, modelo, série, número) | Colunas da §4, **mais**: `classe_principal` (`NotaFiscalClasseRecDespChildList`), `numero_pedvenda`, `item_servico_existe`. Controle do detalhe: `detalhe_status` (`pendente`/`carregado`/`erro`/`estacionado`), `tentativas`, `proxima_em`, `ultimo_erro`. Payloads: `payload_lista`, `payload_alvo` (Load) e `payload_hash` **sem `NotaFiscalProtocoloObject`** |
+| `nf_saida_versao` | (nf_saida_id, versao) | Como na §4 |
+| `nf_saida_item` | (nf_saida_id, sequencia) | `item_servico`, `codigo_produto`, `codigo_alternativo`, `nome_produto`, `natureza_operacao`, `cfop` (gerado: 5 primeiros caracteres), `ncm`, `unidade`, `quantidade`, `valor_unitario`, `valor_total`, `valor_frete`, `valor_icms`, `valor_ipi`, `valor_pis`, `valor_cofins`, `valor_iss`, `valor_cbs`, `valor_ibs_uf`, `codigo_tipo_lanc`, `numero_pedvenda`, `controla_lote`, `possui_num_serie`, `payload_item` |
+| `nf_saida_item_lote` | (nf_saida_id, sequencia_item, numero_lote, local) | `CtrlLoteLocArmItNfChildList`: lote, validade, local, quantidade |
+| `nf_saida_item_serie` | (nf_saida_id, sequencia_item, controle_num_serie) | `NumSerieItemNfChildList`. O texto da série sai do `NumSerie/Load` ou do espelho do Estoque — **não nesta fase** |
+| `nf_saida_parcela` | (nf_saida_id, duplicata) | `CondPagNfChildList[].ParcPagNfChildList[]`: vencimento, valor, condição, **`chave_docfin`** (null quando não gera financeiro) |
+| `nf_saida_classe` | (nf_saida_id, codigo_classe) | `NotaFiscalClasseRecDespChildList`: classe e valor. Rateio por CC fica em `payload_alvo` nesta fase |
+
+Classificação para as views (decisão do Pedro): **classe** (`01.x` receita de venda, `02.x` remessa, `03.x` retorno, `04.x` devolução — ver a auditoria das 144 classes no PLANO-DESPESAS) **ou** CFOP do item. A classe é do próprio Alvo e já separa venda de remessa sem tabela de CFOP.
+
+RLS, `revoke` de `anon` e RPC `SECURITY DEFINER` seguem a §4. A RPC passa a gravar também lote, série, parcela e classe.
+
+**Volume:**
+- payload de Load com itens: 45–72 KB por nota → ~1.050 notas em 2026 ≈ 60 MB de jsonb (mais as versões);
+- lista: ~5 KB por linha.
+Se pesar, `payload_lista` pode ser descartado depois de carregado o detalhe.
+
+### 12.3 VND-2 revisto — erp-proxy
+Duas linhas de leitura na whitelist de `src/routes/alvo.ts`:
+- `"notaFiscal/Load"`
+- `"notaFiscal/GetListForComponents"`
+
+Grafia exatamente como a provada no Lab. Deploy fora das janelas de cron.
+
+### 12.4 Pendências que sobraram do VND-1 (nenhuma bloqueia VND-2/VND-3)
+- **VND-1b — chave de acesso da NF-e de saída:** descobrir onde o Alvo guarda (tela da NF-e no Alvo → DevTools, ou `GetListForComponents` de alguma entidade de NF-e eletrônica). Necessária só se houver uso para ela (DANFE, cruzamento com SEFAZ — este último proibido por certificado).
+- **Nº 5160:** Load avulso no Lab para saber se é vago, de outra filial ou excluído.
+- **Lista de NFS-e:** repetir a lista com `ModeloCtrlDf == 'NFS-e'` (feito automaticamente no VND-4).
+- **Perguntas ao fiscal** da §9.4 continuam valendo.
