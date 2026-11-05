@@ -1,6 +1,6 @@
 -- =====================================================================
 -- VND-5 — PROPOSTA de regiões para os países que apareceram na carga
--- (v_nf_saida_paises_sem_regiao em 05/11/2026). NÃO APLICADO.
+-- (v_nf_saida_paises_sem_regiao em 05/11/2026). APLICADO em 05/11/2026 com OK do Pedro.
 -- Só INSERT na tabela nova nf_saida_pais_regiao (mantida pelo Pedro).
 -- Códigos são os do Alvo (não ISO: CHI = China, CHL = Chile, EC, PL, VE).
 -- Rollback: delete from public.nf_saida_pais_regiao where sigla_pais in (...);
