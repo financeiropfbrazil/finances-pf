@@ -9,8 +9,8 @@
 |---|---|---|
 | VND-0 | Diagnóstico: fonte, endpoints, estratégia, desenho das tabelas | **concluído 05/11/2026 (este documento)** — nada aplicado |
 | VND-1 | Captura de amostras no Alvo (Load completo com itens; tela de listagem) + respostas do fiscal | **concluído 05/11/2026 pelo Lab de API** (§11); restam chave de acesso, nº 5160 e perguntas ao fiscal |
-| VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | aguardando aprovação — **escopo alterado pelo Ajuste A (§12): dois endpoints** |
-| VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | aguardando aprovação do Pedro — **desenho substituído pelo Ajuste A (§12)** |
+| VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | **concluído 05/11/2026** — Pedro liberou os dois endpoints do Ajuste A (erp-proxy `7dfe972`) e fez o deploy |
+| VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | **script pronto e testado em Postgres local** (`sql/VND-3-nf-saida.sql`, Ajuste B §13) — aguardando aprovação para aplicar |
 | VND-4 | Edge `sync-nf-saida-cron` (varredura um a um) + teste com 5 notas | aguardando |
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | aguardando |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | aguardando |
@@ -295,6 +295,8 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 |---|---|---|
 | 2026-11-05 | VND-0 | Sessão de investigação, sem código e sem escrita no banco. erp-proxy clonado (somente leitura; HEAD `0c4900b`). Fonte definida: `notaFiscal/Load` (provado pelo intercompany). Achados 2.2 (Load sem itens), 2.4 (DocFin não é índice), 2.5 (NFS-e com número reaproveitado — 425 e 438), 2.6 (série compartilhada). Volume: ~96 NF-e/mês, ~7 NFS-e/mês. Desenho de 5 tabelas + RPC proposto (§4), não aplicado. |
 | 2026-11-05 | VND-1 | Pedro rodou 5 chamadas de leitura no Lab de API (§11). Confirmado: com `loadChild=All` vêm itens, lotes, séries, parcelas, classe e pedido de venda (achado 2.2 fechado). **`notaFiscal/GetListForComponents` funciona** com o envelope deduzido do padrão: 50 cabeçalhos, 161 campos, sem filhas. Número inexistente → corpo `null`. NFS-e 425 hoje = versão de 31/07 (achado 2.5 confirmado). Chave de acesso não existe na entidade `notaFiscal`. Desenho revisto no Ajuste A (§12). Nada aplicado. |
+| 2026-11-05 | VND-2 | Pedro liberou `notaFiscal/Load` e `notaFiscal/GetListForComponents` na whitelist e fez o deploy. Conferido no GitHub: commit `7dfe972`, só as duas linhas, grafia igual à do Lab. |
+| 2026-11-05 | VND-3 | Pedro aprovou as tabelas e o critério de venda pela classe (01 venda, 02 remessa…); perguntou pelo destino (Áustria, Latam, Brasil). Ajuste B (§13): destino já vinha da nota; entra a tabela `nf_saida_pais_regiao`. Script escrito e testado num Postgres 16 local com as amostras do Lab (ver §13.3). **Erro pego no teste:** número de 10 dígitos não convertia (regex `\d{1,9}`) — corrigido para `bigint`/`\d{1,18}`. Nada aplicado em produção. |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
 
@@ -374,3 +376,83 @@ Grafia exatamente como a provada no Lab. Deploy fora das janelas de cron.
 - **Nº 5160:** Load avulso no Lab para saber se é vago, de outra filial ou excluído.
 - **Lista de NFS-e:** repetir a lista com `ModeloCtrlDf == 'NFS-e'` (feito automaticamente no VND-4).
 - **Perguntas ao fiscal** da §9.4 continuam valendo.
+
+## 13. Ajuste B — destino da venda e script do VND-3
+
+### 13.1 Destino (pergunta do Pedro: Áustria, Latam, Brasil…)
+A nota já traz o destino. É o cadastro da entidade gravado na nota, e vem tanto na lista quanto no detalhe:
+- `SiglaPais` e `NomePais`;
+- `SiglaUnidFederacaoEntidade` (UF, ou `EX` = exterior);
+- `CodigoCidade` e `NomeCidade`.
+
+Nas 39 saídas da amostra:
+
+| Destino | Notas |
+|---|---|
+| Brasil | 27 (SP 16, RJ 7, PE 2, SC 1, PR 1) |
+| Áustria | 5 |
+| EUA | 5 |
+| Alemanha | 1 |
+| Índia | 1 |
+
+O 1º dígito da natureza bate 100% com o destino (5 estadual, 6 interestadual, 7 exterior).
+
+🔴 **O código de país do Alvo NÃO é ISO:** `AUS` = Áustria (no ISO é Austrália), `ALE` = Alemanha (ISO `DEU`). Nunca cruzar com tabela ISO; usar o código do Alvo.
+
+**Região** não existe no Alvo. Entra a tabela `nf_saida_pais_regiao` (país do Alvo → região), mantida pelo Pedro:
+- Carga inicial com os 5 países vistos: BRA→Brasil, AUS→Áustria, USA→América do Norte, ALE→Europa, IND→Ásia. **Os nomes das regiões são proposta, para o Pedro confirmar.**
+- País novo (ex.: o primeiro cliente Latam) aparece em `v_nf_saida_paises_sem_regiao` e, na `v_nf_saida`, como "(sem região)", até ser cadastrado.
+
+**Entrega em outro endereço:** 2 casos na amostra (5156, 5159: entrega para a entidade 0000002, seq. 18). A nota traz só o código da entidade de entrega, a sequência do endereço e o nome. O endereço por extenso exigiria `Entidade/Load` — **fora desta fase**; os três campos ficam gravados.
+
+**Intercompany:** a `v_nf_saida` marca `intercompany_austria` (entidade `0000017`). Assim a PEF Áustria se separa de outro cliente austríaco que venha a existir.
+
+### 13.2 O que o script cria (`sql/VND-3-nf-saida.sql`; rollback em `sql/VND-3-nf-saida-rollback.sql`)
+- **8 tabelas:** `nf_saida`, `nf_saida_versao`, `nf_saida_item`, `nf_saida_item_lote`, `nf_saida_item_serie`, `nf_saida_parcela`, `nf_saida_classe`, `nf_saida_pais_regiao`.
+- **3 views** (`security_invoker`):
+  - `v_nf_saida`: região, intercompany, abrangência pelo 1º dígito da natureza, tipo de operação pela classe (01 venda, 02 remessa, 03 retorno, 04 devolução de venda, 05 devolução de compra);
+  - `v_nf_saida_lacunas`;
+  - `v_nf_saida_paises_sem_regiao`.
+- **3 RPCs** (`SECURITY DEFINER`, só `service_role`):
+  - `nf_saida_registrar_lista(jsonb)`;
+  - `nf_saida_gravar_detalhe(uuid, jsonb)`;
+  - `nf_saida_registrar_falha(uuid, text)`.
+- **4 funções auxiliares**, sem acesso externo.
+- **Diferenças em relação à §12.2:**
+  - o payload do detalhe fica **só** em `nf_saida_versao` (`nf_saida` guarda hash e nº da versão), para não gravar o mesmo JSON duas vezes;
+  - sem `payload_item`, porque o item já está no payload da versão;
+  - valores em `numeric` sem escala fixa (o item tem frete com 6 casas);
+  - `numero` é `bigint`, gerado a partir de `numero_alvo`;
+  - a identidade única é por `numero_alvo`, o texto do Alvo.
+- **Cabeçalho por chave presente:** a lista (161 campos) só atualiza as colunas que traz. Moeda, câmbio, integração financeira etc. vêm só do detalhe e não são apagados quando a lista volta.
+- **Não toca em nada existente:**
+  - nenhuma linha em `sync_settings` ou `cron.job` (isso é VND-4/VND-6);
+  - nenhuma permissão nova para usuários: leitura só para admin, escrita só pelo `service_role`.
+
+### 13.3 Teste local (Postgres 16, com as amostras reais do Lab e as permissões padrão do Supabase reproduzidas)
+
+| Cenário | Resultado |
+|---|---|
+| Lista de 50, 1ª e 2ª vez | 50 novas; depois 50 iguais |
+| Detalhe 5100 / 5099 / NFS-e 425 | Itens, lote `TS00058`, 1 + 11 séries, parcelas (DocFin 33175, 30159; a 5099 sem DocFin), classes 01.03 / 02.04 / 01.07 — tudo igual às amostras |
+| Mesmo detalhe com `DataHora` do protocolo trocada | `sem_mudanca` (o campo volátil fica fora do hash) |
+| Conteúdo diferente (valor) | versão 2, histórico com 2 versões, itens regravados |
+| Lista sem a 5170 (antes carregada) | `reconferir: 1`; a 5170 volta a pendente |
+| Cancelamento novo na lista | `mudaram: 1`; a nota volta a pendente |
+| Lista depois do detalhe | moeda/câmbio/valor original preservados |
+| Detalhe de outra nota | recusado com erro |
+| Load `null` | `situacao_hub = ausente` |
+| 5 falhas | estacionado; a próxima tentativa só depois de 24 h |
+| Lacunas | aparece a 5160 |
+| Região e tipo na view | 5099 Brasil/estadual/remessa; 5100 Áustria/exterior/venda/intercompany; NFS-e 425 Áustria/exterior/venda |
+| Permissões | anon: negado em tabela, view e RPC. Usuário sem admin: 0 linhas, RPC e escrita negadas. Admin: lê tudo. `service_role`: executa as RPCs. Nenhuma função ficou com EXECUTE para `anon` ou `authenticated` |
+| Rollback | remove todos os objetos `nf_saida*` (0 restantes) |
+
+### 13.4 Aplicação (depois do OK do Pedro)
+1. Pré-voo: fingerprint `compras_pedidos` (~2.414) e confirmar 0 objetos `nf_saida*`.
+2. `apply_migration` com o conteúdo de `sql/VND-3-nf-saida.sql` (nome `vnd_3_nf_saida`).
+3. Conferência:
+   - objetos criados;
+   - ACL das funções sem `anon`/`authenticated`;
+   - RLS ligado nas 8 tabelas.
+4. As tabelas ficam vazias até o VND-4. A carga começa pelas 4 amostras.
