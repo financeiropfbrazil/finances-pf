@@ -11,7 +11,7 @@
 | VND-1 | Captura de amostras no Alvo (Load completo com itens; tela de listagem) + respostas do fiscal | **concluído 05/11/2026 pelo Lab de API** (§11); restam chave de acesso, nº 5160 e perguntas ao fiscal |
 | VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | **concluído 05/11/2026** — Pedro liberou os dois endpoints do Ajuste A (erp-proxy `7dfe972`) e fez o deploy |
 | VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | **concluído 05/11/2026** — migration `vnd_3_nf_saida` (versão `20261105195613`) aplicada com ordem do Pedro; conferência pós-aplicação na §13.5 |
-| VND-4 | Edge `sync-nf-saida-cron` (lista + detalhe um a um) + teste | **deployada (v1)**; teste A barrado pelo CHECK de `sync_runs.job_type` — correção aguardando aprovação (§14.5) |
+| VND-4 | Edge `sync-nf-saida-cron` (lista + detalhe um a um) + teste | **concluído 05/11/2026** — v1 em produção; testes A e B aprovados (§14.6) |
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | aguardando |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | aguardando |
 
@@ -300,6 +300,7 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | 2026-11-05 | VND-3 (aplicação) | Pedro autorizou ("sim, aplique"). Pré-voo: `compras_pedidos` = 2.414, objetos do intercompany presentes, 0 objetos `nf_saida*`, `_is_admin()` existe. `apply_migration vnd_3_nf_saida` → sucesso (versão `20261105195613`). Conferência na §13.5. Tabelas vazias; nenhum cron, Edge ou `sync_settings` tocado. |
 | 2026-11-05 | VND-4 (código) | Edge `sync-nf-saida-cron` v1 escrita (lógica separada em `logica.ts`, injetável). 11 testes Deno da lógica passam; `deno check` do `index.ts` limpo (modo estrito). Build do front ok (cópia com dependências do npm público — o `bun.lock` aponta para o cache privado do Lovable, inacessível daqui). `config.toml` com `verify_jwt=false`. Hashes esperados das 3 notas do Lab calculados (§14.4). **Não deployada.** |
 | 2026-11-05 | VND-4 (deploy + teste A) | Pedro deployou pelo CLI a partir de um `git worktree` do branch (o `main` local tinha alterações dele em `PLANO-NFSE.md` e `src/constants/permissions.ts`, intocadas). `get_edge_function`: versão 1, ACTIVE, `verify_jwt=false`, código = branch. Sonda sem segredo (net 36142) → **401 "Não autorizado"** da própria função. Teste A (net 36143) → **500 no início**: `sync_runs_job_type_check` não aceita `nf_saida` (lista fechada de 14 tipos). **Nada gravado** (0 runs `nf_saida`, 0 notas; o Alvo nem foi chamado). **Erro meu: não li as constraints de `sync_runs` antes** — violei o "nunca assuma schema". Correção em `sql/VND-4-sync-runs-job-type.sql`, aguardando aprovação. |
+| 2026-11-05 | VND-4 (correção + testes) | Pedro autorizou. Pré-voo: fingerprint 2.416, CHECK igual ao lido. Migration `vnd_4_sync_runs_job_type_nf_saida` aplicada (15 tipos, `convalidated=true`). Teste A refeito (net 36144) → 200, 3 notas gravadas, NF-e 5160 = **não existe no Alvo** (pendência §12.4 fechada), 0 erros, 4 s. **Hashes das 3 notas idênticos aos do Lab.** Teste B (net 36145) → 200, 5 listadas (5189–5193) e 5 detalhadas, 0 falhas; `LISTA INCOMPLETA` esperado (página de 5). Detalhes na §14.6. |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
 
@@ -545,7 +546,7 @@ Ajustes por chamada: `modelos`, `page_size` (1–300), `max_paginas` (1–20), `
 - desativar via `sync_settings` (inserir a linha com `enabled=false`) ou apagar a função no painel;
 - os dados do teste ficam só nas tabelas `nf_saida*`, e o `VND-3-nf-saida-rollback.sql` remove tudo.
 
-### 14.5 Correção: `sync_runs.job_type` (aguardando aprovação)
+### 14.5 Correção: `sync_runs.job_type` (aplicada 05/11/2026)
 `sync_runs` tem `sync_runs_job_type_check` com **lista fechada** de 14 tipos. Todo job novo precisa entrar nessa lista antes da 1ª execução.
 
 - **Script:** `sql/VND-4-sync-runs-job-type.sql`. Recria o CHECK com as mesmas 14 entradas, na mesma ordem, mais `nf_saida` no fim.
@@ -553,3 +554,47 @@ Ajustes por chamada: `modelos`, `page_size` (1–300), `max_paginas` (1–20), `
 - **Rollback:** `sql/VND-4-sync-runs-job-type-rollback.sql`.
 
 Depois de aplicado, refazer o Teste A (§14.4) sem mudar a Edge.
+
+### 14.6 Resultado dos testes em produção (05/11/2026)
+
+| Teste | Resultado |
+|---|---|
+| Sonda sem segredo (net 36142) | 401 "Não autorizado", da própria função |
+| A — `notas` (net 36144) | NF-e 5100, 5099 e NFS-e 425 gravadas com `payload_hash` **igual** ao das amostras do Lab (`9c890a9c…`, `6a86b31d…`, `b7c7fbd6…`). NF-e 5160 → `nao_existe_no_alvo`. Itens, lote `TS00058`, 1 + 11 séries, parcelas (DocFin 33175, 30159; a 5099 sem DocFin) e classes iguais ao Lab |
+| B — `rotina` (5 NF-e, net 36145) | 5189–5193 listadas e detalhadas, 0 falhas. Detalhes abaixo |
+| `v_nf_saida` | região, abrangência e tipo de operação corretos nas 8 notas; 0 países sem região |
+| `sync_runs` | 2 execuções `nf_saida`, 0 erros, carimbo `edge v1-2026-11-05` |
+| Volume | 8 versões = 232 kB (~29 kB/nota com compressão) → ~30 MB para 2026 |
+| Fingerprint | `compras_pedidos` 2.416 (crescimento normal desde a manhã) |
+
+Detalhes do teste B:
+- **5193** é **Entrada** (3.101.004, importação da PEF, classe 11.02 → "outros"), corretamente fora de "venda";
+- **5192** é venda para a PEF (7.101.001, R$ 120.949,72, 4 itens, 4 lotes, 12 séries, com DocFin);
+- **5190 e 5191** são remessas (5.949.996, classe 02.x);
+- **5189** aparece **cancelada**;
+- a soma dos itens = valor de produtos em todas.
+
+**Lição registrada:** antes de gravar em tabela existente, ler também as constraints (`pg_constraint`), não só as colunas. `sync_runs.job_type` tem lista fechada: **todo job novo exige ALTER do CHECK antes da 1ª execução.** Sugestão para as "armadilhas conhecidas" do CLAUDE.md.
+
+## 15. Próximos passos
+
+### VND-5 — carga histórica desde 01/01/2026 (aguardando OK do Pedro)
+1. **Lista:** uma execução de `{"modo":"lista","desde":"2026-01-01"}`.
+   - Volume: ~955 NF-e (4 páginas de 300) e ~70 NFS-e (1 página).
+   - Só grava cabeçalhos.
+2. **Detalhe:** execuções de `{"modo":"detalhe","max_detalhes":200}` até a fila zerar.
+   - Estimativa: ~6–7 execuções de até 110 s, com 3 leituras simultâneas no Alvo.
+   - Rodar fora do horário comercial.
+3. **Conferências:**
+   - `v_nf_saida_lacunas`: cada número vago confirmado por `modo notas`;
+   - Áustria × `intercompany_invoices` (69 NF-e + NFS-e da PEF): valor e data;
+   - faturamento mensal × receita do Balancete;
+   - estacionadas = 0.
+
+### VND-6 — cron e kill-switch
+- Wrapper `call_sync_nf_saida_cron`, com `revoke` de `anon` e `authenticated` (não repetir o BL-27).
+- Linha `sync-nf-saida` em `sync_settings`.
+- `cron.job` com `20 11,16,21 * * 1-5` (08h20, 13h20 e 18h20 BRT), **criado desativado**.
+
+### Merge do branch no `main`
+Para o repositório refletir o que está em produção (Edge, SQL e plano). Precisa da autorização do Pedro.
