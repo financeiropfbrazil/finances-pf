@@ -12,7 +12,7 @@
 | VND-2 | erp-proxy: liberar `notaFiscal/Load` (leitura) na whitelist do passthrough | **concluído 05/11/2026** — Pedro liberou os dois endpoints do Ajuste A (erp-proxy `7dfe972`) e fez o deploy |
 | VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | **concluído 05/11/2026** — migration `vnd_3_nf_saida` (versão `20261105195613`) aplicada com ordem do Pedro; conferência pós-aplicação na §13.5 |
 | VND-4 | Edge `sync-nf-saida-cron` (lista + detalhe um a um) + teste | **concluído 05/11/2026** — v1 em produção; testes A e B aprovados (§14.6) |
-| VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | **em andamento 05/11/2026** — corte alterado pelo Pedro para **01/01/2025** |
+| VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | **concluído 05/11/2026** — corte **01/01/2025** (ordem do Pedro); 2.278 notas, 0 erros, 58 lacunas confirmadas; resultado na §16 |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | aguardando |
 
 ## 1. Objetivo e escopo
@@ -307,6 +307,9 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | 2026-11-05 | VND-5 (v2 + regiões) | Lotes 4 e 5 (net 36160, 36161): 200 + 200, 0 falhas; fila 373. Pedro: "publica você" e "ok" para as regiões. **v2 deployada por mim via MCP** `deploy_edge_function` (mesmos `index.ts`/`logica.ts` do branch `4e7a777`, `verify_jwt=false`) → versão 2. Sonda sem segredo (net 36172) → 401. **Regiões aplicadas** (`sql/VND-5-regioes-proposta.sql`): 11 países (Latam 5, Europa 5, Ásia 1). Lista NF-e v2 a partir da página 5 disparada (net 36173). |
 | 2026-11-05 | VND-5 (lista concluída) | Lista NF-e v2 (net 36173) → páginas 5–7, 900 novas, 0 erros, 102 s, **chegou ao corte**. Total: **2.100 NF-e** (nº 3076–5193, 25/10/2024 → 05/11/2026; 133 de out–dez/2024 vieram na última página e também serão detalhadas — custo pequeno, relatórios filtram por data) e **178 NFS-e**. 0 países sem região. **Lacunas:** NF-e 18 em 2.118 números (3086, 3223, 3234, 3654, 3761, 3762, 3827, 3903, 4038, 4042, 4162, 4218, 4294, 4322, 4361, 4365, 4943, 5160 — a 5160 já confirmada inexistente); NFS-e 41 em 219 (bloco 224–253, 255, 277, 332, 378, 421–424, 429, 435, 436…), coerente com o reaproveitamento de número (achado 2.5). Fila de detalhe: 1.273. |
 | 2026-11-05 | VND-5 (conferência com a contabilidade, 2026) | Lotes 6–7 (net 36174–36175): 200 + 200, 0 falhas. **Receita bruta 4.1.01 (Balancete P&F) × notas de saída classe 01 (não canceladas), 2026:** jan 3,19 mi × 3,34 mi (4 notas de jan ainda na fila); fev +130 mil; mar +26 mil; **abr −60.000,00, mai −120.000,00, jun −180.000,00 exatos**; jul −958 mil; ago −210 mil; set −532 mil. **Achado A — venda para entrega futura conta duas vezes pela classe:** o simples faturamento (5.922, fev, R$ 600 mil, com DocFin) **e** as remessas (5.116/6.116, jan–set, sem financeiro) estão todos na classe **01.02**; somar "classe 01" duplica. As diferenças redondas de abr–jun batem com essas remessas; a regra de qual das duas conta como venda é decisão do Pedro/contabilidade. **Achado B — ~50 notas de saída de 2026 sem classe no Alvo** (`NotaFiscalClasseRecDespChildList` vazia): quase todas não-venda (5.908 comodato, 5.910 bonificação, 5.915 conserto, 5.901 industrialização, 5.927), **mas** a 4371 é venda (5.101.002) e 4977/5040/5133 são remessas 5.116 — a classificação só por classe deixa essas fora; fallback por CFOP fica para decisão. **Achado C (a investigar):** jul e set têm as maiores diferenças e coincidem com as NFS-e provisórias que sumiram do Alvo (421–424 em jul; 435/436 em set) — a contabilidade pode ter registrado as versões que não existem mais. Nenhuma regra alterada. |
+| 2026-11-05 | VND-5 (detalhe concluído) | Lotes 8–12 (net 36176–36180): 200 + 200 + 200 + 200 + 73, 0 falhas. **Fila 0: 2.278 notas carregadas** (NF-e 2.100, nº 3076–5193; NFS-e 178, nº 223–441), 0 com erro, 0 estacionadas, 0 ausentes, 2 NFS-e provisórias. 21 execuções `nf_saida` em `sync_runs`, 0 com erro. Volume: 2.278 versões, 5.133 itens, 1.518 parcelas, 2.031 classes, **68 MB** no total das tabelas `nf_saida*`. Fingerprint `compras_pedidos` = 2.416. |
+| 2026-11-05 | VND-5 (lacunas) | `modo notas` (net 36182–36185): **as 17 NF-e e as 41 NFS-e vagas não existem no Alvo** (`nao_existe_no_alvo`); com a 5160, as 18 NF-e. Nenhuma nota nova apareceu. As NFS-e 224–253 formam um bloco: o Alvo não tem nenhuma NFS-e entre 17/01/2025 (223, R$ 50) e abril/2025 (254). |
+| 2026-11-05 | VND-5 (conferência contábil, completa) | Refeita com o detalhe 100% carregado, jan/2025–set/2026 (out–dez/2025 não comparáveis: lançamentos de encerramento). Com a **regra D** (§16.2), **7 de 19 meses batem no centavo** (mai, jun, ago/2025; abr, mai, jun, jul/2026) e 4 são explicados no centavo: **jan, fev e mar/2025** — a diferença é exatamente a conta 4.1.01.005.003 (serviços mercado externo: 1.114.325,15; 839.004,99; 1.042.302,31) e o Alvo não tem NFS-e nesse trimestre; **ago/2026** −17.067,76 = NFS-e 434 (a contabilidade usou a data do DocFin, 31/08). **Revisão do achado A:** a contabilidade reconhece a receita da venda para entrega futura **na remessa** (5.116/6.116), **não** no simples faturamento (5.922/6.922) — os ±60/120/180 mil “redondos” da linha anterior eram remessas ainda na fila. **Achado C refutado:** jul/2026 bate no centavo quando a NFS-e 432 (emissão 05/08, competência 07) entra pela competência; as NFS-e provisórias que sumiram não entram na contabilidade. Áustria × intercompany repetida: igual à anterior (NF-e 67 ok; NFS-e 53 ok; 5097, 433/434 e 421–424/435/436 já explicadas). **8 países novos** só apareceram com o detalhe completo (CAN, COL, IE, MEX, PA, PER, TUR, UK; 14 notas) — proposta em `sql/VND-5-regioes-proposta-2.sql`, **não aplicada**. |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
 
@@ -585,6 +588,7 @@ Detalhes do teste B:
 ## 15. Próximos passos
 
 ### VND-5 — carga histórica desde 01/01/2026 (aguardando OK do Pedro)
+> **Concluído em 05/11/2026 com corte em 01/01/2025** — resultado na §16.
 1. **Lista:** uma execução de `{"modo":"lista","desde":"2026-01-01"}`.
    - Volume: ~955 NF-e (4 páginas de 300) e ~70 NFS-e (1 página).
    - Só grava cabeçalhos.
@@ -604,3 +608,58 @@ Detalhes do teste B:
 
 ### Merge do branch no `main`
 Para o repositório refletir o que está em produção (Edge, SQL e plano). Precisa da autorização do Pedro.
+
+## 16. VND-5 — resultado da carga histórica (05/11/2026)
+
+### 16.1 O que está no espelho
+
+| | NF-e série 1 | NFS-e série 001 |
+|---|---|---|
+| Notas | 2.100 (nº 3076–5193) | 178 (nº 223–441) |
+| Período | 25/10/2024 → 05/11/2026 (1.967 desde 2025) | 17/01/2025 → 21/10/2026 |
+| Carregadas / erro / estacionadas | 2.100 / 0 / 0 | 178 / 0 / 0 |
+| Canceladas | 204 | 13 |
+| NFS-e provisórias (sem retorno da prefeitura) | — | 2 |
+| Lacunas de numeração | 18, **todas inexistentes no Alvo** | 41, **todas inexistentes no Alvo** |
+
+Execuções: 21 em `sync_runs` (`job_type='nf_saida'`), 0 com erro. Volume total das tabelas `nf_saida*`: 68 MB.
+
+### 16.2 Conferência com a contabilidade (Balancete P&F, conta 4.1.01)
+
+**Regra D** (consulta 7 em `sql/VND-5-conferencias.sql`), que é a que melhor reproduz a contabilidade:
+- conta como venda: classe 01 do Alvo, **menos** o simples faturamento de entrega futura (5.922/6.922);
+- **mais** as remessas de entrega futura que estão sem classe no Alvo (5.116/6.116);
+- data: NF-e pela emissão; NFS-e pela menor data entre emissão e competência.
+
+| Mês | Balancete 4.1.01 | Espelho (regra D) | Diferença | Explicação |
+|---|---:|---:|---:|---|
+| 2025-01 | 2.464.691,28 | 1.350.366,13 | −1.114.325,15 | = serviços mercado externo (4.1.01.005.003); o Alvo não tem NFS-e no trimestre |
+| 2025-02 | 2.237.139,98 | 1.398.134,99 | −839.004,99 | idem |
+| 2025-03 | 2.310.429,71 | 1.268.127,40 | −1.042.302,31 | idem |
+| 2025-04 | 2.993.689,06 | 2.955.077,22 | −38.611,84 | a investigar |
+| 2025-05 | 3.595.878,53 | 3.595.878,53 | **0,00** | |
+| 2025-06 | 2.111.140,92 | 2.111.140,92 | **0,00** | |
+| 2025-07 | 3.247.495,86 | 3.463.031,10 | +215.535,24 | a investigar |
+| 2025-08 | 1.912.172,56 | 1.912.172,56 | **0,00** | |
+| 2025-09 | 2.240.096,93 | 2.245.493,13 | +5.396,20 | a investigar |
+| 2025-10 | 4.712.201,17 | 5.213.704,85 | +501.503,68 | a investigar (há 6.917 consignação 120 mil e 6.111 60 mil na classe 01) |
+| 2026-01 | 3.339.377,53 | 3.364.750,39 | +25.372,86 | a investigar |
+| 2026-02 | 2.511.877,73 | 2.521.544,08 | +9.666,35 | a investigar |
+| 2026-03 | 3.267.023,79 | 3.292.934,45 | +25.910,66 | a investigar |
+| 2026-04 | 2.008.723,29 | 2.008.723,29 | **0,00** | |
+| 2026-05 | 2.772.464,51 | 2.772.464,51 | **0,00** | |
+| 2026-06 | 2.901.302,55 | 2.901.302,55 | **0,00** | |
+| 2026-07 | 3.237.110,07 | 3.237.110,07 | **0,00** | |
+| 2026-08 | 1.904.001,87 | 1.886.934,11 | −17.067,76 | = NFS-e 434 (contabilidade pela data do DocFin, 31/08) |
+| 2026-09 | 2.739.580,98 | 2.636.452,24 | −103.128,74 | a investigar (−120.196,50 se a 434 for para agosto) |
+
+Out–dez/2025 ficam fora: há lançamentos de encerramento no Balancete.
+
+**Leitura:** o espelho reproduz a contabilidade no centavo em 7 meses e explica outros 4. A regra D é **evidência**, não decisão. Nada na view foi alterado: `tipo_operacao` continua sendo a classe do Alvo.
+
+### 16.3 Decisões que ficam com o Pedro
+1. **Regra de "venda" para relatório:** adotar a regra D (simples faturamento fora, remessa de entrega futura dentro, NFS-e pela competência quando anterior à emissão)? Se sim, vira um Ajuste na `v_nf_saida` (prompt novo).
+2. **Notas sem classe no Alvo** (remessas 5.116 de abr, mai e set/2025 e de set/2026; a 4371, venda 5.101): corrigir a classe no Alvo, ou o Hub assume o CFOP como reserva?
+3. **Serviços de jan–mar/2025:** onde foram emitidas as NFS-e desse trimestre (o Alvo pula de 223 para 254)? Se foram fora do Alvo, o espelho nunca vai tê-las.
+4. **Regiões dos 8 países novos** (`sql/VND-5-regioes-proposta-2.sql`): MEX em Latam ou América do Norte? TUR em Europa ou Ásia?
+5. **Intercompany com versões que o Alvo já não tem** (NF-e 5097; NFS-e 421–424, 435, 436): o espelho mostra a versão atual; o intercompany está parado desde 06/10.

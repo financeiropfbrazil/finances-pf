@@ -52,3 +52,27 @@ select * from public.v_nf_saida_paises_sem_regiao;
 -- 6. Execuções da carga
 select started_at, triggered_by, duracao_ms, total_candidatos, total_consultados, total_erros, observacao
   from public.sync_runs where job_type = 'nf_saida' order by started_at;
+
+-- 7. Receita bruta (Balancete 4.1.01) × espelho — "regra D" (05/11/2026), que zerou 7 de 19 meses:
+--    classe 01 (venda) MENOS simples faturamento de entrega futura (5.922/6.922)
+--    MAIS remessas de entrega futura sem classe no Alvo (5.116/6.116);
+--    NFS-e no mês da menor data entre emissão e competência; NF-e pela emissão.
+--    Os valores do Balancete vêm do conector Balancete P&F (dre, linha 4.1.01); atualizar a lista ao rodar.
+with contab(mes, r) as (values
+ ('2025-01',2464691.28),('2025-02',2237139.98),('2025-03',2310429.71),('2025-04',2993689.06),('2025-05',3595878.53),
+ ('2025-06',2111140.92),('2025-07',3247495.86),('2025-08',1912172.56),('2025-09',2240096.93),('2025-10',4712201.17),
+ ('2026-01',3339377.53),('2026-02',2511877.73),('2026-03',3267023.79),('2026-04',2008723.29),('2026-05',2772464.51),
+ ('2026-06',2901302.55),('2026-07',3237110.07),('2026-08',1904001.87),('2026-09',2739580.98)),
+v as (
+  select to_char(case when modelo = 'NFS-e' then least(data_emissao, coalesce(data_competencia, data_emissao))
+                      else data_emissao end, 'YYYY-MM') mes,
+         left(natureza_principal, 5) cfop, tipo_operacao, valor_total
+    from public.v_nf_saida
+   where tipo_nota = 'Saída' and not coalesce(cancelada, false)),
+d as (
+  select mes, sum(valor_total) filter (
+           where (tipo_operacao = 'venda' and cfop not in ('5.922', '6.922'))
+              or (tipo_operacao is null and cfop in ('5.116', '6.116'))) x
+    from v group by 1)
+select c.mes, c.r contabil, round(d.x, 2) espelho, round(d.x - c.r, 2) diferenca
+  from contab c left join d on d.mes = c.mes order by 1;
