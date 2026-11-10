@@ -72,6 +72,39 @@ export function notaCasaBusca(n: NotaBuscavel, termo: string): boolean {
   return false;
 }
 
+/**
+ * CFOP de venda — o MESMO critério das RPCs (`faturavel` em nfe_recebida_detalhe / nfe_relatorio_etapas):
+ * 5/6/7 + 101–129, 401–409, 551, 922, 929 ou 933. Sem isso é remessa, retorno, consignação, bonificação…
+ */
+export const CFOP_VENDA = /^[567](1[0-2][0-9]|40[0-9]|551|92[29]|933)$/;
+
+/** A nota tem venda? Nota sem itens conta como "tem" (igual às RPCs: não dá para dizer que não tem). */
+export function notaFaturavel(n: Pick<NotaBuscavel, "dados_extraidos">): boolean {
+  const itens = itensDa(n);
+  return itens.length === 0 || itens.some((it) => CFOP_VENDA.test(it.cfop ?? ""));
+}
+
+/**
+ * "No Alvo" na lista (NFE-8):
+ *   lancada         → achada nos espelhos do Alvo;
+ *   sem_dado_alvo   → emitida antes do espelho do contas a pagar começar (não dá para saber);
+ *   sem_como_saber  → sem CFOP de venda e não achada: o espelho só vê MovEstq com título a pagar ou pedido, então
+ *                     uma remessa/retorno lançada sem título nunca aparece;
+ *   nao_encontrada  → nota com venda que o Alvo ainda não tem (o atraso de verdade).
+ */
+export type SituacaoAlvoLista = "lancada" | "sem_dado_alvo" | "sem_como_saber" | "nao_encontrada";
+
+export function situacaoAlvoDaNota(
+  achadaNoAlvo: boolean,
+  n: Pick<NotaBuscavel, "dados_extraidos"> & { data_emissao: string | null },
+  espelhoDesde: string | null,
+): SituacaoAlvoLista {
+  if (achadaNoAlvo) return "lancada";
+  if (espelhoDesde && n.data_emissao && n.data_emissao < espelhoDesde) return "sem_dado_alvo";
+  if (!notaFaturavel(n)) return "sem_como_saber";
+  return "nao_encontrada";
+}
+
 /** Resumo dos erros do upload de XML para o aviso: os 2 primeiros com o motivo, e quantos mais houver. */
 export function resumoErrosUpload(erros: string[]): string | null {
   if (erros.length === 0) return null;

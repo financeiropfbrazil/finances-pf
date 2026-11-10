@@ -147,6 +147,9 @@ function Etapas({
   const candidatos = d.pedidos.candidatos ?? [];
   const lancada = n.situacao_alvo === "lancada";
   const semDado = n.situacao_alvo === "sem_dado_alvo";
+  // NFE-8: sem CFOP de venda e não achada — o espelho só vê MovEstq com título a pagar ou pedido, então não dá para
+  // dizer que não foi lançada (remessa/retorno/consignação lançada sem título nunca aparece).
+  const semComoSaber = n.situacao_alvo === "nao_encontrada" && !n.faturavel;
   const anexoNf = d.anexos.find((a) => a.tipo === "nf");
   const anexoBoleto = d.anexos.find((a) => a.tipo === "boleto");
   const parcelas = d.docfin.parcelas ?? [];
@@ -168,11 +171,19 @@ function Etapas({
         : candidatos.length > 0
           ? "pendente"
           : "atencao";
-  const e3: EstadoEtapa = lancada ? "feito" : semDado ? "na" : "pendente";
+  const e3: EstadoEtapa = lancada ? "feito" : semDado || semComoSaber ? "na" : "pendente";
   const e4: EstadoEtapa = anexoNf ? "feito" : "pendente";
   const e5: EstadoEtapa = anexoBoleto ? "feito" : "pendente";
   const e6: EstadoEtapa =
-    parcelas.length === 0 ? (semDado ? "na" : "pendente") : vencidas > 0 ? "atencao" : pagas === parcelas.length ? "feito" : "pendente";
+    parcelas.length === 0
+      ? semDado || semComoSaber
+        ? "na"
+        : "pendente"
+      : vencidas > 0
+        ? "atencao"
+        : pagas === parcelas.length
+          ? "feito"
+          : "pendente";
 
   const regua = [
     { titulo: "Nota fiscal", estado: e1 },
@@ -370,11 +381,13 @@ function Etapas({
                   : `Lançada · achada em ${n.alvo_fonte ?? "espelho do Alvo"}`
                 : semDado
                   ? `Sem dado do Alvo (nota anterior a ${espelhoDesde})`
-                  : "Não encontrada no Alvo"
+                  : semComoSaber
+                    ? "Sem como saber — nota sem venda"
+                    : "Não encontrada no Alvo"
           }
           colRef={ref(2)}
           rodape={
-            !lancada && !semDado ? (
+            !lancada && !semDado && !semComoSaber ? (
               <div className="flex w-full items-center justify-between gap-2">
                 <Button size="sm" className="h-7 gap-1 text-xs" disabled title="O lançamento pelo Hub está em definição">
                   <Send className="h-3 w-3" /> Em breve
@@ -412,6 +425,12 @@ function Etapas({
             </>
           ) : semDado ? (
             <Aviso>O espelho do Alvo no Hub começa em {espelhoDesde}. Não dá para saber se esta nota foi lançada.</Aviso>
+          ) : semComoSaber ? (
+            <Aviso>
+              Nota sem CFOP de venda ({cfops.join(", ") || "sem CFOP"}) — remessa, retorno, consignação ou similar. O Hub só
+              enxerga no Alvo os lançamentos com título a pagar ou pedido: se ela foi lançada sem título, não aparece aqui.
+              Confira no Alvo.
+            </Aviso>
           ) : (
             <>
               <Aviso tom="atencao">
@@ -469,7 +488,9 @@ function Etapas({
             parcelas.length === 0
               ? semDado
                 ? "Sem dado do Alvo"
-                : "Sem título no contas a pagar"
+                : semComoSaber
+                  ? "Sem título (nota sem venda)"
+                  : "Sem título no contas a pagar"
               : `DocFin ${parcelas[0].chave_docfin ?? "—"} · ${pagas}/${parcelas.length} paga${parcelas.length > 1 ? "s" : ""}`
           }
           colRef={ref(5)}
@@ -491,7 +512,9 @@ function Etapas({
             <Aviso>
               {semDado
                 ? `O espelho do contas a pagar começa em ${espelhoDesde}.`
-                : "A nota ainda não tem título no contas a pagar do Alvo. Depois do lançamento, o título aparece na próxima leitura (06h40 ou 12h40, dias úteis)."}
+                : semComoSaber
+                  ? "Nota sem venda normalmente não gera título no contas a pagar."
+                  : "A nota ainda não tem título no contas a pagar do Alvo. Depois do lançamento, o título aparece na próxima leitura (06h40 ou 12h40, dias úteis)."}
             </Aviso>
           )}
         </Coluna>

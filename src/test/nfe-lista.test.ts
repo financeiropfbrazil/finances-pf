@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   cfopsDaNota,
   notaCasaBusca,
+  notaFaturavel,
+  situacaoAlvoDaNota,
   pedidosCitadosNosItens,
   resumoErrosUpload,
   type NotaBuscavel,
@@ -64,5 +66,26 @@ describe("lista de NF-e (NFE-7)", () => {
     expect(resumoErrosUpload([])).toBeNull();
     expect(resumoErrosUpload(["a.xml: sem chave"])).toBe("a.xml: sem chave");
     expect(resumoErrosUpload(["a: x", "b: y", "c: z", "d: w"])).toBe("a: x · b: y · e mais 2");
+  });
+
+  it("venda pelo mesmo critério das RPCs; nota sem itens conta como venda (NFE-8)", () => {
+    expect(notaFaturavel(nota)).toBe(true); // 5102 + 5949
+    expect(notaFaturavel({ dados_extraidos: { itens: [{ cfop: "5949" }, { cfop: "5916" }] } })).toBe(false);
+    expect(notaFaturavel({ dados_extraidos: { itens: [{ cfop: "6918" }] } })).toBe(false);
+    expect(notaFaturavel({ dados_extraidos: { itens: [{ cfop: "5405" }] } })).toBe(true);
+    expect(notaFaturavel({ dados_extraidos: { itens: [{ cfop: "6933" }] } })).toBe(true);
+    expect(notaFaturavel({ dados_extraidos: { itens: [] } })).toBe(true);
+  });
+
+  it("No Alvo na lista: lançada › sem dado (antes do espelho) › sem como saber (sem venda) › não encontrada", () => {
+    const remessa = { data_emissao: "2026-10-30", dados_extraidos: { itens: [{ cfop: "5949" }] } };
+    const venda = { data_emissao: "2026-10-30", dados_extraidos: { itens: [{ cfop: "5102" }] } };
+    const antiga = { ...venda, data_emissao: "2025-12-15" };
+    expect(situacaoAlvoDaNota(true, remessa, "2026-01-01")).toBe("lancada");
+    expect(situacaoAlvoDaNota(false, antiga, "2026-01-01")).toBe("sem_dado_alvo");
+    expect(situacaoAlvoDaNota(false, remessa, "2026-01-01")).toBe("sem_como_saber");
+    expect(situacaoAlvoDaNota(false, venda, "2026-01-01")).toBe("nao_encontrada");
+    // sem a data do espelho (consulta falhou), a nota antiga com venda volta a "não encontrada", como antes
+    expect(situacaoAlvoDaNota(false, antiga, null)).toBe("nao_encontrada");
   });
 });

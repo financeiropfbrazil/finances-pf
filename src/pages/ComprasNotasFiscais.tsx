@@ -33,6 +33,7 @@ import {
   Link as LinkIcon,
   Unlink,
   RefreshCw,
+  HelpCircle,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
@@ -40,11 +41,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { VincularPedidoNfeDialog } from "@/components/compras/VincularPedidoNfeDialog";
 import { UploadXmlButton } from "@/components/compras/UploadXmlButton";
 import { listarNfeNoAlvo, type NfeNoAlvo } from "@/services/comprasNfeNoAlvoService";
-import { buscarXmlNfe, desvincularPedidosNfe, listarNotasDoPeriodo } from "@/services/nfeRecebidasService";
+import {
+  buscarEspelhoAlvoDesde,
+  buscarXmlNfe,
+  desvincularPedidosNfe,
+  listarNotasDoPeriodo,
+} from "@/services/nfeRecebidasService";
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { NfeDetalheEtapas, chaveDetalheNfe } from "@/components/nfe/NfeDetalheEtapas";
 import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
-import { cfopsDaNota, notaCasaBusca } from "@/components/nfe/nfeLista";
+import { cfopsDaNota, notaCasaBusca, situacaoAlvoDaNota, type SituacaoAlvoLista } from "@/components/nfe/nfeLista";
 import { formatInstanteBrt } from "@/components/nfse/nfseFormatos";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -180,10 +186,13 @@ const ComprasNotasFiscais = () => {
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get("busca") ?? "");
   // Dois eixos, cada filtro diz qual pergunta faz (regra LIVRO × ESPELHO do CLAUDE.md):
   // "No Alvo" = o Alvo já tem a nota? (espelho) · "Pedido no Hub" = vínculo feito nesta tela.
-  const [filtroAlvo, setFiltroAlvo] = useState<"todas" | "lancada" | "nao_encontrada">("todas");
+  // NFE-8: "sem como saber" junta a nota sem venda não achada e a nota anterior ao espelho do Alvo.
+  const [filtroAlvo, setFiltroAlvo] = useState<"todas" | "lancada" | "nao_encontrada" | "sem_como_saber">("todas");
   const [filtroVinculo, setFiltroVinculo] = useState<"todos" | "vinculada" | "sem_vinculo">("todos");
   const [noAlvo, setNoAlvo] = useState<Map<string, NfeNoAlvo>>(new Map());
   const [erroAlvo, setErroAlvo] = useState<string | null>(null);
+  /** Início do espelho do contas a pagar (NFE-8). Sem ela, nenhuma nota vira "Sem dado do Alvo" (como antes). */
+  const [espelhoDesde, setEspelhoDesde] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [xmlDialog, setXmlDialog] = useState<{
     open: boolean;
@@ -212,10 +221,12 @@ const ComprasNotasFiscais = () => {
     setLoadingRows(true);
     const startDate = periodo.de;
     const endDate = periodo.ate;
-    const [resNotas, resAlvo] = await Promise.allSettled([
+    const [resNotas, resAlvo, resEspelho] = await Promise.allSettled([
       listarNotasDoPeriodo<NfeRow>(startDate, endDate),
       listarNfeNoAlvo(startDate, endDate),
+      buscarEspelhoAlvoDesde(),
     ]);
+    setEspelhoDesde(resEspelho.status === "fulfilled" ? resEspelho.value : null);
     if (resNotas.status === "rejected") {
       toast({ title: "Erro", description: String(resNotas.reason), variant: "destructive" });
     } else {
@@ -252,11 +263,21 @@ const ComprasNotasFiscais = () => {
     }
   };
 
+  /** "No Alvo" de cada nota (NFE-8): lançada · não encontrada · sem como saber (sem venda) · sem dado do Alvo. */
+  const situacaoAlvo = useMemo(() => {
+    const m = new Map<string, SituacaoAlvoLista>();
+    for (const r of rows) m.set(r.id, situacaoAlvoDaNota(noAlvo.has(r.id), r, espelhoDesde));
+    return m;
+  }, [rows, noAlvo, espelhoDesde]);
+
   // ── Filtering ──
   const filtered = useMemo(() => {
     let list = rows;
     if (filtroAlvo !== "todas" && !erroAlvo) {
-      list = list.filter((r) => (noAlvo.has(r.id) ? "lancada" : "nao_encontrada") === filtroAlvo);
+      list = list.filter((r) => {
+        const s = situacaoAlvo.get(r.id);
+        return (s === "sem_dado_alvo" ? "sem_como_saber" : s) === filtroAlvo;
+      });
     }
     if (filtroVinculo !== "todos") {
       list = list.filter((r) => (estaVinculada(r) ? "vinculada" : "sem_vinculo") === filtroVinculo);
@@ -265,16 +286,18 @@ const ComprasNotasFiscais = () => {
       list = list.filter((r) => notaCasaBusca(r, searchTerm));
     }
     return list;
-  }, [rows, filtroAlvo, filtroVinculo, searchTerm, noAlvo, erroAlvo]);
+  }, [rows, filtroAlvo, filtroVinculo, searchTerm, situacaoAlvo, erroAlvo]);
 
   const summary = useMemo(() => {
     const total = rows.length;
-    const lancadas = rows.filter((r) => noAlvo.has(r.id)).length;
-    const naoEncontradas = total - lancadas;
+    const conta = (q: (s: SituacaoAlvoLista | undefined) => boolean) => rows.filter((r) => q(situacaoAlvo.get(r.id))).length;
+    const lancadas = conta((s) => s === "lancada");
+    const naoEncontradas = conta((s) => s === "nao_encontrada");
+    const semComoSaber = conta((s) => s === "sem_como_saber" || s === "sem_dado_alvo");
     const vinculadas = rows.filter(estaVinculada).length;
     const valorTotal = rows.reduce((s, r) => s + (r.valor_total || 0), 0);
-    return { total, lancadas, naoEncontradas, vinculadas, valorTotal };
-  }, [rows, noAlvo]);
+    return { total, lancadas, naoEncontradas, semComoSaber, vinculadas, valorTotal };
+  }, [rows, situacaoAlvo]);
 
   const footerTotal = useMemo(() => filtered.reduce((s, r) => s + (r.valor_total || 0), 0), [filtered]);
 
@@ -294,7 +317,10 @@ const ComprasNotasFiscais = () => {
         return;
       }
       const filtros = [
-        filtroAlvo !== "todas" && (filtroAlvo === "lancada" ? "No Alvo: lançadas" : "No Alvo: não encontradas"),
+        filtroAlvo !== "todas" &&
+          ({ lancada: "No Alvo: lançadas", nao_encontrada: "No Alvo: não encontradas", sem_como_saber: "No Alvo: sem como saber" } as const)[
+            filtroAlvo
+          ],
         filtroVinculo !== "todos" && (filtroVinculo === "vinculada" ? "Pedido no Hub: vinculado" : "Pedido no Hub: sem vínculo"),
         searchTerm.trim() && `Busca: "${searchTerm.trim()}"`,
       ].filter(Boolean) as string[];
@@ -315,6 +341,27 @@ const ComprasNotasFiscais = () => {
         </Badge>
       );
     const a = noAlvo.get(r.id);
+    const sit = situacaoAlvo.get(r.id);
+    if (!a && sit === "sem_dado_alvo")
+      return (
+        <Badge
+          variant="outline"
+          className="text-[10px] border-dashed text-muted-foreground"
+          title={`O espelho do Alvo no Hub começa em ${formatDate(espelhoDesde)}: não dá para saber se esta nota foi lançada.`}
+        >
+          Sem dado do Alvo
+        </Badge>
+      );
+    if (!a && sit === "sem_como_saber")
+      return (
+        <Badge
+          variant="outline"
+          className="text-[10px] border-dashed text-muted-foreground"
+          title="Nota sem CFOP de venda (remessa, retorno, consignação, bonificação…). O Hub só enxerga no Alvo os lançamentos com título a pagar ou pedido: se ela foi lançada sem título, não aparece aqui. Confira no Alvo."
+        >
+          Sem como saber
+        </Badge>
+      );
     if (a)
       return (
         <Badge
@@ -392,11 +439,12 @@ const ComprasNotasFiscais = () => {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
           { label: "Total NF-e", value: summary.total, icon: Hash },
           { label: "No Alvo: lançadas", value: erroAlvo ? "?" : summary.lancadas, icon: CheckCircle2 },
           { label: "No Alvo: não encontradas", value: erroAlvo ? "?" : summary.naoEncontradas, icon: XCircle },
+          { label: "No Alvo: sem como saber", value: erroAlvo ? "?" : summary.semComoSaber, icon: HelpCircle },
           { label: "Pedido vinculado no Hub", value: summary.vinculadas, icon: LinkIcon },
           { label: "Valor Total", value: formatCurrency(summary.valorTotal), icon: Package },
         ].map((c) => (
@@ -428,6 +476,7 @@ const ComprasNotasFiscais = () => {
             <SelectItem value="todas">No Alvo: todas</SelectItem>
             <SelectItem value="lancada">No Alvo: lançadas</SelectItem>
             <SelectItem value="nao_encontrada">No Alvo: não encontradas</SelectItem>
+            <SelectItem value="sem_como_saber">No Alvo: sem como saber</SelectItem>
           </SelectContent>
         </Select>
         <Select value={filtroVinculo} onValueChange={(v) => setFiltroVinculo(v as typeof filtroVinculo)}>
@@ -444,7 +493,7 @@ const ComprasNotasFiscais = () => {
       <p className="text-[11px] text-muted-foreground -mt-4">
         {erroAlvo
           ? `Não foi possível consultar o Alvo agora (${erroAlvo}). A coluna "No Alvo" ficou como "?".`
-          : "No Alvo: conferido nos espelhos do Alvo — o contas a pagar é lido às 06h40 e às 12h40 (dias úteis), então a nota lançada aparece na leitura seguinte. Remessa, retorno e bonificação sem título a pagar podem não aparecer. Situação no fisco não é acompanhada (a Riosoft envia a nota já autorizada)."}
+          : "No Alvo: conferido nos espelhos do Alvo — o contas a pagar é lido às 06h40 e às 12h40 (dias úteis), então a nota lançada aparece na leitura seguinte. “Sem como saber”: nota sem CFOP de venda (remessa, retorno, consignação, bonificação…) que o Hub não acha — o espelho só vê lançamentos com título a pagar ou pedido. Situação no fisco não é acompanhada (a Riosoft envia a nota já autorizada)."}
       </p>
 
       {/* Tabela */}

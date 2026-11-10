@@ -47,6 +47,13 @@ export async function listarNotasDoPeriodo<T = Record<string, unknown>>(de: stri
   }
 }
 
+/** Data em que o espelho do contas a pagar do Alvo começa (NFE-8): nota emitida antes = "Sem dado do Alvo". */
+export async function buscarEspelhoAlvoDesde(): Promise<string | null> {
+  const { data, error } = await (supabase as any).rpc("nfe_alvo_espelho_desde");
+  if (error) throw new Error(error.message);
+  return (data as string | null) ?? null;
+}
+
 /** XML autorizado (nfeProc) de uma NF-e — buscado só quando alguém pede para ver ou baixar. */
 export async function buscarXmlNfe(id: string): Promise<string | null> {
   const { data, error } = await supabase.from("compras_nfe").select("raw_xml").eq("id", id).maybeSingle();
