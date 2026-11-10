@@ -94,6 +94,8 @@ function ListaValores({
   opcoes: OpcaoFiltro[];
 }) {
   const [busca, setBusca] = useState("");
+  // Como o filtro estava ao abrir a caixa: apagar a busca volta a ele.
+  const [inicial] = useState(filtro);
   // null = sem filtro (tudo marcado)
   const aceitos = filtro?.tipo === "valores" ? new Set(filtro.aceitos) : null;
   const marcado = (v: string) => (aceitos ? aceitos.has(v) : true);
@@ -113,6 +115,17 @@ function ListaValores({
     else novo.add(v);
     gravar(novo);
   };
+  // Como no Excel, a busca já escolhe só o que ela acha — e a tabela filtra na hora (Pedro, 10/11: "não vejo o
+  // filtro funcionar" ao digitar). Depois dá para desmarcar um ou outro.
+  const buscar = (texto: string) => {
+    setBusca(texto);
+    const t = texto.trim().toLowerCase();
+    if (!t) {
+      onChange(inicial);
+      return;
+    }
+    gravar(new Set(opcoes.filter((o) => o.rotulo.toLowerCase().includes(t)).map((o) => o.valor)));
+  };
   const alternarVisiveis = () => {
     const novo = base();
     for (const o of visiveis) {
@@ -128,9 +141,14 @@ function ListaValores({
         placeholder="Buscar..."
         className="h-7 text-xs"
         value={busca}
-        onChange={(e) => setBusca(e.target.value)}
+        onChange={(e) => buscar(e.target.value)}
         autoFocus
       />
+      {termo && (
+        <p className="px-1 text-[10px] leading-snug text-muted-foreground">
+          A tabela já mostra só o que a busca achou. Desmarque para tirar algum.
+        </p>
+      )}
       <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs font-medium hover:bg-muted">
         <Checkbox checked={todosVisiveisMarcados} onCheckedChange={alternarVisiveis} disabled={visiveis.length === 0} />
         {termo ? "Selecionar os da busca" : "Selecionar tudo"}

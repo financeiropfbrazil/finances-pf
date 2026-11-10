@@ -99,6 +99,13 @@ const clicar = (el: Element) =>
   act(() => {
     el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
+function digitar(el: HTMLInputElement, valor: string) {
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")!.set!;
+  act(() => {
+    setter.call(el, valor);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
 const linhaDoValor = (rotulo: string) =>
   Array.from(document.querySelectorAll("label")).find((l) => (l.textContent ?? "").startsWith(rotulo))!;
 
@@ -127,6 +134,15 @@ describe("filtro no cabeçalho — a caixa (NFE-12)", () => {
   it("com filtro ativo, \"Selecionar tudo\" tira o filtro", () => {
     const onChange = abrir({ tipo: "valores", aceitos: ["5101"] });
     clicar(linhaDoValor("Selecionar tudo").querySelector('[role="checkbox"]')!);
+    expect(onChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("digitar na busca já filtra pelo que ela acha; apagar a busca volta ao que era (Pedro, 10/11)", () => {
+    const onChange = abrir(undefined);
+    const busca = document.querySelector('input[placeholder="Buscar..."]') as HTMLInputElement;
+    digitar(busca, "510");
+    expect(onChange).toHaveBeenLastCalledWith({ tipo: "valores", aceitos: ["5101", "5102"] });
+    digitar(busca, "");
     expect(onChange).toHaveBeenLastCalledWith(undefined);
   });
 });
