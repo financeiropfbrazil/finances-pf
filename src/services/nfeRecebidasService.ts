@@ -26,7 +26,7 @@ const COLUNAS_LISTA =
   "id, numero, serie, chave_acesso, emitente_nome, emitente_cnpj, emitente_ie, emitente_uf, valor_produtos, valor_icms, " +
   "valor_ipi, valor_frete, valor_desconto, valor_total, base_calculo_icms, data_emissao, natureza_operacao, situacao, origem, " +
   "recebido, dados_extraidos, status_lancamento, pedido_compra_numero, pedido_compra_entidade, pedido_compra_classe, " +
-  "pedido_compra_centro_custo, pedido_compra_cond_pagamento, pedido_compra_valor";
+  "pedido_compra_centro_custo, pedido_compra_cond_pagamento, pedido_compra_valor, imported_at";
 
 /** NF-e com emissão entre `de` e `ate` ("YYYY-MM-DD", inclusive), mais recentes primeiro. */
 export async function listarNotasDoPeriodo<T = Record<string, unknown>>(de: string, ate: string): Promise<T[]> {

@@ -44,6 +44,8 @@ import { buscarXmlNfe, desvincularPedidosNfe, listarNotasDoPeriodo } from "@/ser
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { NfeDetalheEtapas, chaveDetalheNfe } from "@/components/nfe/NfeDetalheEtapas";
 import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
+import { cfopsDaNota, notaCasaBusca } from "@/components/nfe/nfeLista";
+import { formatInstanteBrt } from "@/components/nfse/nfseFormatos";
 import { useQueryClient } from "@tanstack/react-query";
 
 // ── Types ──
@@ -89,6 +91,8 @@ interface NfeRow {
   pedido_compra_centro_custo: string | null;
   pedido_compra_cond_pagamento: string | null;
   pedido_compra_valor: number | null;
+  /** Quando a nota chegou ao Hub (leva da Riosoft ou upload manual). */
+  imported_at: string | null;
 }
 
 // ── Helpers ──
@@ -108,19 +112,20 @@ const formatCnpj = (cnpj: string | null) => {
   if (c.length !== 14) return cnpj;
   return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`;
 };
-// A situação no fisco NÃO é acompanhada (PLANO-NFE, regra 2): a nota chega autorizada pela Riosoft e o Hub
-// não consulta a SEFAZ. "normal" é só o valor gravado na chegada — a tela diz isso em vez de "Ativa".
-const situacaoBadge = (sit: string | null) => {
-  const s = (sit || "").toLowerCase();
-  if (s === "cancelada") return <Badge variant="destructive">Cancelada</Badge>;
+/** Dia (dd/mm/aaaa) de um instante, no horário de Brasília. */
+const formatDiaBrt = (iso: string | null | undefined) =>
+  iso ? new Date(iso).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—";
+
+// NFE-7: a coluna "Situação" mostrava sempre "Recebida" — a situação no fisco NÃO é acompanhada (PLANO-NFE, regra 2:
+// a nota chega autorizada pela Riosoft e o Hub não consulta a SEFAZ). No lugar dela, "Chegou em": a data em que a
+// nota entrou no Hub (leva da Riosoft ou upload manual), que mostra o atraso entre a emissão e a chegada.
+const chegouEm = (r: { imported_at: string | null; origem: string | null }) => {
+  const via = r.origem === "Upload" ? "Upload manual" : "Riosoft (Arqimport)";
   return (
-    <Badge
-      variant="outline"
-      className="text-[10px]"
-      title="Autorizada quando chegou. O Hub não acompanha cancelamento no fisco (a Riosoft envia só a nota autorizada)."
-    >
-      Recebida
-    </Badge>
+    <span className="whitespace-nowrap" title={`${via} · ${formatInstanteBrt(r.imported_at)}`}>
+      {formatDiaBrt(r.imported_at)}
+      {r.origem === "Upload" && <span className="ml-1 text-[10px] text-muted-foreground">upload</span>}
+    </span>
   );
 };
 
@@ -257,13 +262,7 @@ const ComprasNotasFiscais = () => {
       list = list.filter((r) => (estaVinculada(r) ? "vinculada" : "sem_vinculo") === filtroVinculo);
     }
     if (searchTerm.trim()) {
-      const s = searchTerm.toLowerCase();
-      list = list.filter(
-        (r) =>
-          (r.emitente_nome || "").toLowerCase().includes(s) ||
-          (r.emitente_cnpj || "").includes(s) ||
-          (r.numero || "").toLowerCase().includes(s),
-      );
+      list = list.filter((r) => notaCasaBusca(r, searchTerm));
     }
     return list;
   }, [rows, filtroAlvo, filtroVinculo, searchTerm, noAlvo, erroAlvo]);
@@ -413,8 +412,8 @@ const ComprasNotasFiscais = () => {
       {/* Filtros */}
       <div className="flex flex-col sm:flex-row gap-2">
         <Input
-          placeholder="Buscar por fornecedor, CNPJ ou número..."
-          className="h-8 text-xs sm:max-w-xs"
+          placeholder="Buscar por fornecedor, CNPJ, número, chave, pedido ou CFOP..."
+          className="h-8 text-xs sm:max-w-sm"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -463,8 +462,13 @@ const ComprasNotasFiscais = () => {
                   <TableHead className="text-xs px-2">Fornecedor</TableHead>
                   <TableHead className="text-xs px-2">CNPJ</TableHead>
                   <TableHead className="text-xs text-right px-2">V. Total</TableHead>
-                  <TableHead className="text-xs px-2">Data</TableHead>
-                  <TableHead className="text-xs px-2">Situação</TableHead>
+                  <TableHead className="text-xs px-2">Emissão</TableHead>
+                  <TableHead className="text-xs px-2" title="CFOP dos itens da nota, como o fornecedor emitiu">
+                    CFOP
+                  </TableHead>
+                  <TableHead className="text-xs px-2" title="Quando a nota chegou ao Hub (leva da Riosoft ou upload)">
+                    Chegou em
+                  </TableHead>
                   <TableHead className="text-xs px-2">No Alvo</TableHead>
                   <TableHead className="text-xs px-2">Pedido no Hub</TableHead>
                   <TableHead className="text-xs px-2">Ações</TableHead>
@@ -473,6 +477,7 @@ const ComprasNotasFiscais = () => {
               <TableBody>
                 {filtered.map((r) => {
                   const itens = (r.dados_extraidos?.itens || []) as NfeItemExtraido[];
+                  const cfops = cfopsDaNota(r);
                   const alvo = noAlvo.get(r.id);
                   return (
                     <TooltipProvider key={r.id}>
@@ -501,7 +506,13 @@ const ComprasNotasFiscais = () => {
                             {formatCurrency(r.valor_total)}
                           </TableCell>
                           <TableCell className="text-xs px-2 tabular-nums">{formatDate(r.data_emissao)}</TableCell>
-                          <TableCell className="px-2">{situacaoBadge(r.situacao)}</TableCell>
+                          <TableCell
+                            className="text-xs font-mono px-2 tabular-nums whitespace-nowrap"
+                            title={r.natureza_operacao || undefined}
+                          >
+                            {cfops.length > 0 ? cfops.join(" · ") : "—"}
+                          </TableCell>
+                          <TableCell className="text-xs px-2 tabular-nums">{chegouEm(r)}</TableCell>
                           <TableCell className="px-2">{noAlvoBadge(r)}</TableCell>
                           <TableCell className="px-2">{vinculoBadge(r)}</TableCell>
                           <TableCell className="px-2" onClick={(e) => e.stopPropagation()}>
@@ -534,7 +545,7 @@ const ComprasNotasFiscais = () => {
 
                         {expandedId === r.id && (
                           <TableRow>
-                            <TableCell colSpan={10} className="p-0">
+                            <TableCell colSpan={11} className="p-0">
                               <NfeDetalheEtapas
                                 nfeId={r.id}
                                 onVerXml={async () => {
@@ -667,7 +678,7 @@ const ComprasNotasFiscais = () => {
                   <TableCell className="text-xs text-right font-semibold tabular-nums">
                     {formatCurrency(footerTotal)}
                   </TableCell>
-                  <TableCell colSpan={5} />
+                  <TableCell colSpan={6} />
                 </TableRow>
               </TableFooter>
             </Table>

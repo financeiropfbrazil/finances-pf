@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, Loader2 } from "lucide-react";
 import { parseNfeXml } from "@/services/parseNfeXml";
 import { importarXmlNfe } from "@/services/nfeRecebidasService";
+import { resumoErrosUpload } from "@/components/nfe/nfeLista";
 
 interface Props {
   onImported: () => void; // chamado após importar (para refazer o fetch da lista)
@@ -51,9 +52,11 @@ export function UploadXmlButton({ onImported }: Props) {
     if (duplicadas) partes.push(`${duplicadas} já existia${duplicadas > 1 ? "m" : ""}`);
     if (erros) partes.push(`${erros} com erro`);
 
+    // NFE-7: o motivo do erro aparece no aviso (antes ia só para o console do navegador).
+    const motivos = resumoErrosUpload(erroDetalhes);
     toast({
       title: "Upload de XML concluído",
-      description: partes.join(" · ") || "Nenhum arquivo processado",
+      description: [partes.join(" · ") || "Nenhum arquivo processado", motivos].filter(Boolean).join(" — "),
       variant: erros > 0 ? "destructive" : undefined,
     });
 
