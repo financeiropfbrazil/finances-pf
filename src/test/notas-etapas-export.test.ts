@@ -32,6 +32,15 @@ describe("download de controle das etapas", () => {
     expect(ok.font?.italic).toBeFalsy();
   });
 
+  it("NF-e traz a coluna CFOP; NFS-e não (NFE-7-A)", async () => {
+    const [c] = await coluna("CFOP", [{ ...base, cfop: "5102 · 5949" }]);
+    expect(c.value).toBe("5102 · 5949");
+    const wb = await montarPlanilhaEtapas("nfse", [base], ctx);
+    const rotulos: unknown[] = [];
+    wb.worksheets[0].getRow(2).eachCell((cel) => rotulos.push(cel.value));
+    expect(rotulos).not.toContain("CFOP");
+  });
+
   it("Dias: pedido → emissão mantém o sinal (negativo = nota antes do pedido)", async () => {
     const [c] = await coluna("Dias: pedido → emissão", [base]);
     expect(c.value).toBe(-1);

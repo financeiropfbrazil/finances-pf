@@ -21,6 +21,8 @@ export interface LinhaEtapas {
   valor: number | null;
   emissao: string | null;
   situacao_fisco?: string | null;
+  /** NF-e: CFOPs dos itens ("5102 · 5949"), montados na tela a partir dos itens da nota (NFE-7-A). */
+  cfop?: string | null;
   pedidos: string | null;
   data_pedido: string | null;
   pedido_aprovado_em: string | null;
@@ -124,6 +126,7 @@ function colunas(tipo: TipoNota): Coluna[] {
     { bloco: "Nota", label: "CNPJ", tipo: "texto", largura: 17, valor: (l) => t(l.cnpj) },
     { bloco: "Nota", label: tipo === "nfe" ? "Valor total" : "Valor do serviço", tipo: "valor", largura: 14, valor: (l) => n(l.valor) },
     { bloco: "Nota", label: "Emissão", tipo: "data", largura: 11, valor: (l) => d(l.emissao) },
+    ...(tipo === "nfe" ? [{ bloco: "Nota", label: "CFOP", tipo: "texto", largura: 12, valor: (l: LinhaEtapas) => t(l.cfop) } as Coluna] : []),
     ...(tipo === "nfse"
       ? [{ bloco: "Nota", label: "Situação no fisco", tipo: "texto", largura: 13, valor: (l: LinhaEtapas) => ROTULO_FISCO[l.situacao_fisco ?? ""] ?? t(l.situacao_fisco) } as Coluna]
       : []),
@@ -184,6 +187,11 @@ export const fmtBR = (iso: string) => {
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 };
+
+const REGRA_CFOP: [string, string] = [
+  "CFOP",
+  "CFOPs dos itens da nota, como o fornecedor emitiu, sem repetir (5xxx = dentro do estado, 6xxx = fora). Na tela, a natureza da operação aparece ao passar o mouse.",
+];
 
 const REGRAS: [string, string][] = [
   ["Período", "Pela data de emissão da nota, inclusive. É o período escolhido na tela no momento do download."],
@@ -335,7 +343,9 @@ export async function montarPlanilhaEtapas(tipo: TipoNota, linhas: LinhaEtapas[]
     ["Notas exportadas", String(linhas.length)],
     ["Exportado em", new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) + " (Brasília)"],
     ["", ""],
-    ...REGRAS,
+    REGRAS[0],
+    ...(tipo === "nfe" ? [REGRA_CFOP] : []),
+    ...REGRAS.slice(1),
   ]);
 
   return wb;

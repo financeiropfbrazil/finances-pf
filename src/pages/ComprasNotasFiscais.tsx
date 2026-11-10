@@ -284,8 +284,11 @@ const ComprasNotasFiscais = () => {
     if (!periodo.de || !periodo.ate) return;
     setBaixando(true);
     try {
-      const ids = new Set(filtered.map((r) => r.id));
-      const linhas = (await buscarRelatorioEtapas("nfe", periodo.de, periodo.ate)).filter((l) => l.id && ids.has(l.id));
+      const porId = new Map(filtered.map((r) => [r.id, r]));
+      // CFOP (NFE-7-A): o mesmo da coluna da tela, montado a partir dos itens que a lista já carregou.
+      const linhas = (await buscarRelatorioEtapas("nfe", periodo.de, periodo.ate))
+        .filter((l) => l.id && porId.has(l.id))
+        .map((l) => ({ ...l, cfop: cfopsDaNota(porId.get(l.id!)!).join(" · ") }));
       if (linhas.length === 0) {
         toast({ title: "Nada para baixar neste filtro" });
         return;
