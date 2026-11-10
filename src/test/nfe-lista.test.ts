@@ -4,6 +4,7 @@ import {
   notaCasaBusca,
   notaFaturavel,
   situacaoAlvoDaNota,
+  diasUteisSemLeva,
   pedidosCitadosNosItens,
   resumoErrosUpload,
   type NotaBuscavel,
@@ -87,5 +88,19 @@ describe("lista de NF-e (NFE-7)", () => {
     expect(situacaoAlvoDaNota(false, venda, "2026-01-01")).toBe("nao_encontrada");
     // sem a data do espelho (consulta falhou), a nota antiga com venda volta a "não encontrada", como antes
     expect(situacaoAlvoDaNota(false, antiga, null)).toBe("nao_encontrada");
+  });
+
+  it("dias úteis sem leva da Riosoft: hoje só conta depois das 13h de Brasília; fim de semana não conta (NFE-10)", () => {
+    // última leva: segunda 09/11/2026 12:02 BRT (15:02 UTC)
+    const seg = "2026-11-09T15:02:07Z";
+    expect(diasUteisSemLeva(seg, new Date("2026-11-10T12:00:00Z"))).toBe(0); // terça 09h BRT: a leva de hoje ainda não veio
+    expect(diasUteisSemLeva(seg, new Date("2026-11-10T17:00:00Z"))).toBe(1); // terça 14h BRT
+    expect(diasUteisSemLeva(seg, new Date("2026-11-11T17:00:00Z"))).toBe(2); // quarta 14h BRT
+    // sexta 06/11 12h BRT → segunda 09/11 10h BRT: sábado e domingo não contam
+    expect(diasUteisSemLeva("2026-11-06T15:00:00Z", new Date("2026-11-09T13:00:00Z"))).toBe(0);
+    expect(diasUteisSemLeva("2026-11-06T15:00:00Z", new Date("2026-11-09T17:00:00Z"))).toBe(1);
+    // leva às 23h BRT (02h UTC do dia seguinte) é do dia em Brasília
+    expect(diasUteisSemLeva("2026-11-10T02:00:00Z", new Date("2026-11-10T17:00:00Z"))).toBe(1);
+    expect(diasUteisSemLeva(null)).toBeNull();
   });
 });

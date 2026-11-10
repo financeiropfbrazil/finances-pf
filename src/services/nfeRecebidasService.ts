@@ -54,6 +54,20 @@ export async function buscarEspelhoAlvoDesde(): Promise<string | null> {
   return (data as string | null) ?? null;
 }
 
+/** Quando chegou a última nota da Riosoft (Arqimport) — origem 'alvo', gravada pela Edge `receber-nfe` (NFE-10). */
+export async function buscarUltimaLevaRiosoft(): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("compras_nfe")
+    .select("imported_at")
+    .ilike("origem", "alvo")
+    .not("imported_at", "is", null)
+    .order("imported_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { imported_at: string | null } | null)?.imported_at ?? null;
+}
+
 /** XML autorizado (nfeProc) de uma NF-e — buscado só quando alguém pede para ver ou baixar. */
 export async function buscarXmlNfe(id: string): Promise<string | null> {
   const { data, error } = await supabase.from("compras_nfe").select("raw_xml").eq("id", id).maybeSingle();

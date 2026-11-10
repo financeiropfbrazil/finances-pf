@@ -105,6 +105,33 @@ export function situacaoAlvoDaNota(
   return "nao_encontrada";
 }
 
+/** Hora a partir da qual a leva do dia já devia ter chegado (Brasília): a Riosoft manda por volta de 12h00–12h05. */
+export const HORA_LEVA_RIOSOFT = 13;
+
+const diaBrt = (d: Date) => d.toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+const horaBrt = (d: Date) => Number(d.toLocaleString("en-US", { timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23" }));
+
+/**
+ * Dias úteis (seg–sex; feriados não entram na conta) que já passaram sem leva da Riosoft depois da última (NFE-10).
+ * Conta os dias depois do dia da última nota até ontem, e hoje só depois das 13h de Brasília (a leva chega ~12h).
+ */
+export function diasUteisSemLeva(ultimaIso: string | null, agora: Date = new Date()): number | null {
+  if (!ultimaIso) return null;
+  const ultima = new Date(ultimaIso);
+  if (Number.isNaN(ultima.getTime())) return null;
+  const [ua, um, ud] = diaBrt(ultima).split("-").map(Number);
+  const [ha, hm, hd] = diaBrt(agora).split("-").map(Number);
+  const hoje = Date.UTC(ha, hm - 1, hd);
+  const contaHoje = horaBrt(agora) >= HORA_LEVA_RIOSOFT;
+  let n = 0;
+  for (let t = Date.UTC(ua, um - 1, ud) + 86_400_000; t <= hoje; t += 86_400_000) {
+    if (t === hoje && !contaHoje) break;
+    const dia = new Date(t).getUTCDay();
+    if (dia !== 0 && dia !== 6) n++;
+  }
+  return n;
+}
+
 /** Resumo dos erros do upload de XML para o aviso: os 2 primeiros com o motivo, e quantos mais houver. */
 export function resumoErrosUpload(erros: string[]): string | null {
   if (erros.length === 0) return null;

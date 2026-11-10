@@ -34,6 +34,7 @@ import {
   Unlink,
   RefreshCw,
   HelpCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
@@ -43,6 +44,7 @@ import { UploadXmlButton } from "@/components/compras/UploadXmlButton";
 import { listarNfeNoAlvo, type NfeNoAlvo } from "@/services/comprasNfeNoAlvoService";
 import {
   buscarEspelhoAlvoDesde,
+  buscarUltimaLevaRiosoft,
   buscarXmlNfe,
   desvincularPedidosNfe,
   listarNotasDoPeriodo,
@@ -50,7 +52,13 @@ import {
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { NfeDetalheEtapas, chaveDetalheNfe } from "@/components/nfe/NfeDetalheEtapas";
 import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
-import { cfopsDaNota, notaCasaBusca, situacaoAlvoDaNota, type SituacaoAlvoLista } from "@/components/nfe/nfeLista";
+import {
+  cfopsDaNota,
+  diasUteisSemLeva,
+  notaCasaBusca,
+  situacaoAlvoDaNota,
+  type SituacaoAlvoLista,
+} from "@/components/nfe/nfeLista";
 import { formatInstanteBrt } from "@/components/nfse/nfseFormatos";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -193,6 +201,8 @@ const ComprasNotasFiscais = () => {
   const [erroAlvo, setErroAlvo] = useState<string | null>(null);
   /** Início do espelho do contas a pagar (NFE-8). Sem ela, nenhuma nota vira "Sem dado do Alvo" (como antes). */
   const [espelhoDesde, setEspelhoDesde] = useState<string | null>(null);
+  /** Última nota recebida da Riosoft (NFE-10). undefined = não deu para consultar (o aviso some). */
+  const [ultimaLeva, setUltimaLeva] = useState<string | null | undefined>(undefined);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [xmlDialog, setXmlDialog] = useState<{
     open: boolean;
@@ -221,12 +231,14 @@ const ComprasNotasFiscais = () => {
     setLoadingRows(true);
     const startDate = periodo.de;
     const endDate = periodo.ate;
-    const [resNotas, resAlvo, resEspelho] = await Promise.allSettled([
+    const [resNotas, resAlvo, resEspelho, resLeva] = await Promise.allSettled([
       listarNotasDoPeriodo<NfeRow>(startDate, endDate),
       listarNfeNoAlvo(startDate, endDate),
       buscarEspelhoAlvoDesde(),
+      buscarUltimaLevaRiosoft(),
     ]);
     setEspelhoDesde(resEspelho.status === "fulfilled" ? resEspelho.value : null);
+    setUltimaLeva(resLeva.status === "fulfilled" ? resLeva.value : undefined);
     if (resNotas.status === "rejected") {
       toast({ title: "Erro", description: String(resNotas.reason), variant: "destructive" });
     } else {
@@ -300,6 +312,10 @@ const ComprasNotasFiscais = () => {
   }, [rows, situacaoAlvo]);
 
   const footerTotal = useMemo(() => filtered.reduce((s, r) => s + (r.valor_total || 0), 0), [filtered]);
+
+  // ── Aviso da Riosoft (NFE-10): laranja com 2 dias úteis ou mais sem nota nova ──
+  const diasSemLeva = diasUteisSemLeva(ultimaLeva ?? null);
+  const levaAtrasada = diasSemLeva !== null && diasSemLeva >= 2;
 
   // ── Download de controle das etapas (NFE-6): período e notas da lista no momento do clique ──
   const [baixando, setBaixando] = useState(false);
@@ -412,6 +428,19 @@ const ComprasNotasFiscais = () => {
         <p className="text-muted-foreground">
           NF-e de produto recebidas (via integração ou upload manual de XML) e a situação de cada uma no Alvo.
         </p>
+        {ultimaLeva !== undefined && (
+          <p
+            className={`mt-1 flex items-center gap-1 text-[11px] ${
+              levaAtrasada ? "font-medium text-amber-600" : "text-muted-foreground"
+            }`}
+            title="A Riosoft (Arqimport) manda as notas por volta de 12h nos dias úteis. Laranja: 2 dias úteis ou mais sem nenhuma nota nova (feriados não entram na conta)."
+          >
+            {levaAtrasada && <AlertTriangle className="h-3 w-3 shrink-0" />}
+            Última nota recebida da Riosoft: {ultimaLeva ? formatInstanteBrt(ultimaLeva) : "nenhuma"}
+            {levaAtrasada &&
+              ` — ${diasSemLeva} dias úteis sem nota nova. Pode ser só falta de nota; se continuar, falar com a Riosoft.`}
+          </p>
+        )}
       </div>
 
       {/* Filtros de período */}
