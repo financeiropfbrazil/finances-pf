@@ -193,6 +193,12 @@ const REGRA_CFOP: [string, string] = [
   "CFOPs dos itens da nota, como o fornecedor emitiu, sem repetir (5xxx = dentro do estado, 6xxx = fora). Na tela, a natureza da operação aparece ao passar o mouse.",
 ];
 
+/** NF-e (NFE-8 / NFE-11): sem as etapas de anexo, que são opcionais enquanto não existe o lançamento pelo Hub. */
+const REGRA_ETAPA_NFE: [string, string] = [
+  "Etapa atual",
+  "A 1ª etapa não concluída: 2 · Pedidos · 3 · MovEstq · 6 · DocFin (todas as parcelas pagas) · Concluída. PDF da nota e boleto são opcionais na NF-e enquanto não existe o lançamento pelo Hub (não entram na etapa; as colunas de anexo continuam). Nota sem CFOP de venda (remessa, retorno…) pula pedido e DocFin; se o Hub não a achou no Alvo, sai \"Sem como saber (sem venda)\": o espelho só vê lançamentos com título a pagar ou pedido.",
+];
+
 const REGRAS: [string, string][] = [
   ["Período", "Pela data de emissão da nota, inclusive. É o período escolhido na tela no momento do download."],
   ["Pedido", "Pedido(s) do lançamento no Alvo (MovEstq). Na NF-e ainda não lançada, o pedido vinculado no Hub (botão \"Vincular\"). Sugestões automáticas não entram."],
@@ -345,7 +351,7 @@ export async function montarPlanilhaEtapas(tipo: TipoNota, linhas: LinhaEtapas[]
     ["", ""],
     REGRAS[0],
     ...(tipo === "nfe" ? [REGRA_CFOP] : []),
-    ...REGRAS.slice(1),
+    ...REGRAS.slice(1).map((r) => (tipo === "nfe" && r[0] === "Etapa atual" ? REGRA_ETAPA_NFE : r)),
   ]);
 
   return wb;

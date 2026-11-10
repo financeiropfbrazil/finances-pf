@@ -66,7 +66,8 @@ import { formatBytes, formatCurrency, formatDate, formatDoc, formatInstanteBrt, 
 // ════════════════════════════════════════════════════════════
 // ESTADO DE CADA ETAPA
 // ════════════════════════════════════════════════════════════
-export type EstadoEtapa = "feito" | "pendente" | "atencao" | "na";
+/** "opcional" (NFE-11): etapa que ainda não é cobrada — hoje só os anexos da NF-e; a NFS-e não usa. */
+export type EstadoEtapa = "feito" | "pendente" | "atencao" | "na" | "opcional";
 
 export const ESTADO: Record<EstadoEtapa, { rotulo: string; barra: string; chip: string; circulo: string; linha: string }> = {
   feito: {
@@ -95,6 +96,13 @@ export const ESTADO: Record<EstadoEtapa, { rotulo: string; barra: string; chip: 
     barra: "bg-border",
     chip: "border-border bg-muted text-muted-foreground",
     circulo: "border-border bg-background text-muted-foreground",
+    linha: "bg-border",
+  },
+  opcional: {
+    rotulo: "Opcional",
+    barra: "bg-border",
+    chip: "border-dashed border-border bg-background text-muted-foreground",
+    circulo: "border-dashed border-border bg-background text-muted-foreground",
     linha: "bg-border",
   },
 };

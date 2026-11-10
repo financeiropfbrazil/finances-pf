@@ -41,6 +41,20 @@ describe("download de controle das etapas", () => {
     expect(rotulos).not.toContain("CFOP");
   });
 
+  it("aba Sobre: na NF-e a etapa atual não conta os anexos (opcionais); na NFS-e continua (NFE-11)", async () => {
+    const regra = async (tipo: "nfe" | "nfse") => {
+      const sobre = (await montarPlanilhaEtapas(tipo, [base], ctx)).getWorksheet("Sobre")!;
+      let texto = "";
+      sobre.eachRow((r) => {
+        if (r.getCell(1).value === "Etapa atual") texto = String(r.getCell(2).value);
+      });
+      return texto;
+    };
+    expect(await regra("nfe")).toContain("opcionais na NF-e");
+    expect(await regra("nfe")).not.toContain("4 · PDF da nota");
+    expect(await regra("nfse")).toContain("4 · PDF da nota");
+  });
+
   it("Dias: pedido → emissão mantém o sinal (negativo = nota antes do pedido)", async () => {
     const [c] = await coluna("Dias: pedido → emissão", [base]);
     expect(c.value).toBe(-1);

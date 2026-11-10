@@ -172,8 +172,9 @@ function Etapas({
           ? "pendente"
           : "atencao";
   const e3: EstadoEtapa = lancada ? "feito" : semDado || semComoSaber ? "na" : "pendente";
-  const e4: EstadoEtapa = anexoNf ? "feito" : "pendente";
-  const e5: EstadoEtapa = anexoBoleto ? "feito" : "pendente";
+  // NFE-11: DANFE e boleto ficam opcionais enquanto o lançamento da NF-e pelo Hub não existe (nenhum anexo desde 30/10).
+  const e4: EstadoEtapa = anexoNf ? "feito" : "opcional";
+  const e5: EstadoEtapa = anexoBoleto ? "feito" : "opcional";
   const e6: EstadoEtapa =
     parcelas.length === 0
       ? semDado || semComoSaber
@@ -456,7 +457,7 @@ function Etapas({
           titulo="DANFE"
           icone={<Paperclip className="h-4 w-4" />}
           estado={e4}
-          resumo={anexoNf ? "Anexado" : "Aguardando o PDF da nota (DANFE)"}
+          resumo={anexoNf ? "Anexado" : "Opcional por enquanto — anexe se tiver o PDF da nota (DANFE)"}
           colRef={ref(3)}
         >
           <AreaAnexo chave={n.chave_acesso} tipo="nf" anexo={anexoNf} onMudou={onAtualizar} acoes={ACOES_NFE} />
@@ -468,13 +469,13 @@ function Etapas({
           titulo="PDF do boleto"
           icone={<Receipt className="h-4 w-4" />}
           estado={e5}
-          resumo={anexoBoleto ? "Anexado" : "Aguardando o boleto"}
+          resumo={anexoBoleto ? "Anexado" : "Opcional por enquanto — anexe se tiver o boleto"}
           colRef={ref(4)}
         >
           <AreaAnexo chave={n.chave_acesso} tipo="boleto" anexo={anexoBoleto} onMudou={onAtualizar} acoes={ACOES_NFE} />
           <LeituraBoleto key={anexoBoleto?.id ?? "sem-anexo"} anexo={anexoBoleto} leitor={lerBoletoNfe} />
           <p className="text-[10px] leading-snug text-muted-foreground">
-            Será pré-requisito para lançar a nota pelo Hub (regra em definição).
+            Opcional enquanto não existe o lançamento da NF-e pelo Hub; quando existir, poderá virar pré-requisito.
           </p>
         </Coluna>
 
