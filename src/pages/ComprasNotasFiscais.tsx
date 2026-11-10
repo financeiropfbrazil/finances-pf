@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +60,15 @@ import {
   type SituacaoAlvoLista,
 } from "@/components/nfe/nfeLista";
 import { formatInstanteBrt } from "@/components/nfse/nfseFormatos";
+import { FiltroCabecalho, type OpcaoFiltro } from "@/components/FiltroCabecalho";
+import {
+  aplicarFiltros,
+  descreverFiltros,
+  filtroAtivo,
+  opcoesDaColuna,
+  type DefColuna,
+  type FiltrosColunas,
+} from "@/lib/filtroColunas";
 import { useQueryClient } from "@tanstack/react-query";
 
 // ── Types ──
@@ -126,6 +135,18 @@ const formatCnpj = (cnpj: string | null) => {
   if (c.length !== 14) return cnpj;
   return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`;
 };
+/** Dia ("YYYY-MM-DD") de um instante, no horário de Brasília. */
+const diaIsoBrt = (iso: string) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+
+/** Rótulos e ordem do "No Alvo" no filtro do cabeçalho (NFE-12). */
+const ROTULO_ALVO: Record<SituacaoAlvoLista, string> = {
+  lancada: "Lançada",
+  nao_encontrada: "Não encontrada",
+  sem_como_saber: "Sem como saber",
+  sem_dado_alvo: "Sem dado do Alvo",
+};
+const ORDEM_ALVO: string[] = ["lancada", "nao_encontrada", "sem_como_saber", "sem_dado_alvo"];
+
 /** Dia (dd/mm/aaaa) de um instante, no horário de Brasília. */
 const formatDiaBrt = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—";
@@ -282,8 +303,63 @@ const ComprasNotasFiscais = () => {
     return m;
   }, [rows, noAlvo, espelhoDesde]);
 
+  // ── Filtro no cabeçalho (NFE-12): estilo Excel, em cascata; some quando o período muda ──
+  const [filtrosColuna, setFiltrosColuna] = useState<FiltrosColunas>({});
+  useEffect(() => {
+    setFiltrosColuna({});
+  }, [periodo.de, periodo.ate]);
+  const colunasFiltro = useMemo<DefColuna<NfeRow>[]>(
+    () => [
+      { id: "numero", rotulo: "Número", tipo: "texto", texto: (r) => r.numero ?? "" },
+      { id: "fornecedor", rotulo: "Fornecedor", tipo: "valores", valores: (r) => (r.emitente_nome ? [r.emitente_nome] : []) },
+      { id: "cnpj", rotulo: "CNPJ", tipo: "valores", valores: (r) => (r.emitente_cnpj ? [r.emitente_cnpj] : []), rotuloValor: formatCnpj },
+      { id: "valor", rotulo: "V. Total", tipo: "intervalo", numero: (r) => r.valor_total },
+      {
+        id: "emissao",
+        rotulo: "Emissão",
+        tipo: "valores",
+        valores: (r) => (r.data_emissao ? [r.data_emissao] : []),
+        rotuloValor: formatDate,
+        ordem: (a, b) => b.localeCompare(a),
+      },
+      { id: "cfop", rotulo: "CFOP", tipo: "valores", valores: (r) => cfopsDaNota(r) },
+      {
+        id: "chegou",
+        rotulo: "Chegou em",
+        tipo: "valores",
+        valores: (r) => (r.imported_at ? [diaIsoBrt(r.imported_at)] : []),
+        rotuloValor: formatDate,
+        ordem: (a, b) => b.localeCompare(a),
+      },
+      {
+        id: "alvo",
+        rotulo: "No Alvo",
+        tipo: "valores",
+        valores: (r) => {
+          const s = situacaoAlvo.get(r.id);
+          return s ? [s] : [];
+        },
+        rotuloValor: (v) => ROTULO_ALVO[v as SituacaoAlvoLista] ?? v,
+        ordem: (a, b) => ORDEM_ALVO.indexOf(a) - ORDEM_ALVO.indexOf(b),
+      },
+      {
+        id: "pedido",
+        rotulo: "Pedido no Hub",
+        tipo: "valores",
+        valores: (r) => (r.status_lancamento === "vinculada" && r.pedido_compra_numero ? [r.pedido_compra_numero] : []),
+      },
+    ],
+    [situacaoAlvo],
+  );
+  // Sem resposta do Alvo, o filtro "No Alvo" não vale (como o seletor de cima).
+  const defsAtivas = useMemo(
+    () => (erroAlvo ? colunasFiltro.filter((d) => d.id !== "alvo") : colunasFiltro),
+    [colunasFiltro, erroAlvo],
+  );
+  const nFiltrosColuna = defsAtivas.filter((d) => filtroAtivo(filtrosColuna[d.id])).length;
+
   // ── Filtering ──
-  const filtered = useMemo(() => {
+  const filtradaTopo = useMemo(() => {
     let list = rows;
     if (filtroAlvo !== "todas" && !erroAlvo) {
       list = list.filter((r) => {
@@ -299,6 +375,38 @@ const ComprasNotasFiscais = () => {
     }
     return list;
   }, [rows, filtroAlvo, filtroVinculo, searchTerm, situacaoAlvo, erroAlvo]);
+  const filtered = useMemo(
+    () => aplicarFiltros(filtradaTopo, defsAtivas, filtrosColuna),
+    [filtradaTopo, defsAtivas, filtrosColuna],
+  );
+  /** Opções de cada coluna de lista, em cascata (das notas que passam nos OUTROS filtros). */
+  const opcoesColuna = useMemo(() => {
+    const m: Record<string, OpcaoFiltro[]> = {};
+    for (const d of colunasFiltro) {
+      if (d.tipo === "valores") m[d.id] = opcoesDaColuna(aplicarFiltros(filtradaTopo, defsAtivas, filtrosColuna, d.id), d);
+    }
+    return m;
+  }, [colunasFiltro, defsAtivas, filtradaTopo, filtrosColuna]);
+  const cabecalho = (id: string, conteudo: ReactNode, opts?: { title?: string; direita?: boolean }) => {
+    const def = colunasFiltro.find((d) => d.id === id)!;
+    return (
+      <TableHead className={`text-xs px-2 ${opts?.direita ? "text-right" : ""}`} title={opts?.title}>
+        <div className={`flex items-center ${opts?.direita ? "justify-end" : ""}`}>
+          <span>{conteudo}</span>
+          <FiltroCabecalho
+            rotulo={def.rotulo}
+            tipo={def.tipo}
+            filtro={filtrosColuna[id]}
+            onChange={(f) => setFiltrosColuna((prev) => ({ ...prev, [id]: f }))}
+            opcoes={opcoesColuna[id]}
+            alinhar={opts?.direita ? "end" : "start"}
+            desabilitado={id === "alvo" && !!erroAlvo}
+            motivoDesabilitado="Sem resposta do Alvo agora — o filtro de No Alvo não vale"
+          />
+        </div>
+      </TableHead>
+    );
+  };
 
   const summary = useMemo(() => {
     const total = rows.length;
@@ -339,6 +447,7 @@ const ComprasNotasFiscais = () => {
           ],
         filtroVinculo !== "todos" && (filtroVinculo === "vinculada" ? "Pedido no Hub: vinculado" : "Pedido no Hub: sem vínculo"),
         searchTerm.trim() && `Busca: "${searchTerm.trim()}"`,
+        ...descreverFiltros(defsAtivas, filtrosColuna),
       ].filter(Boolean) as string[];
       const r = await exportarEtapasXLSX("nfe", linhas, { de: periodo.de, ate: periodo.ate, filtros });
       toast({ title: "Excel baixado", description: `${r.linhas} nota(s) · ${r.arquivo}` });
@@ -518,6 +627,11 @@ const ComprasNotasFiscais = () => {
             <SelectItem value="sem_vinculo">Pedido no Hub: sem vínculo</SelectItem>
           </SelectContent>
         </Select>
+        {nFiltrosColuna > 0 && (
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setFiltrosColuna({})}>
+            Limpar filtros das colunas ({nFiltrosColuna})
+          </Button>
+        )}
       </div>
       <p className="text-[11px] text-muted-foreground -mt-4">
         {erroAlvo
@@ -532,30 +646,33 @@ const ComprasNotasFiscais = () => {
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
-          ) : filtered.length === 0 ? (
+          ) : rows.length === 0 ? (
             <div className="text-center py-12 text-sm text-muted-foreground">Nenhuma NF-e encontrada no período.</div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-6 px-1" />
-                  <TableHead className="text-xs px-2">Número</TableHead>
-                  <TableHead className="text-xs px-2">Fornecedor</TableHead>
-                  <TableHead className="text-xs px-2">CNPJ</TableHead>
-                  <TableHead className="text-xs text-right px-2">V. Total</TableHead>
-                  <TableHead className="text-xs px-2">Emissão</TableHead>
-                  <TableHead className="text-xs px-2" title="CFOP dos itens da nota, como o fornecedor emitiu">
-                    CFOP
-                  </TableHead>
-                  <TableHead className="text-xs px-2" title="Quando a nota chegou ao Hub (leva da Riosoft ou upload)">
-                    Chegou em
-                  </TableHead>
-                  <TableHead className="text-xs px-2">No Alvo</TableHead>
-                  <TableHead className="text-xs px-2">Pedido no Hub</TableHead>
+                  {cabecalho("numero", "Número")}
+                  {cabecalho("fornecedor", "Fornecedor")}
+                  {cabecalho("cnpj", "CNPJ")}
+                  {cabecalho("valor", "V. Total", { direita: true })}
+                  {cabecalho("emissao", "Emissão")}
+                  {cabecalho("cfop", "CFOP", { title: "CFOP dos itens da nota, como o fornecedor emitiu" })}
+                  {cabecalho("chegou", "Chegou em", { title: "Quando a nota chegou ao Hub (leva da Riosoft ou upload)" })}
+                  {cabecalho("alvo", "No Alvo")}
+                  {cabecalho("pedido", "Pedido no Hub")}
                   <TableHead className="text-xs px-2">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {filtered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={11} className="py-10 text-center text-sm text-muted-foreground">
+                      Nenhuma NF-e com esses filtros.
+                    </TableCell>
+                  </TableRow>
+                )}
                 {filtered.map((r) => {
                   const itens = (r.dados_extraidos?.itens || []) as NfeItemExtraido[];
                   const cfops = cfopsDaNota(r);
