@@ -4,8 +4,12 @@
  *
  * Mudanças vs versão single-pedido:
  *  - Multi-seleção via Checkbox (era RadioGroup, 1 só).
- *  - Filtro: apenas pedidos APROVADOS 100% (status=Aberto + status_aprovacao=
- *    Finalizada + aprovado=Total). Sem filtro de "comprado".
+ *  - Filtro: pedidos APROVADOS 100% (status_aprovacao=Finalizada + aprovado=Total) que não estão Cancelados
+ *    nem Encerrados no Alvo (entra o "Pendente") nem excluídos do Alvo. Sem filtro de "comprado".
+ *  - NFE-9 (10/11/2026): mesma régua dos candidatos da etapa 2 (RPC nfe_recebida_detalhe) — antes o diálogo só
+ *    aceitava status "Aberto" e sugeria por ±5% do valor total, e o pedido que a etapa 2 sugeria podia nem aparecer
+ *    (ex.: NF 892720 → pedido 0003659 "Pendente"). Agora "Sugerido" = candidato da etapa 2, e os candidatos sempre
+ *    aparecem no topo (mesmo de outro CNPJ da mesma raiz ou ainda não aprovados, com o aviso).
  *  - Grava N vínculos na tabela compras_nfe_pedidos (A2).
  *  - Pedido PRINCIPAL = primeiro selecionado → preenche as colunas legadas
  *    pedido_compra_* em compras_nfe (compatibilidade) + is_principal=true.
@@ -16,9 +20,12 @@
  * em 19/10/2026 (NFE-S1): a nota é lançada direto no Alvo.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { vincularPedidosNfe } from "@/services/nfeRecebidasService";
+import { buscarDetalheNfe, vincularPedidosNfe } from "@/services/nfeRecebidasService";
+import type { PedidoCandidato } from "@/services/nfseRecebidasService";
+import { chaveDetalheNfe } from "@/components/nfe/NfeDetalheEtapas";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +36,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, Link as LinkIcon, Search, Sparkles } from "lucide-react";
 
-const TOLERANCIA_VALOR = 0.05; // ±5% para a sugestão de match por valor
+/** Status do Alvo que tiram o pedido da lista (os mesmos que tiram dos candidatos da etapa 2). */
+const STATUS_FORA = '("Cancelado","Encerrado")';
+/** Aprovado 100% no Alvo (filtro das buscas). */
+const APROVADO_100 = { status_aprovacao: "Finalizada", aprovado: "Total" };
+
+/** Aprovado 100% no Alvo. */
+const aprovado100 = (p: { status_aprovacao: string | null; aprovado: string | null }) =>
+  p.status_aprovacao === "Finalizada" && p.aprovado === "Total";
 
 const fmtBRL = (v: number | null | undefined) =>
   (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -45,7 +59,17 @@ const fmtCNPJ = (cnpj: string) => {
 };
 
 const PEDIDO_SELECT_COLS =
-  "id, numero, codigo_empresa_filial, data_pedido, valor_total, status, status_aprovacao, aprovado, comprado, codigo_entidade, nome_entidade, cnpj_entidade, texto, tipo, classe_rec_desp, centro_custo, codigo_cond_pag, nome_cond_pag, itens, detalhes_carregados";
+  "id, numero, codigo_empresa_filial, data_pedido, valor_total, status, status_aprovacao, aprovado, comprado, codigo_entidade, nome_entidade, cnpj_entidade, texto, tipo, classe_rec_desp, centro_custo, codigo_cond_pag, nome_cond_pag, itens, detalhes_carregados, status_local";
+
+/** Pedido excluído do Alvo não entra (filtro depois da consulta: na cadeia, o cliente tipado estoura o type-check). */
+const noAlvo = (lista: Pedido[] | null | undefined) => (lista ?? []).filter((p) => p.status_local !== "excluido_alvo");
+
+/** Deixa um de cada id, na ordem em que aparecem. */
+const semRepetir = (lista: Pedido[]) => {
+  const m = new Map<string, Pedido>();
+  for (const p of lista) if (!m.has(p.id)) m.set(p.id, p);
+  return Array.from(m.values());
+};
 
 interface Pedido {
   id: string;
@@ -68,6 +92,7 @@ interface Pedido {
   nome_cond_pag: string | null;
   itens: any[] | null;
   detalhes_carregados: boolean | null;
+  status_local: string | null;
 }
 
 interface Props {
@@ -96,16 +121,46 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
   const [hasSearched, setHasSearched] = useState(false);
 
   const cnpjLimpo = (nfe.emitente_cnpj || "").replace(/\D/g, "");
-  const valorNf = nfe.valor_total || 0;
 
-  // Sugestão: pedido com CNPJ igual E valor dentro da tolerância (apenas destaca)
-  const isSugerido = (p: Pedido): boolean => {
-    const cnpjPed = (p.cnpj_entidade || "").replace(/\D/g, "");
-    if (!cnpjPed || cnpjPed !== cnpjLimpo) return false;
-    const vp = p.valor_total || 0;
-    if (vp <= 0 || valorNf <= 0) return false;
-    return Math.abs(vp - valorNf) / valorNf <= TOLERANCIA_VALOR;
-  };
+  // Sugestão = os candidatos da etapa 2 (mesma RPC e mesmo cache do detalhe da nota).
+  const { data: detalhe } = useQuery({
+    queryKey: chaveDetalheNfe(nfe.id),
+    queryFn: () => buscarDetalheNfe(nfe.id),
+    enabled: open,
+    staleTime: 30_000,
+  });
+  const candidatos = useMemo(() => {
+    const m = new Map<string, PedidoCandidato>();
+    for (const c of detalhe?.pedidos.candidatos ?? []) m.set(c.numero, c);
+    return m;
+  }, [detalhe]);
+  const [pedidosCandidatos, setPedidosCandidatos] = useState<Pedido[]>([]);
+  const candidatoDe = (p: Pedido) => (p.codigo_empresa_filial === "1.01" ? candidatos.get(p.numero) : undefined);
+
+  // Os candidatos entram sempre no topo, mesmo de outro CNPJ da raiz ou ainda não aprovados.
+  useEffect(() => {
+    const numeros = Array.from(candidatos.keys());
+    if (!open || numeros.length === 0) {
+      setPedidosCandidatos([]);
+      return;
+    }
+    let vivo = true;
+    (async () => {
+      const { data } = await supabase
+        .from("compras_pedidos")
+        .select(PEDIDO_SELECT_COLS)
+        .eq("codigo_empresa_filial", "1.01")
+        .in("numero", numeros);
+      if (!vivo) return;
+      // os tipos gerados do Supabase no repo não têm `status_local` (coluna existe no banco) → conversão explícita
+      const lista = (data || []) as unknown as Pedido[];
+      lista.sort((a, b) => numeros.indexOf(a.numero) - numeros.indexOf(b.numero));
+      setPedidosCandidatos(lista);
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [open, candidatos]);
 
   // Reset + carregamento inicial ao abrir
   useEffect(() => {
@@ -128,7 +183,7 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
       const { data } = await supabase.from("compras_nfe_pedidos").select("pedido_numero").eq("nfe_id", nfe.id);
       if (!data || data.length === 0) return;
       const numerosVinculados = new Set(data.map((d) => d.pedido_numero));
-      const todos = [...pedidos, ...searchResults];
+      const todos = [...pedidosCandidatos, ...pedidos, ...searchResults];
       const idsPre = new Set<string>();
       for (const p of todos) {
         if (numerosVinculados.has(p.numero)) idsPre.add(p.id);
@@ -142,9 +197,9 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, pedidos, searchResults, nfe.id]);
+  }, [open, pedidosCandidatos, pedidos, searchResults, nfe.id]);
 
-  // Busca automática: pedidos APROVADOS do fornecedor (por CNPJ).
+  // Busca automática: pedidos APROVADOS do fornecedor (por CNPJ), fora os Cancelados/Encerrados/excluídos do Alvo.
   const searchPedidos = async () => {
     setLoading(true);
     try {
@@ -152,9 +207,8 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
         .from("compras_pedidos")
         .select(PEDIDO_SELECT_COLS)
         .eq("cnpj_entidade", cnpjLimpo)
-        .eq("status", "Aberto")
-        .eq("status_aprovacao", "Finalizada")
-        .eq("aprovado", "Total")
+        .filter("status", "not.in", STATUS_FORA)
+        .match(APROVADO_100)
         .order("data_pedido", { ascending: false });
 
       if (!data || data.length === 0) {
@@ -169,14 +223,13 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
             .from("compras_pedidos")
             .select(PEDIDO_SELECT_COLS)
             .eq("codigo_entidade", cacheData.codigo_entidade)
-            .eq("status", "Aberto")
-            .eq("status_aprovacao", "Finalizada")
-            .eq("aprovado", "Total")
+            .filter("status", "not.in", STATUS_FORA)
+            .match(APROVADO_100)
             .order("data_pedido", { ascending: false });
           data = res.data;
         }
       }
-      setPedidos((data || []) as Pedido[]);
+      setPedidos(noAlvo(data as unknown as Pedido[] | null));
     } catch (err) {
       console.error("Erro ao buscar pedidos:", err);
     } finally {
@@ -195,16 +248,15 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
       let query = supabase
         .from("compras_pedidos")
         .select(PEDIDO_SELECT_COLS)
-        .eq("status", "Aberto")
-        .eq("status_aprovacao", "Finalizada")
-        .eq("aprovado", "Total")
+        .filter("status", "not.in", STATUS_FORA)
+        .match(APROVADO_100)
         .order("data_pedido", { ascending: false })
         .limit(20);
       if (cleanSearch.length >= 11) query = query.eq("cnpj_entidade", cleanSearch);
       else if (/^\d+$/.test(term)) query = query.ilike("numero", `%${term}%`);
       else query = query.ilike("nome_entidade", `%${term}%`);
       const { data } = await query;
-      setSearchResults((data || []) as Pedido[]);
+      setSearchResults(noAlvo(data as unknown as Pedido[] | null));
     } catch (err) {
       console.error("Erro na busca:", err);
     } finally {
@@ -212,12 +264,9 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
     }
   };
 
-  // Lista combinada (sem duplicar por id)
-  const allPedidos = (() => {
-    const map = new Map<string, Pedido>();
-    for (const p of [...pedidos, ...searchResults]) map.set(p.id, p);
-    return Array.from(map.values());
-  })();
+  // Lista do fornecedor: candidatos da etapa 2 primeiro. Lista combinada (sem duplicar por id).
+  const pedidosDoFornecedor = semRepetir([...pedidosCandidatos, ...pedidos]);
+  const allPedidos = semRepetir([...pedidosDoFornecedor, ...searchResults]);
 
   const togglePedido = (pedidoId: string) => {
     setSelectedIds((prev) => {
@@ -281,7 +330,8 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
 
   const renderPedidoRows = (list: Pedido[]) =>
     list.map((p) => {
-      const sugerido = isSugerido(p);
+      const candidato = candidatoDe(p);
+      const sugerido = !!candidato;
       const checked = selectedIds.has(p.id);
       return (
         <TableRow
@@ -296,12 +346,21 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
           </TableCell>
           <TableCell className="font-mono text-xs">
             {p.numero}
-            {sugerido && (
-              <Badge className="ml-1 gap-0.5 bg-emerald-600 text-white text-[9px] px-1 py-0">
+            {candidato && (
+              <Badge
+                className="ml-1 gap-0.5 bg-emerald-600 text-white text-[9px] px-1 py-0"
+                title={`${candidato.motivo} · saldo ${fmtBRL(candidato.saldo)}`}
+              >
                 <Sparkles className="h-2.5 w-2.5" /> Sugerido
               </Badge>
             )}
+            {!aprovado100(p) && (
+              <Badge variant="outline" className="ml-1 border-amber-500 text-amber-700 text-[9px] px-1 py-0">
+                não aprovado
+              </Badge>
+            )}
           </TableCell>
+          <TableCell className="text-xs">{p.status || "—"}</TableCell>
           <TableCell className="text-xs">{fmtDate(p.data_pedido)}</TableCell>
           <TableCell className="text-xs truncate max-w-[140px]">{p.nome_entidade || "—"}</TableCell>
           <TableCell>{tipoBadge(p.tipo)}</TableCell>
@@ -315,6 +374,7 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
       <TableRow>
         <TableHead className="w-10">Sel.</TableHead>
         <TableHead>Número</TableHead>
+        <TableHead>Status</TableHead>
         <TableHead>Data</TableHead>
         <TableHead>Fornecedor</TableHead>
         <TableHead>Tipo</TableHead>
@@ -332,27 +392,28 @@ export function VincularPedidoNfeDialog({ open, onOpenChange, nfe, onVinculado }
             NF-e #{nfe.numero || "—"} — {nfe.emitente_nome || "—"} — {fmtBRL(nfe.valor_total)}
           </p>
           <p className="text-[11px] text-muted-foreground">
-            Marque um ou mais pedidos aprovados. Itens de cada pedido são mapeados na hora do lançamento.
+            Marque um ou mais pedidos aprovados. "Sugerido" = o mesmo pedido que a etapa 2 da nota sugere (mesmo
+            fornecedor, saldo dentro de ±20% do valor da nota).
           </p>
         </DialogHeader>
 
         <div className="space-y-2">
           <p className="text-sm font-medium">
-            Pedidos aprovados do fornecedor ({cnpjLimpo ? fmtCNPJ(cnpjLimpo) : "—"})
+            Pedidos aprovados e não encerrados do fornecedor ({cnpjLimpo ? fmtCNPJ(cnpjLimpo) : "—"})
           </p>
           {loading ? (
             <div className="flex items-center justify-center py-4 gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="text-xs text-muted-foreground">Buscando pedidos aprovados do fornecedor...</span>
             </div>
-          ) : pedidos.length === 0 ? (
+          ) : pedidosDoFornecedor.length === 0 ? (
             <p className="text-xs text-muted-foreground py-2">
-              Nenhum pedido aprovado (100%) encontrado para este CNPJ.
+              Nenhum pedido aprovado (100%) e não encerrado encontrado para este CNPJ.
             </p>
           ) : (
             <Table>
               {pedidoTableHeader}
-              <TableBody>{renderPedidoRows(pedidos)}</TableBody>
+              <TableBody>{renderPedidoRows(pedidosDoFornecedor)}</TableBody>
             </Table>
           )}
         </div>
