@@ -14,6 +14,10 @@
 --      (SECURITY DEFINER, roda como dono) — continua podendo, mas o kill-switch barra.
 --   3. email_notas_fiscais: sai "Allow all for authenticated users"; entra só leitura para admin. A Edge que grava
 --      nela (process-email-nfe) usa a chave de serviço e não depende de policy. Nada no banco lê a tabela (conferido).
+--   4. Bucket email-nfe-attachments (43 XML/PDF das notas por e-mail) — Pedro, 10/11: "sim" para fechar junto: era
+--      público e com policy "Public read access" para public (qualquer um com a chave pública listava e baixava) e
+--      "Service role insert" que na verdade era para qualquer authenticated. Fica privado, só admin lê; quem grava é a
+--      Edge process-email-nfe com a chave de serviço (não depende de policy). Nenhum objeto é apagado.
 --   Fora deste arquivo: Edge import-email-nfe-to-compras troca por uma versão que recusa tudo (cópia da v23 em
 --   NFE-S2-import-email-nfe-to-compras-v23.ts) e a tela tira "Email NF-e" e "Cron NF-e" do menu e das rotas.
 --   Nada é apagado: linhas, anexos e arquivos continuam.
@@ -35,6 +39,14 @@ begin
                   and policyname = 'Allow all for authenticated users') then
     raise exception 'Policy de email_notas_fiscais não é a esperada — conferir antes de aplicar';
   end if;
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects'
+                  and policyname = 'Public read access' and cmd = 'SELECT'
+                  and qual = '(bucket_id = ''email-nfe-attachments''::text)')
+     or not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects'
+                  and policyname = 'Service role insert' and cmd = 'INSERT'
+                  and with_check = '(bucket_id = ''email-nfe-attachments''::text)') then
+    raise exception 'Policies do bucket email-nfe-attachments não são as esperadas — conferir antes de aplicar';
+  end if;
 end $$;
 
 update public.sync_settings
@@ -51,3 +63,10 @@ create policy email_notas_fiscais_admin_ler on public.email_notas_fiscais
   for select to authenticated using ((select public._is_admin()));
 comment on policy email_notas_fiscais_admin_ler on public.email_notas_fiscais is
   'NFE-S2 (PLANO-NFE, 10/11/2026): "Email NF-e" aposentada — só admin lê; ninguém grava pela API.';
+
+-- 4. Bucket email-nfe-attachments: privado, só admin lê
+update storage.buckets set public = false where id = 'email-nfe-attachments' and public;
+drop policy "Public read access" on storage.objects;
+drop policy "Service role insert" on storage.objects;
+create policy email_nfe_attachments_admin_ler on storage.objects
+  for select to authenticated using (bucket_id = 'email-nfe-attachments' and (select public._is_admin()));

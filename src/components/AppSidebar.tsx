@@ -24,7 +24,6 @@ import {
   ShieldCheck,
   Users as UsersIcon,
   RefreshCw,
-  Mail,
   Boxes,
   Wrench,
   History,
@@ -84,7 +83,6 @@ const routePermMap: Record<string, string> = {
   "/receivables": "receivables",
   "/sales": "sales",
   "/commodatum": "commodatum",
-  "/email-nfe": "nf_entrada",
   "/entidades": "entidades",
   "/loans": "loans",
   "/taxes": "taxes",
@@ -148,7 +146,6 @@ const ferramentasSubItems = [
   { label: "Cron Requisições", url: "/ferramentas/cron-req", icon: RefreshCw },
   { label: "Cron Despesas", url: "/ferramentas/cron-despesas", icon: Coins },
   { label: "Cron Despesas DocFin", url: "/ferramentas/cron-docfin", icon: Coins },
-  { label: "Cron NF-e", url: "/ferramentas/cron-nfe", icon: FileText },
   { label: "Cron Intercompany", url: "/ferramentas/cron-intercompany", icon: Building2 },
   // OP-2.6 — "RM (Produção)" e não "Requisições": a entrada acima já é o cron
   // das Requisições de COMPRA (Suprimentos). São jobs diferentes.
@@ -243,25 +240,6 @@ export function AppSidebar() {
     );
   };
 
-  /** Email NF-e — item fixo (sem i18n), gateado por `nf_entrada` como antes. */
-  const itemEmailNfe = () => {
-    if (!hasAccess(routePermMap["/email-nfe"])) return null;
-    return (
-      <SidebarMenuItem>
-        <SidebarMenuButton asChild>
-          <NavLink
-            to="/email-nfe"
-            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-          >
-            <Mail className="h-4 w-4 shrink-0" />
-            <span>Email NF-e</span>
-          </NavLink>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    );
-  };
-
   /**
    * Movimentação de Salas — item fixo (sem i18n), como o Email NF-e.
    * Gate `salas.access`: quem não tem a permissão não vê o item. O vínculo com
@@ -299,7 +277,7 @@ export function AppSidebar() {
   add("suprimentos", hasAccess("suprimentos_requisicoes"), () =>
     renderSuprimentosGroup(t, isSuprimentosActive, hasAccess, { "/suprimentos/aprovacoes": aprovacoesPendentes }),
   );
-  add("email-nfe", true, () => itemEmailNfe());
+  // "Email NF-e" saiu em 10/11/2026 (PLANO-NFE NFE-S2): parada desde 14/05.
   add("recebimento", isAdmin, () => renderRecebimentoGroup(t, isRecebimentoActive));
   add("estoques", hasAccess("inventory"), () => renderInventoryGroup(t, isInventoryActive));
   add("producao", hasAccess("producao.access"), () => renderProducaoGroup(t, isProducaoActive, hasAccess));

@@ -14,5 +14,11 @@ drop policy if exists email_notas_fiscais_admin_ler on public.email_notas_fiscai
 create policy "Allow all for authenticated users" on public.email_notas_fiscais
   for all to authenticated using (true) with check (true);
 
--- 4) Edge import-email-nfe-to-compras: publicar docs/nfe/NFE-S2-import-email-nfe-to-compras-v23.ts (verify_jwt = true).
--- 5) Tela: git revert do commit da NFE-S2 (menu e rotas de "Email NF-e" e "Cron NF-e").
+-- 4) bucket email-nfe-attachments: volta público, com as policies antigas
+update storage.buckets set public = true where id = 'email-nfe-attachments';
+drop policy if exists email_nfe_attachments_admin_ler on storage.objects;
+create policy "Public read access" on storage.objects for select to public using (bucket_id = 'email-nfe-attachments');
+create policy "Service role insert" on storage.objects for insert to authenticated with check (bucket_id = 'email-nfe-attachments');
+
+-- 5) Edge import-email-nfe-to-compras: publicar docs/nfe/NFE-S2-import-email-nfe-to-compras-v23.ts (verify_jwt = true).
+-- 6) Tela: git revert do commit da NFE-S2 (menu e rotas de "Email NF-e" e "Cron NF-e").

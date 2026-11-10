@@ -42,7 +42,6 @@ import ProjetoRequisicoes from "./pages/ProjetoRequisicoes";
 import ContasPagar from "./pages/ContasPagar";
 import ContasPagarDashboard from "./pages/ContasPagarDashboard";
 import ConfigSyncJobs from "./pages/ConfigSyncJobs";
-import EmailNfe from "./pages/EmailNfe";
 import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
 import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
@@ -60,7 +59,6 @@ import BulkEditHistorico from "./pages/ferramentas/BulkEditHistorico";
 import CronReqDashboard from "./pages/ferramentas/CronReqDashboard";
 import CronDespesasDashboard from "./pages/ferramentas/CronDespesasDashboard";
 import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
-import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import CronReqMatDashboard from "./pages/ferramentas/CronReqMatDashboard";
 import CronEstoqueDashboard from "./pages/ferramentas/CronEstoqueDashboard";
@@ -231,14 +229,7 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
-        <Route
-          path="/email-nfe"
-          element={
-            <PermissionRoute permKey="nf_entrada">
-              <EmailNfe />
-            </PermissionRoute>
-          }
-        />
+        {/* /email-nfe saiu em 10/11/2026 (PLANO-NFE NFE-S2): parada desde 14/05, tabela e anexos fechados para só admin. */}
         <Route
           path="/suprimentos/requisicoes"
           element={
@@ -595,14 +586,7 @@ function AppRoutes() {
           }
         />
 
-        <Route
-          path="/ferramentas/cron-nfe"
-          element={
-            <PermissionRoute permKey="ferramentas_cron_req">
-              <CronNfeDashboard />
-            </PermissionRoute>
-          }
-        />
+        {/* /ferramentas/cron-nfe saiu em 10/11/2026 (PLANO-NFE NFE-S2): o caminho por certificado foi desarmado. */}
         <Route
           path="/ferramentas/req-backfill-abertura"
           element={
