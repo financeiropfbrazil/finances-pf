@@ -1,6 +1,6 @@
 -- =====================================================================
 -- VND-6 — agendamento da Edge sync-nf-saida-cron (PLANO-VENDAS.md §15)
--- NÃO APLICADO. Aplicar só com ordem do Pedro.
+-- Aplicado com ordem do Pedro em 11/11/2026 (migration vnd_6_cron).
 -- 1. Função de disparo (molde de call_sync_parcelas_pagar_cron), SEM o furo
 --    do BL-27: revoke de public/anon/authenticated com a assinatura completa.
 -- 2. Linha de kill-switch em sync_settings.
@@ -50,6 +50,9 @@ revoke execute on function public.call_sync_nf_saida_cron(text, jsonb) from publ
 insert into public.sync_settings (job_name, enabled, schedule_cron)
 values ('sync-nf-saida', true, '20 11,16,21 * * 1-5 (UTC) = 08h20, 13h20, 18h20 BRT, dias úteis');
 
-select cron.schedule('sync-nf-saida-3x-dia', '20 11,16,21 * * 1-5',
-                     $$ select public.call_sync_nf_saida_cron('pg_cron'); $$);
-update cron.job set active = false where jobname = 'sync-nf-saida-3x-dia';
+-- 11/11/2026: `update cron.job` direto é recusado ao papel do MCP ("permission denied for table job");
+-- o caminho suportado é cron.alter_job (mesmo efeito).
+select cron.alter_job(
+  cron.schedule('sync-nf-saida-3x-dia', '20 11,16,21 * * 1-5',
+                $$ select public.call_sync_nf_saida_cron('pg_cron'); $$),
+  active := false);
