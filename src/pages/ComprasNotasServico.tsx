@@ -32,6 +32,7 @@ import {
 import { NfseDetalheEtapas } from "@/components/nfse/NfseDetalheEtapas";
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
+import { buscarComentariosLote } from "@/services/notaComentariosService";
 import { buscarTiposLanc, rotuloTipoLanc, type TipoLanc } from "@/services/alvoTipoLancService";
 import { buscarRelatorioQuestor, exportarQuestorXLSX } from "@/services/notasQuestorExport";
 import { formatCurrency, formatDate, formatDoc, formatInstanteBrt } from "@/components/nfse/nfseFormatos";
@@ -150,12 +151,20 @@ const ComprasNotasServico = () => {
     setBaixando(true);
     try {
       const chaves = new Set(filtered.map((r) => r.chave_acesso));
-      const linhas = (await buscarRelatorioEtapas("nfse", periodo.de, periodo.ate))
-        .filter((l) => l.chave_acesso && chaves.has(l.chave_acesso))
-        .map((l) => {
-          const t = l.chave_movestq != null ? tiposLanc.get(Number(l.chave_movestq)) : undefined;
-          return { ...l, tipo_lanc: t?.codigo ?? null, tipo_lanc_descricao: t?.descricao ?? null };
-        });
+      const relatorio = (await buscarRelatorioEtapas("nfse", periodo.de, periodo.ate)).filter(
+        (l) => l.chave_acesso && chaves.has(l.chave_acesso),
+      );
+      // Comentários da etapa 7 (NFE-16), nas colunas finais.
+      const comentarios = await buscarComentariosLote("nfse", relatorio.map((l) => l.chave_acesso!));
+      const linhas = relatorio.map((l) => {
+        const t = l.chave_movestq != null ? tiposLanc.get(Number(l.chave_movestq)) : undefined;
+        return {
+          ...l,
+          tipo_lanc: t?.codigo ?? null,
+          tipo_lanc_descricao: t?.descricao ?? null,
+          comentarios: comentarios.get(l.chave_acesso!) ?? [],
+        };
+      });
       if (linhas.length === 0) {
         toast({ title: "Nada para baixar neste filtro" });
         return;

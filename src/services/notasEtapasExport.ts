@@ -9,6 +9,7 @@
  */
 import type { Workbook, Worksheet } from "exceljs";
 import { supabase } from "@/integrations/supabase/client";
+import { formatarInstanteComSegundos, type ComentarioExport } from "@/services/notaComentariosService";
 
 export type TipoNota = "nfe" | "nfse";
 
@@ -26,6 +27,8 @@ export interface LinhaEtapas {
   /** Tipo de lançamento do cabeçalho do MovEstq (NFE-14), montado na tela pela RPC alvo_tipo_lanc. */
   tipo_lanc?: string | null;
   tipo_lanc_descricao?: string | null;
+  /** Comentários da etapa 7 (NFE-16), do mais novo ao mais antigo, montados na tela pela RPC nota_comentarios_lote. */
+  comentarios?: ComentarioExport[];
   pedidos: string | null;
   data_pedido: string | null;
   pedido_aprovado_em: string | null;
@@ -62,7 +65,7 @@ export async function buscarRelatorioEtapas(tipo: TipoNota, de: string, ate: str
 // ════════════════════════════════════════════════════════════
 // COLUNAS
 // ════════════════════════════════════════════════════════════
-type Tipo = "texto" | "data" | "datahora" | "valor" | "inteiro";
+type Tipo = "texto" | "data" | "datahora" | "datahoraseg" | "valor" | "inteiro";
 
 /** Coluna de uma aba com blocos coloridos — usada também pelo Excel da contabilidade (`notasQuestorExport`). */
 export interface ColunaPlanilha<L> {
@@ -75,6 +78,8 @@ export interface ColunaPlanilha<L> {
   /** célula em itálico laranja — valor provisório (ex.: nota não lançada, contada até hoje) */
   provisorio?: (l: L) => boolean;
   valor: (l: L) => string | number | Date | null;
+  /** texto longo: quebra de linha na célula e a linha inteira alinhada no topo (NFE-16, comentários) */
+  quebra?: boolean;
 }
 
 type Coluna = ColunaPlanilha<LinhaEtapas>;
@@ -86,6 +91,7 @@ const BLOCOS: Record<string, string> = {
   Anexos: "FF7C3AED",
   DocFin: "FFD97706",
   Controle: "FF64748B",
+  Comentários: "FFDB2777",
 };
 
 const t = (v: string | null | undefined) => v ?? "";
@@ -100,7 +106,7 @@ const d = (v: string | null | undefined): Date | null => {
   return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null;
 };
 /** Instante → data e hora de Brasília gravadas "como estão" (quem abre na Áustria vê o horário de Brasília). */
-const dh = (v: string | null | undefined): Date | null => {
+const dh = (v: string | null | undefined, comSegundos = false): Date | null => {
   if (!v) return null;
   const x = new Date(v);
   if (Number.isNaN(x.getTime())) return null;
@@ -112,13 +118,21 @@ const dh = (v: string | null | undefined): Date | null => {
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
+      second: "2-digit",
       hourCycle: "h23",
     })
       .formatToParts(x)
       .map((q) => [q.type, q.value]),
   );
-  return new Date(Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute));
+  return new Date(Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, comSegundos ? +p.second : 0));
 };
+/** Limite do Excel por célula é 32.767 caracteres; acima disso o arquivo não abre. */
+const LIMITE_CELULA = 32_000;
+/** Todos os comentários numa célula, um por linha: "11/11/2026 14:32:05 · Hugo: texto". */
+export function textoComentarios(lista: ComentarioExport[] | undefined): string {
+  const texto = (lista ?? []).map((c) => `${formatarInstanteComSegundos(c.criado_em)} · ${c.autor}: ${c.texto}`).join("\n");
+  return texto.length > LIMITE_CELULA ? `${texto.slice(0, LIMITE_CELULA)}\n… (cortado: veja todos no detalhe da nota)` : texto;
+}
 export const ROTULO_FISCO: Record<string, string> = { normal: "Normal", cancelada: "Cancelada", substituida: "Substituída" };
 export { t as celTexto, n as celNumero, d as celData, dh as celDataHora };
 
@@ -175,6 +189,18 @@ function colunas(tipo: TipoNota): Coluna[] {
     { bloco: "Controle", label: "Dias: emissão → digitação", tipo: "inteiro", largura: 12, valor: (l) => n(l.dias_emissao_digitacao) },
     { bloco: "Controle", label: "Dias: lançamento → pagamento", tipo: "inteiro", largura: 13, valor: (l) => n(l.dias_lancamento_pagamento) },
     { bloco: "Controle", label: "Dias de atraso", tipo: "inteiro", largura: 10, alerta: "positivo", valor: (l) => n(l.dias_atraso) },
+    // Comentários (NFE-16): resumo + todos, nas colunas finais
+    { bloco: "Comentários", label: "Nº de comentários", tipo: "inteiro", largura: 11, valor: (l) => (l.comentarios ? l.comentarios.length : null) },
+    { bloco: "Comentários", label: "Último comentário em", tipo: "datahoraseg", largura: 18, valor: (l) => dh(l.comentarios?.[0]?.criado_em, true) },
+    { bloco: "Comentários", label: "Último comentário por", tipo: "texto", largura: 20, valor: (l) => t(l.comentarios?.[0]?.autor) },
+    {
+      bloco: "Comentários",
+      label: "Comentários (do mais novo ao mais antigo)",
+      tipo: "texto",
+      largura: 70,
+      quebra: true,
+      valor: (l) => textoComentarios(l.comentarios),
+    },
   ];
 }
 
@@ -223,6 +249,7 @@ const REGRAS: [string, string][] = [
   ["Dias: emissão → digitação", "Data da digitação − emissão."],
   ["Dias: lançamento → pagamento", "Pagamento da última parcela − data de entrada no Alvo (só quando todas estão pagas)."],
   ["Dias de atraso", "Maior atraso entre as parcelas, contra o vencimento do fornecedor: paga → pagamento − vencimento; em aberto e vencida → hoje − vencimento. Negativo = pago antes do vencimento. Positivo em vermelho."],
+  ["Comentários", "Comentários da etapa 7 do detalhe da nota no Hub, com quem escreveu e a hora de Brasília com segundos. A última coluna traz todos, do mais novo ao mais antigo, um por linha. Só acréscimo: ninguém edita nem apaga. 0 = nota sem comentário."],
 ];
 
 /**
@@ -268,10 +295,13 @@ export function escreverAbaComBlocos<L>(
   });
   linhaCab.height = 32;
 
+  // Com coluna de texto longo (comentários), a linha cresce: tudo no topo para a linha continuar legível.
+  const temQuebra = COLUNAS.some((c) => c.quebra);
   for (const l of linhas) {
     const linha = ws.addRow(COLUNAS.map((c) => c.valor(l)));
     COLUNAS.forEach((c, i) => {
       if (c.provisorio?.(l)) linha.getCell(i + 1).font = { italic: true, color: { argb: "FFD97706" } };
+      if (temQuebra) linha.getCell(i + 1).alignment = c.quebra ? { vertical: "top", wrapText: true } : { vertical: "top" };
     });
   }
 
@@ -279,6 +309,7 @@ export function escreverAbaComBlocos<L>(
     const col = ws.getColumn(i + 1);
     if (c.tipo === "data") col.numFmt = "dd/mm/yyyy";
     else if (c.tipo === "datahora") col.numFmt = "dd/mm/yyyy hh:mm";
+    else if (c.tipo === "datahoraseg") col.numFmt = "dd/mm/yyyy hh:mm:ss";
     else if (c.tipo === "valor") col.numFmt = "#,##0.00";
     else if (c.tipo === "inteiro") col.numFmt = "0";
   });

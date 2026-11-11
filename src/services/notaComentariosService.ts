@@ -35,6 +35,36 @@ export async function adicionarComentario(tipo: TipoNotaComentario, chave: strin
   if (!data?.success) throw new Error(data?.mensagem ?? "Não foi possível adicionar o comentário.");
 }
 
+/** Comentário como vai para o Excel de etapas (NFE-16). */
+export interface ComentarioExport {
+  texto: string;
+  criado_em: string;
+  autor: string;
+}
+
+/** A RPC aceita até 5.000 chaves; 1.000 por chamada mantém cada pedido pequeno (~50 KB). */
+const LOTE_COMENTARIOS = 1000;
+
+/**
+ * Comentários de várias notas de uma vez (Excel de etapas, NFE-16): chave de acesso → lista do mais novo ao mais
+ * antigo. Nota sem comentário não vem no mapa.
+ */
+export async function buscarComentariosLote(tipo: TipoNotaComentario, chaves: string[]): Promise<Map<string, ComentarioExport[]>> {
+  const unicas = [...new Set(chaves.filter(Boolean))];
+  const mapa = new Map<string, ComentarioExport[]>();
+  for (let i = 0; i < unicas.length; i += LOTE_COMENTARIOS) {
+    const { data, error } = await (supabase as any).rpc("nota_comentarios_lote", {
+      p_tipo: tipo,
+      p_chaves: unicas.slice(i, i + LOTE_COMENTARIOS),
+    });
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as { chave_acesso: string; comentarios: ComentarioExport[] | null }[]) {
+      mapa.set(r.chave_acesso, r.comentarios ?? []);
+    }
+  }
+  return mapa;
+}
+
 /** "11/11/2026 14:32:05" — sempre no horário de Brasília (o Hub também é usado na Áustria). */
 export const formatarInstanteComSegundos = (iso: string): string =>
   new Date(iso)

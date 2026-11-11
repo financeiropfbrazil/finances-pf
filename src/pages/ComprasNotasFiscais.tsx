@@ -51,7 +51,8 @@ import {
 } from "@/services/nfeRecebidasService";
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { NfeDetalheEtapas, chaveDetalheNfe } from "@/components/nfe/NfeDetalheEtapas";
-import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
+import { buscarRelatorioEtapas, exportarEtapasXLSX, type LinhaEtapas } from "@/services/notasEtapasExport";
+import { buscarComentariosLote } from "@/services/notaComentariosService";
 import {
   cfopsDaNota,
   diasUteisSemLeva,
@@ -468,18 +469,21 @@ const ComprasNotasFiscais = () => {
     setBaixando(true);
     try {
       const porId = new Map(filtered.map((r) => [r.id, r]));
+      const relatorio = (await buscarRelatorioEtapas("nfe", periodo.de, periodo.ate)).filter((l) => l.id && porId.has(l.id));
+      const chaveDe = (l: LinhaEtapas) => l.chave_acesso || porId.get(l.id!)!.chave_acesso;
+      // Comentários da etapa 7 (NFE-16), nas colunas finais.
+      const comentarios = await buscarComentariosLote("nfe", relatorio.map(chaveDe));
       // CFOP (NFE-7-A): o mesmo da coluna da tela, montado a partir dos itens que a lista já carregou.
-      const linhas = (await buscarRelatorioEtapas("nfe", periodo.de, periodo.ate))
-        .filter((l) => l.id && porId.has(l.id))
-        .map((l) => {
-          const t = l.chave_movestq != null ? tiposLanc.get(Number(l.chave_movestq)) : undefined;
-          return {
-            ...l,
-            cfop: cfopsDaNota(porId.get(l.id!)!).join(" · "),
-            tipo_lanc: t?.codigo ?? null,
-            tipo_lanc_descricao: t?.descricao ?? null,
-          };
-        });
+      const linhas = relatorio.map((l) => {
+        const t = l.chave_movestq != null ? tiposLanc.get(Number(l.chave_movestq)) : undefined;
+        return {
+          ...l,
+          cfop: cfopsDaNota(porId.get(l.id!)!).join(" · "),
+          tipo_lanc: t?.codigo ?? null,
+          tipo_lanc_descricao: t?.descricao ?? null,
+          comentarios: comentarios.get(chaveDe(l)) ?? [],
+        };
+      });
       if (linhas.length === 0) {
         toast({ title: "Nada para baixar neste filtro" });
         return;

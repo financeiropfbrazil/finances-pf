@@ -67,6 +67,61 @@ describe("download de controle das etapas", () => {
     expect(rotulos).toContain("Tipo de lançamento");
   });
 
+  it("comentários nas colunas finais: resumo + todos numa célula, do mais novo ao mais antigo (NFE-16)", async () => {
+    const com = {
+      ...base,
+      id: "c",
+      comentarios: [
+        { texto: "Prestador avisou atraso no boleto.", criado_em: "2026-11-11T17:32:05Z", autor: "mirlene.oliveira" },
+        { texto: "Conferir o boleto com o fornecedor.", criado_em: "2026-11-11T15:39:17Z", autor: "Hugo" },
+      ],
+    };
+    const sem = { ...base, id: "d", comentarios: [] };
+    for (const tipo of ["nfe", "nfse"] as const) {
+      const ws = (await montarPlanilhaEtapas(tipo, [com, sem], ctx)).worksheets[0];
+      const rotulos: unknown[] = [];
+      ws.getRow(2).eachCell((cel) => rotulos.push(cel.value));
+      // as 4 últimas colunas, no bloco "Comentários"
+      expect(rotulos.slice(-4)).toEqual([
+        "Nº de comentários",
+        "Último comentário em",
+        "Último comentário por",
+        "Comentários (do mais novo ao mais antigo)",
+      ]);
+      expect(ws.getRow(1).getCell(rotulos.length - 3).value).toBe("Comentários");
+    }
+    const [n, nSem] = await coluna("Nº de comentários", [com, sem]);
+    expect(n.value).toBe(2);
+    expect(nSem.value).toBe(0);
+    const [em] = await coluna("Último comentário em", [com]);
+    // 17:32:05 UTC = 14:32:05 em Brasília, gravado "como está", com segundos
+    expect((em.value as Date).toISOString()).toBe("2026-11-11T14:32:05.000Z");
+    expect(em.numFmt).toBe("dd/mm/yyyy hh:mm:ss");
+    const [por] = await coluna("Último comentário por", [com]);
+    expect(por.value).toBe("mirlene.oliveira");
+    const [todos, todosSem] = await coluna("Comentários (do mais novo ao mais antigo)", [com, sem]);
+    expect(todos.value).toBe(
+      "11/11/2026 14:32:05 · mirlene.oliveira: Prestador avisou atraso no boleto.\n11/11/2026 12:39:17 · Hugo: Conferir o boleto com o fornecedor.",
+    );
+    expect(todos.alignment).toMatchObject({ wrapText: true, vertical: "top" });
+    expect(todosSem.value).toBe("");
+  });
+
+  it("as outras colunas de data e hora continuam sem segundos (NFE-16 não mexe nelas)", async () => {
+    const [c] = await coluna("Data da digitação", [{ ...base, digitado_em: "2026-11-10T14:00:47Z" }]);
+    expect((c.value as Date).toISOString()).toBe("2026-11-10T11:00:00.000Z");
+    expect(c.numFmt).toBe("dd/mm/yyyy hh:mm");
+  });
+
+  it("aba Sobre explica os comentários", async () => {
+    const sobre = (await montarPlanilhaEtapas("nfse", [base], ctx)).getWorksheet("Sobre")!;
+    let texto = "";
+    sobre.eachRow((r) => {
+      if (r.getCell(1).value === "Comentários") texto = String(r.getCell(2).value);
+    });
+    expect(texto).toContain("do mais novo ao mais antigo");
+  });
+
   it("Dias: pedido → emissão mantém o sinal (negativo = nota antes do pedido)", async () => {
     const [c] = await coluna("Dias: pedido → emissão", [base]);
     expect(c.value).toBe(-1);
