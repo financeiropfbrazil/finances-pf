@@ -55,6 +55,18 @@ describe("download de controle das etapas", () => {
     expect(await regra("nfse")).toContain("4 · PDF da nota");
   });
 
+  it("tipo de lançamento no bloco MovEstq, na NF-e e na NFS-e (NFE-14)", async () => {
+    const l = { ...base, tipo_lanc: "E0000003", tipo_lanc_descricao: "Compra (NF-e)" };
+    const [cod] = await coluna("Tipo de lançamento", [l]);
+    const [desc] = await coluna("Descrição do tipo (catálogo do Hub)", [l]);
+    expect(cod.value).toBe("E0000003");
+    expect(desc.value).toBe("Compra (NF-e)");
+    const wb = await montarPlanilhaEtapas("nfse", [l], ctx);
+    const rotulos: unknown[] = [];
+    wb.worksheets[0].getRow(2).eachCell((cel) => rotulos.push(cel.value));
+    expect(rotulos).toContain("Tipo de lançamento");
+  });
+
   it("Dias: pedido → emissão mantém o sinal (negativo = nota antes do pedido)", async () => {
     const [c] = await coluna("Dias: pedido → emissão", [base]);
     expect(c.value).toBe(-1);

@@ -61,6 +61,7 @@ import {
 } from "@/components/nfe/nfeLista";
 import { formatInstanteBrt } from "@/components/nfse/nfseFormatos";
 import { FiltroCabecalho, type OpcaoFiltro } from "@/components/FiltroCabecalho";
+import { buscarTiposLanc, rotuloTipoLanc, type TipoLanc } from "@/services/alvoTipoLancService";
 import {
   aplicarFiltros,
   descreverFiltros,
@@ -280,6 +281,27 @@ const ComprasNotasFiscais = () => {
     fetchRows();
   }, [fetchRows]);
 
+  // ── Tipo de lançamento do MovEstq no Alvo (NFE-14, só o cabeçalho): carrega depois do "No Alvo", sem segurar a lista ──
+  const [tiposLanc, setTiposLanc] = useState<Map<number, TipoLanc>>(new Map());
+  useEffect(() => {
+    let vivo = true;
+    const chaves = [...noAlvo.values()].map((a) => a.chave_movestq);
+    if (chaves.every((c) => c == null)) {
+      setTiposLanc(new Map());
+      return;
+    }
+    buscarTiposLanc(chaves)
+      .then((m) => vivo && setTiposLanc(m))
+      .catch(() => vivo && setTiposLanc(new Map()));
+    return () => {
+      vivo = false;
+    };
+  }, [noAlvo]);
+  const tipoDa = (r: { id: string }): TipoLanc | undefined => {
+    const c = noAlvo.get(r.id)?.chave_movestq;
+    return c != null ? tiposLanc.get(c) : undefined;
+  };
+
   const toggleExpand = (nfe: NfeRow) => {
     setExpandedId(expandedId === nfe.id ? null : nfe.id);
   };
@@ -343,13 +365,27 @@ const ComprasNotasFiscais = () => {
         ordem: (a, b) => ORDEM_ALVO.indexOf(a) - ORDEM_ALVO.indexOf(b),
       },
       {
+        id: "tipo",
+        rotulo: "Tipo lanç.",
+        tipo: "valores",
+        valores: (r) => {
+          const c = noAlvo.get(r.id)?.chave_movestq;
+          const t = c != null ? tiposLanc.get(c) : undefined;
+          return t?.codigo ? [t.codigo] : [];
+        },
+        rotuloValor: (v) => {
+          const t = [...tiposLanc.values()].find((x) => x.codigo === v);
+          return rotuloTipoLanc(t) || v;
+        },
+      },
+      {
         id: "pedido",
         rotulo: "Pedido no Hub",
         tipo: "valores",
         valores: (r) => (r.status_lancamento === "vinculada" && r.pedido_compra_numero ? [r.pedido_compra_numero] : []),
       },
     ],
-    [situacaoAlvo],
+    [situacaoAlvo, noAlvo, tiposLanc],
   );
   // Sem resposta do Alvo, o filtro "No Alvo" não vale (como o seletor de cima).
   const defsAtivas = useMemo(
@@ -435,7 +471,15 @@ const ComprasNotasFiscais = () => {
       // CFOP (NFE-7-A): o mesmo da coluna da tela, montado a partir dos itens que a lista já carregou.
       const linhas = (await buscarRelatorioEtapas("nfe", periodo.de, periodo.ate))
         .filter((l) => l.id && porId.has(l.id))
-        .map((l) => ({ ...l, cfop: cfopsDaNota(porId.get(l.id!)!).join(" · ") }));
+        .map((l) => {
+          const t = l.chave_movestq != null ? tiposLanc.get(Number(l.chave_movestq)) : undefined;
+          return {
+            ...l,
+            cfop: cfopsDaNota(porId.get(l.id!)!).join(" · "),
+            tipo_lanc: t?.codigo ?? null,
+            tipo_lanc_descricao: t?.descricao ?? null,
+          };
+        });
       if (linhas.length === 0) {
         toast({ title: "Nada para baixar neste filtro" });
         return;
@@ -553,12 +597,13 @@ const ComprasNotasFiscais = () => {
       </div>
 
       {/* Filtros de período */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      {/* Barra do período e dos botões: quebra de linha em tela pequena (antes a página rolava para o lado). */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <PeriodoPicker valor={periodo} onChange={setPeriodo} permitirTudo={false} />
           <span className="text-[11px] text-muted-foreground">pela data de emissão</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <UploadXmlButton onImported={fetchRows} />
           <Button
             variant="outline"
@@ -641,7 +686,8 @@ const ComprasNotasFiscais = () => {
 
       {/* Tabela */}
       <Card>
-        <CardContent className="p-0">
+        {/* minmax(0, 1fr): se a lista não couber, ela rola dentro do card em vez de alargar a página inteira. */}
+        <CardContent className="grid grid-cols-[minmax(0,1fr)] p-0">
           {loadingRows ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -661,6 +707,7 @@ const ComprasNotasFiscais = () => {
                   {cabecalho("cfop", "CFOP", { title: "CFOP dos itens da nota, como o fornecedor emitiu" })}
                   {cabecalho("chegou", "Chegou em", { title: "Quando a nota chegou ao Hub (leva da Riosoft ou upload)" })}
                   {cabecalho("alvo", "No Alvo")}
+                  {cabecalho("tipo", "Tipo lanç.", { title: "Tipo de lançamento do MovEstq no Alvo (cabeçalho)" })}
                   {cabecalho("pedido", "Pedido no Hub")}
                   <TableHead className="text-xs px-2">Ações</TableHead>
                 </TableRow>
@@ -668,7 +715,7 @@ const ComprasNotasFiscais = () => {
               <TableBody>
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={11} className="py-10 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={12} className="py-10 text-center text-sm text-muted-foreground">
                       Nenhuma NF-e com esses filtros.
                     </TableCell>
                   </TableRow>
@@ -712,6 +759,12 @@ const ComprasNotasFiscais = () => {
                           </TableCell>
                           <TableCell className="text-xs px-2 tabular-nums">{chegouEm(r)}</TableCell>
                           <TableCell className="px-2">{noAlvoBadge(r)}</TableCell>
+                          <TableCell
+                            className="text-[11px] font-mono px-2 whitespace-nowrap tabular-nums text-muted-foreground"
+                            title={rotuloTipoLanc(tipoDa(r)) || undefined}
+                          >
+                            {tipoDa(r)?.codigo ?? "—"}
+                          </TableCell>
                           <TableCell className="px-2">{vinculoBadge(r)}</TableCell>
                           <TableCell className="px-2" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-1">
@@ -743,7 +796,7 @@ const ComprasNotasFiscais = () => {
 
                         {expandedId === r.id && (
                           <TableRow>
-                            <TableCell colSpan={11} className="p-0">
+                            <TableCell colSpan={12} className="p-0">
                               <NfeDetalheEtapas
                                 nfeId={r.id}
                                 onVerXml={async () => {
@@ -876,7 +929,7 @@ const ComprasNotasFiscais = () => {
                   <TableCell className="text-xs text-right font-semibold tabular-nums">
                     {formatCurrency(footerTotal)}
                   </TableCell>
-                  <TableCell colSpan={6} />
+                  <TableCell colSpan={7} />
                 </TableRow>
               </TableFooter>
             </Table>

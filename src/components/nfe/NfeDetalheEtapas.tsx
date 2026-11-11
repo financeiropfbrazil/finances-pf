@@ -33,6 +33,7 @@ import {
   AreaAnexo,
   Aviso,
   Campo,
+  CampoTipoLanc,
   CartaoCandidato,
   ChaveMovEstq,
   Coluna,
@@ -402,7 +403,7 @@ function Etapas({
             <>
               <ChaveMovEstq chave={d.movestq.chave_movestq} />
               <Campo label="Espécie" valor={`${d.movestq.especie ?? "—"}${d.movestq.serie ? ` · série ${d.movestq.serie}` : ""}`} />
-              <Campo label="Tipo de lançamento" valor={d.movestq.codigo_tipo_lanc} mono />
+              <CampoTipoLanc chave={d.movestq.chave_movestq} codigo={d.movestq.codigo_tipo_lanc} />
               <Campo label="Entrada" valor={formatDate(d.movestq.data_entrada)} />
               <Campo label="Digitação" valor={formatInstanteBrt(d.movestq.data_hora_digitacao)} />
               <Campo label="Valor" valor={formatCurrency(d.movestq.valor_documento)} mono />

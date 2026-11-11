@@ -29,6 +29,10 @@ vi.mock("@/services/nfeRecebidasService", async (original) => ({
   buscarEspelhoAlvoDesde: vi.fn(async () => "2026-01-01"),
   buscarUltimaLevaRiosoft: vi.fn(async () => "2026-11-10T15:01:00Z"),
 }));
+vi.mock("@/services/alvoTipoLancService", async (original) => ({
+  ...(await original<typeof import("@/services/alvoTipoLancService")>()),
+  buscarTiposLanc: vi.fn(async () => new Map([[1, { codigo: "E0000003", descricao: "Compra (NF-e)" }]])),
+}));
 vi.mock("@/services/comprasNfeNoAlvoService", () => ({
   listarNfeNoAlvo: vi.fn(async () => new Map([["c", { nfe_id: "c", chave_movestq: 1, data_entrada: "2026-11-09", fonte: "Alvo" }]])),
 }));
@@ -99,6 +103,17 @@ describe("lista de NF-e — filtro no cabeçalho (NFE-12)", () => {
     await montar();
     clicar(document.querySelector('button[aria-label="Filtrar No Alvo"]')!);
     digitar(document.querySelector('input[placeholder="Buscar..."]') as HTMLInputElement, "lançada");
+    expect(numerosNaTabela()).toEqual(["1853"]);
+  });
+
+  it("coluna Tipo lanç. mostra o tipo do lançamento no Alvo e filtra pelo funil (NFE-14)", async () => {
+    await montar();
+    const linha1853 = Array.from(container!.querySelectorAll("tbody tr")).find((tr) => tr.querySelectorAll("td")[1]?.textContent === "1853")!;
+    expect(linha1853.textContent).toContain("E0000003");
+    clicar(document.querySelector('button[aria-label="Filtrar Tipo lanç."]')!);
+    const opcao = Array.from(document.querySelectorAll("label")).find((l) => (l.textContent ?? "").startsWith("E0000003 · Compra (NF-e)"));
+    expect(opcao).toBeDefined();
+    digitar(document.querySelector('input[placeholder="Buscar..."]') as HTMLInputElement, "E0000003");
     expect(numerosNaTabela()).toEqual(["1853"]);
   });
 });

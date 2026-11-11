@@ -32,6 +32,7 @@ import {
 import { NfseDetalheEtapas } from "@/components/nfse/NfseDetalheEtapas";
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
+import { buscarTiposLanc, rotuloTipoLanc, type TipoLanc } from "@/services/alvoTipoLancService";
 import { buscarRelatorioQuestor, exportarQuestorXLSX } from "@/services/notasQuestorExport";
 import { formatCurrency, formatDate, formatDoc, formatInstanteBrt } from "@/components/nfse/nfseFormatos";
 
@@ -91,6 +92,25 @@ const ComprasNotasServico = () => {
 
   const rows = useMemo(() => dados?.itens ?? [], [dados]);
 
+  // ── Tipo de lançamento do MovEstq no Alvo (NFE-14, só o cabeçalho): carrega depois da lista, sem segurá-la ──
+  const [tiposLanc, setTiposLanc] = useState<Map<number, TipoLanc>>(new Map());
+  useEffect(() => {
+    let vivo = true;
+    const chaves = rows.map((r) => r.alvo_chave_movestq);
+    if (chaves.every((c) => c == null)) {
+      setTiposLanc(new Map());
+      return;
+    }
+    buscarTiposLanc(chaves)
+      .then((m) => vivo && setTiposLanc(m))
+      .catch(() => vivo && setTiposLanc(new Map()));
+    return () => {
+      vivo = false;
+    };
+  }, [rows]);
+  const tipoDa = (r: NfseRecebida): TipoLanc | undefined =>
+    r.alvo_chave_movestq != null ? tiposLanc.get(Number(r.alvo_chave_movestq)) : undefined;
+
   // ── Filtering ──
   const filtered = useMemo(() => {
     let list = rows;
@@ -130,9 +150,12 @@ const ComprasNotasServico = () => {
     setBaixando(true);
     try {
       const chaves = new Set(filtered.map((r) => r.chave_acesso));
-      const linhas = (await buscarRelatorioEtapas("nfse", periodo.de, periodo.ate)).filter(
-        (l) => l.chave_acesso && chaves.has(l.chave_acesso),
-      );
+      const linhas = (await buscarRelatorioEtapas("nfse", periodo.de, periodo.ate))
+        .filter((l) => l.chave_acesso && chaves.has(l.chave_acesso))
+        .map((l) => {
+          const t = l.chave_movestq != null ? tiposLanc.get(Number(l.chave_movestq)) : undefined;
+          return { ...l, tipo_lanc: t?.codigo ?? null, tipo_lanc_descricao: t?.descricao ?? null };
+        });
       if (linhas.length === 0) {
         toast({ title: "Nada para baixar neste filtro" });
         return;
@@ -262,12 +285,13 @@ const ComprasNotasServico = () => {
       </div>
 
       {/* Filtros de período */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      {/* Barra do período e dos botões: quebra de linha em tela pequena (antes a página rolava para o lado). */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <PeriodoPicker valor={periodo} onChange={setPeriodo} permitirTudo={false} />
           <span className="text-[11px] text-muted-foreground">pela data de emissão</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <span className="text-[11px] text-muted-foreground" title="Última leitura do ambiente nacional (horário de Brasília)">
             Notas do ADN lidas até {formatInstanteBrt(dados?.atualizado_em)}
           </span>
@@ -388,6 +412,9 @@ const ComprasNotasServico = () => {
                   <TableHead className="text-xs px-2">Emissão</TableHead>
                   <TableHead className="text-xs px-2">No fisco</TableHead>
                   <TableHead className="text-xs px-2">No Alvo</TableHead>
+                  <TableHead className="text-xs px-2" title="Tipo de lançamento do MovEstq no Alvo (cabeçalho)">
+                    Tipo lanç.
+                  </TableHead>
                   <TableHead className="text-xs px-2">Pedido no Alvo</TableHead>
                 </TableRow>
               </TableHeader>
@@ -400,6 +427,7 @@ const ComprasNotasServico = () => {
                     onToggle={() => setExpandedId(expandedId === r.chave_acesso ? null : r.chave_acesso)}
                     fiscoBadge={fiscoBadge(r)}
                     alvoBadge={alvoBadge(r)}
+                    tipoLanc={tipoDa(r)}
                     carregandoXml={carregandoXml === r.chave_acesso}
                     onVerXml={async () => {
                       const xml = await obterXml(r);
@@ -420,7 +448,7 @@ const ComprasNotasServico = () => {
                   <TableCell className="text-xs text-right font-semibold tabular-nums">
                     {formatCurrency(footerTotal)}
                   </TableCell>
-                  <TableCell colSpan={4} />
+                  <TableCell colSpan={5} />
                 </TableRow>
               </TableFooter>
             </Table>
@@ -474,6 +502,7 @@ function NotaLinha({
   onToggle,
   fiscoBadge,
   alvoBadge,
+  tipoLanc,
   carregandoXml,
   onVerXml,
   onBaixarXml,
@@ -483,6 +512,7 @@ function NotaLinha({
   onToggle: () => void;
   fiscoBadge: JSX.Element;
   alvoBadge: JSX.Element;
+  tipoLanc: TipoLanc | undefined;
   carregandoXml: boolean;
   onVerXml: () => void;
   onBaixarXml: () => void;
@@ -508,12 +538,18 @@ function NotaLinha({
         <TableCell className="text-xs px-2 tabular-nums">{formatDate(r.data_emissao)}</TableCell>
         <TableCell className="whitespace-nowrap px-2">{fiscoBadge}</TableCell>
         <TableCell className="whitespace-nowrap px-2">{alvoBadge}</TableCell>
+        <TableCell
+          className="text-[11px] font-mono px-2 whitespace-nowrap tabular-nums text-muted-foreground"
+          title={rotuloTipoLanc(tipoLanc) || undefined}
+        >
+          {tipoLanc?.codigo ?? "—"}
+        </TableCell>
         <TableCell className="text-xs px-2 tabular-nums">{r.alvo_pedido || "—"}</TableCell>
       </TableRow>
 
       {expandida && (
         <TableRow className="hover:bg-transparent">
-          <TableCell colSpan={10} className="p-0">
+          <TableCell colSpan={11} className="p-0">
             <NfseDetalheEtapas
               nota={r}
               carregandoXml={carregandoXml}

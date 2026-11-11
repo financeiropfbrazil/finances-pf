@@ -62,6 +62,7 @@ import {
   type TipoAnexoNfse,
 } from "@/services/nfseRecebidasService";
 import { formatBytes, formatCurrency, formatDate, formatDoc, formatInstanteBrt, hojeBrt } from "./nfseFormatos";
+import { useTipoLanc } from "@/services/alvoTipoLancService";
 
 // ════════════════════════════════════════════════════════════
 // ESTADO DE CADA ETAPA
@@ -128,6 +129,13 @@ export function Campo({ label, valor, mono }: { label: string; valor: ReactNode;
       </span>
     </div>
   );
+}
+
+/** "Tipo de lançamento" do MovEstq (PLANO-NFE NFE-14, cabeçalho): código + descrição do catálogo do Hub, quando há. */
+export function CampoTipoLanc({ chave, codigo }: { chave: number | null | undefined; codigo: string | null | undefined }) {
+  const { data } = useTipoLanc(chave ?? null);
+  const desc = data?.descricao;
+  return <Campo label="Tipo de lançamento" valor={codigo ? (desc ? `${codigo} · ${desc}` : codigo) : "—"} mono={!desc} />;
 }
 
 type Etiqueta = { texto: string; alerta?: boolean } | false | null | undefined | "";
@@ -999,7 +1007,7 @@ function Etapas({
               <ChaveMovEstq chave={d.movestq.chave_movestq} />
               {avisoCitado}
               <Campo label="Espécie" valor={`${d.movestq.especie ?? "—"}${d.movestq.serie ? ` · série ${d.movestq.serie}` : ""}`} />
-              <Campo label="Tipo de lançamento" valor={d.movestq.codigo_tipo_lanc} mono />
+              <CampoTipoLanc chave={d.movestq.chave_movestq} codigo={d.movestq.codigo_tipo_lanc} />
               <Campo label="Entrada" valor={formatDate(d.movestq.data_entrada)} />
               <Campo label="Digitação" valor={formatInstanteBrt(d.movestq.data_hora_digitacao)} />
               <Campo label="Valor" valor={formatCurrency(d.movestq.valor_documento)} mono />

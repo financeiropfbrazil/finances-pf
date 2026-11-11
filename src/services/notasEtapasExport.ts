@@ -23,6 +23,9 @@ export interface LinhaEtapas {
   situacao_fisco?: string | null;
   /** NF-e: CFOPs dos itens ("5102 · 5949"), montados na tela a partir dos itens da nota (NFE-7-A). */
   cfop?: string | null;
+  /** Tipo de lançamento do cabeçalho do MovEstq (NFE-14), montado na tela pela RPC alvo_tipo_lanc. */
+  tipo_lanc?: string | null;
+  tipo_lanc_descricao?: string | null;
   pedidos: string | null;
   data_pedido: string | null;
   pedido_aprovado_em: string | null;
@@ -137,6 +140,8 @@ function colunas(tipo: TipoNota): Coluna[] {
     { bloco: "Pedido", label: "Dias: pedido → emissão", tipo: "inteiro", largura: 11, alerta: "negativo", valor: (l) => n(l.dias_pedido_emissao) },
 
     { bloco: "MovEstq", label: "Chave do MovEstq", tipo: "inteiro", largura: 11, valor: (l) => n(l.chave_movestq) },
+    { bloco: "MovEstq", label: "Tipo de lançamento", tipo: "texto", largura: 12, valor: (l) => t(l.tipo_lanc) },
+    { bloco: "MovEstq", label: "Descrição do tipo (catálogo do Hub)", tipo: "texto", largura: 24, valor: (l) => t(l.tipo_lanc_descricao) },
     { bloco: "MovEstq", label: "Lançado no Alvo em", tipo: "data", largura: 11, valor: (l) => d(l.lancado_em) },
     { bloco: "MovEstq", label: "Data da digitação", tipo: "datahora", largura: 16, valor: (l) => dh(l.digitado_em) },
 
@@ -206,6 +211,7 @@ const REGRAS: [string, string][] = [
   ["Pedido aprovado em", "Data de aprovação no Alvo; com mais de um pedido, a mais recente."],
   ["Dias: pedido → emissão", "Emissão da nota − data do pedido. 0 = mesmo dia · positivo = pedido antes da nota (o certo) · NEGATIVO (vermelho) = nota emitida antes do pedido (errado)."],
   ["Lançado no Alvo em", "Data de entrada da nota no Alvo."],
+  ["Tipo de lançamento", "CodigoTipoLanc do cabeçalho do MovEstq no Alvo (o item pode ter outro; aqui vale o do cabeçalho). A descrição vem do catálogo do Hub e cobre só parte dos códigos — o Alvo não manda o nome do tipo no MovEstq."],
   ["Data da digitação", "Data e hora em que a nota foi digitada no Alvo (horário de Brasília). Vazia quando o Hub ainda não leu o MovEstq da nota — o Hub lê o MovEstq de todo título novo desde 16/10/2026; antes disso a cobertura é parcial."],
   ["Anexos", "PDF da nota (DANFE na NF-e) e PDF do boleto anexados no Hub, com quem anexou. Existem desde 20/10/2026 (NFS-e) e 30/10/2026 (NF-e)."],
   ["DocFin", "Título da nota no contas a pagar do Alvo, lido às 06h40 e 12h40 (dias úteis). Parcela paga = paga com movimento bancário ou quitada por adiantamento."],
