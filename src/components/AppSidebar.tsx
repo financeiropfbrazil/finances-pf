@@ -60,7 +60,6 @@ const navItems = [
   { titleKey: "nav.dashboard", url: "/", icon: BarChart3 },
   { titleKey: "nav.cash", url: "/cash", icon: Landmark },
   { titleKey: "nav.receivables", url: "/receivables", icon: FileText },
-  { titleKey: "nav.sales", url: "/sales", icon: TrendingUp },
   // Inventory handled separately as expandable
   // Fixed Assets handled separately as expandable
   { titleKey: "nav.commodatum", url: "/commodatum", icon: Handshake },
@@ -81,7 +80,6 @@ const routePermMap: Record<string, string> = {
   "/": "dashboard",
   "/cash": "cash",
   "/receivables": "receivables",
-  "/sales": "sales",
   "/commodatum": "commodatum",
   "/entidades": "entidades",
   "/loans": "loans",
@@ -95,6 +93,9 @@ const routePermMap: Record<string, string> = {
   "/suprimentos/requisicoes": "suprimentos_requisicoes",
   "/intercompany/reembolsos/novo": "intercompany",
 };
+
+// Vendas (PLANO-VENDAS VND-7): substitui a "Receita de Vendas" antiga (/sales, tabela vazia).
+const vendasSubItems = [{ label: "Notas de Saída", url: "/vendas/notas", icon: FileText }];
 
 const inventorySubItems = [{ label: "Importação de Produtos", url: "/inventory/import", icon: Upload }];
 
@@ -195,6 +196,7 @@ export function AppSidebar() {
   const isRecebimentoActive = location.pathname.startsWith("/recebimento");
   const isIntercompanyActive = location.pathname.startsWith("/intercompany");
   const isDespesasActive = location.pathname.startsWith("/despesas");
+  const isVendasActive = location.pathname.startsWith("/vendas");
   const isFerramentasActive = location.pathname.startsWith("/ferramentas");
 
   // ── ORDEM DA SIDEBAR (REC-1.8) ────────────────────────────────────────────
@@ -287,7 +289,7 @@ export function AppSidebar() {
   add("cash", true, () => itemSolto("/cash"));
   add("receivables", true, () => itemSolto("/receivables"));
   add("contas-a-pagar", hasAccess("contas_pagar"), () => renderContasPagarGroup(t, isContasPagarActive));
-  add("sales", true, () => itemSolto("/sales"));
+  add("vendas", hasAccess("vendas.notas.access"), () => renderVendasGroup(t, isVendasActive));
   add("despesas", isAdmin, () => renderDespesasGroup(t, isDespesasActive));
   add("credit-cards", true, () => itemSolto("/credit-cards"));
   add("cartao", true, () => itemSolto("/cartao"));
@@ -610,6 +612,44 @@ function renderProducaoGroup(t: any, isActive: boolean, hasAccess: (perm: string
         <CollapsibleContent>
           <SidebarMenuSub>
             {subItens.map((sub) => (
+              <SidebarMenuSubItem key={sub.url}>
+                <SidebarMenuSubButton asChild>
+                  <NavLink
+                    to={sub.url}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                  >
+                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+
+function renderVendasGroup(_t: unknown, isActive: boolean) {
+  return (
+    <Collapsible defaultOpen={isActive} className="group/collapsible-vendas">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
+            }`}
+          >
+            <TrendingUp className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Vendas</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-vendas:rotate-[-90deg]" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {vendasSubItems.map((sub) => (
               <SidebarMenuSubItem key={sub.url}>
                 <SidebarMenuSubButton asChild>
                   <NavLink

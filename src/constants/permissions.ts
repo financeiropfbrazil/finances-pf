@@ -35,6 +35,10 @@ export const PERMISSIONS = {
   // Suprimentos → Notas de Serviço (NFS-e recebidas pelo ADN × Alvo, só leitura — PLANO-NFSE NFSE-1.1).
   // Papéis: analista_compras, analista_fiscal. Gate real nas RPCs nfse_recebidas_listar / nfse_recebida_xml.
   COMPRAS_NFSE_ACCESS: "compras.nfse.access",
+  // ─── Módulo Vendas ──────────────────────────────────────────────
+  // Vendas → Notas de Saída (NF-e/NFS-e emitidas pela P&F, espelho do Alvo, só leitura — PLANO-VENDAS VND-7).
+  // Papel: visualizador_vendas. Gate real nas RPCs vendas_notas_listar / vendas_nota_detalhe / vendas_itens_listar.
+  VENDAS_NOTAS_ACCESS: "vendas.notas.access",
   // ─── Administração global ───────────────────────────────────────
   ADMIN_USERS_MANAGE: "admin.users.manage",
 

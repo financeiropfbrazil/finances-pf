@@ -104,7 +104,7 @@ const ORDEM_ESPERADA = [
   "nav.cash",
   "nav.receivables",
   "Contas a Pagar",
-  "nav.sales",
+  "Vendas", // VND-7 (11/11/2026): grupo Vendas no lugar da "Receita de Vendas" antiga, mesma posição
   "Despesas",
   "nav.credit_cards",
   "nav.cartao_lancamento",
@@ -153,7 +153,7 @@ describe("AppSidebar — gates", () => {
       ["dashboard", ["nav.dashboard"]],
       ["cash", ["nav.cash"]],
       ["receivables", ["nav.receivables"]],
-      ["sales", ["nav.sales"]],
+      ["vendas.notas.access", ["Vendas"]], // VND-7: antes "sales" (Receita de Vendas, tabela vazia)
       ["commodatum", ["nav.commodatum"]],
       // `nf_entrada` era a do "Email NF-e" (saiu em 10/11/2026): sozinha não mostra mais nada.
       ["nf_entrada", []],

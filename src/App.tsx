@@ -33,7 +33,7 @@ import CostCenters from "./pages/settings/CostCenters";
 import ClassesRecDesp from "./pages/settings/ClassesRecDesp";
 import UsersSettings from "./pages/settings/Users";
 import LideresCC from "./pages/settings/LideresCC";
-import Sales from "./pages/Sales";
+import VendasNotasSaida from "./pages/VendasNotasSaida";
 import CreditCards from "./pages/CreditCards";
 import CreditCardDetail from "./pages/CreditCardDetail";
 import CreditCardInvoice from "./pages/CreditCardInvoice";
@@ -180,11 +180,14 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
+        {/* Vendas › Notas de Saída (PLANO-VENDAS VND-7). Gate real: RPCs vendas_* (vendas.notas.access).
+            /sales era a "Receita de Vendas" antiga (tabela sales_invoices, vazia): passa a abrir a tela nova. */}
+        <Route path="/sales" element={<Navigate to="/vendas/notas" replace />} />
         <Route
-          path="/sales"
+          path="/vendas/notas"
           element={
-            <PermissionRoute permKey="sales">
-              <Sales />
+            <PermissionRoute permKey="vendas.notas.access">
+              <VendasNotasSaida />
             </PermissionRoute>
           }
         />
