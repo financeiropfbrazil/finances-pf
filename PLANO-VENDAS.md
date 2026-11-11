@@ -13,7 +13,8 @@
 | VND-3 | DDL: tabelas, RLS, RPC de gravação (migration) | **concluído 05/11/2026** — migration `vnd_3_nf_saida` (versão `20261105195613`) aplicada com ordem do Pedro; conferência pós-aplicação na §13.5 |
 | VND-4 | Edge `sync-nf-saida-cron` (lista + detalhe um a um) + teste | **concluído 05/11/2026** — v1 em produção; testes A e B aprovados (§14.6) |
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | **concluído 05/11/2026** — corte **01/01/2025** (ordem do Pedro); 2.278 notas, 0 erros, 58 lacunas confirmadas; resultado na §16 |
-| VND-6 | Cron + kill-switch em `sync_settings` + conferências | aguardando |
+| VND-6 | Cron + kill-switch em `sync_settings` + conferências | **concluído 11/11/2026** — migration `vnd_6_cron`; rodada manual sem erro; `cron.job` 37 **ligado** com ordem do Pedro (§17) |
+| VND-7 | Tela Vendas › Notas de Saída (permissão, papel, RPCs de leitura, menu) | **concluído 11/11/2026** — migration `vnd_7_vendas_tela`; teste com usuário sem `is_admin` aprovado; front no `main` (§18) |
 
 ## 1. Objetivo e escopo
 
@@ -310,6 +311,9 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | 2026-11-05 | VND-5 (detalhe concluído) | Lotes 8–12 (net 36176–36180): 200 + 200 + 200 + 200 + 73, 0 falhas. **Fila 0: 2.278 notas carregadas** (NF-e 2.100, nº 3076–5193; NFS-e 178, nº 223–441), 0 com erro, 0 estacionadas, 0 ausentes, 2 NFS-e provisórias. 21 execuções `nf_saida` em `sync_runs`, 0 com erro. Volume: 2.278 versões, 5.133 itens, 1.518 parcelas, 2.031 classes, **68 MB** no total das tabelas `nf_saida*`. Fingerprint `compras_pedidos` = 2.416. |
 | 2026-11-05 | VND-5 (lacunas) | `modo notas` (net 36182–36185): **as 17 NF-e e as 41 NFS-e vagas não existem no Alvo** (`nao_existe_no_alvo`); com a 5160, as 18 NF-e. Nenhuma nota nova apareceu. As NFS-e 224–253 formam um bloco: o Alvo não tem nenhuma NFS-e entre 17/01/2025 (223, R$ 50) e abril/2025 (254). |
 | 2026-11-05 | VND-5 (conferência contábil, completa) | Refeita com o detalhe 100% carregado, jan/2025–set/2026 (out–dez/2025 não comparáveis: lançamentos de encerramento). Com a **regra D** (§16.2), **7 de 19 meses batem no centavo** (mai, jun, ago/2025; abr, mai, jun, jul/2026) e 4 são explicados no centavo: **jan, fev e mar/2025** — a diferença é exatamente a conta 4.1.01.005.003 (serviços mercado externo: 1.114.325,15; 839.004,99; 1.042.302,31) e o Alvo não tem NFS-e nesse trimestre; **ago/2026** −17.067,76 = NFS-e 434 (a contabilidade usou a data do DocFin, 31/08). **Revisão do achado A:** a contabilidade reconhece a receita da venda para entrega futura **na remessa** (5.116/6.116), **não** no simples faturamento (5.922/6.922) — os ±60/120/180 mil “redondos” da linha anterior eram remessas ainda na fila. **Achado C refutado:** jul/2026 bate no centavo quando a NFS-e 432 (emissão 05/08, competência 07) entra pela competência; as NFS-e provisórias que sumiram não entram na contabilidade. Áustria × intercompany repetida: igual à anterior (NF-e 67 ok; NFS-e 53 ok; 5097, 433/434 e 421–424/435/436 já explicadas). **8 países novos** só apareceram com o detalhe completo (CAN, COL, IE, MEX, PA, PER, TUR, UK; 14 notas) — proposta em `sql/VND-5-regioes-proposta-2.sql`, **não aplicada**. |
+| 2026-11-11 | Merge | Pedro autorizou o merge do branch do módulo no `main` ("autorizo tudo"): merge `dc2a7de`, sem conflito (o branch só acrescentava arquivos e 5 linhas no `supabase/config.toml`), `bun run build` limpo. |
+| 2026-11-11 | VND-6 | Pré-voo: `compras_pedidos` = 2.459; nenhum objeto do VND-6; segredo `sync_compras_cron_secret` no Vault; `sync_runs.job_type` aceita `nf_saida`. 1ª tentativa recusada por inteiro (`update cron.job` → "permission denied for table job" para o papel do MCP; nada gravado); script trocado para `cron.alter_job(cron.schedule(...), active := false)` e aplicado (`vnd_6_cron`). Rodada manual (`call_sync_nf_saida_cron('manual_admin')`, net 37556): rotina desde 27/09, 2 páginas, 480 linhas (30 novas, 1 mudou), 31 detalhes lidos, 0 erro, fila 0, ~68 s. **Job 37 ligado** (`cron.alter_job(37, active := true)`) com ordem do Pedro: 08h20, 13h20 e 18h20 BRT, dias úteis. |
+| 2026-11-11 | VND-7 | Tela Vendas › Notas de Saída (§18). Banco: `vnd_7_vendas_tela` (permissão `vendas.notas.access`, papel `visualizador_vendas` sem usuários, filtro interno e 3 RPCs de leitura com gate). Teste em transação desfeita, com um usuário sem `is_admin`: sem o papel → 42501; leitura direta de `nf_saida` → 0 linhas; com o papel → out/2026 com 71 notas, 7 canceladas, 178 itens (iguais ao Balancete P&F); detalhe da 5106; período de itens > 400 dias recusado. Nada ficou gravado do teste. Front: build limpo, type-check 0 erro, `vitest` 314/314 (teste novo da tela; teste da ordem da sidebar atualizado: "Vendas" no lugar de "nav.sales", mesma posição). |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
 
@@ -608,6 +612,7 @@ Detalhes do teste B:
 
 ### Merge do branch no `main`
 Para o repositório refletir o que está em produção (Edge, SQL e plano). Precisa da autorização do Pedro.
+> **Feito em 11/11/2026** (merge `dc2a7de`, autorizado pelo Pedro): o branch `claude/awesome-cray-f2x4ay` entrou no `main` sem conflito; build limpo.
 
 ## 16. VND-5 — resultado da carga histórica (05/11/2026)
 
@@ -663,3 +668,34 @@ Out–dez/2025 ficam fora: há lançamentos de encerramento no Balancete.
 3. **Serviços de jan–mar/2025:** onde foram emitidas as NFS-e desse trimestre (o Alvo pula de 223 para 254)? Se foram fora do Alvo, o espelho nunca vai tê-las.
 4. **Regiões dos 8 países novos** (`sql/VND-5-regioes-proposta-2.sql`): MEX em Latam ou América do Norte? TUR em Europa ou Ásia?
 5. **Intercompany com versões que o Alvo já não tem** (NF-e 5097; NFS-e 421–424, 435, 436): o espelho mostra a versão atual; o intercompany está parado desde 06/10.
+
+## 17. VND-6 — agendamento (11/11/2026)
+
+- Função `call_sync_nf_saida_cron(p_triggered_by, p_body)` (SECURITY DEFINER; `revoke` de public/anon/authenticated com a assinatura completa — sem o furo do BL-27).
+- Kill-switch `sync_settings('sync-nf-saida')`, `enabled = true`.
+- `cron.job` **37** `sync-nf-saida-3x-dia`, `20 11,16,21 * * 1-5` (UTC) = **08h20, 13h20 e 18h20 BRT**, dias úteis, **ligado** (ordem do Pedro, 11/11/2026).
+- **Lição:** o papel do MCP não faz `update cron.job` ("permission denied for table job"); ligar/desligar é por `cron.alter_job(<jobid>, active := true|false)`.
+- **Desligar:** `select cron.alter_job(37, active := false);` ou `update public.sync_settings set enabled = false where job_name = 'sync-nf-saida';` (a Edge sai sem chamar o Alvo). Rollback completo: `sql/VND-6-cron-rollback.sql`.
+
+## 18. VND-7 — tela Vendas › Notas de Saída (11/11/2026)
+
+**Decisões do Pedro (11/11):** a tela fica num menu próprio **Vendas**, no lugar da "Receita de Vendas" antiga (`/sales`, que lia a tabela `sales_invoices`, vazia, e que nenhum usuário tinha liberada); "autorizo tudo" (merge, agendamento, desenho da tela e push no `main`).
+
+**Banco** (`sql/VND-7-vendas-tela.sql`; rollback `sql/VND-7-vendas-tela-rollback.sql`; conferência `sql/VND-7-vendas-tela-verificar.sql`):
+- permissão `vendas.notas.access` (módulo `vendas`) e papel `visualizador_vendas` ("Visualizador de Vendas"), ligados; **nenhum usuário recebeu o papel** — atribuir pela tela de usuários;
+- `_vendas_notas_filtradas(...)` — filtro comum (só `tipo_nota = 'Saída'`, período pela emissão, modelo, tipo de operação, região, canceladas, busca por cliente/CNPJ/número/pedido); sem EXECUTE para anon/authenticated;
+- `vendas_notas_listar(p_de, p_ate, ...)` — lista paginada (até 5.000), resumo (notas, canceladas, valor sem as canceladas, por região e por tipo), última leitura do Alvo, última rodada, pendentes de detalhe e se o agendamento está ligado;
+- `vendas_nota_detalhe(p_id)` — nota, itens, lotes, séries (número de controle), parcelas e classes;
+- `vendas_itens_listar(p_de, p_ate, ...)` — itens do período para o Excel (até 400 dias);
+- as três RPCs: SECURITY DEFINER, gate `_is_admin() or user_has_permission(auth.uid(), 'vendas.notas.access')`, `revoke` de anon; as tabelas `nf_saida*` continuam com leitura direta só para admin.
+
+**Front:**
+- menu **Vendas › Notas de Saída** (`/vendas/notas`, `PermissionRoute permKey="vendas.notas.access"`); `/sales` redireciona para a tela nova; `Sales.tsx` ficou no repositório, sem rota;
+- `src/services/vendasNotasService.ts` e `src/pages/VendasNotasSaida.tsx`: período (De/Até, pela emissão), cartões (notas, canceladas no Alvo, valor sem as canceladas, por região), filtros (NF-e/NFS-e, operação, região, "No Alvo: válidas/canceladas"), lista com situação (Válida/Cancelada = livro; Provisória e "Sumiu do Alvo" = espelho), detalhe ao clicar (itens, lotes, séries, parcelas, classes), Excel com abas Notas e Itens, "Lidas do Alvo até …";
+- "Operação" é a classe do Alvo (`tipo_operacao`), sem a regra D (§16.3, decisão pendente).
+
+**Testes:** usuário sem `is_admin` (transação desfeita): sem o papel recusado, com o papel lê; `vitest` da tela (`src/test/vendas-notas-saida.test.tsx`); suíte 314/314.
+
+**Rollback:** `git revert` do commit do front + `sql/VND-7-vendas-tela-rollback.sql`.
+
+**Conferência com o Balancete P&F (11/11/2026).** O projeto Balancete carregou as mesmas notas de jan–out/2026 (808 notas; contagens, canceladas e valores iguais aos do espelho, mês a mês) e explica a receita do balancete (4.1.01) **sem diferença** em todos os meses de jan–set/2026, nota a nota. As diferenças da regra D de 2026 (§16.2) vêm de: NFS-e lançadas pelo mês do serviço (432 em julho; 433 e 434 em agosto; 439 em setembro), NF 4976 cancelada e lançada como receita em setembro (120.000,00), notas de venda sem lançamento (4426, 400,00; 4674, 12.993,37, conserto em garantia; 5011, 286,02) e câmbio das NFS-e 376 e 438. Serve de evidência para as decisões da §16.3.
