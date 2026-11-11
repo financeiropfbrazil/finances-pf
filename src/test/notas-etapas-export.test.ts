@@ -122,6 +122,58 @@ describe("download de controle das etapas", () => {
     expect(texto).toContain("do mais novo ao mais antigo");
   });
 
+  it("aprovação do pedido e sugeridos no bloco Pedido; não aprovado em vermelho; \"aprovado em\" só com aprovação total (NFE-17)", async () => {
+    const naoAprovado = {
+      ...base,
+      id: "e",
+      pedidos: "0004317",
+      pedido_aprovado_em: "2026-11-10",
+      pedido_aprovacao: "Reavaliar",
+      pedido_aprovado: false,
+    };
+    const aprovado = { ...base, id: "f", pedido_aprovado_em: "2026-10-03", pedido_aprovacao: "Aprovado", pedido_aprovado: true };
+    const sugerida = {
+      ...base,
+      id: "g",
+      pedidos: null,
+      pedidos_sugeridos: "0005253 (exato) · 0005256 (+1,4%)",
+      sugeridos_aprovacao: "0005253: Em Andamento · 0005256: Em Andamento",
+      sugeridos_aprovados: false,
+    };
+    const ws = (await montarPlanilhaEtapas("nfse", [naoAprovado, aprovado, sugerida], ctx)).worksheets[0];
+    const rotulos: unknown[] = [];
+    ws.getRow(2).eachCell((cel) => rotulos.push(cel.value));
+    const i = rotulos.indexOf("Pedido");
+    expect(rotulos.slice(i, i + 7)).toEqual([
+      "Pedido",
+      "Aprovação do pedido",
+      "Data do pedido",
+      "Pedido aprovado em",
+      "Dias: pedido → emissão",
+      "Pedidos sugeridos (nota sem pedido no Alvo)",
+      "Aprovação dos sugeridos",
+    ]);
+    const [aprNao, aprSim] = await coluna("Aprovação do pedido", [naoAprovado, aprovado]);
+    expect(aprNao.value).toBe("Reavaliar");
+    expect(aprNao.font).toMatchObject({ bold: true, color: { argb: "FFDC2626" } });
+    expect(aprSim.value).toBe("Aprovado");
+    expect(aprSim.font?.bold).toBeFalsy();
+    const [emNao, emSim] = await coluna("Pedido aprovado em", [naoAprovado, aprovado]);
+    expect(emNao.value).toBeNull();
+    expect((emSim.value as Date).toISOString()).toBe("2026-10-03T00:00:00.000Z");
+    const [sug] = await coluna("Pedidos sugeridos (nota sem pedido no Alvo)", [sugerida]);
+    expect(sug.value).toBe("0005253 (exato) · 0005256 (+1,4%)");
+    const [sugAp] = await coluna("Aprovação dos sugeridos", [sugerida]);
+    expect(sugAp.font).toMatchObject({ bold: true });
+  });
+
+  it("aba Sobre explica a aprovação e os sugeridos (NFE-17)", async () => {
+    const sobre = (await montarPlanilhaEtapas("nfe", [base], ctx)).getWorksheet("Sobre")!;
+    const chaves: unknown[] = [];
+    sobre.eachRow((r) => chaves.push(r.getCell(1).value));
+    expect(chaves).toEqual(expect.arrayContaining(["Aprovação do pedido", "Pedidos sugeridos"]));
+  });
+
   it("Dias: pedido → emissão mantém o sinal (negativo = nota antes do pedido)", async () => {
     const [c] = await coluna("Dias: pedido → emissão", [base]);
     expect(c.value).toBe(-1);

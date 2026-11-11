@@ -40,6 +40,28 @@ describe("Excel para a contabilidade (natureza do Questor)", () => {
     expect(ws.getRow(3).getCell(col("Competência")).value).toEqual(new Date(Date.UTC(2026, 8, 30)));
   });
 
+  it("aprovação do pedido e pedidos sugeridos no bloco Alvo, depois de Pedido (NFE-17)", async () => {
+    const reavaliar: LinhaQuestor = { ...base, chave_acesso: "d", pedidos: "0003041", pedido_aprovacao: "Reavaliar", pedido_aprovado: false };
+    const pendente: LinhaQuestor = {
+      ...base,
+      chave_acesso: "e",
+      situacao_alvo: "nao_lancada",
+      pedidos: null,
+      pedidos_sugeridos: "0004324 (exato)",
+      sugeridos_aprovacao: "Nenhum",
+      sugeridos_aprovados: false,
+    };
+    const { ws, col } = await planilha({ linhas: [reavaliar, pendente], de_para: [] });
+    const p = col("Pedido");
+    expect(col("Aprovação do pedido")).toBe(p + 1);
+    expect(col("Pedidos sugeridos (nota sem pedido no Alvo)")).toBe(p + 2);
+    expect(col("Aprovação dos sugeridos")).toBe(p + 3);
+    expect(ws.getRow(3).getCell(p + 1).value).toBe("Reavaliar");
+    expect(ws.getRow(3).getCell(p + 1).font).toMatchObject({ bold: true });
+    expect(ws.getRow(4).getCell(p + 2).value).toBe("0004324 (exato)");
+    expect(ws.getRow(4).getCell(p + 3).value).toBe("Nenhum");
+  });
+
   it("leva o de/para numa aba própria", async () => {
     const { wb } = await planilha({
       linhas: [base],

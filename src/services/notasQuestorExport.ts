@@ -13,16 +13,21 @@ import {
   celData,
   celNumero,
   celTexto,
+  colunasAprovacaoPedido,
+  colunasSugeridos,
   escreverAbaComBlocos,
   escreverAbaSobre,
   fmtBR,
+  REGRAS_PEDIDO_APROVACAO,
   type ColunaPlanilha,
   type ContextoExportEtapas,
 } from "@/services/notasEtapasExport";
+import type { PedidosDaLinha } from "@/services/pedidosNotasExport";
 
 export type OrigemClasse = "docfin" | "pedido" | "fornecedor";
 
-export interface LinhaQuestor {
+/** Os campos de `PedidosDaLinha` (NFE-17: aprovação do pedido e sugeridos) são montados na tela. */
+export interface LinhaQuestor extends Partial<PedidosDaLinha> {
   chave_acesso: string;
   numero: string | null;
   emissao: string | null;
@@ -132,6 +137,8 @@ const COLUNAS: ColunaPlanilha<LinhaQuestor>[] = [
   { bloco: "Alvo", label: "Situação no Alvo", tipo: "texto", largura: 14, valor: (l) => ROTULO_ALVO[l.situacao_alvo ?? ""] ?? celTexto(l.situacao_alvo) },
   { bloco: "Alvo", label: "Lançada no Alvo em", tipo: "data", largura: 11, valor: (l) => celData(l.lancado_em) },
   { bloco: "Alvo", label: "Pedido", tipo: "texto", largura: 14, valor: (l) => celTexto(l.pedidos) },
+  ...colunasAprovacaoPedido<LinhaQuestor>("Alvo"),
+  ...colunasSugeridos<LinhaQuestor>("Alvo"),
   { bloco: "Alvo", label: "DocFin", tipo: "inteiro", largura: 10, valor: (l) => celNumero(l.docfin) },
 ];
 
@@ -152,6 +159,8 @@ const REGRAS: [string, string][] = [
   ["De-para", "Aba \"De-para\": cada natureza da lista da contabilidade e as classes do Alvo ligadas a ela. \"Provisória\" na observação = havia duas naturezas possíveis; a escolhida pode mudar."],
   ["Código do serviço", "Código de tributação nacional (cTribNac) do XML da nota: item e subitem da LC 116 + desdobramento."],
   ["Situação no Alvo", "Lançada = título da NFS-e no contas a pagar do Alvo; Não lançada = ainda não; Sem dado do Alvo = emitida antes do início do espelho do contas a pagar."],
+  ["Pedido", "Pedido(s) do lançamento da nota no Alvo."],
+  ...REGRAS_PEDIDO_APROVACAO,
 ];
 
 export async function montarPlanilhaQuestor(rel: RelatorioQuestor, ctx: ContextoExportEtapas) {

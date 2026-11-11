@@ -53,6 +53,7 @@ import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/Period
 import { NfeDetalheEtapas, chaveDetalheNfe } from "@/components/nfe/NfeDetalheEtapas";
 import { buscarRelatorioEtapas, exportarEtapasXLSX, type LinhaEtapas } from "@/services/notasEtapasExport";
 import { buscarComentariosLote } from "@/services/notaComentariosService";
+import { buscarAprovacaoPedidos, buscarSugeridosNfe, pedidosDaLinha, separarPedidos } from "@/services/pedidosNotasExport";
 import {
   cfopsDaNota,
   diasUteisSemLeva,
@@ -473,6 +474,11 @@ const ComprasNotasFiscais = () => {
       const chaveDe = (l: LinhaEtapas) => l.chave_acesso || porId.get(l.id!)!.chave_acesso;
       // Comentários da etapa 7 (NFE-16), nas colunas finais.
       const comentarios = await buscarComentariosLote("nfe", relatorio.map(chaveDe));
+      // NFE-17: aprovação do(s) pedido(s) e os pedidos que a etapa 2 sugere.
+      const [aprovacao, sugeridos] = await Promise.all([
+        buscarAprovacaoPedidos(relatorio.flatMap((l) => separarPedidos(l.pedidos))),
+        buscarSugeridosNfe(relatorio.map((l) => l.id!)),
+      ]);
       // CFOP (NFE-7-A): o mesmo da coluna da tela, montado a partir dos itens que a lista já carregou.
       const linhas = relatorio.map((l) => {
         const t = l.chave_movestq != null ? tiposLanc.get(Number(l.chave_movestq)) : undefined;
@@ -482,6 +488,7 @@ const ComprasNotasFiscais = () => {
           tipo_lanc: t?.codigo ?? null,
           tipo_lanc_descricao: t?.descricao ?? null,
           comentarios: comentarios.get(chaveDe(l)) ?? [],
+          ...pedidosDaLinha(l.pedidos, aprovacao, sugeridos.get(l.id!)),
         };
       });
       if (linhas.length === 0) {

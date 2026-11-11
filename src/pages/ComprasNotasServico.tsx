@@ -33,6 +33,7 @@ import { NfseDetalheEtapas } from "@/components/nfse/NfseDetalheEtapas";
 import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
 import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
 import { buscarComentariosLote } from "@/services/notaComentariosService";
+import { buscarAprovacaoPedidos, buscarSugeridosNfse, pedidosDaLinha, separarPedidos } from "@/services/pedidosNotasExport";
 import { buscarTiposLanc, rotuloTipoLanc, type TipoLanc } from "@/services/alvoTipoLancService";
 import { buscarRelatorioQuestor, exportarQuestorXLSX } from "@/services/notasQuestorExport";
 import { formatCurrency, formatDate, formatDoc, formatInstanteBrt } from "@/components/nfse/nfseFormatos";
@@ -156,6 +157,11 @@ const ComprasNotasServico = () => {
       );
       // Comentários da etapa 7 (NFE-16), nas colunas finais.
       const comentarios = await buscarComentariosLote("nfse", relatorio.map((l) => l.chave_acesso!));
+      // NFE-17: aprovação do(s) pedido(s) e os pedidos que a etapa 2 sugere.
+      const [aprovacao, sugeridos] = await Promise.all([
+        buscarAprovacaoPedidos(relatorio.flatMap((l) => separarPedidos(l.pedidos))),
+        buscarSugeridosNfse(relatorio.map((l) => l.chave_acesso!)),
+      ]);
       const linhas = relatorio.map((l) => {
         const t = l.chave_movestq != null ? tiposLanc.get(Number(l.chave_movestq)) : undefined;
         return {
@@ -163,6 +169,7 @@ const ComprasNotasServico = () => {
           tipo_lanc: t?.codigo ?? null,
           tipo_lanc_descricao: t?.descricao ?? null,
           comentarios: comentarios.get(l.chave_acesso!) ?? [],
+          ...pedidosDaLinha(l.pedidos, aprovacao, sugeridos.get(l.chave_acesso!)),
         };
       });
       if (linhas.length === 0) {
@@ -185,11 +192,17 @@ const ComprasNotasServico = () => {
     try {
       const chaves = new Set(filtered.map((r) => r.chave_acesso));
       const rel = await buscarRelatorioQuestor(periodo.de, periodo.ate);
-      const linhas = rel.linhas.filter((l) => chaves.has(l.chave_acesso));
-      if (linhas.length === 0) {
+      const doFiltro = rel.linhas.filter((l) => chaves.has(l.chave_acesso));
+      if (doFiltro.length === 0) {
         toast({ title: "Nada para baixar neste filtro" });
         return;
       }
+      // NFE-17: aprovação do(s) pedido(s) e os pedidos que a etapa 2 sugere.
+      const [aprovacao, sugeridos] = await Promise.all([
+        buscarAprovacaoPedidos(doFiltro.flatMap((l) => separarPedidos(l.pedidos))),
+        buscarSugeridosNfse(doFiltro.map((l) => l.chave_acesso)),
+      ]);
+      const linhas = doFiltro.map((l) => ({ ...l, ...pedidosDaLinha(l.pedidos, aprovacao, sugeridos.get(l.chave_acesso)) }));
       const r = await exportarQuestorXLSX({ ...rel, linhas }, { de: periodo.de, ate: periodo.ate, filtros: filtrosDaTela() });
       toast({
         title: "Excel para a contabilidade baixado",

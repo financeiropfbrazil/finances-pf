@@ -10,10 +10,12 @@
 import type { Workbook, Worksheet } from "exceljs";
 import { supabase } from "@/integrations/supabase/client";
 import { formatarInstanteComSegundos, type ComentarioExport } from "@/services/notaComentariosService";
+import type { PedidosDaLinha } from "@/services/pedidosNotasExport";
 
 export type TipoNota = "nfe" | "nfse";
 
-export interface LinhaEtapas {
+/** Os campos de `PedidosDaLinha` (NFE-17: aprovação do pedido e sugeridos) são montados na tela. */
+export interface LinhaEtapas extends Partial<PedidosDaLinha> {
   id?: string;
   chave_acesso?: string;
   numero: string | null;
@@ -77,6 +79,8 @@ export interface ColunaPlanilha<L> {
   alerta?: "negativo" | "positivo";
   /** célula em itálico laranja — valor provisório (ex.: nota não lançada, contada até hoje) */
   provisorio?: (l: L) => boolean;
+  /** célula em vermelho e negrito — ex.: pedido não aprovado (NFE-17) */
+  destaque?: (l: L) => boolean;
   valor: (l: L) => string | number | Date | null;
   /** texto longo: quebra de linha na célula e a linha inteira alinhada no topo (NFE-16, comentários) */
   quebra?: boolean;
@@ -133,6 +137,47 @@ export function textoComentarios(lista: ComentarioExport[] | undefined): string 
   const texto = (lista ?? []).map((c) => `${formatarInstanteComSegundos(c.criado_em)} · ${c.autor}: ${c.texto}`).join("\n");
   return texto.length > LIMITE_CELULA ? `${texto.slice(0, LIMITE_CELULA)}\n… (cortado: veja todos no detalhe da nota)` : texto;
 }
+/** NFE-17: "Aprovação do pedido" — logo depois da coluna "Pedido" (Excel de etapas e da contabilidade). */
+export function colunasAprovacaoPedido<L extends Partial<PedidosDaLinha>>(bloco = "Pedido"): ColunaPlanilha<L>[] {
+  return [
+    {
+      bloco,
+      label: "Aprovação do pedido",
+      tipo: "texto",
+      largura: 24,
+      destaque: (l) => l.pedido_aprovado === false,
+      valor: (l) => t(l.pedido_aprovacao),
+    },
+  ];
+}
+
+/** NFE-17: os pedidos que a etapa 2 do detalhe sugere para nota sem pedido no lançamento do Alvo. */
+export function colunasSugeridos<L extends Partial<PedidosDaLinha>>(bloco: string): ColunaPlanilha<L>[] {
+  return [
+    { bloco, label: "Pedidos sugeridos (nota sem pedido no Alvo)", tipo: "texto", largura: 48, valor: (l) => t(l.pedidos_sugeridos) },
+    {
+      bloco,
+      label: "Aprovação dos sugeridos",
+      tipo: "texto",
+      largura: 40,
+      destaque: (l) => l.sugeridos_aprovados === false,
+      valor: (l) => t(l.sugeridos_aprovacao),
+    },
+  ];
+}
+
+/** NFE-17: explicação das colunas novas na aba "Sobre" (os dois Excel). */
+export const REGRAS_PEDIDO_APROVACAO: [string, string][] = [
+  [
+    "Aprovação do pedido",
+    "Situação de aprovação no Alvo do(s) pedido(s) da coluna Pedido: Aprovado (aprovação finalizada e total) · Em Andamento · Reavaliar · Nenhum · Fora do Hub (pedido antigo que o Hub não tem). Com mais de um pedido: \"Aprovado\" se todos estão; senão cada um com a sua situação. Em vermelho quando algum não está aprovado. O Alvo aceita lançar nota com pedido não aprovado — a coluna mostra esses casos.",
+  ],
+  [
+    "Pedidos sugeridos",
+    "Os mesmos pedidos que a etapa 2 do detalhe sugere para a nota que não tem pedido no lançamento do Alvo (ainda não lançada, ou lançada sem pedido): mesmo fornecedor (CNPJ ou raiz), saldo dentro de ±20% do valor da nota, até 3, na ordem da tela (citado na nota primeiro, depois o valor mais próximo). Entre parênteses, a diferença do saldo para o valor da nota. Pedidos ainda não aprovados também são sugeridos (e saem em vermelho em \"Aprovação dos sugeridos\"). Sugestão não é vínculo: conferir antes de lançar.",
+  ],
+];
+
 export const ROTULO_FISCO: Record<string, string> = { normal: "Normal", cancelada: "Cancelada", substituida: "Substituída" };
 export { t as celTexto, n as celNumero, d as celData, dh as celDataHora };
 
@@ -149,9 +194,18 @@ function colunas(tipo: TipoNota): Coluna[] {
       : []),
 
     { bloco: "Pedido", label: "Pedido", tipo: "texto", largura: 16, valor: (l) => t(l.pedidos) },
+    ...colunasAprovacaoPedido<LinhaEtapas>(),
     { bloco: "Pedido", label: "Data do pedido", tipo: "data", largura: 11, valor: (l) => d(l.data_pedido) },
-    { bloco: "Pedido", label: "Pedido aprovado em", tipo: "data", largura: 11, valor: (l) => d(l.pedido_aprovado_em) },
+    // NFE-17: data só quando todos os pedidos da nota estão aprovados (aprovação finalizada e total)
+    {
+      bloco: "Pedido",
+      label: "Pedido aprovado em",
+      tipo: "data",
+      largura: 11,
+      valor: (l) => (l.pedido_aprovado === false ? null : d(l.pedido_aprovado_em)),
+    },
     { bloco: "Pedido", label: "Dias: pedido → emissão", tipo: "inteiro", largura: 11, alerta: "negativo", valor: (l) => n(l.dias_pedido_emissao) },
+    ...colunasSugeridos<LinhaEtapas>("Pedido"),
 
     { bloco: "MovEstq", label: "Chave do MovEstq", tipo: "inteiro", largura: 11, valor: (l) => n(l.chave_movestq) },
     { bloco: "MovEstq", label: "Tipo de lançamento", tipo: "texto", largura: 12, valor: (l) => t(l.tipo_lanc) },
@@ -234,7 +288,8 @@ const REGRAS: [string, string][] = [
   ["Período", "Pela data de emissão da nota, inclusive. É o período escolhido na tela no momento do download."],
   ["Pedido", "Pedido(s) do lançamento no Alvo (MovEstq). Na NF-e ainda não lançada, o pedido vinculado no Hub (botão \"Vincular\"). Sugestões automáticas não entram."],
   ["Data do pedido", "Com mais de um pedido, a mais recente."],
-  ["Pedido aprovado em", "Data de aprovação no Alvo; com mais de um pedido, a mais recente."],
+  ["Pedido aprovado em", "Data de aprovação no Alvo; com mais de um pedido, a mais recente. Vazia quando algum pedido da nota não está totalmente aprovado (veja \"Aprovação do pedido\") — o Alvo grava data de aprovação parcial."],
+  ...REGRAS_PEDIDO_APROVACAO,
   ["Dias: pedido → emissão", "Emissão da nota − data do pedido. 0 = mesmo dia · positivo = pedido antes da nota (o certo) · NEGATIVO (vermelho) = nota emitida antes do pedido (errado)."],
   ["Lançado no Alvo em", "Data de entrada da nota no Alvo."],
   ["Tipo de lançamento", "CodigoTipoLanc do cabeçalho do MovEstq no Alvo (o item pode ter outro; aqui vale o do cabeçalho). A descrição vem do catálogo do Hub e cobre só parte dos códigos — o Alvo não manda o nome do tipo no MovEstq."],
@@ -301,6 +356,7 @@ export function escreverAbaComBlocos<L>(
     const linha = ws.addRow(COLUNAS.map((c) => c.valor(l)));
     COLUNAS.forEach((c, i) => {
       if (c.provisorio?.(l)) linha.getCell(i + 1).font = { italic: true, color: { argb: "FFD97706" } };
+      if (c.destaque?.(l)) linha.getCell(i + 1).font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFDC2626" } };
       if (temQuebra) linha.getCell(i + 1).alignment = c.quebra ? { vertical: "top", wrapText: true } : { vertical: "top" };
     });
   }
