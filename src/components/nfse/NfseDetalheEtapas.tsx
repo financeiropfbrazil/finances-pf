@@ -63,6 +63,7 @@ import {
 } from "@/services/nfseRecebidasService";
 import { formatBytes, formatCurrency, formatDate, formatDoc, formatInstanteBrt, hojeBrt } from "./nfseFormatos";
 import { useTipoLanc } from "@/services/alvoTipoLancService";
+import { EtapaComentarios, estadoComentarios, useComentariosNota } from "@/components/notas/EtapaComentarios";
 
 // ════════════════════════════════════════════════════════════
 // ESTADO DE CADA ETAPA
@@ -238,7 +239,7 @@ export function colunasPorLinha(largura: number) {
   return [6, 3, 2].find((n) => n * LARGURA_MIN_COLUNA + (n - 1) * VAO <= util) ?? 1;
 }
 
-/** Régua das 6 etapas: mostra o andamento e leva até a coluna ao clicar. */
+/** Régua das etapas (6 + Comentários, NFE-15): mostra o andamento e leva até a coluna ao clicar. */
 export function Regua({ etapas, onIr }: { etapas: { titulo: string; estado: EstadoEtapa }[]; onIr: (i: number) => void }) {
   return (
     <ol className="flex items-center overflow-x-auto rounded-md border border-border bg-background px-3 py-2">
@@ -844,6 +845,7 @@ function Etapas({
   const pagas = parcelas.filter(parcelaPaga).length;
   const vencidas = parcelas.filter((p) => parcelaVencida(p, hoje)).length;
   const proxima = parcelas.filter((p) => !parcelaPaga(p)).sort((a, b) => (a.data_vencimento ?? "").localeCompare(b.data_vencimento ?? ""))[0];
+  const nComentarios = useComentariosNota("nfse", n.chave_acesso).data?.length ?? 0;
 
   // ── estado de cada etapa ──
   const e1: EstadoEtapa = n.situacao_fisco === "normal" ? "feito" : "atencao";
@@ -861,6 +863,8 @@ function Etapas({
     { titulo: "PDF da nota", estado: e4 },
     { titulo: "PDF do boleto", estado: e5 },
     { titulo: "DocFin", estado: e6 },
+    // NFE-15: etapa 7 — comentários dos usuários (largura toda, abaixo das 6)
+    { titulo: nComentarios ? `Comentários (${nComentarios})` : "Comentários", estado: estadoComentarios(nComentarios) },
   ];
   const ir = (i: number) => colunas.current[i]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
   const ref = (i: number) => (el: HTMLElement | null) => {
@@ -1113,6 +1117,8 @@ function Etapas({
           )}
         </Coluna>
       </div>
+
+      <EtapaComentarios tipo="nfse" chave={n.chave_acesso} colRef={ref(6)} />
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span>

@@ -58,6 +58,7 @@ import {
   removerAnexoNfe,
   type DetalheNfe,
 } from "@/services/nfeRecebidasService";
+import { EtapaComentarios, estadoComentarios, useComentariosNota } from "@/components/notas/EtapaComentarios";
 
 const ACOES_NFE: AcoesAnexo = { anexar: anexarPdfNfe, remover: removerAnexoNfe, nomeNota: "DANFE" };
 
@@ -161,6 +162,7 @@ function Etapas({
     .sort((a, b) => (a.data_vencimento ?? "").localeCompare(b.data_vencimento ?? ""))[0];
   const itens = n.itens ?? [];
   const cfops = [...new Set(itens.map((i) => i.cfop).filter(Boolean))];
+  const nComentarios = useComentariosNota("nfe", n.chave_acesso).data?.length ?? 0;
 
   // ── estado de cada etapa ──
   const e1: EstadoEtapa = n.tem_xml ? "feito" : "atencao";
@@ -194,6 +196,8 @@ function Etapas({
     { titulo: "DANFE", estado: e4 },
     { titulo: "PDF do boleto", estado: e5 },
     { titulo: "DocFin", estado: e6 },
+    // NFE-15: etapa 7 — comentários dos usuários (largura toda, abaixo das 6)
+    { titulo: nComentarios ? `Comentários (${nComentarios})` : "Comentários", estado: estadoComentarios(nComentarios) },
   ];
   const ir = (i: number) => colunas.current[i]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
   const ref = (i: number) => (el: HTMLElement | null) => {
@@ -521,6 +525,8 @@ function Etapas({
           )}
         </Coluna>
       </div>
+
+      <EtapaComentarios tipo="nfe" chave={n.chave_acesso} colRef={ref(6)} />
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span>
