@@ -4,6 +4,7 @@ import {
   Banco,
   Deps,
   endpointLoad,
+  endpointSerie,
   envelopeLista,
   ItemFila,
   novoResultado,
@@ -12,6 +13,8 @@ import {
   passoDetalhe,
   passoLista,
   passoNotas,
+  passoSeries,
+  resumo,
   RespostaProxy,
 } from "./logica.ts";
 
@@ -61,6 +64,23 @@ class FakeBanco implements Banco {
     this.falhas.push({ id, erro });
     return { tentativas: 1, detalhe_status: "erro" };
   }
+  // VND-8
+  filaSeriesItens: number[] = [];
+  series: Array<{ controle: number; payload: unknown }> = [];
+  falhasSerie: Array<{ controle: number; erro: string }> = [];
+  explodirNaSerie = false;
+  async filaSeries(limite: number) {
+    return this.filaSeriesItens.slice(0, limite);
+  }
+  async gravarSerie(controle: number, payload: unknown) {
+    if (this.explodirNaSerie) throw new Error("falha na RPC de série");
+    this.series.push({ controle, payload });
+    return { resultado: payload === null ? "ausente" : "ok" };
+  }
+  async registrarFalhaSerie(controle: number, erro: string) {
+    this.falhasSerie.push({ controle, erro });
+    return { tentativas: 1, status: "erro" };
+  }
 }
 
 function opcoes(p: Partial<Opcoes> = {}): Opcoes {
@@ -71,6 +91,7 @@ function opcoes(p: Partial<Opcoes> = {}): Opcoes {
     paginaInicial: 1,
     maxPaginas: 5,
     maxDetalhes: 10,
+    maxSeries: 10,
     concorrencia: 2,
     inicio: 0,
     watchdogMs: 1_000_000,
@@ -272,4 +293,91 @@ Deno.test("lista não começa página nova sem a margem de tempo", async () => {
   assertEquals(res.paginas, 3); // começa em 0, 30 e 60; em 90 já não há 40 de folga
   assert(res.parado_por_watchdog);
   assertEquals(res.proxima_pagina, { "NF-e": 4 });
+});
+
+// ── VND-8: número de série impresso ──────────────────────────────────
+Deno.test("séries: endpoint com a grafia da whitelist do erp-proxy", () => {
+  assertEquals(endpointSerie(9059), "NumSerie/Load?codigoEmpresaFilial=1.01&controle=9059");
+});
+
+Deno.test("séries: grava o número impresso, marca ausente o que o Alvo não tem e registra falhas", async () => {
+  const banco = new FakeBanco();
+  banco.filaSeriesItens = [9059, 9060, 9061, 9062, 9063, 9064];
+  const chamadas: string[] = [];
+  const respostas: Record<number, RespostaProxy> = {
+    9059: { ok: true, status: 200, data: { Controle: 9059, NumeroSerie: "TSV05642", NumeroCtrlLote: "TS00079", CodigoProduto: "001.001.00011" } },
+    9060: { ok: true, status: 200, data: null },
+    9061: { ok: false, status: 520, data: null, erro: "Alvo HTTP 520" },
+    9062: { ok: true, status: 200, data: { ClassName: "X", ExceptionMessage: "Objeto não encontrado" } },
+    9063: { ok: true, status: 200, data: { Controle: 1, NumeroSerie: "TSV00001" } },
+    9064: { ok: true, status: 200, data: { Controle: 9064, NumeroSerie: "  " } },
+  };
+  const deps: Deps = {
+    proxy: async (endpoint) => {
+      chamadas.push(endpoint);
+      const c = Number(endpoint.split("controle=")[1]);
+      return respostas[c];
+    },
+    banco,
+    agora: () => 0,
+  };
+  const res = novoResultado();
+  await passoSeries(deps, opcoes(), res);
+  assertEquals(chamadas.length, 6);
+  assertEquals(res.series_tentadas, 6);
+  assertEquals(res.series_gravadas, 1);
+  assertEquals(res.series_ausentes, 1);
+  assertEquals(res.series_falhas, 4);
+  assertEquals(banco.series.find((x) => x.controle === 9059)?.payload, respostas[9059].data);
+  assertEquals(banco.series.find((x) => x.controle === 9060)?.payload, null);
+  assertEquals(banco.falhasSerie.map((f) => f.controle).sort(), [9061, 9062, 9063, 9064]);
+  assert(banco.falhasSerie.find((f) => f.controle === 9063)!.erro.includes("outro controle"));
+  assert(banco.falhasSerie.find((f) => f.controle === 9064)!.erro.includes("sem NumeroSerie"));
+});
+
+Deno.test("séries: exceção da RPC vira falha registrada e a rodada segue", async () => {
+  const banco = new FakeBanco();
+  banco.filaSeriesItens = [1, 2];
+  banco.explodirNaSerie = true;
+  const deps: Deps = {
+    proxy: async (endpoint) => ({ ok: true, status: 200, data: { NumeroSerie: "TSV" + endpoint.split("controle=")[1] } }),
+    banco,
+    agora: () => 0,
+  };
+  const res = novoResultado();
+  await passoSeries(deps, opcoes(), res);
+  assertEquals(res.series_tentadas, 2);
+  assertEquals(res.series_falhas, 2);
+  assertEquals(banco.falhasSerie.length, 2);
+});
+
+Deno.test("séries: respeita max_series e o watchdog", async () => {
+  const banco = new FakeBanco();
+  banco.filaSeriesItens = [1, 2, 3, 4, 5];
+  let t = 0;
+  const deps: Deps = {
+    proxy: async () => {
+      t += 600;
+      return { ok: true, status: 200, data: { NumeroSerie: "X" } };
+    },
+    banco,
+    agora: () => t,
+  };
+  const res = novoResultado();
+  await passoSeries(deps, opcoes({ maxSeries: 0 }), res);
+  assertEquals(res.series_tentadas, 0);
+  await passoSeries(deps, opcoes({ maxSeries: 5, watchdogMs: 1000, concorrencia: 1 }), res);
+  assert(res.parado_por_watchdog);
+  assert(res.series_tentadas < 5);
+});
+
+Deno.test("resumo do modo series mostra só as séries", () => {
+  const res = novoResultado();
+  res.series_tentadas = 3;
+  res.series_gravadas = 2;
+  res.series_ausentes = 1;
+  const r = resumo("series", opcoes(), res, "vX");
+  assert(r.includes("séries 3 lidas (gravadas 2, ausentes 1, falhas 0)"));
+  assert(!r.includes("lista desde"));
+  assert(!r.includes("detalhe "));
 });

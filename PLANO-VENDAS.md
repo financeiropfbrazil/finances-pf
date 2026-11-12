@@ -15,6 +15,8 @@
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | **concluído 05/11/2026** — corte **01/01/2025** (ordem do Pedro); 2.278 notas, 0 erros, 58 lacunas confirmadas; resultado na §16 |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | **concluído 11/11/2026** — migration `vnd_6_cron`; rodada manual sem erro; `cron.job` 37 **ligado** com ordem do Pedro (§17) |
 | VND-7 | Tela Vendas › Notas de Saída (permissão, papel, RPCs de leitura, menu) | **concluído 11/11/2026** — migration `vnd_7_vendas_tela`; teste com usuário sem `is_admin` aprovado; front no `main` (§18) |
+| VND-8 | Número de série impresso (`NumSerie/Load`) no espelho de saídas | **em andamento 12/11/2026** — ordem do Pedro ("ok, comece"), etapa H1 do desenho do Balancete P&F (§19) |
+| VND-9 | Janela de leitura para o Balancete P&F + leitura de hora em hora e varredura noturna | **a fazer** — etapa H2 do mesmo desenho (§19.6) |
 
 ## 1. Objetivo e escopo
 
@@ -313,6 +315,7 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | 2026-11-05 | VND-5 (conferência contábil, completa) | Refeita com o detalhe 100% carregado, jan/2025–set/2026 (out–dez/2025 não comparáveis: lançamentos de encerramento). Com a **regra D** (§16.2), **7 de 19 meses batem no centavo** (mai, jun, ago/2025; abr, mai, jun, jul/2026) e 4 são explicados no centavo: **jan, fev e mar/2025** — a diferença é exatamente a conta 4.1.01.005.003 (serviços mercado externo: 1.114.325,15; 839.004,99; 1.042.302,31) e o Alvo não tem NFS-e nesse trimestre; **ago/2026** −17.067,76 = NFS-e 434 (a contabilidade usou a data do DocFin, 31/08). **Revisão do achado A:** a contabilidade reconhece a receita da venda para entrega futura **na remessa** (5.116/6.116), **não** no simples faturamento (5.922/6.922) — os ±60/120/180 mil “redondos” da linha anterior eram remessas ainda na fila. **Achado C refutado:** jul/2026 bate no centavo quando a NFS-e 432 (emissão 05/08, competência 07) entra pela competência; as NFS-e provisórias que sumiram não entram na contabilidade. Áustria × intercompany repetida: igual à anterior (NF-e 67 ok; NFS-e 53 ok; 5097, 433/434 e 421–424/435/436 já explicadas). **8 países novos** só apareceram com o detalhe completo (CAN, COL, IE, MEX, PA, PER, TUR, UK; 14 notas) — proposta em `sql/VND-5-regioes-proposta-2.sql`, **não aplicada**. |
 | 2026-11-11 | Merge | Pedro autorizou o merge do branch do módulo no `main` ("autorizo tudo"): merge `dc2a7de`, sem conflito (o branch só acrescentava arquivos e 5 linhas no `supabase/config.toml`), `bun run build` limpo. |
 | 2026-11-11 | VND-6 | Pré-voo: `compras_pedidos` = 2.459; nenhum objeto do VND-6; segredo `sync_compras_cron_secret` no Vault; `sync_runs.job_type` aceita `nf_saida`. 1ª tentativa recusada por inteiro (`update cron.job` → "permission denied for table job" para o papel do MCP; nada gravado); script trocado para `cron.alter_job(cron.schedule(...), active := false)` e aplicado (`vnd_6_cron`). Rodada manual (`call_sync_nf_saida_cron('manual_admin')`, net 37556): rotina desde 27/09, 2 páginas, 480 linhas (30 novas, 1 mudou), 31 detalhes lidos, 0 erro, fila 0, ~68 s. **Job 37 ligado** (`cron.alter_job(37, active := true)`) com ordem do Pedro: 08h20, 13h20 e 18h20 BRT, dias úteis. |
+| 2026-11-12 | VND-8 (código) | Sessão "Balancete 2", com ordem do Pedro. Início: remote/branch conferidos, `main` em `6f0bca3` (NFE-18 e PAP-2 de outras sessões, fora do módulo); sessão do módulo Vendas avisada (send_message). `NumSerie/Load` conferido na whitelist do erp-proxy (`3e00b89`, `src/routes/alvo.ts`). Hub: 7.129 controles de série nas notas (2.252 de 2026). Escritos `sql/VND-8-series*.sql` e a Edge v3 (passo 3 de séries, modo `series`); testes Deno 18/18; `deno check` do `index.ts` limpo (cópia com o import do npm, porque esm.sh é bloqueado nesta máquina). |
 | 2026-11-11 | VND-7 | Tela Vendas › Notas de Saída (§18). Banco: `vnd_7_vendas_tela` (permissão `vendas.notas.access`, papel `visualizador_vendas` sem usuários, filtro interno e 3 RPCs de leitura com gate). Teste em transação desfeita, com um usuário sem `is_admin`: sem o papel → 42501; leitura direta de `nf_saida` → 0 linhas; com o papel → out/2026 com 71 notas, 7 canceladas, 178 itens (iguais ao Balancete P&F); detalhe da 5106; período de itens > 400 dias recusado. Nada ficou gravado do teste. Front: build limpo, type-check 0 erro, `vitest` 314/314 (teste novo da tela; teste da ordem da sidebar atualizado: "Vendas" no lugar de "nav.sales", mesma posição). |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
@@ -699,3 +702,32 @@ Out–dez/2025 ficam fora: há lançamentos de encerramento no Balancete.
 **Rollback:** `git revert` do commit do front + `sql/VND-7-vendas-tela-rollback.sql`.
 
 **Conferência com o Balancete P&F (11/11/2026).** O projeto Balancete carregou as mesmas notas de jan–out/2026 (808 notas; contagens, canceladas e valores iguais aos do espelho, mês a mês) e explica a receita do balancete (4.1.01) **sem diferença** em todos os meses de jan–set/2026, nota a nota. As diferenças da regra D de 2026 (§16.2) vêm de: NFS-e lançadas pelo mês do serviço (432 em julho; 433 e 434 em agosto; 439 em setembro), NF 4976 cancelada e lançada como receita em setembro (120.000,00), notas de venda sem lançamento (4426, 400,00; 4674, 12.993,37, conserto em garantia; 5011, 286,02) e câmbio das NFS-e 376 e 438. Serve de evidência para as decisões da §16.3.
+
+## 19. VND-8 — número de série impresso (12/11/2026)
+
+**Origem.** Desenho "Notas fiscais do Hub no Balancete, sem carga manual" (repositório `balancete-starter`,
+`docs/DESENHO-ENVIO-AUTOMATICO-NOTAS.md`), aprovado pelo Pedro em 12/11/2026: o Balancete P&F passa a **buscar** as
+notas no Hub por uma janela só de leitura (VND-9), em vez da carga manual pelos scripts. Etapa H1.
+
+**Problema → causa → impacto → solução → risco**
+- **Problema:** o espelho guarda só o número de **controle** de cada série (`nf_saida_item_serie.controle_num_serie`),
+  não o número impresso na peça (ex.: TSV05642).
+- **Causa:** a nota (`notaFiscal/Load`) só traz `ControleNumSerie`; o número impresso está no cadastro de séries do
+  Alvo (`NumSerie/Load`), que o VND-4 deixou para "fase futura" (comentário no VND-3).
+- **Impacto:** a busca automática do Balancete traria as séries sem o número impresso (hoje ele tem as 4.023 séries de
+  2026 com o número, pela carga manual); a tela Vendas também mostra só o controle.
+- **Solução:**
+  1. tabela `nf_saida_serie_cadastro` (uma linha por controle: número impresso, lote, produto, situação, tentativas,
+     resposta do Alvo) e fila `v_nf_saida_serie_fila` (controles sem cadastro, ou com falha e espera vencida);
+  2. RPCs `nf_saida_serie_gravar` e `nf_saida_serie_registrar_falha` (só `service_role`; mesma escada de esperas do
+     detalhe: 15 min, 1 h, 6 h, 24 h; estaciona na 5ª);
+  3. Edge v3: passo 3 da rotina, depois do detalhe (até 60 controles por rodada), e modo `series` para a carga dos
+     existentes (até 300 por chamada, 3 em paralelo, mesmo watchdog). Resposta com erro dentro do JSON, outro controle
+     ou sem `NumeroSerie` = falha; `null` = ausente no Alvo.
+- **Risco:** baixo. Só acrescenta (nada existente muda); `NumSerie/Load` é leitura e já está liberado no erp-proxy;
+  volume de ~7.100 consultas na carga inicial (em lotes de 300, fora das janelas do cron) e ~200 por mês depois.
+
+**Rollback:** voltar a Edge para a v2 (`git revert` do commit + deploy) e rodar `sql/VND-8-series-rollback.sql`.
+**Conferência:** `sql/VND-8-series-verificar.sql` (cadastro × fila × controles nas notas; amostra comparável com a
+ferramenta `buscar_serie` do Balancete; permissões).
+

@@ -35,6 +35,10 @@ export interface Banco {
   idDaNota(filial: string, modelo: string, serie: string, numeroAlvo: string): Promise<string | null>;
   gravarDetalhe(id: string, payload: unknown | null): Promise<{ resultado: string; versao: number }>;
   registrarFalha(id: string, erro: string): Promise<{ tentativas: number; detalhe_status: string }>;
+  // VND-8: número de série impresso (NumSerie/Load)
+  filaSeries(limite: number): Promise<number[]>;
+  gravarSerie(controle: number, payload: unknown | null): Promise<{ resultado: string }>;
+  registrarFalhaSerie(controle: number, erro: string): Promise<{ tentativas: number; status: string }>;
 }
 export interface Deps {
   proxy: Passthrough;
@@ -50,6 +54,7 @@ export interface Opcoes {
   paginaInicial: number; // continua uma lista longa de onde a execução anterior parou
   maxPaginas: number;
   maxDetalhes: number;
+  maxSeries: number; // VND-8: quantos números de controle consultar no NumSerie/Load
   concorrencia: number;
   inicio: number; // ms do início da execução
   watchdogMs: number;
@@ -70,6 +75,10 @@ export interface Resultado {
   sem_mudanca: number;
   ausentes: number;
   falhas: number;
+  series_tentadas: number;
+  series_gravadas: number;
+  series_ausentes: number;
+  series_falhas: number;
   erros: number;
   parado_por_watchdog: boolean;
   notas: Array<Record<string, unknown>>; // modo "notas": o que aconteceu com cada uma
@@ -91,6 +100,10 @@ export function novoResultado(): Resultado {
     sem_mudanca: 0,
     ausentes: 0,
     falhas: 0,
+    series_tentadas: 0,
+    series_gravadas: 0,
+    series_ausentes: 0,
+    series_falhas: 0,
     erros: 0,
     parado_por_watchdog: false,
     notas: [],
@@ -133,6 +146,11 @@ export function endpointLoad(modelo: string, serie: string, numeroAlvo: string):
     `&numero=${encodeURIComponent(numeroAlvo)}` +
     `&loadParent=All&loadChild=All&loadOneToOne=All`
   );
+}
+
+// VND-8: cadastro da série pelo número de controle (grafia da whitelist do erp-proxy).
+export function endpointSerie(controle: number): string {
+  return `NumSerie/Load?codigoEmpresaFilial=${FILIAL}&controle=${controle}`;
 }
 
 // 'YYYY-MM-DD' da data como o Alvo escreveu; null se ausente/vazia.
@@ -276,6 +294,74 @@ export async function passoDetalhe(deps: Deps, op: Opcoes, res: Resultado): Prom
   await Promise.all(Array.from({ length: Math.max(1, op.concorrencia) }, () => trabalhador()));
 }
 
+// ── Passo 3 (VND-8): número de série impresso, um controle por vez ────
+// Resposta objeto com NumeroSerie → grava; null → o Alvo não tem o controle
+// (ausente); erro dentro do JSON, outro controle ou sem NumeroSerie → falha
+// (espera crescente; estaciona na 5ª, como o detalhe das notas).
+async function lerSerie(deps: Deps, controle: number, res: Resultado): Promise<void> {
+  res.series_tentadas++;
+  const r = await deps.proxy(endpointSerie(controle), "GET");
+  try {
+    if (r.ok && (r.data === null || r.data === undefined || r.data === "")) {
+      await deps.banco.gravarSerie(controle, null);
+      res.series_ausentes++;
+      return;
+    }
+    let erro: string | null = null;
+    if (!r.ok) {
+      erro = r.erro ?? `HTTP ${r.status}`;
+    } else if (typeof r.data !== "object" || Array.isArray(r.data)) {
+      erro = `resposta inesperada: ${JSON.stringify(r.data)?.slice(0, 200)}`;
+    } else if (r.data.ExceptionMessage || r.data.ExceptionType) {
+      erro = `erro do Alvo: ${String(r.data.ExceptionMessage ?? r.data.ExceptionType).slice(0, 300)}`;
+    } else if (r.data.Controle !== undefined && r.data.Controle !== null && Number(r.data.Controle) !== controle) {
+      erro = `o Alvo devolveu outro controle: ${r.data.Controle}`;
+    } else if (typeof r.data.NumeroSerie !== "string" || r.data.NumeroSerie.trim() === "") {
+      erro = `resposta sem NumeroSerie: ${JSON.stringify(r.data)?.slice(0, 200)}`;
+    }
+    if (erro === null) {
+      await deps.banco.gravarSerie(controle, r.data);
+      res.series_gravadas++;
+      return;
+    }
+    await deps.banco.registrarFalhaSerie(controle, erro);
+    res.series_falhas++;
+    anotarErro(res, "series", erro, { controle });
+  } catch (e: any) {
+    const erro = e?.message ?? String(e);
+    res.series_falhas++;
+    anotarErro(res, "series/gravar", erro, { controle });
+    try {
+      await deps.banco.registrarFalhaSerie(controle, erro);
+    } catch (e2: any) {
+      anotarErro(res, "series/falha", e2?.message ?? String(e2), { controle });
+    }
+  }
+}
+
+export async function passoSeries(deps: Deps, op: Opcoes, res: Resultado): Promise<void> {
+  if (op.maxSeries <= 0) return;
+  let fila: number[];
+  try {
+    fila = await deps.banco.filaSeries(op.maxSeries);
+  } catch (e: any) {
+    anotarErro(res, "series/fila", e?.message ?? String(e));
+    return;
+  }
+  let i = 0;
+  const trabalhador = async () => {
+    while (i < fila.length) {
+      if (estourou(deps, op)) {
+        res.parado_por_watchdog = true;
+        return;
+      }
+      const c = fila[i++];
+      await lerSerie(deps, c, res);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, op.concorrencia) }, () => trabalhador()));
+}
+
 // ── Modo "notas": notas escolhidas, uma a uma (teste e conferência) ───
 // Se a nota ainda não existe no Hub e o Alvo a devolve, o próprio Load
 // serve de linha de lista (tem a identidade e os campos do cabeçalho).
@@ -340,11 +426,14 @@ export async function passoNotas(
 export function resumo(modo: string, op: Opcoes, res: Resultado, versao: string, extra: string[] = []): string {
   return [
     `[${modo}]`,
-    modo !== "detalhe" && modo !== "notas" ? `lista desde ${op.desde} a partir da pág. ${op.paginaInicial}: ${res.paginas} pág., ${res.linhas_lidas} linhas (novas ${res.novas}, mudaram ${res.mudaram}, iguais ${res.iguais}, reconferir ${res.reconferir})` : null,
+    modo !== "detalhe" && modo !== "notas" && modo !== "series" ? `lista desde ${op.desde} a partir da pág. ${op.paginaInicial}: ${res.paginas} pág., ${res.linhas_lidas} linhas (novas ${res.novas}, mudaram ${res.mudaram}, iguais ${res.iguais}, reconferir ${res.reconferir})` : null,
     res.lista_incompleta.length
       ? `LISTA INCOMPLETA: ${res.lista_incompleta.map((m) => `${m} (continuar da pág. ${res.proxima_pagina[m]})`).join(", ")}`
       : null,
-    `detalhe ${res.detalhes_tentados} lidas (nova versão ${res.nova_versao}, sem mudança ${res.sem_mudanca}, ausentes ${res.ausentes}, falhas ${res.falhas})`,
+    modo !== "series" ? `detalhe ${res.detalhes_tentados} lidas (nova versão ${res.nova_versao}, sem mudança ${res.sem_mudanca}, ausentes ${res.ausentes}, falhas ${res.falhas})` : null,
+    modo === "series" || res.series_tentadas > 0
+      ? `séries ${res.series_tentadas} lidas (gravadas ${res.series_gravadas}, ausentes ${res.series_ausentes}, falhas ${res.series_falhas})`
+      : null,
     res.erros ? `erros ${res.erros}` : null,
     res.parado_por_watchdog ? "PARADO PELO WATCHDOG" : null,
     ...extra,
