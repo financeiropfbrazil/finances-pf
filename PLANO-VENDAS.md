@@ -17,6 +17,7 @@
 | VND-7 | Tela Vendas › Notas de Saída (permissão, papel, RPCs de leitura, menu) | **concluído 11/11/2026** — migration `vnd_7_vendas_tela`; teste com usuário sem `is_admin` aprovado; front no `main` (§18) |
 | VND-8 | Número de série impresso (`NumSerie/Load`) no espelho de saídas | **concluído 12/11/2026** — migration `vnd_8_series`, Edge v3; as 7.129 séries carregadas, todas com o número impresso, fila 0 (§19) |
 | VND-9 | Janela de leitura para o Balancete P&F + leitura de hora em hora e varredura noturna | **concluído 12/11/2026** — etapa H2 do mesmo desenho (§20). Varredura ligada; segredo criado pelo Pedro; o Balancete já busca por ela (jan–nov/2026 carregados, iguais aos scripts) |
+| VND-10 | Janela de leitura para o Cockpit CBS (notas de saída × apuração da CBS) | **em andamento 12/11/2026** — `vnd_10_exportar_cbs` aplicada e Edge `exportar-notas-cbs` v1 publicada (fechada); falta o Pedro criar o segredo `CBS_EXPORT_KEY` no Hub (§21) |
 
 ## 1. Objetivo e escopo
 
@@ -319,6 +320,7 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | 2026-11-12 | VND-8 (aplicado e carga) | Aplicada `vnd_8_series` e publicada a Edge v3. 1º teste: 20 lidas, 19 ok, 1 falha (9185, HTTP 417 do Alvo, relida depois). Carga dos existentes em lotes de 300 e 500 (41–64 s cada), 0 falhas. **Conferência final (11h55 BRT): 7.129 controles nas notas = 7.129 cadastrados `ok` com número impresso; 0 ausentes, 0 erro, 0 estacionados, fila 0; RPCs só `service_role`.** 9185 = TSV05908 / TS00081, igual ao Balancete. |
 | 2026-11-12 | VND-9 (aplicado e testes) | Aplicadas `vnd_9_exportar_balancete` e `vnd_9_cron` (job 37 de hora em hora; jobs 38–41 da madrugada criados desligados). Publicada a Edge `exportar-notas-balancete` v1 (fechada até existir o segredo). Varredura testada à mão, sem erros: (a) 91 s, 900 linhas iguais, "LISTA INCOMPLETA" de propósito; (b) 87 s, págs. 3–5, completa (1.205 NF-e nos 13 meses); (c) NFS-e, 19 s, 180 linhas, completa; (d) 75 s, 1 nota nova e 200 séries. **Jobs 38–41 ligados às 11h47 BRT.** Resumo para o Balancete: todos os 13 meses com 0 notas sem detalhe e 0 séries sem número. Notas por mês, jan–out/2026, iguais às do Balancete (108, 93, 100, 68, 74, 72, 66, 62, 94, 71); nov com 29. |
 | 2026-11-12 | VND-9 (concluído) | Segredo `BALANCETE_EXPORT_KEY` criado pelo Pedro nos dois projetos. Chave errada/sem chave → 401 (net 37777–37778). O Balancete buscou jan–nov/2026 (busca B1): jan–out idênticos à carga dos scripts (6.683 linhas; só três campos que o processamento não lê diferem) e `vw_saidas_balancete` igual; nov com 29 notas. Limite do Supabase de chamadas entre funções por execução: o Balancete passou a pedir páginas de 50. |
+| 2026-11-12 | VND-10 (aplicado) | Ordem do Pedro ("Sim, autorizo", depois de concluído o VND-9). Pré-voo: `compras_pedidos` = 2.464. Aplicada `vnd_10_exportar_cbs`: `cbs_exportar_notas_saida` só para `service_role` (anon e authenticated sem EXECUTE, conferido), log `cbs_exportacao_log` com RLS só admin, chave `exportar-notas-cbs` ligada. Teste só leitura: 837 notas de saída de 2026, 1ª página 500, restantes 337. Edge `exportar-notas-cbs` v1 publicada (`verify_jwt = false`); chamada do `cbs-api` sem segredo → 500 "Função fechada". A chave fica no Vault do `cbs-api` (`cbs_hub_export_key`); o Pedro copia para `CBS_EXPORT_KEY` no Hub. |
 | 2026-11-11 | VND-7 | Tela Vendas › Notas de Saída (§18). Banco: `vnd_7_vendas_tela` (permissão `vendas.notas.access`, papel `visualizador_vendas` sem usuários, filtro interno e 3 RPCs de leitura com gate). Teste em transação desfeita, com um usuário sem `is_admin`: sem o papel → 42501; leitura direta de `nf_saida` → 0 linhas; com o papel → out/2026 com 71 notas, 7 canceladas, 178 itens (iguais ao Balancete P&F); detalhe da 5106; período de itens > 400 dias recusado. Nada ficou gravado do teste. Front: build limpo, type-check 0 erro, `vitest` 314/314 (teste novo da tela; teste da ordem da sidebar atualizado: "Vendas" no lugar de "nav.sales", mesma posição). |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
@@ -795,3 +797,32 @@ Etapa H2 do mesmo desenho do §19.
   - Cada chamada fica em `nf_saida_exportacao_log`.
   - O Supabase limita as chamadas de uma função a outra na mesma execução. Por isso o Balancete pede 50 notas por página (o máximo da janela) e deixa o resto para a rodada seguinte.
 
+## 21. VND-10 — janela de leitura para o Cockpit CBS (12/11/2026)
+
+Ordem do Pedro em 12/11/2026 ("Sim, autorizo", depois de terminado o VND-9). Mesmo desenho do §20, outro leitor.
+
+**Problema → causa → impacto → solução → risco**
+- **Problema:** o Cockpit CBS (app da Reforma Tributária, projeto Supabase `cbs-api`) cruza as notas de saída
+  do Alvo com a CBS que a Receita apurou, mas só recebia as notas por planilha exportada do Alvo, à mão.
+- **Causa:** não existe caminho entre o Hub e o `cbs-api`; o Cockpit não tem acesso ao Alvo.
+- **Impacto:** a checagem (exportação tributada, CBS ou ISS destacados onde não deviam, cancelada com débito,
+  Alvo × Receita) dependia de alguém lembrar de importar; as NFS-e de exportação 437–443 já mostram o custo.
+- **Solução:** **janela só de leitura** `exportar-notas-cbs` (Edge, `x-api-key` = segredo `CBS_EXPORT_KEY`, o mesmo
+  guardado no Vault do `cbs-api` como `cbs_hub_export_key`; sem o segredo a função fica fechada). Recebe
+  `{desde, apos, limite}` e devolve uma página das notas de **saída** que ainda existem no Alvo, emitidas desde
+  `desde`, **só o cabeçalho e só os campos da checagem** (modelo, série, número, datas, cliente, país, natureza,
+  valores de total, base/valor de CBS, IBS e ISS, cancelada/substituída/denegada, número de retorno da NFS-e).
+  **LGPD:** CNPJ só de pessoa jurídica; de pessoa física não sai nem o CPF nem o nome ("Pessoa física").
+  Paginação pela chave (modelo, série, número): a próxima página começa depois de `ultimo` (testado em produção,
+  só leitura: 837 notas de 2026 em 3 páginas, nenhuma pulada ou repetida). Cada chamada vai para
+  `cbs_exportacao_log`; chave de desligar em `sync_settings` (`exportar-notas-cbs`).
+  O Cockpit busca de hora em hora (job `cbs-notas-hub` no `cbs-api`, migration 009 do repositório
+  `reforma-tributaria-hub`).
+- **Risco:** baixo. Só lê; não altera `nf_saida`, o sync, a janela do Balancete (VND-9) nem telas. Uma consulta
+  por hora (2 páginas de 500). Desligar: `update sync_settings set enabled = false where job_name =
+  'exportar-notas-cbs'`. Desfazer: `sql/VND-10-exportar-cbs-rollback.sql` e apagar a Edge.
+
+**Arquivos:** `sql/VND-10-exportar-cbs.sql` (+ rollback), `supabase/functions/exportar-notas-cbs/` (testes Deno da
+lógica), `supabase/config.toml` (`verify_jwt = false`, auth real = `x-api-key`).
+
+**Situação (12/11/2026):** banco e Edge aplicados; a janela fica fechada (500) até o segredo `CBS_EXPORT_KEY` existir no Hub, com o mesmo valor do Vault `cbs_hub_export_key` do `cbs-api` (o Pedro copia pelo painel; a chave não passa pelo chat).
