@@ -32,7 +32,7 @@ verificar e rollback em `docs/papeis/`. Toda tarefa só fica validada depois de 
 |---|---|---|---|
 | NFE-18 | Operador de Compras: NF-e (ver, XML, anexar, comentar — sem vincular), NFS-e, Rastreio (registrada no PLANO-NFE) | SQL + finances-pf | ✅ 12/11 |
 | PAP-1 | Desativar passa a cortar o acesso | SQL + finances-pf | ⏳ aguardando ok |
-| PAP-2 | Fechar escrita em `profiles` e `user_permissions` | SQL | 🟡 aplicado 12/11 — **teste como usuário pendente** |
+| PAP-2 | Fechar escrita em `profiles` e `user_permissions` | SQL | ✅ 12/11 (aplicado e testado com usuário sem admin) |
 | PAP-3 | Página de entrada e menu por papel | finances-pf | ⏳ aguardando ok |
 | PAP-4 | Papéis para os módulos antigos (sob demanda: quem entra em qual módulo) | SQL + finances-pf | ⏳ decisão do Pedro |
 | PAP-5 | Plano para fechar a escrita das 51 tabelas, módulo a módulo (começar por Compras) | — | ⏳ planejar |
@@ -58,3 +58,4 @@ passa para admin); Edges de convite/criação (chave de serviço). Busca no cód
 | Data | Tarefa | Registro |
 |---|---|---|
 | 2026-11-12 | PAP-2 | Pré-voo: fingerprint 2.459; uma policy "Allow all" (ALL, true/true) em cada tabela, sem FORCE RLS. Aplicado. O 1º teste como usuário (Mirlene × Pedro, em rollback) não rodou: tem UPDATE/DELETE e o servidor do MCP pediu confirmação ao Pedro, que ficou sem resposta. Teste pendente — rodar `PAP-2-profiles-escrita-verificar.sql` com o Pedro acompanhando. |
+| 2026-11-12 | PAP-2 | **Teste como usuário (Pedro aprovou a confirmação do MCP; tudo em rollback).** Mirlene (Operadora, sem admin): lê os 77 perfis; alterar o próprio nome, trocar nome e usuário do Alvo do Hugo e apagar o perfil do Hugo = 0 linhas; upsert como a tela de Usuários e criar perfil = 42501; troca de senha obrigatória (RPC) passou; `user_permissions` lê 0 e não consegue se dar menu antigo (42501). Pedro (admin): altera nomes e usuário do Alvo (1 linha), upsert da tela de Usuários (1 linha), cria perfil, troca de senha passou, grava `user_permissions`; apagar perfil = 0 linhas (ninguém apaga pela API). Depois do rollback, conferido que nada ficou: Hugo igual, perfil de teste inexistente, `user_permissions` vazia, 77 perfis. |
