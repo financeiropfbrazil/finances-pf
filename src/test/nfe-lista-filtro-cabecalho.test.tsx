@@ -37,6 +37,13 @@ vi.mock("@/services/comprasNfeNoAlvoService", () => ({
   listarNfeNoAlvo: vi.fn(async () => new Map([["c", { nfe_id: "c", chave_movestq: 1, data_entrada: "2026-11-09", fonte: "Alvo" }]])),
 }));
 
+// NFE-18: permissões do usuário da tela. Padrão = Analista Fiscal (vê, sobe XML, anexa e vincula).
+const perms = vi.hoisted(() => ({ atuais: new Set(["compras.nfe.access", "compras.nfe.create", "compras.nfe.vincular"]) }));
+vi.mock("@/hooks/useHasPermission", () => ({
+  useHasPermission: (codigo: string) => perms.atuais.has(codigo),
+  useHasAnyPermission: (codigos: string[]) => codigos.some((c) => perms.atuais.has(c)),
+}));
+
 import ComprasNotasFiscais from "@/pages/ComprasNotasFiscais";
 
 let root: Root | undefined;
@@ -44,6 +51,7 @@ let container: HTMLDivElement | undefined;
 beforeAll(() => vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true));
 afterAll(() => vi.unstubAllGlobals());
 afterEach(() => {
+  perms.atuais = new Set(["compras.nfe.access", "compras.nfe.create", "compras.nfe.vincular"]);
   act(() => root?.unmount());
   container?.remove();
   root = undefined;
@@ -115,5 +123,30 @@ describe("lista de NF-e — filtro no cabeçalho (NFE-12)", () => {
     expect(opcao).toBeDefined();
     digitar(document.querySelector('input[placeholder="Buscar..."]') as HTMLInputElement, "E0000003");
     expect(numerosNaTabela()).toEqual(["1853"]);
+  });
+});
+
+describe("lista de NF-e — o que cada papel pode fazer (NFE-18)", () => {
+  const botoes = () => Array.from(container!.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim());
+
+  it("Analista Fiscal: vê \"Vincular\" nas notas que o Alvo não tem e o botão de subir XML", async () => {
+    await montar();
+    expect(botoes().filter((t) => t === "Vincular")).toHaveLength(2);
+    expect(botoes().some((t) => /XML/i.test(t))).toBe(true);
+  });
+
+  it("Operador de Compras: sem \"Vincular\"/\"Desvincular\", mas sobe XML", async () => {
+    perms.atuais = new Set(["compras.nfe.access", "compras.nfe.create"]);
+    await montar();
+    expect(numerosNaTabela()).toEqual(expect.arrayContaining(["892720", "1854", "1853"]));
+    expect(botoes().filter((t) => t === "Vincular")).toHaveLength(0);
+    expect(container!.querySelector('button[title="Desvincular o pedido"]')).toBeNull();
+    expect(botoes().some((t) => /XML/i.test(t))).toBe(true);
+  });
+
+  it("sem \"Cadastrar NF-e\": some o botão de subir XML", async () => {
+    perms.atuais = new Set(["compras.nfe.access"]);
+    await montar();
+    expect(botoes().some((t) => /XML/i.test(t))).toBe(false);
   });
 });

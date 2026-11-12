@@ -74,8 +74,9 @@ export function NfeDetalheEtapas({
   nfeId: string;
   onVerXml: () => void;
   onBaixarXml: () => void;
-  onVincular: () => void;
-  onDesvincular: () => void;
+  /** NFE-18: sem a permissão de vincular, a tela não passa os dois e os botões somem. */
+  onVincular?: () => void;
+  onDesvincular?: () => void;
 }) {
   const queryClient = useQueryClient();
   const colunas = useRef<(HTMLElement | null)[]>([]);
@@ -132,8 +133,9 @@ function Etapas({
   d: DetalheNfe;
   onVerXml: () => void;
   onBaixarXml: () => void;
-  onVincular: () => void;
-  onDesvincular: () => void;
+  /** NFE-18: sem a permissão de vincular, a tela não passa os dois e os botões somem. */
+  onVincular?: () => void;
+  onDesvincular?: () => void;
   onAtualizar: () => void;
   atualizando: boolean;
   colunas: MutableRefObject<(HTMLElement | null)[]>;
@@ -282,7 +284,7 @@ function Etapas({
           }
           colRef={ref(1)}
           rodape={
-            !lancada ? (
+            !lancada && onVincular && onDesvincular ? (
               vinculoHub.length > 0 ? (
                 <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={onDesvincular}>
                   <Unlink className="h-3 w-3" /> Desvincular

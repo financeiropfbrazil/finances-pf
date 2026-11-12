@@ -41,6 +41,8 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { VincularPedidoNfeDialog } from "@/components/compras/VincularPedidoNfeDialog";
 import { UploadXmlButton } from "@/components/compras/UploadXmlButton";
+import { useHasPermission } from "@/hooks/useHasPermission";
+import { PERMISSIONS } from "@/constants/permissions";
 import { listarNfeNoAlvo, type NfeNoAlvo } from "@/services/comprasNfeNoAlvoService";
 import {
   buscarEspelhoAlvoDesde,
@@ -243,6 +245,9 @@ const ComprasNotasFiscais = () => {
     chave: "",
     temXml: false,
   });
+  // NFE-18: o Operador de Compras vê, anexa, sobe XML e comenta, mas não vincula pedido.
+  const podeVincular = useHasPermission(PERMISSIONS.COMPRAS_NFE_VINCULAR);
+  const podeCadastrar = useHasPermission(PERMISSIONS.COMPRAS_NFE_CREATE);
   const [vincularDialog, setVincularDialog] = useState<{ open: boolean; nfe: NfeRow | null }>({
     open: false,
     nfe: null,
@@ -615,7 +620,7 @@ const ComprasNotasFiscais = () => {
           <span className="text-[11px] text-muted-foreground">pela data de emissão</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <UploadXmlButton onImported={fetchRows} />
+          {podeCadastrar && <UploadXmlButton onImported={fetchRows} />}
           <Button
             variant="outline"
             size="sm"
@@ -779,7 +784,7 @@ const ComprasNotasFiscais = () => {
                           <TableCell className="px-2">{vinculoBadge(r)}</TableCell>
                           <TableCell className="px-2" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-1">
-                              {estaVinculada(r) ? (
+                              {!podeVincular ? null : estaVinculada(r) ? (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -825,8 +830,8 @@ const ComprasNotasFiscais = () => {
                                   const xml = await xmlDaNota(r);
                                   if (!baixarXmlNfe({ ...r, raw_xml: xml })) toast({ title: "Sem XML disponível" });
                                 }}
-                                onVincular={() => setVincularDialog({ open: true, nfe: r })}
-                                onDesvincular={() => setAlertAction({ type: "desvincular", nfe: r })}
+                                onVincular={podeVincular ? () => setVincularDialog({ open: true, nfe: r }) : undefined}
+                                onDesvincular={podeVincular ? () => setAlertAction({ type: "desvincular", nfe: r }) : undefined}
                               />
                               <div className="space-y-3 bg-muted/40 px-4 pb-4">
                                 {/* Itens da Nota (do dados_extraidos) */}

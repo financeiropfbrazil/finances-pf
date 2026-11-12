@@ -35,6 +35,13 @@ export const PERMISSIONS = {
   // Suprimentos → Notas de Serviço (NFS-e recebidas pelo ADN × Alvo, só leitura — PLANO-NFSE NFSE-1.1).
   // Papéis: analista_compras, analista_fiscal. Gate real nas RPCs nfse_recebidas_listar / nfse_recebida_xml.
   COMPRAS_NFSE_ACCESS: "compras.nfse.access",
+  // Suprimentos → Notas Fiscais (NF-e). PLANO-NFE NFE-18 (12/11/2026):
+  //  · access = ver lista, detalhe, Excel e comentar (gate nfe_pode_acessar)
+  //  · create = subir XML e anexar/remover PDF da nota e do boleto (gate nfe_pode_gravar)
+  //  · vincular = vincular/desvincular pedido (gate nfe_pode_vincular) — Analista Fiscal; o Operador de Compras não tem.
+  COMPRAS_NFE_ACCESS: "compras.nfe.access",
+  COMPRAS_NFE_CREATE: "compras.nfe.create",
+  COMPRAS_NFE_VINCULAR: "compras.nfe.vincular",
   // ─── Módulo Vendas ──────────────────────────────────────────────
   // Vendas → Notas de Saída (NF-e/NFS-e emitidas pela P&F, espelho do Alvo, só leitura — PLANO-VENDAS VND-7).
   // Papel: visualizador_vendas. Gate real nas RPCs vendas_notas_listar / vendas_nota_detalhe / vendas_itens_listar.
