@@ -15,8 +15,8 @@
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | **concluído 05/11/2026** — corte **01/01/2025** (ordem do Pedro); 2.278 notas, 0 erros, 58 lacunas confirmadas; resultado na §16 |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | **concluído 11/11/2026** — migration `vnd_6_cron`; rodada manual sem erro; `cron.job` 37 **ligado** com ordem do Pedro (§17) |
 | VND-7 | Tela Vendas › Notas de Saída (permissão, papel, RPCs de leitura, menu) | **concluído 11/11/2026** — migration `vnd_7_vendas_tela`; teste com usuário sem `is_admin` aprovado; front no `main` (§18) |
-| VND-8 | Número de série impresso (`NumSerie/Load`) no espelho de saídas | **em andamento 12/11/2026** — ordem do Pedro ("ok, comece"), etapa H1 do desenho do Balancete P&F (§19) |
-| VND-9 | Janela de leitura para o Balancete P&F + leitura de hora em hora e varredura noturna | **a fazer** — etapa H2 do mesmo desenho (§19.6) |
+| VND-8 | Número de série impresso (`NumSerie/Load`) no espelho de saídas | **concluído 12/11/2026** — migration `vnd_8_series`, Edge v3; carga das ~7.100 séries em lotes (§19) |
+| VND-9 | Janela de leitura para o Balancete P&F + leitura de hora em hora e varredura noturna | **em andamento 12/11/2026** — etapa H2 do mesmo desenho (§20) |
 
 ## 1. Objetivo e escopo
 
@@ -730,4 +730,31 @@ notas no Hub por uma janela só de leitura (VND-9), em vez da carga manual pelos
 **Rollback:** voltar a Edge para a v2 (`git revert` do commit + deploy) e rodar `sql/VND-8-series-rollback.sql`.
 **Conferência:** `sql/VND-8-series-verificar.sql` (cadastro × fila × controles nas notas; amostra comparável com a
 ferramenta `buscar_serie` do Balancete; permissões).
+
+## 20. VND-9 — janela de leitura para o Balancete P&F e frequência (12/11/2026)
+
+Etapa H2 do mesmo desenho do §19.
+
+**Problema → causa → impacto → solução → risco**
+- **Problema:** o Balancete P&F só recebe as notas de saída por carga manual (scripts no navegador do Pedro); em
+  12/11 ele ia até 31/10, e o espelho já tinha 29 notas de novembro. E o espelho lê o Alvo só 3×/dia útil.
+- **Causa:** não existe caminho entre o Hub e o Balancete; o Balancete não tem acesso ao Alvo.
+- **Impacto:** o conector do Balancete (Claude) responde com dados atrasados; a conferência notas × contabilidade
+  depende de alguém lembrar de rodar os scripts.
+- **Solução:**
+  1. **Janela só de leitura** `exportar-notas-balancete` (Edge, `x-api-key` = segredo `BALANCETE_EXPORT_KEY`, o mesmo
+     guardado no Balancete; sem o segredo a função fica fechada). `resumo`: por mês, notas, canceladas, pendentes de
+     detalhe, séries sem número e a impressão digital (muda quando qualquer nota ou série muda), mais as últimas
+     rodadas completas. `mes`: a página do mês (20 notas por padrão) com a última versão de cada nota (o mesmo
+     objeto do `notaFiscal/Load`), limpa como nos scripts, e o número impresso das séries. Só notas de saída que
+     ainda existem no Alvo. Cada chamada vai para `nf_saida_exportacao_log`; chave de desligar em `sync_settings`.
+  2. **Frequência:** job 37 de hora em hora (07h20–20h20 BRT, dias úteis) e **varredura toda madrugada**
+     (02h00–02h15 BRT): lista dos últimos 13 meses em 3 rodadas e uma rotina reforçada (200 detalhes, 200 séries).
+     A rodada (a) termina com "LISTA INCOMPLETA" de propósito; a (b) continua de onde ela parou.
+- **Risco:** baixo. A janela só lê; quem decide o que carregar é o Balancete. Mais leituras do Alvo (14 rotinas por
+  dia útil, cerca de 1 minuto cada, e 4 rodadas de madrugada), fora das janelas de 07h30/12h30/16h30. Volta à
+  frequência anterior sem mexer em mais nada (`sql/VND-9-cron-rollback.sql`).
+
+**Arquivos:** `sql/VND-9-exportar-balancete.sql` (+ rollback), `sql/VND-9-cron.sql` (+ rollback),
+`supabase/functions/exportar-notas-balancete/` (testes Deno 5/5).
 

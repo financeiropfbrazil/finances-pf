@@ -93,3 +93,8 @@ verify_jwt = false
 # A auth real é o x-cron-secret dentro da função.
 [functions.sync-nf-saida-cron]
 verify_jwt = false
+
+# exportar-notas-balancete (PLANO-VENDAS, VND-9): o Balancete P&F chama sem JWT do Hub.
+# A auth real é o x-api-key (segredo BALANCETE_EXPORT_KEY) dentro da função.
+[functions.exportar-notas-balancete]
+verify_jwt = false
