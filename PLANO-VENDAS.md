@@ -15,8 +15,8 @@
 | VND-5 | Carga histórica (backfill) desde a data de corte, em lotes | **concluído 05/11/2026** — corte **01/01/2025** (ordem do Pedro); 2.278 notas, 0 erros, 58 lacunas confirmadas; resultado na §16 |
 | VND-6 | Cron + kill-switch em `sync_settings` + conferências | **concluído 11/11/2026** — migration `vnd_6_cron`; rodada manual sem erro; `cron.job` 37 **ligado** com ordem do Pedro (§17) |
 | VND-7 | Tela Vendas › Notas de Saída (permissão, papel, RPCs de leitura, menu) | **concluído 11/11/2026** — migration `vnd_7_vendas_tela`; teste com usuário sem `is_admin` aprovado; front no `main` (§18) |
-| VND-8 | Número de série impresso (`NumSerie/Load`) no espelho de saídas | **concluído 12/11/2026** — migration `vnd_8_series`, Edge v3; carga das ~7.100 séries em lotes (§19) |
-| VND-9 | Janela de leitura para o Balancete P&F + leitura de hora em hora e varredura noturna | **em andamento 12/11/2026** — etapa H2 do mesmo desenho (§20) |
+| VND-8 | Número de série impresso (`NumSerie/Load`) no espelho de saídas | **concluído 12/11/2026** — migration `vnd_8_series`, Edge v3; as 7.129 séries carregadas, todas com o número impresso, fila 0 (§19) |
+| VND-9 | Janela de leitura para o Balancete P&F + leitura de hora em hora e varredura noturna | **em andamento 12/11/2026** — etapa H2 do mesmo desenho (§20). Aplicado, varredura testada e ligada; falta o segredo `BALANCETE_EXPORT_KEY` e o primeiro uso pelo Balancete |
 
 ## 1. Objetivo e escopo
 
@@ -316,6 +316,8 @@ Os arquivos podem ser colocados na pasta `docs/vendas/amostras/` deste repo ou a
 | 2026-11-11 | Merge | Pedro autorizou o merge do branch do módulo no `main` ("autorizo tudo"): merge `dc2a7de`, sem conflito (o branch só acrescentava arquivos e 5 linhas no `supabase/config.toml`), `bun run build` limpo. |
 | 2026-11-11 | VND-6 | Pré-voo: `compras_pedidos` = 2.459; nenhum objeto do VND-6; segredo `sync_compras_cron_secret` no Vault; `sync_runs.job_type` aceita `nf_saida`. 1ª tentativa recusada por inteiro (`update cron.job` → "permission denied for table job" para o papel do MCP; nada gravado); script trocado para `cron.alter_job(cron.schedule(...), active := false)` e aplicado (`vnd_6_cron`). Rodada manual (`call_sync_nf_saida_cron('manual_admin')`, net 37556): rotina desde 27/09, 2 páginas, 480 linhas (30 novas, 1 mudou), 31 detalhes lidos, 0 erro, fila 0, ~68 s. **Job 37 ligado** (`cron.alter_job(37, active := true)`) com ordem do Pedro: 08h20, 13h20 e 18h20 BRT, dias úteis. |
 | 2026-11-12 | VND-8 (código) | Sessão "Balancete 2", com ordem do Pedro. Início: remote/branch conferidos, `main` em `6f0bca3` (NFE-18 e PAP-2 de outras sessões, fora do módulo); sessão do módulo Vendas avisada (send_message). `NumSerie/Load` conferido na whitelist do erp-proxy (`3e00b89`, `src/routes/alvo.ts`). Hub: 7.129 controles de série nas notas (2.252 de 2026). Escritos `sql/VND-8-series*.sql` e a Edge v3 (passo 3 de séries, modo `series`); testes Deno 18/18; `deno check` do `index.ts` limpo (cópia com o import do npm, porque esm.sh é bloqueado nesta máquina). |
+| 2026-11-12 | VND-8 (aplicado e carga) | Aplicada `vnd_8_series` e publicada a Edge v3. 1º teste: 20 lidas, 19 ok, 1 falha (9185, HTTP 417 do Alvo, relida depois). Carga dos existentes em lotes de 300 e 500 (41–64 s cada), 0 falhas. **Conferência final (11h55 BRT): 7.129 controles nas notas = 7.129 cadastrados `ok` com número impresso; 0 ausentes, 0 erro, 0 estacionados, fila 0; RPCs só `service_role`.** 9185 = TSV05908 / TS00081, igual ao Balancete. |
+| 2026-11-12 | VND-9 (aplicado e testes) | Aplicadas `vnd_9_exportar_balancete` e `vnd_9_cron` (job 37 de hora em hora; jobs 38–41 da madrugada criados desligados). Publicada a Edge `exportar-notas-balancete` v1 (fechada até existir o segredo). Varredura testada à mão, sem erros: (a) 91 s, 900 linhas iguais, "LISTA INCOMPLETA" de propósito; (b) 87 s, págs. 3–5, completa (1.205 NF-e nos 13 meses); (c) NFS-e, 19 s, 180 linhas, completa; (d) 75 s, 1 nota nova e 200 séries. **Jobs 38–41 ligados às 11h47 BRT.** Resumo para o Balancete: todos os 13 meses com 0 notas sem detalhe e 0 séries sem número. Notas por mês, jan–out/2026, iguais às do Balancete (108, 93, 100, 68, 74, 72, 66, 62, 94, 71); nov com 29. |
 | 2026-11-11 | VND-7 | Tela Vendas › Notas de Saída (§18). Banco: `vnd_7_vendas_tela` (permissão `vendas.notas.access`, papel `visualizador_vendas` sem usuários, filtro interno e 3 RPCs de leitura com gate). Teste em transação desfeita, com um usuário sem `is_admin`: sem o papel → 42501; leitura direta de `nf_saida` → 0 linhas; com o papel → out/2026 com 71 notas, 7 canceladas, 178 itens (iguais ao Balancete P&F); detalhe da 5106; período de itens > 400 dias recusado. Nada ficou gravado do teste. Front: build limpo, type-check 0 erro, `vitest` 314/314 (teste novo da tela; teste da ordem da sidebar atualizado: "Vendas" no lugar de "nav.sales", mesma posição). |
 
 ## 11. VND-1 — resultados (Lab de API, 05/11/2026)
@@ -731,6 +733,17 @@ notas no Hub por uma janela só de leitura (VND-9), em vez da carga manual pelos
 **Conferência:** `sql/VND-8-series-verificar.sql` (cadastro × fila × controles nas notas; amostra comparável com a
 ferramenta `buscar_serie` do Balancete; permissões).
 
+**Resultado (12/11/2026):**
+- Primeiro teste com 20 controles: 19 gravados e 1 falha (controle 9185, HTTP 417 do Alvo), relida depois pela escada de
+  esperas.
+- Carga dos existentes em lotes de 300 e depois de 500 (cada um entre 41 e 64 s), sem falha, encerrada às 11h54 BRT.
+  Entre os lotes, as varreduras do VND-9 e a rotina reforçada também gravaram séries.
+- **Conferência final:**
+  - 7.129 controles nas notas, 7.129 cadastrados, todos `ok` e com o número impresso;
+  - 0 ausentes, 0 em erro, 0 estacionados, fila 0;
+  - as duas RPCs só para `service_role`.
+- O controle 9185 ficou TSV05908, lote TS00081: o mesmo número que o Balancete leu em 11/11.
+
 ## 20. VND-9 — janela de leitura para o Balancete P&F e frequência (12/11/2026)
 
 Etapa H2 do mesmo desenho do §19.
@@ -757,4 +770,23 @@ Etapa H2 do mesmo desenho do §19.
 
 **Arquivos:** `sql/VND-9-exportar-balancete.sql` (+ rollback), `sql/VND-9-cron.sql` (+ rollback),
 `supabase/functions/exportar-notas-balancete/` (testes Deno 5/5).
+
+**Resultado (12/11/2026):**
+- Aplicados `vnd_9_exportar_balancete` e `vnd_9_cron`; Edge `exportar-notas-balancete` v1 publicada (`verify_jwt`
+  desligado). **Fica fechada (500) até o Pedro criar o segredo `BALANCETE_EXPORT_KEY`** — o mesmo valor vai no Balancete.
+- RPCs conferidas com dados reais (cópias em `pg_temp`): outubro com 71 notas e 291 séries; uma página de 25 notas tem
+  cerca de 1,5 MB antes da limpeza.
+- Varredura testada à mão, rodada por rodada, com os mesmos comandos dos jobs 38–41, todas sem erro:
+
+  | Rodada | Tempo | Resultado |
+  | --- | --- | --- |
+  | (a) | 91 s | 900 linhas iguais; "LISTA INCOMPLETA" de propósito |
+  | (b) | 87 s | págs. 3–5, 900 linhas iguais; lista completa (a lista vem da mais nova para a mais antiga e para ao passar do corte; as 1.205 NF-e dos 13 meses cabem nas 5 páginas) |
+  | (c) | 19 s | NFS-e, 180 linhas iguais, completa |
+  | (d) | 75 s | 1 nota nova lida e 200 séries gravadas |
+
+- **Jobs 38–41 ligados às 11h47 BRT** (`cron.alter_job(..., active := true)`).
+- Limite conhecido: se as NF-e de 13 meses passarem de cerca de 1.500, a rodada (b) termina com "LISTA INCOMPLETA" no
+  `sync_runs`; aí basta uma rodada a mais.
+- Falta: o segredo e o primeiro uso pelo Balancete (etapa B1 do desenho, no repositório balancete-starter).
 
