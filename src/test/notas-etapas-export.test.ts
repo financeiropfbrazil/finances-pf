@@ -174,6 +174,17 @@ describe("download de controle das etapas", () => {
     expect(chaves).toEqual(expect.arrayContaining(["Aprovação do pedido", "Pedidos sugeridos"]));
   });
 
+  it("anexos: 1º envio + quantidade de arquivos por etapa (NFE-19)", async () => {
+    const l = { ...base, nf_anexado_em: "2026-11-16T15:00:00Z", nf_anexado_por: "Hugo", nf_anexos_qtd: 2, boleto_anexos_qtd: 3 };
+    const [qtdNf] = await coluna("PDFs da nota (qtd)", [l]);
+    const [qtdBol, qtdBolSem] = await coluna("Boletos (qtd)", [l, base]);
+    const [por] = await coluna("PDF da nota: 1º anexado por", [l]);
+    expect(qtdNf.value).toBe(2);
+    expect(qtdBol.value).toBe(3);
+    expect(qtdBolSem.value).toBe(0);
+    expect(por.value).toBe("Hugo");
+  });
+
   it("Dias: pedido → emissão mantém o sinal (negativo = nota antes do pedido)", async () => {
     const [c] = await coluna("Dias: pedido → emissão", [base]);
     expect(c.value).toBe(-1);

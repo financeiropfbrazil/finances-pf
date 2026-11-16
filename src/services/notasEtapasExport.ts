@@ -42,6 +42,9 @@ export interface LinhaEtapas extends Partial<PedidosDaLinha> {
   nf_anexado_por: string | null;
   boleto_anexado_em: string | null;
   boleto_anexado_por: string | null;
+  /** NFE-19: quantos arquivos ativos em cada etapa (o "anexado em/por" acima é o do 1º envio). */
+  nf_anexos_qtd?: number | null;
+  boleto_anexos_qtd?: number | null;
   docfin: number | null;
   parcelas_total: number;
   parcelas_pagas: number;
@@ -213,10 +216,13 @@ function colunas(tipo: TipoNota): Coluna[] {
     { bloco: "MovEstq", label: "Lançado no Alvo em", tipo: "data", largura: 11, valor: (l) => d(l.lancado_em) },
     { bloco: "MovEstq", label: "Data da digitação", tipo: "datahora", largura: 16, valor: (l) => dh(l.digitado_em) },
 
-    { bloco: "Anexos", label: "PDF da nota anexado em", tipo: "datahora", largura: 16, valor: (l) => dh(l.nf_anexado_em) },
-    { bloco: "Anexos", label: "PDF da nota anexado por", tipo: "texto", largura: 18, valor: (l) => t(l.nf_anexado_por) },
-    { bloco: "Anexos", label: "Boleto anexado em", tipo: "datahora", largura: 16, valor: (l) => dh(l.boleto_anexado_em) },
-    { bloco: "Anexos", label: "Boleto anexado por", tipo: "texto", largura: 18, valor: (l) => t(l.boleto_anexado_por) },
+    // NFE-19: até 5 arquivos por etapa — data e autor do 1º envio + a quantidade
+    { bloco: "Anexos", label: "PDF da nota: 1º anexado em", tipo: "datahora", largura: 16, valor: (l) => dh(l.nf_anexado_em) },
+    { bloco: "Anexos", label: "PDF da nota: 1º anexado por", tipo: "texto", largura: 18, valor: (l) => t(l.nf_anexado_por) },
+    { bloco: "Anexos", label: "PDFs da nota (qtd)", tipo: "inteiro", largura: 10, valor: (l) => n(l.nf_anexos_qtd) ?? 0 },
+    { bloco: "Anexos", label: "Boleto: 1º anexado em", tipo: "datahora", largura: 16, valor: (l) => dh(l.boleto_anexado_em) },
+    { bloco: "Anexos", label: "Boleto: 1º anexado por", tipo: "texto", largura: 18, valor: (l) => t(l.boleto_anexado_por) },
+    { bloco: "Anexos", label: "Boletos (qtd)", tipo: "inteiro", largura: 10, valor: (l) => n(l.boleto_anexos_qtd) ?? 0 },
 
     { bloco: "DocFin", label: "DocFin", tipo: "inteiro", largura: 10, valor: (l) => n(l.docfin) },
     {
@@ -294,7 +300,7 @@ const REGRAS: [string, string][] = [
   ["Lançado no Alvo em", "Data de entrada da nota no Alvo."],
   ["Tipo de lançamento", "CodigoTipoLanc do cabeçalho do MovEstq no Alvo (o item pode ter outro; aqui vale o do cabeçalho). A descrição vem do catálogo do Hub e cobre só parte dos códigos — o Alvo não manda o nome do tipo no MovEstq."],
   ["Data da digitação", "Data e hora em que a nota foi digitada no Alvo (horário de Brasília). Vazia quando o Hub ainda não leu o MovEstq da nota — o Hub lê o MovEstq de todo título novo desde 16/10/2026; antes disso a cobertura é parcial."],
-  ["Anexos", "PDF da nota (DANFE na NF-e) e PDF do boleto anexados no Hub, com quem anexou. Existem desde 20/10/2026 (NFS-e) e 30/10/2026 (NF-e)."],
+  ["Anexos", "PDF da nota (DANFE na NF-e) e PDF do boleto anexados no Hub. Desde 16/11/2026 cada etapa aceita até 5 arquivos (ex.: um boleto por parcela): \"1º anexado em/por\" é o primeiro arquivo ainda ativo e \"(qtd)\" quantos arquivos a etapa tem hoje (0 = nenhum). Existem desde 20/10/2026 (NFS-e) e 30/10/2026 (NF-e)."],
   ["DocFin", "Título da nota no contas a pagar do Alvo, lido às 06h40 e 12h40 (dias úteis). Parcela paga = paga com movimento bancário ou quitada por adiantamento."],
   ["Próximo vencimento", "O menor vencimento (do fornecedor) entre as parcelas em aberto."],
   ["Pago em", "A data de pagamento mais recente entre as parcelas pagas."],

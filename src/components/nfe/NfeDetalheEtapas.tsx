@@ -30,7 +30,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  AreaAnexo,
+  AreaAnexos,
+  rotuloAnexos,
   Aviso,
   Campo,
   CampoTipoLanc,
@@ -154,8 +155,8 @@ function Etapas({
   // NFE-8: sem CFOP de venda e não achada — o espelho só vê MovEstq com título a pagar ou pedido, então não dá para
   // dizer que não foi lançada (remessa/retorno/consignação lançada sem título nunca aparece).
   const semComoSaber = n.situacao_alvo === "nao_encontrada" && !n.faturavel;
-  const anexoNf = d.anexos.find((a) => a.tipo === "nf");
-  const anexoBoleto = d.anexos.find((a) => a.tipo === "boleto");
+  const anexosNf = d.anexos.filter((a) => a.tipo === "nf");
+  const anexosBoleto = d.anexos.filter((a) => a.tipo === "boleto");
   const parcelas = d.docfin.parcelas ?? [];
   const pagas = parcelas.filter(parcelaPaga).length;
   const vencidas = parcelas.filter((p) => parcelaVencida(p, hoje)).length;
@@ -178,8 +179,8 @@ function Etapas({
           : "atencao";
   const e3: EstadoEtapa = lancada ? "feito" : semDado || semComoSaber ? "na" : "pendente";
   // NFE-11: DANFE e boleto ficam opcionais enquanto o lançamento da NF-e pelo Hub não existe (nenhum anexo desde 30/10).
-  const e4: EstadoEtapa = anexoNf ? "feito" : "opcional";
-  const e5: EstadoEtapa = anexoBoleto ? "feito" : "opcional";
+  const e4: EstadoEtapa = anexosNf.length > 0 ? "feito" : "opcional";
+  const e5: EstadoEtapa = anexosBoleto.length > 0 ? "feito" : "opcional";
   const e6: EstadoEtapa =
     parcelas.length === 0
       ? semDado || semComoSaber
@@ -464,10 +465,10 @@ function Etapas({
           titulo="DANFE"
           icone={<Paperclip className="h-4 w-4" />}
           estado={e4}
-          resumo={anexoNf ? "Anexado" : "Opcional por enquanto — anexe se tiver o PDF da nota (DANFE)"}
+          resumo={anexosNf.length > 0 ? rotuloAnexos(anexosNf.length) : "Opcional por enquanto — anexe se tiver o PDF da nota (DANFE)"}
           colRef={ref(3)}
         >
-          <AreaAnexo chave={n.chave_acesso} tipo="nf" anexo={anexoNf} onMudou={onAtualizar} acoes={ACOES_NFE} />
+          <AreaAnexos chave={n.chave_acesso} tipo="nf" anexos={anexosNf} onMudou={onAtualizar} acoes={ACOES_NFE} />
         </Coluna>
 
         {/* 5 — PDF DO BOLETO */}
@@ -476,11 +477,11 @@ function Etapas({
           titulo="PDF do boleto"
           icone={<Receipt className="h-4 w-4" />}
           estado={e5}
-          resumo={anexoBoleto ? "Anexado" : "Opcional por enquanto — anexe se tiver o boleto"}
+          resumo={anexosBoleto.length > 0 ? rotuloAnexos(anexosBoleto.length) : "Opcional por enquanto — anexe se tiver o boleto"}
           colRef={ref(4)}
         >
-          <AreaAnexo chave={n.chave_acesso} tipo="boleto" anexo={anexoBoleto} onMudou={onAtualizar} acoes={ACOES_NFE} />
-          <LeituraBoleto key={anexoBoleto?.id ?? "sem-anexo"} anexo={anexoBoleto} leitor={lerBoletoNfe} />
+          <AreaAnexos chave={n.chave_acesso} tipo="boleto" anexos={anexosBoleto} onMudou={onAtualizar} acoes={ACOES_NFE} />
+          <LeituraBoleto key={anexosBoleto.map((a) => a.id).join(",") || "sem-anexo"} anexos={anexosBoleto} leitor={lerBoletoNfe} />
           <p className="text-[10px] leading-snug text-muted-foreground">
             Opcional enquanto não existe o lançamento da NF-e pelo Hub; quando existir, poderá virar pré-requisito.
           </p>

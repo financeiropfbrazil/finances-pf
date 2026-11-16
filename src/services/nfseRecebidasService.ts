@@ -233,6 +233,8 @@ export interface DetalheNfse {
 
 export const BUCKET_ANEXO: Record<TipoAnexoNfse, string> = { nf: "nfse-nf-pdf", boleto: "nfse-boleto-pdf" };
 export const TAMANHO_MAX_ANEXO = 10 * 1024 * 1024;
+/** NFE-19: até 5 arquivos por etapa (PDF da nota / boleto) — o banco recusa o 6º. */
+export const LIMITE_ANEXOS_ETAPA = 5;
 
 export async function buscarDetalheNfse(chave: string): Promise<DetalheNfse | null> {
   const { data, error } = await (supabase as any).rpc("nfse_recebida_detalhe", { p_chave: chave });
