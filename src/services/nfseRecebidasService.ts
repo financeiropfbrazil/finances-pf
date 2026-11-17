@@ -18,6 +18,9 @@ export type SituacaoFisco = "normal" | "cancelada" | "substituida";
 export type SituacaoAlvo = "lancada_nfse" | "lancada_outra_especie" | "nao_lancada" | "sem_dado_alvo";
 export type PagamentoAlvo = "pago" | "em_aberto" | "parcial" | "agrupado" | "baixa_sem_prova";
 
+/** Como o título do Alvo foi ligado à NFS-e (coluna alvo_vinculo da v_nfse_recebida). */
+export type VinculoAlvo = "numero" | "citado_na_nota" | "numero_outra_filial" | "numero_sem_ano";
+
 export interface NfseRecebida {
   nsu: number;
   chave_acesso: string;
@@ -44,9 +47,14 @@ export interface NfseRecebida {
   alvo_pagamento: PagamentoAlvo | null;
   alvo_pedido: string | null;
   dias_desde_emissao: number | null;
-  /** Como o título do Alvo foi achado (NFSE-1.2-B): pelo número da NFS-e ou pelo número que a nota cita (ex.: fatura) */
-  alvo_vinculo: "numero" | "citado_na_nota" | null;
+  /**
+   * Como o título do Alvo foi achado: pelo número da NFS-e; pelo número que a nota cita (ex.: fatura — NFSE-1.2-B);
+   * pelo mesmo número no cadastro de outra filial do prestador; ou pelo número sem o prefixo do ano (NFSE-1.18).
+   */
+  alvo_vinculo: VinculoAlvo | null;
   alvo_doc_numero: string | null;
+  /** CNPJ do título achado no Alvo (difere de prestador_doc quando o vínculo é "numero_outra_filial"). */
+  alvo_cnpj: string | null;
 }
 
 export interface IndicadoresNfse {

@@ -36,7 +36,7 @@ import { buscarComentariosLote } from "@/services/notaComentariosService";
 import { buscarAprovacaoPedidos, buscarSugeridosNfse, pedidosDaLinha, separarPedidos } from "@/services/pedidosNotasExport";
 import { buscarTiposLanc, rotuloTipoLanc, type TipoLanc } from "@/services/alvoTipoLancService";
 import { buscarRelatorioQuestor, exportarQuestorXLSX } from "@/services/notasQuestorExport";
-import { formatCurrency, formatDate, formatDoc, formatInstanteBrt } from "@/components/nfse/nfseFormatos";
+import { formatCurrency, formatDate, formatDoc, formatInstanteBrt, textoVinculoAlvo } from "@/components/nfse/nfseFormatos";
 
 const ROTULO_FISCO: Record<SituacaoFisco, string> = {
   normal: "Normal",
@@ -235,23 +235,23 @@ const ComprasNotasServico = () => {
   };
 
   const alvoBadge = (r: NfseRecebida) => {
+    // Vínculo por outro caminho que não o número no mesmo CNPJ (citado na nota, outra filial, sem o ano): "*" + dica
+    const vinculo = textoVinculoAlvo(r);
     if (r.situacao_alvo === "lancada_nfse")
       return (
-        <Badge className="bg-success text-success-foreground hover:bg-success/90 text-[10px]">
+        <Badge className="bg-success text-success-foreground hover:bg-success/90 text-[10px]" title={vinculo ?? undefined}>
           Lançada{r.alvo_data_entrada ? ` ${formatDate(r.alvo_data_entrada)}` : ""}
+          {vinculo ? "*" : ""}
         </Badge>
       );
     if (r.situacao_alvo === "lancada_outra_especie")
       return (
         <Badge
           className="bg-info text-info-foreground hover:bg-info/90 text-[10px]"
-          title={
-            r.alvo_vinculo === "citado_na_nota"
-              ? `No Alvo como ${r.alvo_especies ?? "outra espécie"} ${r.alvo_doc_numero ?? ""} — número citado na própria nota`
-              : r.alvo_especies || ""
-          }
+          title={vinculo ?? r.alvo_especies ?? ""}
         >
           Lançada como {r.alvo_especies || "outra espécie"}
+          {vinculo ? "*" : ""}
         </Badge>
       );
     if (r.situacao_alvo === "sem_dado_alvo")

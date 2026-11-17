@@ -62,7 +62,7 @@ import {
   type PedidoVinculado,
   type TipoAnexoNfse,
 } from "@/services/nfseRecebidasService";
-import { formatBytes, formatCurrency, formatDate, formatDoc, formatInstanteBrt, hojeBrt } from "./nfseFormatos";
+import { formatBytes, formatCurrency, formatDate, formatDoc, formatInstanteBrt, hojeBrt, textoVinculoAlvo } from "./nfseFormatos";
 import { useTipoLanc } from "@/services/alvoTipoLancService";
 import { EtapaComentarios, estadoComentarios, useComentariosNota } from "@/components/notas/EtapaComentarios";
 
@@ -931,14 +931,10 @@ function Etapas({
   const candidatos = d.pedidos.candidatos ?? [];
   const lancada = n.situacao_alvo === "lancada_nfse" || n.situacao_alvo === "lancada_outra_especie";
   const semDado = n.situacao_alvo === "sem_dado_alvo";
-  // NFSE-1.2-B: título achado pelo número que a nota cita (ex.: fatura da Microsoft lançada como DIV)
-  const avisoCitado =
-    n.alvo_vinculo === "citado_na_nota" ? (
-      <Aviso>
-        No Alvo com outro número: {n.alvo_especies ?? "outra espécie"} {n.alvo_doc_numero}, que a própria nota cita na
-        descrição (mesmo CNPJ e mesmo valor).
-      </Aviso>
-    ) : null;
+  // Título achado por outro caminho que não o número da nota no mesmo CNPJ: número citado na nota (NFSE-1.2-B, ex.:
+  // fatura da Microsoft lançada como DIV), outra filial do prestador ou número sem o prefixo do ano (NFSE-1.18)
+  const textoVinculo = textoVinculoAlvo(n);
+  const avisoVinculo = textoVinculo ? <Aviso>{textoVinculo}</Aviso> : null;
   const anexosNf = d.anexos.filter((a) => a.tipo === "nf");
   const anexosBoleto = d.anexos.filter((a) => a.tipo === "boleto");
   const parcelas = d.docfin.parcelas ?? [];
@@ -1089,7 +1085,7 @@ function Etapas({
               : lancada
                 ? n.alvo_chave_movestq != null
                   ? `Lançada · chave ${n.alvo_chave_movestq}`
-                  : `Lançada como ${n.alvo_especies ?? "outra espécie"}${n.alvo_vinculo === "citado_na_nota" && n.alvo_doc_numero ? ` ${n.alvo_doc_numero}` : ""}`
+                  : `Lançada como ${n.alvo_especies ?? "outra espécie"}${n.alvo_vinculo && n.alvo_vinculo !== "numero" && n.alvo_doc_numero ? ` ${n.alvo_doc_numero}` : ""}`
                 : semDado
                   ? `Sem dado do Alvo (nota anterior a ${espelhoDesde})`
                   : "Não lançada no Alvo"
@@ -1109,7 +1105,7 @@ function Etapas({
           {d.movestq ? (
             <>
               <ChaveMovEstq chave={d.movestq.chave_movestq} />
-              {avisoCitado}
+              {avisoVinculo}
               <Campo label="Espécie" valor={`${d.movestq.especie ?? "—"}${d.movestq.serie ? ` · série ${d.movestq.serie}` : ""}`} />
               <CampoTipoLanc chave={d.movestq.chave_movestq} codigo={d.movestq.codigo_tipo_lanc} />
               <Campo label="Entrada" valor={formatDate(d.movestq.data_entrada)} />
@@ -1126,7 +1122,7 @@ function Etapas({
           ) : lancada ? (
             <>
               {n.alvo_chave_movestq != null && <ChaveMovEstq chave={n.alvo_chave_movestq} />}
-              {avisoCitado}
+              {avisoVinculo}
               <Aviso>
                 {n.alvo_chave_movestq != null
                   ? "Chave tirada do título no contas a pagar do Alvo; os dados do MovEstq ainda não foram lidos pelo Hub."
