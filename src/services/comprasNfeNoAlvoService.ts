@@ -2,7 +2,7 @@
  * Situação "No Alvo" das NF-e de produto (Suprimentos → Notas Fiscais).
  *
  * Fonte: RPC `compras_nfe_no_alvo(p_de, p_ate)` (NFE-S1, SECURITY DEFINER, gate
- * admin ou permissão legada `compras`). Ela olha os ESPELHOS do Alvo — chave de
+ * `nfe_pode_acessar()` = admin ou compras.nfe.access — PLANO-NFE NFE-0). Ela olha os ESPELHOS do Alvo — chave de
  * acesso em `rastreio_nf`, contas a pagar (`fin_parcelas_pagar`), `rastreio_nf`
  * por número + CNPJ e os espelhos de Despesas/Intercompany — e devolve só as
  * notas encontradas. Nota ausente da resposta = não encontrada no Alvo.

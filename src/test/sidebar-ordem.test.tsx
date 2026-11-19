@@ -89,13 +89,13 @@ function montar(cfg: { hasAccess?: (k: string) => boolean; isAdmin?: boolean } =
  * Ajustes posteriores, intencionais: o grupo "Compras" saiu em 15/10/2026
  * (`c990cef` — Notas Fiscais mora em Suprimentos) e "Movimentação de Salas"
  * entrou depois de Produção (`a9f5ab1`, FS3-3). "NF Entrada" (/nf-entrada)
- * saiu em 19/10/2026 (parada desde 03/06, sem uso).
+ * saiu em 19/10/2026 (parada desde 03/06, sem uso). "Email NF-e" (/email-nfe) saiu em
+ * 10/11/2026 (PLANO-NFE NFE-S2, parada desde 14/05).
  */
 const ORDEM_ESPERADA = [
   "nav.dashboard",
   // cadeia física: comprar → receber → estocar → produzir
   "Suprimentos",
-  "Email NF-e",
   "Recebimento",
   "nav.inventory",
   "Produção",
@@ -104,7 +104,7 @@ const ORDEM_ESPERADA = [
   "nav.cash",
   "nav.receivables",
   "Contas a Pagar",
-  "nav.sales",
+  "Vendas", // VND-7 (11/11/2026): grupo Vendas no lugar da "Receita de Vendas" antiga, mesma posição
   "Despesas",
   "nav.credit_cards",
   "nav.cartao_lancamento",
@@ -126,8 +126,8 @@ describe("AppSidebar — ordem", () => {
     expect(montar()).toEqual(ORDEM_ESPERADA);
   });
 
-  it("tem 23 entradas de topo", () => {
-    expect(montar()).toHaveLength(23);
+  it("tem 22 entradas de topo (o “Email NF-e” saiu em 10/11/2026)", () => {
+    expect(montar()).toHaveLength(22);
   });
 });
 
@@ -153,9 +153,10 @@ describe("AppSidebar — gates", () => {
       ["dashboard", ["nav.dashboard"]],
       ["cash", ["nav.cash"]],
       ["receivables", ["nav.receivables"]],
-      ["sales", ["nav.sales"]],
+      ["vendas.notas.access", ["Vendas"]], // VND-7: antes "sales" (Receita de Vendas, tabela vazia)
       ["commodatum", ["nav.commodatum"]],
-      ["nf_entrada", ["Email NF-e"]],
+      // `nf_entrada` era a do "Email NF-e" (saiu em 10/11/2026): sozinha não mostra mais nada.
+      ["nf_entrada", []],
       ["entidades", ["nav.entidades"]],
       ["loans", ["nav.loans"]],
       ["taxes", ["nav.taxes"]],

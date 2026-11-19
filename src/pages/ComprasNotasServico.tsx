@@ -14,6 +14,7 @@ import {
   Clock,
   Copy,
   Download,
+  FileSpreadsheet,
   Hash,
   Loader2,
   Package,
@@ -29,7 +30,13 @@ import {
   type SituacaoFisco,
 } from "@/services/nfseRecebidasService";
 import { NfseDetalheEtapas } from "@/components/nfse/NfseDetalheEtapas";
-import { formatCurrency, formatDate, formatDoc, formatInstanteBrt } from "@/components/nfse/nfseFormatos";
+import { PeriodoPicker, atalhosPeriodo, type Periodo } from "@/components/PeriodoPicker";
+import { buscarRelatorioEtapas, exportarEtapasXLSX } from "@/services/notasEtapasExport";
+import { buscarComentariosLote } from "@/services/notaComentariosService";
+import { buscarAprovacaoPedidos, buscarSugeridosNfse, pedidosDaLinha, separarPedidos } from "@/services/pedidosNotasExport";
+import { buscarTiposLanc, rotuloTipoLanc, type TipoLanc } from "@/services/alvoTipoLancService";
+import { buscarRelatorioQuestor, exportarQuestorXLSX } from "@/services/notasQuestorExport";
+import { formatCurrency, formatDate, formatDoc, formatInstanteBrt, textoVinculoAlvo } from "@/components/nfse/nfseFormatos";
 
 const ROTULO_FISCO: Record<SituacaoFisco, string> = {
   normal: "Normal",
@@ -52,9 +59,7 @@ function baixarXml(xml: string, chave: string, numero: string | null) {
 
 const ComprasNotasServico = () => {
   const { toast } = useToast();
-  const now = new Date();
-  const [mes, setMes] = useState(now.getMonth() + 1);
-  const [ano, setAno] = useState(now.getFullYear());
+  const [periodo, setPeriodo] = useState<Periodo>(() => atalhosPeriodo(false)[0].periodo);
   const [dados, setDados] = useState<ResultadoNfseRecebidas | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -71,24 +76,42 @@ const ComprasNotasServico = () => {
 
   // ── Fetch ──
   const fetchRows = useCallback(async () => {
+    if (!periodo.de || !periodo.ate) return;
     setLoading(true);
-    const padM = String(mes).padStart(2, "0");
-    const lastDay = new Date(ano, mes, 0).getDate();
     try {
-      setDados(await listarNfseRecebidas(`${ano}-${padM}-01`, `${ano}-${padM}-${String(lastDay).padStart(2, "0")}`));
+      setDados(await listarNfseRecebidas(periodo.de, periodo.ate));
     } catch (e) {
       setDados(null);
       toast({ title: "Erro", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [ano, mes, toast]);
+  }, [periodo.de, periodo.ate, toast]);
 
   useEffect(() => {
     fetchRows();
   }, [fetchRows]);
 
   const rows = useMemo(() => dados?.itens ?? [], [dados]);
+
+  // ── Tipo de lançamento do MovEstq no Alvo (NFE-14, só o cabeçalho): carrega depois da lista, sem segurá-la ──
+  const [tiposLanc, setTiposLanc] = useState<Map<number, TipoLanc>>(new Map());
+  useEffect(() => {
+    let vivo = true;
+    const chaves = rows.map((r) => r.alvo_chave_movestq);
+    if (chaves.every((c) => c == null)) {
+      setTiposLanc(new Map());
+      return;
+    }
+    buscarTiposLanc(chaves)
+      .then((m) => vivo && setTiposLanc(m))
+      .catch(() => vivo && setTiposLanc(new Map()));
+    return () => {
+      vivo = false;
+    };
+  }, [rows]);
+  const tipoDa = (r: NfseRecebida): TipoLanc | undefined =>
+    r.alvo_chave_movestq != null ? tiposLanc.get(Number(r.alvo_chave_movestq)) : undefined;
 
   // ── Filtering ──
   const filtered = useMemo(() => {
@@ -107,6 +130,90 @@ const ComprasNotasServico = () => {
     }
     return list;
   }, [rows, filtroFisco, filtroAlvo, searchTerm]);
+
+  // ── Downloads (NFSE-1.15 etapas · NFSE-1.16 contabilidade): período e notas da lista no momento do clique ──
+  const filtrosDaTela = () => {
+    const ROTULO_ALVO: Record<string, string> = {
+      lancada_nfse: "lançada",
+      lancada_outra_especie: "lançada em outra espécie",
+      nao_lancada: "não lançada",
+      sem_dado_alvo: "sem dado",
+    };
+    return [
+      filtroFisco !== "todas" && `No fisco: ${filtroFisco === "substituida" ? "substituída" : filtroFisco}`,
+      filtroAlvo !== "todas" && `No Alvo: ${ROTULO_ALVO[filtroAlvo] ?? filtroAlvo}`,
+      searchTerm.trim() && `Busca: "${searchTerm.trim()}"`,
+    ].filter(Boolean) as string[];
+  };
+
+  const [baixando, setBaixando] = useState(false);
+  const baixarExcel = async () => {
+    if (!periodo.de || !periodo.ate) return;
+    setBaixando(true);
+    try {
+      const chaves = new Set(filtered.map((r) => r.chave_acesso));
+      const relatorio = (await buscarRelatorioEtapas("nfse", periodo.de, periodo.ate)).filter(
+        (l) => l.chave_acesso && chaves.has(l.chave_acesso),
+      );
+      // Comentários da etapa 7 (NFE-16), nas colunas finais.
+      const comentarios = await buscarComentariosLote("nfse", relatorio.map((l) => l.chave_acesso!));
+      // NFE-17: aprovação do(s) pedido(s) e os pedidos que a etapa 2 sugere.
+      const [aprovacao, sugeridos] = await Promise.all([
+        buscarAprovacaoPedidos(relatorio.flatMap((l) => separarPedidos(l.pedidos))),
+        buscarSugeridosNfse(relatorio.map((l) => l.chave_acesso!)),
+      ]);
+      const linhas = relatorio.map((l) => {
+        const t = l.chave_movestq != null ? tiposLanc.get(Number(l.chave_movestq)) : undefined;
+        return {
+          ...l,
+          tipo_lanc: t?.codigo ?? null,
+          tipo_lanc_descricao: t?.descricao ?? null,
+          comentarios: comentarios.get(l.chave_acesso!) ?? [],
+          ...pedidosDaLinha(l.pedidos, aprovacao, sugeridos.get(l.chave_acesso!)),
+        };
+      });
+      if (linhas.length === 0) {
+        toast({ title: "Nada para baixar neste filtro" });
+        return;
+      }
+      const r = await exportarEtapasXLSX("nfse", linhas, { de: periodo.de, ate: periodo.ate, filtros: filtrosDaTela() });
+      toast({ title: "Excel baixado", description: `${r.linhas} nota(s) · ${r.arquivo}` });
+    } catch (e) {
+      toast({ title: "Não foi possível gerar o Excel", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setBaixando(false);
+    }
+  };
+
+  const [baixandoQuestor, setBaixandoQuestor] = useState(false);
+  const baixarQuestor = async () => {
+    if (!periodo.de || !periodo.ate) return;
+    setBaixandoQuestor(true);
+    try {
+      const chaves = new Set(filtered.map((r) => r.chave_acesso));
+      const rel = await buscarRelatorioQuestor(periodo.de, periodo.ate);
+      const doFiltro = rel.linhas.filter((l) => chaves.has(l.chave_acesso));
+      if (doFiltro.length === 0) {
+        toast({ title: "Nada para baixar neste filtro" });
+        return;
+      }
+      // NFE-17: aprovação do(s) pedido(s) e os pedidos que a etapa 2 sugere.
+      const [aprovacao, sugeridos] = await Promise.all([
+        buscarAprovacaoPedidos(doFiltro.flatMap((l) => separarPedidos(l.pedidos))),
+        buscarSugeridosNfse(doFiltro.map((l) => l.chave_acesso)),
+      ]);
+      const linhas = doFiltro.map((l) => ({ ...l, ...pedidosDaLinha(l.pedidos, aprovacao, sugeridos.get(l.chave_acesso)) }));
+      const r = await exportarQuestorXLSX({ ...rel, linhas }, { de: periodo.de, ate: periodo.ate, filtros: filtrosDaTela() });
+      toast({
+        title: "Excel para a contabilidade baixado",
+        description: `${r.linhas} nota(s), ${r.semNatureza} sem natureza · ${r.arquivo}`,
+      });
+    } catch (e) {
+      toast({ title: "Não foi possível gerar o Excel", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setBaixandoQuestor(false);
+    }
+  };
 
   const footerTotal = useMemo(() => filtered.reduce((s, r) => s + (r.valor_servico || 0), 0), [filtered]);
   const ind = dados?.indicadores;
@@ -128,23 +235,23 @@ const ComprasNotasServico = () => {
   };
 
   const alvoBadge = (r: NfseRecebida) => {
+    // Vínculo por outro caminho que não o número no mesmo CNPJ (citado na nota, outra filial, sem o ano): "*" + dica
+    const vinculo = textoVinculoAlvo(r);
     if (r.situacao_alvo === "lancada_nfse")
       return (
-        <Badge className="bg-success text-success-foreground hover:bg-success/90 text-[10px]">
+        <Badge className="bg-success text-success-foreground hover:bg-success/90 text-[10px]" title={vinculo ?? undefined}>
           Lançada{r.alvo_data_entrada ? ` ${formatDate(r.alvo_data_entrada)}` : ""}
+          {vinculo ? "*" : ""}
         </Badge>
       );
     if (r.situacao_alvo === "lancada_outra_especie")
       return (
         <Badge
           className="bg-info text-info-foreground hover:bg-info/90 text-[10px]"
-          title={
-            r.alvo_vinculo === "citado_na_nota"
-              ? `No Alvo como ${r.alvo_especies ?? "outra espécie"} ${r.alvo_doc_numero ?? ""} — número citado na própria nota`
-              : r.alvo_especies || ""
-          }
+          title={vinculo ?? r.alvo_especies ?? ""}
         >
           Lançada como {r.alvo_especies || "outra espécie"}
+          {vinculo ? "*" : ""}
         </Badge>
       );
     if (r.situacao_alvo === "sem_dado_alvo")
@@ -200,37 +307,36 @@ const ComprasNotasServico = () => {
       </div>
 
       {/* Filtros de período */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
-            <SelectTrigger className="h-8 w-32 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Array.from({ length: 12 }, (_, i) => (
-                <SelectItem key={i + 1} value={String(i + 1)}>
-                  {new Date(2000, i).toLocaleString("pt-BR", { month: "long" }).replace(/^\w/, (c) => c.toUpperCase())}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
-            <SelectTrigger className="h-8 w-20 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
-                <SelectItem key={y} value={String(y)}>
-                  {y}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {/* Barra do período e dos botões: quebra de linha em tela pequena (antes a página rolava para o lado). */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <PeriodoPicker valor={periodo} onChange={setPeriodo} permitirTudo={false} />
+          <span className="text-[11px] text-muted-foreground">pela data de emissão</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <span className="text-[11px] text-muted-foreground" title="Última leitura do ambiente nacional (horário de Brasília)">
             Notas do ADN lidas até {formatInstanteBrt(dados?.atualizado_em)}
           </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={baixarExcel}
+            disabled={baixando || loading || filtered.length === 0}
+            className="gap-1"
+            title="Excel de controle das etapas — com o período e os filtros da tela"
+          >
+            {baixando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Baixar Excel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={baixarQuestor}
+            disabled={baixandoQuestor || loading || filtered.length === 0}
+            className="gap-1"
+            title="Natureza do Questor de cada nota, para a contabilidade — com o período e os filtros da tela"
+          >
+            {baixandoQuestor ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />} Excel p/ contabilidade
+          </Button>
           <Button variant="outline" size="sm" onClick={fetchRows} disabled={loading} className="gap-1">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Atualizar
           </Button>
@@ -240,7 +346,7 @@ const ComprasNotasServico = () => {
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {[
-          { label: "Recebidas no mês", value: ind?.recebidas ?? "—", icon: Hash },
+          { label: "Recebidas no período", value: ind?.recebidas ?? "—", icon: Hash },
           { label: "No Alvo: lançadas", value: ind?.lancadas ?? "—", icon: CheckCircle2 },
           {
             label: "No Alvo: não lançadas há +15 dias",
@@ -328,6 +434,9 @@ const ComprasNotasServico = () => {
                   <TableHead className="text-xs px-2">Emissão</TableHead>
                   <TableHead className="text-xs px-2">No fisco</TableHead>
                   <TableHead className="text-xs px-2">No Alvo</TableHead>
+                  <TableHead className="text-xs px-2" title="Tipo de lançamento do MovEstq no Alvo (cabeçalho)">
+                    Tipo lanç.
+                  </TableHead>
                   <TableHead className="text-xs px-2">Pedido no Alvo</TableHead>
                 </TableRow>
               </TableHeader>
@@ -340,6 +449,7 @@ const ComprasNotasServico = () => {
                     onToggle={() => setExpandedId(expandedId === r.chave_acesso ? null : r.chave_acesso)}
                     fiscoBadge={fiscoBadge(r)}
                     alvoBadge={alvoBadge(r)}
+                    tipoLanc={tipoDa(r)}
                     carregandoXml={carregandoXml === r.chave_acesso}
                     onVerXml={async () => {
                       const xml = await obterXml(r);
@@ -360,7 +470,7 @@ const ComprasNotasServico = () => {
                   <TableCell className="text-xs text-right font-semibold tabular-nums">
                     {formatCurrency(footerTotal)}
                   </TableCell>
-                  <TableCell colSpan={4} />
+                  <TableCell colSpan={5} />
                 </TableRow>
               </TableFooter>
             </Table>
@@ -414,6 +524,7 @@ function NotaLinha({
   onToggle,
   fiscoBadge,
   alvoBadge,
+  tipoLanc,
   carregandoXml,
   onVerXml,
   onBaixarXml,
@@ -423,6 +534,7 @@ function NotaLinha({
   onToggle: () => void;
   fiscoBadge: JSX.Element;
   alvoBadge: JSX.Element;
+  tipoLanc: TipoLanc | undefined;
   carregandoXml: boolean;
   onVerXml: () => void;
   onBaixarXml: () => void;
@@ -448,12 +560,18 @@ function NotaLinha({
         <TableCell className="text-xs px-2 tabular-nums">{formatDate(r.data_emissao)}</TableCell>
         <TableCell className="whitespace-nowrap px-2">{fiscoBadge}</TableCell>
         <TableCell className="whitespace-nowrap px-2">{alvoBadge}</TableCell>
+        <TableCell
+          className="text-[11px] font-mono px-2 whitespace-nowrap tabular-nums text-muted-foreground"
+          title={rotuloTipoLanc(tipoLanc) || undefined}
+        >
+          {tipoLanc?.codigo ?? "—"}
+        </TableCell>
         <TableCell className="text-xs px-2 tabular-nums">{r.alvo_pedido || "—"}</TableCell>
       </TableRow>
 
       {expandida && (
         <TableRow className="hover:bg-transparent">
-          <TableCell colSpan={10} className="p-0">
+          <TableCell colSpan={11} className="p-0">
             <NfseDetalheEtapas
               nota={r}
               carregandoXml={carregandoXml}

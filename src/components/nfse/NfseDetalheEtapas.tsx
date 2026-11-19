@@ -8,7 +8,7 @@
  * Eixos sempre com nome (PLANO-NFSE D6): "No fisco" é o ADN; "No Alvo" são os espelhos do Alvo
  * (MovEstq em rastreio_nf, títulos em fin_parcelas_pagar) — com o horário da última leitura à vista.
  */
-import { Fragment, useLayoutEffect, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type DragEvent, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -51,6 +51,7 @@ import {
   lerBoletoNfse,
   linkAnexoNfse,
   removerAnexoNfse,
+  LIMITE_ANEXOS_ETAPA,
   type AnexoNfse,
   type BoletoConferidoIA,
   type DetalheNfse,
@@ -61,14 +62,17 @@ import {
   type PedidoVinculado,
   type TipoAnexoNfse,
 } from "@/services/nfseRecebidasService";
-import { formatBytes, formatCurrency, formatDate, formatDoc, formatInstanteBrt, hojeBrt } from "./nfseFormatos";
+import { formatBytes, formatCurrency, formatDate, formatDoc, formatInstanteBrt, hojeBrt, textoVinculoAlvo } from "./nfseFormatos";
+import { useTipoLanc } from "@/services/alvoTipoLancService";
+import { EtapaComentarios, estadoComentarios, useComentariosNota } from "@/components/notas/EtapaComentarios";
 
 // ════════════════════════════════════════════════════════════
 // ESTADO DE CADA ETAPA
 // ════════════════════════════════════════════════════════════
-type EstadoEtapa = "feito" | "pendente" | "atencao" | "na";
+/** "opcional" (NFE-11): etapa que ainda não é cobrada — hoje só os anexos da NF-e; a NFS-e não usa. */
+export type EstadoEtapa = "feito" | "pendente" | "atencao" | "na" | "opcional";
 
-const ESTADO: Record<EstadoEtapa, { rotulo: string; barra: string; chip: string; circulo: string; linha: string }> = {
+export const ESTADO: Record<EstadoEtapa, { rotulo: string; barra: string; chip: string; circulo: string; linha: string }> = {
   feito: {
     rotulo: "Concluída",
     barra: "bg-emerald-600",
@@ -97,6 +101,13 @@ const ESTADO: Record<EstadoEtapa, { rotulo: string; barra: string; chip: string;
     circulo: "border-border bg-background text-muted-foreground",
     linha: "bg-border",
   },
+  opcional: {
+    rotulo: "Opcional",
+    barra: "bg-border",
+    chip: "border-dashed border-border bg-background text-muted-foreground",
+    circulo: "border-dashed border-border bg-background text-muted-foreground",
+    linha: "bg-border",
+  },
 };
 
 const ESTILO_FORCA: Record<PedidoCandidato["forca"], string> = {
@@ -111,7 +122,7 @@ const ROTULO_FORCA: Record<PedidoCandidato["forca"], string> = {
 // ════════════════════════════════════════════════════════════
 // PEÇAS DE LAYOUT
 // ════════════════════════════════════════════════════════════
-function Campo({ label, valor, mono }: { label: string; valor: ReactNode; mono?: boolean }) {
+export function Campo({ label, valor, mono }: { label: string; valor: ReactNode; mono?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <span className="shrink-0 text-muted-foreground">{label}</span>
@@ -122,10 +133,17 @@ function Campo({ label, valor, mono }: { label: string; valor: ReactNode; mono?:
   );
 }
 
+/** "Tipo de lançamento" do MovEstq (PLANO-NFE NFE-14, cabeçalho): código + descrição do catálogo do Hub, quando há. */
+export function CampoTipoLanc({ chave, codigo }: { chave: number | null | undefined; codigo: string | null | undefined }) {
+  const { data } = useTipoLanc(chave ?? null);
+  const desc = data?.descricao;
+  return <Campo label="Tipo de lançamento" valor={codigo ? (desc ? `${codigo} · ${desc}` : codigo) : "—"} mono={!desc} />;
+}
+
 type Etiqueta = { texto: string; alerta?: boolean } | false | null | undefined | "";
 
 /** Linha de etiquetas "a · b · c" em texto corrido: ao quebrar, o "·" fica no fim da linha, não no começo. */
-function Etiquetas({ itens }: { itens: Etiqueta[] }) {
+export function Etiquetas({ itens }: { itens: Etiqueta[] }) {
   const lista = itens.filter(Boolean) as { texto: string; alerta?: boolean }[];
   if (lista.length === 0) return null;
   return (
@@ -140,7 +158,7 @@ function Etiquetas({ itens }: { itens: Etiqueta[] }) {
   );
 }
 
-function Coluna({
+export function Coluna({
   n,
   titulo,
   icone,
@@ -195,7 +213,7 @@ function Coluna({
  * bloco, fora de tabela. As colunas se ajustam a ela, nunca o contrário: com largura mínima por coluna, as 6
  * juntas alargavam a tabela e a página inteira passava da tela (20/10/2026).
  */
-function useLarguraVisivel(ref: RefObject<HTMLElement>) {
+export function useLarguraVisivel(ref: RefObject<HTMLElement>) {
   const [medida, setMedida] = useState({ largura: 0, presa: false });
   useLayoutEffect(() => {
     const el = ref.current;
@@ -216,14 +234,14 @@ const LARGURA_MIN_COLUNA = 230;
 const VAO = 12;
 
 /** 6 lado a lado quando cabem; senão 3 + 3, 2 + 2 + 2 ou uma embaixo da outra — sem rolagem para o lado. */
-function colunasPorLinha(largura: number) {
+export function colunasPorLinha(largura: number) {
   if (!largura) return 3;
   const util = largura - 32; // p-4
   return [6, 3, 2].find((n) => n * LARGURA_MIN_COLUNA + (n - 1) * VAO <= util) ?? 1;
 }
 
-/** Régua das 6 etapas: mostra o andamento e leva até a coluna ao clicar. */
-function Regua({ etapas, onIr }: { etapas: { titulo: string; estado: EstadoEtapa }[]; onIr: (i: number) => void }) {
+/** Régua das etapas (6 + Comentários, NFE-15): mostra o andamento e leva até a coluna ao clicar. */
+export function Regua({ etapas, onIr }: { etapas: { titulo: string; estado: EstadoEtapa }[]; onIr: (i: number) => void }) {
   return (
     <ol className="flex items-center overflow-x-auto rounded-md border border-border bg-background px-3 py-2">
       {etapas.map((et, i) => (
@@ -252,7 +270,7 @@ function Regua({ etapas, onIr }: { etapas: { titulo: string; estado: EstadoEtapa
 }
 
 /** Chave do MovEstq no Alvo em destaque, com cópia — é por ela que se acha o lançamento no Alvo. */
-function ChaveMovEstq({ chave }: { chave: number }) {
+export function ChaveMovEstq({ chave }: { chave: number }) {
   const { toast } = useToast();
   const copiar = async () => {
     try {
@@ -275,9 +293,9 @@ function ChaveMovEstq({ chave }: { chave: number }) {
   );
 }
 
-const emitidaHa = (dias: number) => (dias <= 0 ? "emitida hoje" : dias === 1 ? "emitida há 1 dia" : `emitida há ${dias} dias`);
+export const emitidaHa = (dias: number) => (dias <= 0 ? "emitida hoje" : dias === 1 ? "emitida há 1 dia" : `emitida há ${dias} dias`);
 
-function Aviso({ children, tom = "neutro" }: { children: ReactNode; tom?: "neutro" | "atencao" }) {
+export function Aviso({ children, tom = "neutro" }: { children: ReactNode; tom?: "neutro" | "atencao" }) {
   return (
     <p
       className={cn(
@@ -299,7 +317,12 @@ function Aviso({ children, tom = "neutro" }: { children: ReactNode; tom?: "neutr
  * Status e aprovação do pedido no espelho do Alvo (NFSE-1.11-A) — a mesma tradução da tela de Pedidos
  * (`statusPedido.ts`). A aprovação vai à parte porque a regra futura "só lança com pedido 100% aprovado" lê só ela.
  */
-function SituacaoPedido({ p }: { p: PedidoCandidato | PedidoVinculado }) {
+type EixosSituacaoPedido = Pick<
+  PedidoVinculado,
+  "status" | "status_local" | "status_aprovacao" | "aprovado" | "comprado" | "enviou_aprovacao" | "proximo_aprovador"
+>;
+
+export function SituacaoPedido({ p }: { p: EixosSituacaoPedido }) {
   const st = getStatusPedido(p);
   const ap = getAprovacaoPedido(p);
   return (
@@ -317,7 +340,7 @@ function SituacaoPedido({ p }: { p: PedidoCandidato | PedidoVinculado }) {
   );
 }
 
-function CartaoCandidato({ c, destaque, espelhoDesde }: { c: PedidoCandidato; destaque?: boolean; espelhoDesde: string }) {
+export function CartaoCandidato({ c, destaque, espelhoDesde }: { c: PedidoCandidato; destaque?: boolean; espelhoDesde: string }) {
   const sobra = Number(c.diferenca);
   const [primeira, ...outras] = c.disputa ?? [];
   return (
@@ -362,6 +385,12 @@ function CartaoCandidato({ c, destaque, espelhoDesde }: { c: PedidoCandidato; de
           {outras.length > 0 && ` e mais ${outras.length}`}, ainda não lançada{outras.length > 0 ? "s" : ""}.
         </p>
       )}
+      {(c.vinculado_hub_a?.length ?? 0) > 0 && (
+        <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+          Vinculado no Hub à NF {c.vinculado_hub_a!.map((h) => `${h.numero} (${formatCurrency(h.valor)})`).join(", ")}, ainda
+          não lançada no Alvo — já descontado do saldo.
+        </p>
+      )}
       {c.saldo_nao_confirmado && (
         <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
           Pedido anterior a {espelhoDesde}: NFs lançadas antes disso não estão no Hub — saldo não confirmado.
@@ -374,41 +403,92 @@ function CartaoCandidato({ c, destaque, espelhoDesde }: { c: PedidoCandidato; de
 // ════════════════════════════════════════════════════════════
 // ETAPAS 4 e 5 — ANEXO EM PDF
 // ════════════════════════════════════════════════════════════
-function AreaAnexo({
+/** Onde o anexo é gravado e removido. Padrão: NFS-e; a tela de NF-e passa as RPCs dela (PLANO-NFE NFE-4). */
+export type AcoesAnexo = {
+  anexar: (chave: string, tipo: TipoAnexoNfse, arquivo: File) => Promise<void>;
+  remover: (id: string) => Promise<void>;
+  /** Nome do documento da nota no texto do botão (NFS-e: "PDF da nota"; NF-e: "DANFE"). */
+  nomeNota?: string;
+};
+const ACOES_NFSE: AcoesAnexo = { anexar: anexarPdfNfse, remover: removerAnexoNfse };
+
+/** "1 arquivo anexado" / "3 arquivos anexados" — resumo das etapas 4 e 5. */
+export const rotuloAnexos = (n: number) => (n === 1 ? "1 arquivo anexado" : `${n} arquivos anexados`);
+
+/**
+ * NFE-19 — vários arquivos na mesma etapa (até LIMITE_ANEXOS_ETAPA): lista com Abrir/Remover e "Anexar mais"
+ * (aceita vários de uma vez, arrastando ou escolhendo). O banco recusa o 6º e o mesmo arquivo duas vezes.
+ */
+export function AreaAnexos({
   chave,
   tipo,
-  anexo,
+  anexos,
   onMudou,
+  acoes = ACOES_NFSE,
 }: {
   chave: string;
   tipo: TipoAnexoNfse;
-  anexo: AnexoNfse | undefined;
+  anexos: AnexoNfse[];
   onMudou: () => void;
+  acoes?: AcoesAnexo;
 }) {
   const { toast } = useToast();
   const input = useRef<HTMLInputElement>(null);
-  const [enviando, setEnviando] = useState(false);
+  const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null);
   const [arrastando, setArrastando] = useState(false);
-  const [confirmarRemocao, setConfirmarRemocao] = useState(false);
-  const nomeTipo = tipo === "nf" ? "PDF da nota" : "PDF do boleto";
+  const [aRemover, setARemover] = useState<AnexoNfse | null>(null);
+  const nomeTipo = tipo === "nf" ? (acoes.nomeNota ?? "PDF da nota") : "PDF do boleto";
+  const vagas = Math.max(0, LIMITE_ANEXOS_ETAPA - anexos.length);
+  const enviando = progresso !== null;
 
-  const enviar = async (arquivo: File | undefined) => {
-    if (!arquivo) return;
-    setEnviando(true);
-    try {
-      await anexarPdfNfse(chave, tipo, arquivo);
-      toast({ title: anexo ? `${nomeTipo} trocado` : `${nomeTipo} anexado`, description: arquivo.name });
-      onMudou();
-    } catch (e) {
-      toast({ title: "Não foi possível anexar", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
-    } finally {
-      setEnviando(false);
-      if (input.current) input.current.value = "";
+  const enviar = async (lista: FileList | File[] | null | undefined) => {
+    const arquivos = Array.from(lista ?? []);
+    if (input.current) input.current.value = "";
+    if (arquivos.length === 0) return;
+    if (vagas === 0) {
+      toast({
+        title: `Limite de ${LIMITE_ANEXOS_ETAPA} arquivos nesta etapa`,
+        description: "Remova um para anexar outro.",
+        variant: "destructive",
+      });
+      return;
     }
+    const aceitos = arquivos.slice(0, vagas);
+    const deFora = arquivos.length - aceitos.length;
+    const falhas: string[] = [];
+    let ok = 0;
+    try {
+      for (let i = 0; i < aceitos.length; i++) {
+        setProgresso({ atual: i + 1, total: aceitos.length });
+        try {
+          await acoes.anexar(chave, tipo, aceitos[i]);
+          ok++;
+        } catch (e) {
+          falhas.push(`${aceitos[i].name}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    } finally {
+      setProgresso(null);
+    }
+    if (ok > 0) onMudou();
+    // Um aviso só (o Toaster mostra um por vez): o que entrou, o que falhou e o que ficou de fora pelo limite.
+    const partes = [
+      ...falhas,
+      deFora > 0 ? `${deFora} arquivo(s) ficaram de fora: o limite é ${LIMITE_ANEXOS_ETAPA} por etapa.` : "",
+    ].filter(Boolean);
+    toast({
+      title:
+        ok === 0
+          ? "Não foi possível anexar"
+          : ok === 1
+            ? `${nomeTipo} anexado`
+            : `${ok} arquivos anexados`,
+      description: partes.length ? partes.join(" · ") : ok === 1 ? aceitos.find(Boolean)?.name : undefined,
+      variant: ok === 0 || partes.length > 0 ? "destructive" : undefined,
+    });
   };
 
-  const abrir = async () => {
-    if (!anexo) return;
+  const abrir = async (anexo: AnexoNfse) => {
     try {
       window.open(await linkAnexoNfse(anexo), "_blank", "noopener,noreferrer");
     } catch (e) {
@@ -417,14 +497,29 @@ function AreaAnexo({
   };
 
   const remover = async () => {
+    const anexo = aRemover;
+    setARemover(null);
     if (!anexo) return;
     try {
-      await removerAnexoNfse(anexo.id);
-      toast({ title: `${nomeTipo} removido` });
+      await acoes.remover(anexo.id);
+      toast({ title: "Arquivo removido", description: anexo.nome_original });
       onMudou();
     } catch (e) {
       toast({ title: "Não foi possível remover", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
     }
+  };
+
+  const soltar = {
+    onDragOver: (e: DragEvent) => {
+      e.preventDefault();
+      if (vagas > 0) setArrastando(true);
+    },
+    onDragLeave: () => setArrastando(false),
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      setArrastando(false);
+      enviar(e.dataTransfer.files);
+    },
   };
 
   return (
@@ -433,50 +528,62 @@ function AreaAnexo({
         ref={input}
         type="file"
         accept="application/pdf,.pdf"
+        multiple
         className="hidden"
-        onChange={(e) => enviar(e.target.files?.[0])}
+        aria-label={`Escolher ${nomeTipo}`}
+        onChange={(e) => enviar(e.target.files)}
       />
-      {anexo ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 p-2">
-            <FileText className="mt-0.5 h-5 w-5 shrink-0 text-rose-700 dark:text-rose-300" />
-            <div className="min-w-0">
-              <p className="truncate text-xs font-medium" title={anexo.nome_original}>
-                {anexo.nome_original}
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                {formatBytes(anexo.tamanho_bytes)} · {formatInstanteBrt(anexo.enviado_em)}
-              </p>
-              {anexo.enviado_por && <p className="truncate text-[11px] text-muted-foreground">por {anexo.enviado_por}</p>}
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={abrir}>
-              <Eye className="h-3 w-3" /> Abrir
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" disabled={enviando} onClick={() => input.current?.click()}>
-              {enviando ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Trocar
-            </Button>
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground" onClick={() => setConfirmarRemocao(true)}>
-              <Trash2 className="h-3 w-3" /> Remover
-            </Button>
-          </div>
-        </div>
-      ) : (
+      {anexos.length > 0 && (
+        <ul className="flex flex-col gap-1.5" aria-label={`Arquivos: ${nomeTipo}`}>
+          {anexos.map((anexo) => (
+            <li key={anexo.id} className="flex items-start gap-2 rounded-md border border-border bg-muted/30 p-2">
+              <FileText className="mt-0.5 h-5 w-5 shrink-0 text-rose-700 dark:text-rose-300" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium" title={anexo.nome_original}>
+                  {anexo.nome_original}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {formatBytes(anexo.tamanho_bytes)} · {formatInstanteBrt(anexo.enviado_em)}
+                  {anexo.enviado_por ? ` · ${anexo.enviado_por}` : ""}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  title="Abrir"
+                  aria-label={`Abrir ${anexo.nome_original}`}
+                  onClick={() => abrir(anexo)}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground"
+                  title="Remover"
+                  aria-label={`Remover ${anexo.nome_original}`}
+                  onClick={() => setARemover(anexo)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {vagas === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          Limite de {LIMITE_ANEXOS_ETAPA} arquivos atingido. Remova um para anexar outro.
+        </p>
+      ) : anexos.length === 0 ? (
         <button
           type="button"
           disabled={enviando}
           onClick={() => input.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setArrastando(true);
-          }}
-          onDragLeave={() => setArrastando(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setArrastando(false);
-            enviar(e.dataTransfer.files?.[0]);
-          }}
+          {...soltar}
           className={cn(
             "flex flex-1 flex-col items-center justify-center gap-1.5 rounded-md border-2 border-dashed px-3 py-6 text-center transition-colors",
             arrastando ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/40 hover:bg-muted/40",
@@ -487,17 +594,37 @@ function AreaAnexo({
           ) : (
             <Upload className="h-5 w-5 text-muted-foreground" />
           )}
-          <span className="text-xs font-medium text-foreground">{enviando ? "Enviando..." : `Anexar ${nomeTipo}`}</span>
-          <span className="text-[11px] text-muted-foreground">Arraste o arquivo ou clique · PDF até 10 MB</span>
+          <span className="text-xs font-medium text-foreground">
+            {enviando ? `Enviando ${progresso!.atual} de ${progresso!.total}...` : `Anexar ${nomeTipo}`}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            Arraste ou clique · PDF até 10 MB · até {LIMITE_ANEXOS_ETAPA} arquivos
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={enviando}
+          onClick={() => input.current?.click()}
+          {...soltar}
+          className={cn(
+            "flex items-center justify-center gap-1.5 rounded-md border border-dashed px-3 py-2 text-xs transition-colors",
+            arrastando ? "border-primary bg-primary/5" : "border-border text-muted-foreground hover:border-muted-foreground/40 hover:bg-muted/40",
+          )}
+        >
+          {enviando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          {enviando
+            ? `Enviando ${progresso!.atual} de ${progresso!.total}...`
+            : `Anexar mais (${anexos.length} de ${LIMITE_ANEXOS_ETAPA})`}
         </button>
       )}
 
-      <AlertDialog open={confirmarRemocao} onOpenChange={setConfirmarRemocao}>
+      <AlertDialog open={aRemover !== null} onOpenChange={(aberto) => !aberto && setARemover(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remover o {nomeTipo}?</AlertDialogTitle>
+            <AlertDialogTitle>Remover o arquivo?</AlertDialogTitle>
             <AlertDialogDescription>
-              O anexo sai desta nota. O arquivo fica guardado no histórico do Hub.
+              {aRemover?.nome_original} sai desta nota. O arquivo fica guardado no histórico do Hub.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -590,19 +717,28 @@ function CartaoBoletoLido({ b, indice, total }: { b: BoletoConferidoIA; indice: 
 }
 
 /** Botões "Ler linha digitável" (boleto anexado) e "Testar outro PDF" (não salva), e o resultado. */
-function LeituraBoleto({ anexo }: { anexo: AnexoNfse | undefined }) {
+export function LeituraBoleto({
+  anexos,
+  leitor = lerBoletoNfse,
+}: {
+  /** NFE-19: um botão "Ler linha digitável" por boleto anexado. */
+  anexos: AnexoNfse[];
+  /** Padrão: NFS-e; a tela de NF-e passa o leitor dela (o mesmo Edge, com origem 'nfe'). */
+  leitor?: (entrada: { anexo: AnexoNfse } | { arquivo: File }) => Promise<LeituraBoletoIA>;
+}) {
   const input = useRef<HTMLInputElement>(null);
-  const [lendo, setLendo] = useState<"anexo" | "teste" | null>(null);
+  /** id do anexo sendo lido, ou "teste" (PDF avulso). */
+  const [lendo, setLendo] = useState<string | null>(null);
   const [resultado, setResultado] = useState<{ origem: string; leitura: LeituraBoletoIA } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   const ler = async (entrada: { anexo: AnexoNfse } | { arquivo: File }) => {
     const origem = "anexo" in entrada ? entrada.anexo.nome_original : entrada.arquivo.name;
-    setLendo("anexo" in entrada ? "anexo" : "teste");
+    setLendo("anexo" in entrada ? entrada.anexo.id : "teste");
     setErro(null);
     setResultado(null);
     try {
-      setResultado({ origem, leitura: await lerBoletoNfse(entrada) });
+      setResultado({ origem, leitura: await leitor(entrada) });
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
     } finally {
@@ -624,11 +760,21 @@ function LeituraBoleto({ anexo }: { anexo: AnexoNfse | undefined }) {
         }}
       />
       <div className="flex flex-wrap items-center gap-1.5">
-        {anexo && (
-          <Button size="sm" className="h-7 gap-1 text-xs" disabled={lendo !== null} onClick={() => ler({ anexo })}>
-            {lendo === "anexo" ? <Loader2 className="h-3 w-3 animate-spin" /> : <ScanLine className="h-3 w-3" />} Ler linha digitável
+        {anexos.map((anexo) => (
+          <Button
+            key={anexo.id}
+            size="sm"
+            className="h-7 max-w-full gap-1 text-xs"
+            disabled={lendo !== null}
+            title={anexo.nome_original}
+            onClick={() => ler({ anexo })}
+          >
+            {lendo === anexo.id ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <ScanLine className="h-3 w-3 shrink-0" />}
+            <span className="truncate">
+              Ler linha digitável{anexos.length > 1 ? ` · ${anexo.nome_original}` : ""}
+            </span>
           </Button>
-        )}
+        ))}
         <Button
           variant="ghost"
           size="sm"
@@ -675,16 +821,16 @@ const ROTULO_CLASSE: Record<string, { rotulo: string; estilo: string }> = {
   aberto: { rotulo: "Em aberto", estilo: ESTADO.pendente.chip },
 };
 
-function parcelaPaga(p: ParcelaDocFin) {
+export function parcelaPaga(p: ParcelaDocFin) {
   return p.classe_pagamento === "pago" || p.classe_pagamento === "quitado_adto";
 }
 
-function parcelaVencida(p: ParcelaDocFin, hoje: string) {
+export function parcelaVencida(p: ParcelaDocFin, hoje: string) {
   const limite = p.data_prorrogacao || p.data_vencimento;
   return !parcelaPaga(p) && p.classe_pagamento === "aberto" && !!limite && limite < hoje;
 }
 
-function LinhaParcela({ p, total, hoje }: { p: ParcelaDocFin; total: number; hoje: string }) {
+export function LinhaParcela({ p, total, hoje }: { p: ParcelaDocFin; total: number; hoje: string }) {
   const classe = ROTULO_CLASSE[p.classe_pagamento ?? ""] ?? { rotulo: p.situacao ?? "—", estilo: ESTADO.na.chip };
   const vencida = parcelaVencida(p, hoje);
   return (
@@ -785,27 +931,24 @@ function Etapas({
   const candidatos = d.pedidos.candidatos ?? [];
   const lancada = n.situacao_alvo === "lancada_nfse" || n.situacao_alvo === "lancada_outra_especie";
   const semDado = n.situacao_alvo === "sem_dado_alvo";
-  // NFSE-1.2-B: título achado pelo número que a nota cita (ex.: fatura da Microsoft lançada como DIV)
-  const avisoCitado =
-    n.alvo_vinculo === "citado_na_nota" ? (
-      <Aviso>
-        No Alvo com outro número: {n.alvo_especies ?? "outra espécie"} {n.alvo_doc_numero}, que a própria nota cita na
-        descrição (mesmo CNPJ e mesmo valor).
-      </Aviso>
-    ) : null;
-  const anexoNf = d.anexos.find((a) => a.tipo === "nf");
-  const anexoBoleto = d.anexos.find((a) => a.tipo === "boleto");
+  // Título achado por outro caminho que não o número da nota no mesmo CNPJ: número citado na nota (NFSE-1.2-B, ex.:
+  // fatura da Microsoft lançada como DIV), outra filial do prestador ou número sem o prefixo do ano (NFSE-1.18)
+  const textoVinculo = textoVinculoAlvo(n);
+  const avisoVinculo = textoVinculo ? <Aviso>{textoVinculo}</Aviso> : null;
+  const anexosNf = d.anexos.filter((a) => a.tipo === "nf");
+  const anexosBoleto = d.anexos.filter((a) => a.tipo === "boleto");
   const parcelas = d.docfin.parcelas ?? [];
   const pagas = parcelas.filter(parcelaPaga).length;
   const vencidas = parcelas.filter((p) => parcelaVencida(p, hoje)).length;
   const proxima = parcelas.filter((p) => !parcelaPaga(p)).sort((a, b) => (a.data_vencimento ?? "").localeCompare(b.data_vencimento ?? ""))[0];
+  const nComentarios = useComentariosNota("nfse", n.chave_acesso).data?.length ?? 0;
 
   // ── estado de cada etapa ──
   const e1: EstadoEtapa = n.situacao_fisco === "normal" ? "feito" : "atencao";
   const e2: EstadoEtapa = vinculados.length > 0 ? "feito" : candidatos.length > 0 ? "pendente" : semDado ? "na" : "atencao";
   const e3: EstadoEtapa = lancada ? "feito" : semDado ? "na" : n.situacao_fisco !== "normal" ? "na" : "pendente";
-  const e4: EstadoEtapa = anexoNf ? "feito" : "pendente";
-  const e5: EstadoEtapa = anexoBoleto ? "feito" : "pendente";
+  const e4: EstadoEtapa = anexosNf.length > 0 ? "feito" : "pendente";
+  const e5: EstadoEtapa = anexosBoleto.length > 0 ? "feito" : "pendente";
   const e6: EstadoEtapa =
     parcelas.length === 0 ? (semDado ? "na" : "pendente") : vencidas > 0 ? "atencao" : pagas === parcelas.length ? "feito" : "pendente";
 
@@ -816,6 +959,8 @@ function Etapas({
     { titulo: "PDF da nota", estado: e4 },
     { titulo: "PDF do boleto", estado: e5 },
     { titulo: "DocFin", estado: e6 },
+    // NFE-15: etapa 7 — comentários dos usuários (largura toda, abaixo das 6)
+    { titulo: nComentarios ? `Comentários (${nComentarios})` : "Comentários", estado: estadoComentarios(nComentarios) },
   ];
   const ir = (i: number) => colunas.current[i]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
   const ref = (i: number) => (el: HTMLElement | null) => {
@@ -940,7 +1085,7 @@ function Etapas({
               : lancada
                 ? n.alvo_chave_movestq != null
                   ? `Lançada · chave ${n.alvo_chave_movestq}`
-                  : `Lançada como ${n.alvo_especies ?? "outra espécie"}${n.alvo_vinculo === "citado_na_nota" && n.alvo_doc_numero ? ` ${n.alvo_doc_numero}` : ""}`
+                  : `Lançada como ${n.alvo_especies ?? "outra espécie"}${n.alvo_vinculo && n.alvo_vinculo !== "numero" && n.alvo_doc_numero ? ` ${n.alvo_doc_numero}` : ""}`
                 : semDado
                   ? `Sem dado do Alvo (nota anterior a ${espelhoDesde})`
                   : "Não lançada no Alvo"
@@ -960,9 +1105,9 @@ function Etapas({
           {d.movestq ? (
             <>
               <ChaveMovEstq chave={d.movestq.chave_movestq} />
-              {avisoCitado}
+              {avisoVinculo}
               <Campo label="Espécie" valor={`${d.movestq.especie ?? "—"}${d.movestq.serie ? ` · série ${d.movestq.serie}` : ""}`} />
-              <Campo label="Tipo de lançamento" valor={d.movestq.codigo_tipo_lanc} mono />
+              <CampoTipoLanc chave={d.movestq.chave_movestq} codigo={d.movestq.codigo_tipo_lanc} />
               <Campo label="Entrada" valor={formatDate(d.movestq.data_entrada)} />
               <Campo label="Digitação" valor={formatInstanteBrt(d.movestq.data_hora_digitacao)} />
               <Campo label="Valor" valor={formatCurrency(d.movestq.valor_documento)} mono />
@@ -977,7 +1122,7 @@ function Etapas({
           ) : lancada ? (
             <>
               {n.alvo_chave_movestq != null && <ChaveMovEstq chave={n.alvo_chave_movestq} />}
-              {avisoCitado}
+              {avisoVinculo}
               <Aviso>
                 {n.alvo_chave_movestq != null
                   ? "Chave tirada do título no contas a pagar do Alvo; os dados do MovEstq ainda não foram lidos pelo Hub."
@@ -1009,10 +1154,10 @@ function Etapas({
           titulo="PDF da nota"
           icone={<Paperclip className="h-4 w-4" />}
           estado={e4}
-          resumo={anexoNf ? "Anexado" : "Aguardando o PDF da NFS-e"}
+          resumo={anexosNf.length > 0 ? rotuloAnexos(anexosNf.length) : "Aguardando o PDF da NFS-e"}
           colRef={ref(3)}
         >
-          <AreaAnexo chave={n.chave_acesso} tipo="nf" anexo={anexoNf} onMudou={onAtualizar} />
+          <AreaAnexos chave={n.chave_acesso} tipo="nf" anexos={anexosNf} onMudou={onAtualizar} />
         </Coluna>
 
         {/* 5 — PDF DO BOLETO */}
@@ -1021,11 +1166,11 @@ function Etapas({
           titulo="PDF do boleto"
           icone={<Receipt className="h-4 w-4" />}
           estado={e5}
-          resumo={anexoBoleto ? "Anexado" : "Aguardando o boleto"}
+          resumo={anexosBoleto.length > 0 ? rotuloAnexos(anexosBoleto.length) : "Aguardando o boleto"}
           colRef={ref(4)}
         >
-          <AreaAnexo chave={n.chave_acesso} tipo="boleto" anexo={anexoBoleto} onMudou={onAtualizar} />
-          <LeituraBoleto key={anexoBoleto?.id ?? "sem-anexo"} anexo={anexoBoleto} />
+          <AreaAnexos chave={n.chave_acesso} tipo="boleto" anexos={anexosBoleto} onMudou={onAtualizar} />
+          <LeituraBoleto key={anexosBoleto.map((a) => a.id).join(",") || "sem-anexo"} anexos={anexosBoleto} />
           <p className="text-[10px] leading-snug text-muted-foreground">
             Será pré-requisito para lançar a nota pelo Hub (regra em definição).
           </p>
@@ -1068,6 +1213,8 @@ function Etapas({
           )}
         </Coluna>
       </div>
+
+      <EtapaComentarios tipo="nfse" chave={n.chave_acesso} colRef={ref(6)} />
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span>

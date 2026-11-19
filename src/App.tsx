@@ -33,7 +33,7 @@ import CostCenters from "./pages/settings/CostCenters";
 import ClassesRecDesp from "./pages/settings/ClassesRecDesp";
 import UsersSettings from "./pages/settings/Users";
 import LideresCC from "./pages/settings/LideresCC";
-import Sales from "./pages/Sales";
+import VendasNotasSaida from "./pages/VendasNotasSaida";
 import CreditCards from "./pages/CreditCards";
 import CreditCardDetail from "./pages/CreditCardDetail";
 import CreditCardInvoice from "./pages/CreditCardInvoice";
@@ -42,7 +42,6 @@ import ProjetoRequisicoes from "./pages/ProjetoRequisicoes";
 import ContasPagar from "./pages/ContasPagar";
 import ContasPagarDashboard from "./pages/ContasPagarDashboard";
 import ConfigSyncJobs from "./pages/ConfigSyncJobs";
-import EmailNfe from "./pages/EmailNfe";
 import SuprimentosRequisicoes from "./pages/SuprimentosRequisicoes";
 import SuprimentosRequisicaoNova from "./pages/SuprimentosRequisicaoNova";
 import SuprimentosRequisicaoDetalhe from "./pages/SuprimentosRequisicaoDetalhe";
@@ -60,7 +59,6 @@ import BulkEditHistorico from "./pages/ferramentas/BulkEditHistorico";
 import CronReqDashboard from "./pages/ferramentas/CronReqDashboard";
 import CronDespesasDashboard from "./pages/ferramentas/CronDespesasDashboard";
 import CronDocfinDashboard from "./pages/ferramentas/CronDocfinDashboard";
-import CronNfeDashboard from "./pages/ferramentas/CronNfeDashboard";
 import CronIntercompanyDashboard from "./pages/ferramentas/CronIntercompanyDashboard";
 import CronReqMatDashboard from "./pages/ferramentas/CronReqMatDashboard";
 import CronEstoqueDashboard from "./pages/ferramentas/CronEstoqueDashboard";
@@ -182,11 +180,14 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
+        {/* Vendas › Notas de Saída (PLANO-VENDAS VND-7). Gate real: RPCs vendas_* (vendas.notas.access).
+            /sales era a "Receita de Vendas" antiga (tabela sales_invoices, vazia): passa a abrir a tela nova. */}
+        <Route path="/sales" element={<Navigate to="/vendas/notas" replace />} />
         <Route
-          path="/sales"
+          path="/vendas/notas"
           element={
-            <PermissionRoute permKey="sales">
-              <Sales />
+            <PermissionRoute permKey="vendas.notas.access">
+              <VendasNotasSaida />
             </PermissionRoute>
           }
         />
@@ -231,14 +232,7 @@ function AppRoutes() {
             </PermissionRoute>
           }
         />
-        <Route
-          path="/email-nfe"
-          element={
-            <PermissionRoute permKey="nf_entrada">
-              <EmailNfe />
-            </PermissionRoute>
-          }
-        />
+        {/* /email-nfe saiu em 10/11/2026 (PLANO-NFE NFE-S2): parada desde 14/05, tabela e anexos fechados para só admin. */}
         <Route
           path="/suprimentos/requisicoes"
           element={
@@ -384,10 +378,12 @@ function AppRoutes() {
             Mesmo padrão das rotas de /despesas. */}
         <Route path="/recebimento/fila" element={<RecebimentoFila />} />
 
+        {/* Gate RBAC (papel Analista Fiscal). Antes era a chave legada "compras", que
+            ninguém além do admin tinha — a tela abria "Acesso Restrito" para todos. */}
         <Route
           path="/compras/notas-fiscais"
           element={
-            <PermissionRoute permKey="compras">
+            <PermissionRoute permKey="compras.nfe.access">
               <ComprasNotasFiscais />
             </PermissionRoute>
           }
@@ -593,14 +589,7 @@ function AppRoutes() {
           }
         />
 
-        <Route
-          path="/ferramentas/cron-nfe"
-          element={
-            <PermissionRoute permKey="ferramentas_cron_req">
-              <CronNfeDashboard />
-            </PermissionRoute>
-          }
-        />
+        {/* /ferramentas/cron-nfe saiu em 10/11/2026 (PLANO-NFE NFE-S2): o caminho por certificado foi desarmado. */}
         <Route
           path="/ferramentas/req-backfill-abertura"
           element={

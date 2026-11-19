@@ -75,7 +75,8 @@ ADN  GET /contribuintes/DFe/{nsu}?lote=true
 | `GET /nfse-adn/teste` | Uma chamada `DFe/{nsu}` (padrão 1) e devolve: HTTP do ADN, **lista das chaves do JSON** e a primeira entrada do lote **sem o XML** (só os nomes/tipos). Serve para confirmar o formato. |
 | `GET /nfse-adn/dfe/:nsu` | Uma chamada `DFe/{nsu}?lote=true`; devolve `{ status_http, status_processamento, documentos: [{ nsu, chave, tipo_documento, tipo_evento, gerado_em, xml }] }` com o XML já descompactado. `NENHUM_DOCUMENTO_LOCALIZADO` = lista vazia, não erro; **404 sem essa marca = erro** (pode ser caminho errado — ver diário do PLANO-NFSE, 16/10). |
 
-Regras: timeout de 30 s; nenhum dado gravado; `cnpjConsulta` não usado (certificado = matriz); erros
+Regras: timeout de 30 s; nenhum dado gravado; `cnpjConsulta` = CNPJ do certificado (matriz) — **obrigatório no ADN
+desde 02–03/11/2026** (sem ele: 400 REJEICAO, TipoConsulta InscricaoCertificado; NFSE-1.17); erros
 do ADN repassados com o código (429, rejeição → 502, conexão → 504); **só chamada de sistema**
 (`X-System-Secret`) — JWT de usuário recebe 403. Implementação: [erp-proxy/nfse-adn.ts](erp-proxy/nfse-adn.ts). Edição pelo **GitHub Web** (clone local
 sempre defasado), deploy automático no Render — fora das janelas do cron.

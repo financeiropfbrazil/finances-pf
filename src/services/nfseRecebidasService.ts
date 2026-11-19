@@ -18,6 +18,9 @@ export type SituacaoFisco = "normal" | "cancelada" | "substituida";
 export type SituacaoAlvo = "lancada_nfse" | "lancada_outra_especie" | "nao_lancada" | "sem_dado_alvo";
 export type PagamentoAlvo = "pago" | "em_aberto" | "parcial" | "agrupado" | "baixa_sem_prova";
 
+/** Como o título do Alvo foi ligado à NFS-e (coluna alvo_vinculo da v_nfse_recebida). */
+export type VinculoAlvo = "numero" | "citado_na_nota" | "numero_outra_filial" | "numero_sem_ano";
+
 export interface NfseRecebida {
   nsu: number;
   chave_acesso: string;
@@ -44,9 +47,14 @@ export interface NfseRecebida {
   alvo_pagamento: PagamentoAlvo | null;
   alvo_pedido: string | null;
   dias_desde_emissao: number | null;
-  /** Como o título do Alvo foi achado (NFSE-1.2-B): pelo número da NFS-e ou pelo número que a nota cita (ex.: fatura) */
-  alvo_vinculo: "numero" | "citado_na_nota" | null;
+  /**
+   * Como o título do Alvo foi achado: pelo número da NFS-e; pelo número que a nota cita (ex.: fatura — NFSE-1.2-B);
+   * pelo mesmo número no cadastro de outra filial do prestador; ou pelo número sem o prefixo do ano (NFSE-1.18).
+   */
+  alvo_vinculo: VinculoAlvo | null;
   alvo_doc_numero: string | null;
+  /** CNPJ do título achado no Alvo (difere de prestador_doc quando o vínculo é "numero_outra_filial"). */
+  alvo_cnpj: string | null;
 }
 
 export interface IndicadoresNfse {
@@ -70,15 +78,29 @@ export interface ResultadoNfseRecebidas {
   itens: NfseRecebida[];
 }
 
-/** Datas "YYYY-MM-DD" (emissão, inclusive). A RPC devolve até 1000 notas — um mês passa longe disso. */
+/**
+ * Datas "YYYY-MM-DD" (emissão, inclusive). A RPC devolve no máximo 1000 notas por chamada; com o período De/Até
+ * (NFSE-1.14) um ano passa disso, então busca em blocos até chegar ao `total`. Indicadores e meta vêm do 1º bloco
+ * (a RPC calcula sobre o período inteiro).
+ */
 export async function listarNfseRecebidas(de: string, ate: string): Promise<ResultadoNfseRecebidas> {
-  const { data, error } = await (supabase as any).rpc("nfse_recebidas_listar", {
-    p_de: de,
-    p_ate: ate,
-    p_limit: 1000,
-  });
-  if (error) throw new Error(error.message);
-  return data as ResultadoNfseRecebidas;
+  const BLOCO = 1000;
+  let primeiro: ResultadoNfseRecebidas | null = null;
+  const itens: NfseRecebida[] = [];
+  for (let offset = 0; ; offset += BLOCO) {
+    const { data, error } = await (supabase as any).rpc("nfse_recebidas_listar", {
+      p_de: de,
+      p_ate: ate,
+      p_limit: BLOCO,
+      p_offset: offset,
+    });
+    if (error) throw new Error(error.message);
+    const r = data as ResultadoNfseRecebidas;
+    primeiro ??= r;
+    itens.push(...(r.itens ?? []));
+    if (!r.itens || r.itens.length < BLOCO || itens.length >= r.total) break;
+  }
+  return { ...(primeiro as ResultadoNfseRecebidas), itens };
 }
 
 export async function buscarXmlNfse(chave: string): Promise<string | null> {
@@ -140,6 +162,9 @@ export interface PedidoCandidato {
   disputa: { numero: string; valor: number; data_emissao: string }[];
   /** Pedido anterior ao início do espelho do Alvo: NFs lançadas antes disso não estão no Hub (NFSE-1.11-C) */
   saldo_nao_confirmado: boolean;
+  /** Só NF-e (NFE-3-A): valor de outras NF-e vinculadas a este pedido NO HUB, ainda fora do Alvo — já descontado do saldo. */
+  hub_reservado?: number;
+  vinculado_hub_a?: { numero: string; valor: number; data_emissao: string }[];
 }
 
 export interface MovEstqNfse {
@@ -216,6 +241,8 @@ export interface DetalheNfse {
 
 export const BUCKET_ANEXO: Record<TipoAnexoNfse, string> = { nf: "nfse-nf-pdf", boleto: "nfse-boleto-pdf" };
 export const TAMANHO_MAX_ANEXO = 10 * 1024 * 1024;
+/** NFE-19: até 5 arquivos por etapa (PDF da nota / boleto) — o banco recusa o 6º. */
+export const LIMITE_ANEXOS_ETAPA = 5;
 
 export async function buscarDetalheNfse(chave: string): Promise<DetalheNfse | null> {
   const { data, error } = await (supabase as any).rpc("nfse_recebida_detalhe", { p_chave: chave });
@@ -322,16 +349,20 @@ const lerArquivoBase64 = (arquivo: File) =>
  * Lê a(s) linha(s) digitável(is) do boleto com o Claude e confere por regra. Não salva nada.
  * Com `anexo` lê o boleto anexado na etapa 5; com `arquivo`, um PDF de teste que não vai para a pasta.
  */
-export async function lerBoletoNfse(entrada: { anexo: AnexoNfse } | { arquivo: File }): Promise<LeituraBoletoIA> {
+export async function lerBoletoNfse(
+  entrada: { anexo: AnexoNfse } | { arquivo: File },
+  /** 'nfe' = anexo de NF-e (tabela nfe_anexo, gate de Notas Fiscais) — PLANO-NFE NFE-4. */
+  origem: "nfse" | "nfe" = "nfse",
+): Promise<LeituraBoletoIA> {
   let corpo: Record<string, string>;
   if ("anexo" in entrada) {
-    corpo = { anexo_id: entrada.anexo.id };
+    corpo = { anexo_id: entrada.anexo.id, origem };
   } else {
     if (entrada.arquivo.type !== "application/pdf" && !entrada.arquivo.name.toLowerCase().endsWith(".pdf")) {
       throw new Error("O arquivo deve ser um PDF.");
     }
     if (entrada.arquivo.size > TAMANHO_MAX_ANEXO) throw new Error("O PDF passa de 10 MB.");
-    corpo = { pdfBase64: await lerArquivoBase64(entrada.arquivo) };
+    corpo = { pdfBase64: await lerArquivoBase64(entrada.arquivo), origem };
   }
   const { data, error } = await supabase.functions.invoke("nfse-ler-boleto", { body: corpo });
   if (error) {

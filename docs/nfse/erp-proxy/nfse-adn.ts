@@ -10,6 +10,9 @@
  *                                       404 sem essa marca = erro (pode ser caminho errado).
  *
  * Certificado: o mesmo da rota /nfe (CERT_PFX_BASE64 + CERT_PFX_PASSWORD), e-CNPJ da matriz.
+ * NFSE-1.17 (10/11/2026): desde 02–03/11/2026 o ADN recusa a distribuição por NSU sem dizer de QUEM são as notas —
+ * sem `cnpjConsulta` devolve HTTP 400 {StatusProcessamento: REJEICAO, Erros: [], TipoConsulta: InscricaoCertificado}.
+ * Com o CNPJ do certificado (ou de filial da mesma raiz) a consulta vira TipoConsulta CnpjBase e responde como antes.
  * Auth: requireSupabaseAuth em index.ts + guarda abaixo — só chamada de SISTEMA (X-System-Secret).
  * JWT de usuário (Financial Hub ou Hub IA) recebe 403: são notas fiscais de terceiros.
  */
@@ -23,6 +26,8 @@ const router = Router();
 const ADN_HOST = process.env.NFSE_ADN_HOST || "adn.nfse.gov.br";
 const ADN_BASE = "/contribuintes";
 const TIMEOUT_MS = 30_000;
+// CNPJ cujas notas a P&F consulta: o do certificado (matriz). NFSE-1.17 — obrigatório no ADN desde 02–03/11/2026.
+const CNPJ_CONSULTA = (process.env.NFSE_ADN_CNPJ_CONSULTA || "26602204000196").replace(/\D/g, "");
 
 // ── Só chamada de sistema ──
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -63,7 +68,8 @@ function getAdn(path: string, pfx: Buffer, senha: string): Promise<RespostaAdn> 
 }
 
 function caminhoDfe(nsu: number, lote: boolean): string {
-  return `${ADN_BASE}/DFe/${nsu}${lote ? "?lote=true" : ""}`;
+  const q = [lote ? "lote=true" : null, `cnpjConsulta=${CNPJ_CONSULTA}`].filter(Boolean).join("&");
+  return `${ADN_BASE}/DFe/${nsu}?${q}`;
 }
 
 // XML vem gzip + base64; se não for gzip, tenta base64 puro; se nada der, devolve null.
@@ -189,6 +195,7 @@ router.get("/teste", async (req: Request, res: Response) => {
     corpo_inicio: json === null ? r.body.slice(0, 300) : undefined,
     estrutura: json !== null ? estrutura(json) : undefined,
     status_processamento: json ? campo(json, ["StatusProcessamento"]) ?? null : null,
+    tipo_consulta: json ? campo(json, ["TipoConsulta"]) ?? null : null,
     documentos_no_lote: lista.length,
     primeira_entrada: primeira
       ? { ...primeira, xml: undefined, xml_chars: primeira.xml?.length ?? null, xml_inicio: primeira.xml?.slice(0, 120) ?? null }
@@ -232,6 +239,7 @@ router.get("/dfe/:nsu", async (req: Request, res: Response) => {
       etapa: "resposta_adn",
       status_http: r.status,
       status_processamento: statusProc,
+      tipo_consulta: json ? campo(json, ["TipoConsulta"]) ?? null : null,
       erros: json ? campo(json, ["Erros", "Erro", "Alertas"]) ?? null : null,
       corpo_inicio: json === null ? r.body.slice(0, 300) || "(vazio)" : undefined,
     });

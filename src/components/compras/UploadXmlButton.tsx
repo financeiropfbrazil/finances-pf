@@ -1,15 +1,16 @@
 // src/components/compras/UploadXmlButton.tsx
 //
 // Botão de upload manual de XML de NF-e. Lê um ou vários arquivos .xml,
-// parseia no front (parseNfeXml), faz dedup por chave_acesso e insere em
-// compras_nfe com origem='Upload'. Usa a sessão do usuário logado (sem api-key).
+// parseia no front (parseNfeXml) e grava pela RPC compras_nfe_importar_xml
+// (origem='Upload', dedup por chave_acesso, gate compras.nfe.create — PLANO-NFE NFE-1).
 
 import { useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Upload, Loader2 } from "lucide-react";
 import { parseNfeXml } from "@/services/parseNfeXml";
+import { importarXmlNfe } from "@/services/nfeRecebidasService";
+import { resumoErrosUpload } from "@/components/nfe/nfeLista";
 
 interface Props {
   onImported: () => void; // chamado após importar (para refazer o fetch da lista)
@@ -29,45 +30,15 @@ export function UploadXmlButton({ onImported }: Props) {
     let erros = 0;
     const erroDetalhes: string[] = [];
 
-    const user = (await supabase.auth.getUser()).data.user;
-
     for (const file of Array.from(files)) {
       try {
         const xml = await file.text();
-        const parsed = parseNfeXml(xml);
-
-        // dedup por chave_acesso
-        const { data: existing } = await supabase
-          .from("compras_nfe")
-          .select("id")
-          .eq("chave_acesso", parsed.chave_acesso)
-          .maybeSingle();
-
-        if (existing) {
-          duplicadas++;
-          continue;
-        }
-
-        const { itens, ...campos } = parsed;
-        const { error } = await supabase.from("compras_nfe").insert({
-          ...campos,
-          tipo_documento: "NFe",
-          origem: "Upload",
-          raw_xml: xml,
-          dados_extraidos: { itens },
-          created_by: user?.id ?? null,
-        } as any);
-
-        if (error) {
-          // 23505 = corrida na constraint unique → conta como duplicada
-          if ((error as any).code === "23505") {
-            duplicadas++;
-          } else {
-            erros++;
-            erroDetalhes.push(`${file.name}: ${error.message}`);
-          }
-        } else {
-          importadas++;
+        const r = await importarXmlNfe(parseNfeXml(xml), xml);
+        if (r.status === "importada") importadas++;
+        else if (r.status === "duplicada") duplicadas++;
+        else {
+          erros++;
+          erroDetalhes.push(`${file.name}: ${r.mensagem ?? "erro ao importar"}`);
         }
       } catch (e: any) {
         erros++;
@@ -81,9 +52,11 @@ export function UploadXmlButton({ onImported }: Props) {
     if (duplicadas) partes.push(`${duplicadas} já existia${duplicadas > 1 ? "m" : ""}`);
     if (erros) partes.push(`${erros} com erro`);
 
+    // NFE-7: o motivo do erro aparece no aviso (antes ia só para o console do navegador).
+    const motivos = resumoErrosUpload(erroDetalhes);
     toast({
       title: "Upload de XML concluído",
-      description: partes.join(" · ") || "Nenhum arquivo processado",
+      description: [partes.join(" · ") || "Nenhum arquivo processado", motivos].filter(Boolean).join(" — "),
       variant: erros > 0 ? "destructive" : undefined,
     });
 

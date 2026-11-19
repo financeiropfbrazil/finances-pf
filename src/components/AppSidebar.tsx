@@ -24,7 +24,6 @@ import {
   ShieldCheck,
   Users as UsersIcon,
   RefreshCw,
-  Mail,
   Boxes,
   Wrench,
   History,
@@ -61,7 +60,6 @@ const navItems = [
   { titleKey: "nav.dashboard", url: "/", icon: BarChart3 },
   { titleKey: "nav.cash", url: "/cash", icon: Landmark },
   { titleKey: "nav.receivables", url: "/receivables", icon: FileText },
-  { titleKey: "nav.sales", url: "/sales", icon: TrendingUp },
   // Inventory handled separately as expandable
   // Fixed Assets handled separately as expandable
   { titleKey: "nav.commodatum", url: "/commodatum", icon: Handshake },
@@ -82,9 +80,7 @@ const routePermMap: Record<string, string> = {
   "/": "dashboard",
   "/cash": "cash",
   "/receivables": "receivables",
-  "/sales": "sales",
   "/commodatum": "commodatum",
-  "/email-nfe": "nf_entrada",
   "/entidades": "entidades",
   "/loans": "loans",
   "/taxes": "taxes",
@@ -98,6 +94,9 @@ const routePermMap: Record<string, string> = {
   "/intercompany/reembolsos/novo": "intercompany",
 };
 
+// Vendas (PLANO-VENDAS VND-7): substitui a "Receita de Vendas" antiga (/sales, tabela vazia).
+const vendasSubItems = [{ label: "Notas de Saída", url: "/vendas/notas", icon: FileText }];
+
 const inventorySubItems = [{ label: "Importação de Produtos", url: "/inventory/import", icon: Upload }];
 
 // `perm` opcional: item só aparece para quem tem a permissão (o grupo
@@ -110,7 +109,7 @@ const suprimentosSubItems: { label: string; url: string; icon: any; perm?: strin
   // com o badge de contagem é o único sinal de que alguém está esperando decisão.
   { label: "Aprovações", url: "/suprimentos/aprovacoes", icon: ClipboardCheck, perm: "compras.requisicoes.aprovar" },
   { label: "Pedidos de Compra", url: "/suprimentos/pedidos", icon: ShoppingCart },
-  { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText },
+  { label: "Notas Fiscais", url: "/compras/notas-fiscais", icon: FileText, perm: "compras.nfe.access" },
   // NFS-e recebidas pelo ADN × Alvo (só leitura). Gate real: RPCs nfse_recebidas_* (compras.nfse.access).
   { label: "Notas de Serviço", url: "/compras/notas-servico", icon: Receipt, perm: "compras.nfse.access" },
   // Rastreio Req → Pagamento — admin ou papel visualizador_rastreio.
@@ -148,7 +147,6 @@ const ferramentasSubItems = [
   { label: "Cron Requisições", url: "/ferramentas/cron-req", icon: RefreshCw },
   { label: "Cron Despesas", url: "/ferramentas/cron-despesas", icon: Coins },
   { label: "Cron Despesas DocFin", url: "/ferramentas/cron-docfin", icon: Coins },
-  { label: "Cron NF-e", url: "/ferramentas/cron-nfe", icon: FileText },
   { label: "Cron Intercompany", url: "/ferramentas/cron-intercompany", icon: Building2 },
   // OP-2.6 — "RM (Produção)" e não "Requisições": a entrada acima já é o cron
   // das Requisições de COMPRA (Suprimentos). São jobs diferentes.
@@ -198,6 +196,7 @@ export function AppSidebar() {
   const isRecebimentoActive = location.pathname.startsWith("/recebimento");
   const isIntercompanyActive = location.pathname.startsWith("/intercompany");
   const isDespesasActive = location.pathname.startsWith("/despesas");
+  const isVendasActive = location.pathname.startsWith("/vendas");
   const isFerramentasActive = location.pathname.startsWith("/ferramentas");
 
   // ── ORDEM DA SIDEBAR (REC-1.8) ────────────────────────────────────────────
@@ -243,25 +242,6 @@ export function AppSidebar() {
     );
   };
 
-  /** Email NF-e — item fixo (sem i18n), gateado por `nf_entrada` como antes. */
-  const itemEmailNfe = () => {
-    if (!hasAccess(routePermMap["/email-nfe"])) return null;
-    return (
-      <SidebarMenuItem>
-        <SidebarMenuButton asChild>
-          <NavLink
-            to="/email-nfe"
-            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-          >
-            <Mail className="h-4 w-4 shrink-0" />
-            <span>Email NF-e</span>
-          </NavLink>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    );
-  };
-
   /**
    * Movimentação de Salas — item fixo (sem i18n), como o Email NF-e.
    * Gate `salas.access`: quem não tem a permissão não vê o item. O vínculo com
@@ -299,7 +279,7 @@ export function AppSidebar() {
   add("suprimentos", hasAccess("suprimentos_requisicoes"), () =>
     renderSuprimentosGroup(t, isSuprimentosActive, hasAccess, { "/suprimentos/aprovacoes": aprovacoesPendentes }),
   );
-  add("email-nfe", true, () => itemEmailNfe());
+  // "Email NF-e" saiu em 10/11/2026 (PLANO-NFE NFE-S2): parada desde 14/05.
   add("recebimento", isAdmin, () => renderRecebimentoGroup(t, isRecebimentoActive));
   add("estoques", hasAccess("inventory"), () => renderInventoryGroup(t, isInventoryActive));
   add("producao", hasAccess("producao.access"), () => renderProducaoGroup(t, isProducaoActive, hasAccess));
@@ -309,7 +289,7 @@ export function AppSidebar() {
   add("cash", true, () => itemSolto("/cash"));
   add("receivables", true, () => itemSolto("/receivables"));
   add("contas-a-pagar", hasAccess("contas_pagar"), () => renderContasPagarGroup(t, isContasPagarActive));
-  add("sales", true, () => itemSolto("/sales"));
+  add("vendas", hasAccess("vendas.notas.access"), () => renderVendasGroup(t, isVendasActive));
   add("despesas", isAdmin, () => renderDespesasGroup(t, isDespesasActive));
   add("credit-cards", true, () => itemSolto("/credit-cards"));
   add("cartao", true, () => itemSolto("/cartao"));
@@ -632,6 +612,44 @@ function renderProducaoGroup(t: any, isActive: boolean, hasAccess: (perm: string
         <CollapsibleContent>
           <SidebarMenuSub>
             {subItens.map((sub) => (
+              <SidebarMenuSubItem key={sub.url}>
+                <SidebarMenuSubButton asChild>
+                  <NavLink
+                    to={sub.url}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                  >
+                    <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+
+function renderVendasGroup(_t: unknown, isActive: boolean) {
+  return (
+    <Collapsible defaultOpen={isActive} className="group/collapsible-vendas">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : ""
+            }`}
+          >
+            <TrendingUp className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Vendas</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]/collapsible-vendas:rotate-[-90deg]" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {vendasSubItems.map((sub) => (
               <SidebarMenuSubItem key={sub.url}>
                 <SidebarMenuSubButton asChild>
                   <NavLink

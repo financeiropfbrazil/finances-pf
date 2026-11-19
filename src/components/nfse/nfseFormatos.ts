@@ -42,3 +42,27 @@ export const formatBytes = (n: number | null | undefined) => {
 
 /** Hoje em "YYYY-MM-DD" no horário de Brasília (para comparar com datas de vencimento). */
 export const hojeBrt = () => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+
+/**
+ * Explica um vínculo com o Alvo que NÃO é pelo número da própria nota no mesmo CNPJ (NFSE-1.2-B e NFSE-1.18).
+ * null = vínculo normal (ou nenhum): nada a avisar.
+ */
+export const textoVinculoAlvo = (n: {
+  alvo_vinculo: string | null;
+  alvo_especies: string | null;
+  alvo_doc_numero: string | null;
+  alvo_cnpj?: string | null;
+  prestador_doc: string | null;
+  numero: string | null;
+}): string | null => {
+  switch (n.alvo_vinculo) {
+    case "citado_na_nota":
+      return `No Alvo com outro número: ${n.alvo_especies ?? "outra espécie"} ${n.alvo_doc_numero ?? ""}, que a própria nota cita na descrição (mesmo CNPJ e mesmo valor).`;
+    case "numero_outra_filial":
+      return `Lançada no Alvo no cadastro de outra filial do prestador: CNPJ ${formatDoc(n.alvo_cnpj)} (a nota é do CNPJ ${formatDoc(n.prestador_doc)}), com o mesmo número e o mesmo valor.`;
+    case "numero_sem_ano":
+      return `Lançada no Alvo com o número ${n.alvo_doc_numero ?? "—"}, sem o prefixo do ano do número da nota (${n.numero ?? "—"}), no mesmo CNPJ e com o mesmo valor.`;
+    default:
+      return null;
+  }
+};
