@@ -99,6 +99,11 @@ verify_jwt = false
 [functions.exportar-notas-balancete]
 verify_jwt = false
 
+# exportar-notas-recebidas-balancete (PLANO-NFE, NFE-21): o Balancete P&F chama sem JWT do Hub.
+# A auth real é o x-api-key (segredo BALANCETE_RECEBIDAS_KEY, só desta janela) dentro da função.
+[functions.exportar-notas-recebidas-balancete]
+verify_jwt = false
+
 # exportar-notas-cbs (PLANO-VENDAS, VND-10): o Cockpit CBS (projeto cbs-api) chama sem JWT do Hub.
 # A auth real é o x-api-key (segredo CBS_EXPORT_KEY) dentro da função.
 [functions.exportar-notas-cbs]
