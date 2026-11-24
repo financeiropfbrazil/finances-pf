@@ -1,0 +1,99 @@
+{
+  "_sobre": "Backup tirado em 24/11/2026 ANTES da exclusão pedida pelo Pedro ('Remova a que deu erro sem reenviá-la'). O envio pós-aprovação deu timeout, mas o Alvo criou a 0001707 às 08h04:23; a rotina de compras importou a 0001707 como d2072ec5-05c2-448f-b0b2-93a42c75c17e (mantida). Restaurar: docs/pedidos/2026-11-24-req-1c505129-restaurar.sql. O PDF segue no Storage (bucket compras-requisicoes, caminho do anexo abaixo).",
+  "compras_requisicoes": {
+    "id": "1c505129-86b2-40e9-a8f9-adec84fe2706",
+    "texto": "[Hub] Requisitante: viviane.brambilla | 23/11/2026 17:30 | ID: 7ba174b6",
+    "status": "aprovada",
+    "descricao": "Referente ao treinamento solicitado pelo Hugo para o Valdir destinado Viviane ",
+    "created_at": "2026-11-23T20:30:34.970683+00:00",
+    "enviado_em": null,
+    "updated_at": "2026-11-24T11:06:08.6397+00:00",
+    "aprovada_em": "2026-11-24T11:02:56.766831+00:00",
+    "envio_token": "44aff9bf-1243-4560-9340-dd76ff07f469",
+    "numero_alvo": null,
+    "total_itens": 1,
+    "rejeitada_em": null,
+    "motivo_rejeicao": null,
+    "centro_ctrl_nome": "CONTROLADORIA/FINANCEIRO",
+    "data_necessidade": "2026-11-23T00:00:00+00:00",
+    "funcionario_nome": "Viviane Brambilla",
+    "criacao_concluida": true,
+    "erro_ultimo_envio": "The operation was aborted due to timeout",
+    "codigo_centro_ctrl": "00010.00002.00003",
+    "codigo_funcionario": "0000183",
+    "data_abertura_alvo": null,
+    "tentativa_envio_em": "2026-11-24T11:02:58.578786+00:00",
+    "vinculo_ultima_acao": null,
+    "aprovacao_automatica": false,
+    "aprovada_por_user_id": "0b52e262-2fd2-4e84-b414-456b8eb6df65",
+    "requisitante_user_id": "7ba174b6-f430-4b59-9904-dc797362d19d",
+    "codigo_empresa_filial": "1.01",
+    "rejeitada_por_user_id": null,
+    "vinculo_atualizado_em": null,
+    "aprovacao_submetida_em": "2026-11-23T20:30:37.51644+00:00",
+    "motivo_rejeicao_codigo": null,
+    "vinculo_atualizado_por": null,
+    "finalidade_compra_label": "PRESTAÇÃO DE SERVIÇO",
+    "cnpj_sugestao_requisicao": "32480176000184",
+    "codigo_finalidade_compra": "0000007",
+    "numero_pedido_compra_alvo": null
+  },
+  "compras_requisicoes_aprovacao_grupos": [
+    {
+      "automatica": false,
+      "aprovado_em": "2026-11-24T11:02:56.766831+00:00",
+      "aprovado_por": "0b52e262-2fd2-4e84-b414-456b8eb6df65",
+      "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706",
+      "codigo_centro_ctrl": "00010.00002.00003",
+      "dispensa_sem_lider_em": null,
+      "sem_lider_na_submissao": false
+    }
+  ],
+  "compras_requisicoes_itens": [
+    {
+      "id": "b3c1c4c3-6866-49d7-b4aa-beeea3a465be",
+      "sequencia": 1,
+      "created_at": "2026-11-23T20:30:35.191386+00:00",
+      "observacao": null,
+      "quantidade": 1.000000000,
+      "item_servico": true,
+      "produto_nome": "SERVIÇO  DE TERCEIROS",
+      "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706",
+      "codigo_produto": "002.005",
+      "produto_unidade": "UNID",
+      "data_necessidade": "2026-11-23T00:00:00+00:00",
+      "conversao_unidade": {"peso": 1, "tipo": "Fator", "codigo": "UNID", "compras": false, "posicao": 1},
+      "codigo_centro_ctrl": "00010.00002.00003",
+      "codigo_prod_unid_med": "UNID",
+      "posicao_prod_unid_med": 1,
+      "quantidade_solicitada": 1.000000000,
+      "codigo_alternativo_produto": "890074"
+    }
+  ],
+  "compras_requisicoes_arquivos": [
+    {
+      "id": "e937c7c4-0e3b-4ebf-84f7-4f0e770f28f5",
+      "mime_type": "application/pdf",
+      "created_at": "2026-11-23T20:30:36.631837+00:00",
+      "updated_at": "2026-11-23T20:30:36.631837+00:00",
+      "storage_path": "1c505129-86b2-40e9-a8f9-adec84fe2706/a006f77d-9a27-4a20-a0a9-06a73debe524.pdf",
+      "nome_original": "RODRIGUES & TROVON - NFSE 388.pdf",
+      "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706",
+      "tamanho_bytes": 87244,
+      "conteudo_sha256": "dda57f9f4d91ed49183fede189bdd456debcbdcf84c700a43f8cd14b77341d24",
+      "uploaded_by_user_id": "7ba174b6-f430-4b59-9904-dc797362d19d",
+      "upload_identify_guid": "a006f77d-9a27-4a20-a0a9-06a73debe524",
+      "numero_alvo_ao_enviar": null
+    }
+  ],
+  "compras_requisicoes_auditoria": [
+    {"id": "604dc028-add9-4dc3-9d94-4105b5cb9327", "evento": "criada", "sucesso": true, "user_id": "7ba174b6-f430-4b59-9904-dc797362d19d", "user_nome": "viviane.brambilla", "created_at": "2026-11-23T20:30:36.882707+00:00", "mensagem_erro": null, "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706", "resposta_alvo": null, "payload_enviado": null},
+    {"id": "125e58d2-a103-4ceb-8357-05efed305411", "evento": "cc_pendente", "sucesso": true, "user_id": "7ba174b6-f430-4b59-9904-dc797362d19d", "user_nome": "viviane.brambilla", "created_at": "2026-11-23T20:30:37.51644+00:00", "mensagem_erro": null, "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706", "resposta_alvo": null, "payload_enviado": {"cc": "00010.00002.00003", "autor": "7ba174b6-f430-4b59-9904-dc797362d19d"}},
+    {"id": "c6c6fbc7-d36b-4bea-b658-1d7efa1605da", "evento": "enviada_aprovacao", "sucesso": true, "user_id": "7ba174b6-f430-4b59-9904-dc797362d19d", "user_nome": "viviane.brambilla", "created_at": "2026-11-23T20:30:37.51644+00:00", "mensagem_erro": null, "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706", "resposta_alvo": null, "payload_enviado": {"multi_cc": true}},
+    {"id": "ac333d2c-915a-4843-bf79-143517186d7c", "evento": "aprovacao_cc_registrada", "sucesso": true, "user_id": "0b52e262-2fd2-4e84-b414-456b8eb6df65", "user_nome": "Pedro Scrignoli", "created_at": "2026-11-24T11:02:56.766831+00:00", "mensagem_erro": null, "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706", "resposta_alvo": null, "payload_enviado": {"ccs": ["00010.00002.00003"], "admin": true}},
+    {"id": "101d5ce0-a2b7-4606-a9a5-a689a5859e6b", "evento": "cc_sem_lider_fechamento", "sucesso": true, "user_id": "0b52e262-2fd2-4e84-b414-456b8eb6df65", "user_nome": "Pedro Scrignoli", "created_at": "2026-11-24T11:02:56.766831+00:00", "mensagem_erro": null, "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706", "resposta_alvo": null, "payload_enviado": {"ccs": []}},
+    {"id": "9050b660-7756-4204-be42-5a73c5cdce83", "evento": "aprovada_lider", "sucesso": true, "user_id": "0b52e262-2fd2-4e84-b414-456b8eb6df65", "user_nome": "Pedro Scrignoli", "created_at": "2026-11-24T11:02:56.766831+00:00", "mensagem_erro": null, "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706", "resposta_alvo": null, "payload_enviado": {"admin": true, "multi_cc": true, "automatica": false}},
+    {"id": "0d626bc0-8029-43dc-9cd5-6c3c263249f8", "evento": "envio_reivindicado", "sucesso": true, "user_id": "0b52e262-2fd2-4e84-b414-456b8eb6df65", "user_nome": null, "created_at": "2026-11-24T11:02:58.578786+00:00", "mensagem_erro": null, "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706", "resposta_alvo": null, "payload_enviado": {"token": "44aff9bf-1243-4560-9340-dd76ff07f469", "codigo_usuario": "PEDRO.SCRIGNOLI"}},
+    {"id": "8bbab80a-af0f-47d0-ad85-bc537ebe8ff7", "evento": "envio_pos_aprovacao_falha", "sucesso": false, "user_id": null, "user_nome": null, "created_at": "2026-11-24T11:06:08.6397+00:00", "mensagem_erro": "The operation was aborted due to timeout", "requisicao_id": "1c505129-86b2-40e9-a8f9-adec84fe2706", "resposta_alvo": {"token": "44aff9bf-1243-4560-9340-dd76ff07f469", "numero_alvo": null, "falha_definitiva": false}, "payload_enviado": null}
+  ]
+}
