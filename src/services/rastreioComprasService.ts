@@ -94,6 +94,10 @@ export interface LinhaRastreio {
   req_descricao?: string | null;
   // Pedido
   pedido_data: string | null;
+  /** LP-ENV: quando o Hub registrou o envio para aprovação (timestamptz; o Alvo não guarda a data). */
+  pedido_envio_aprovacao?: string | null;
+  /** LP-ENV: precisão da data do envio (botao_hub | leitura | aproximado | desconhecido). */
+  pedido_envio_origem?: string | null;
   pedido_aprovacao: string | null;
   pedido_status: string | null;
   pedido_codigo_fornecedor: string | null;

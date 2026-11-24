@@ -3112,7 +3112,7 @@ export async function enviarPedidoParaAprovacao(
 ): Promise<EnviarAprovacaoResult> {
   const { data: ped, error: errPed } = await (supabase as any)
     .from("compras_pedidos")
-    .select("numero, codigo_empresa_filial, status_local")
+    .select("numero, codigo_empresa_filial, status_local, enviado_aprovacao_em, enviado_aprovacao_origem")
     .eq("id", pedidoId)
     .single();
 
@@ -3193,6 +3193,15 @@ export async function enviarPedidoParaAprovacao(
     const proxAprov = respPedido?.PedCompUserFieldsObject?.UserProximoAprovador || null;
     const enviou = respPedido?.PedCompUserFieldsObject?.UserEnviouAprovacao || "Sim";
 
+    // LP-ENV (PLANO-PEDIDOS): o Alvo não guarda a data do envio — o Hub guarda. Pelo botão, a hora é exata.
+    // Só o PRIMEIRO envio conta (mesma regra do gatilho trg_compras_pedidos_envio_aprovacao): um reenvio
+    // depois de "Reavaliar" não apaga a data original. Tem de ir no mesmo upsert — senão o gatilho carimba
+    // 'leitura' antes.
+    const envioAprovacao =
+      !ped.enviado_aprovacao_em && !ped.enviado_aprovacao_origem
+        ? { enviado_aprovacao_em: new Date().toISOString(), enviado_aprovacao_origem: "botao_hub" }
+        : {};
+
     await (supabase as any).from("compras_pedidos").upsert(
       {
         id: pedidoId,
@@ -3201,6 +3210,7 @@ export async function enviarPedidoParaAprovacao(
         enviou_aprovacao: enviou,
         status_aprovacao: statusAprov,
         proximo_aprovador: proxAprov,
+        ...envioAprovacao,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" },

@@ -12,6 +12,7 @@
  */
 import type { CampoData, LinhaRastreio, NfCandidata } from "./rastreioComprasService";
 import { CAMPOS_DATA, FILTRO_NF_CANDIDATA, dataLocal, moedaDocFin } from "./rastreioComprasService";
+import { diaBrasilia, diasAteAprovar, diasAteEnviar, origemEnvioTexto } from "@/lib/envioAprovacao";
 
 type Tipo = "texto" | "data" | "valor" | "inteiro";
 
@@ -72,6 +73,21 @@ const COLUNAS: Coluna[] = [
 
   { bloco: "Pedido", label: "Nº pedido", tipo: "texto", largura: 11, valor: (l) => t(l.pedido_numero) },
   { bloco: "Pedido", label: "Data do pedido", tipo: "data", largura: 12, valor: (l) => d(l.pedido_data) },
+  // LP-ENV (PLANO-PEDIDOS): o Alvo não guarda a data do envio para aprovação — o Hub registra.
+  {
+    bloco: "Pedido",
+    label: "Envio p/ aprovação (Hub)",
+    tipo: "data",
+    largura: 12,
+    valor: (l) => d(diaBrasilia(l.pedido_envio_aprovacao)),
+  },
+  {
+    bloco: "Pedido",
+    label: "Precisão da data do envio",
+    tipo: "texto",
+    largura: 16,
+    valor: (l) => (l.pedido_numero ? origemEnvioTexto(l.pedido_envio_origem) : ""),
+  },
   { bloco: "Pedido", label: "Aprovação (Alvo)", tipo: "data", largura: 12, valor: (l) => d(l.pedido_aprovacao) },
   { bloco: "Pedido", label: "Status", tipo: "texto", largura: 13, valor: (l) => t(l.pedido_status) },
   { bloco: "Pedido", label: "Natureza", tipo: "texto", largura: 10, valor: (l) => t(l.pedido_natureza) },
@@ -164,6 +180,20 @@ const COLUNAS: Coluna[] = [
   { bloco: "Pagamento", label: "Origem do 1º pagamento", tipo: "texto", largura: 18, valor: (l) => t(l.primeiro_pagamento_origem) },
 
   { bloco: "Prazos (dias)", label: "Req → Pedido", tipo: "inteiro", largura: 9, valor: (l) => n(l.dias_req_pedido) },
+  {
+    bloco: "Prazos (dias)",
+    label: "Pedido → Envio p/ aprovação",
+    tipo: "inteiro",
+    largura: 10,
+    valor: (l) => diasAteEnviar(l.pedido_data, l.pedido_envio_aprovacao),
+  },
+  {
+    bloco: "Prazos (dias)",
+    label: "Envio → Aprovação",
+    tipo: "inteiro",
+    largura: 10,
+    valor: (l) => diasAteAprovar(l.pedido_envio_aprovacao, l.pedido_aprovacao),
+  },
   { bloco: "Prazos (dias)", label: "Pedido → Aprovação", tipo: "inteiro", largura: 10, valor: (l) => n(l.dias_pedido_aprovacao) },
   { bloco: "Prazos (dias)", label: "Aprovação → NF", tipo: "inteiro", largura: 10, valor: (l) => n(l.dias_aprovacao_nf) },
   { bloco: "Prazos (dias)", label: "NF → Estoque", tipo: "inteiro", largura: 9, valor: (l) => n(l.dias_nf_estoque) },
@@ -299,6 +329,14 @@ export async function exportarRastreioXLSX(
       "Datas da NF",
       "Emissão = data em que o fornecedor emitiu a NF. Entrada = data de entrada/movimento da NF no Alvo. " +
         "Digitação = dia em que a NF foi lançada (digitada) no Alvo (MovEstq.DataHoraDigitacao).",
+    ],
+    [
+      "Envio p/ aprovação",
+      "O Alvo só informa se o pedido foi enviado (Sim/Não), sem data; a data é registrada pelo Hub. Precisão: \"Exata\" = enviado " +
+        "pelo botão do Hub; \"Leitura do Hub (até 1 h)\" = enviado direto no Alvo e visto pelo Hub na conferência de hora em hora " +
+        "(desde 24/11/2026); \"Aproximada\" = reconstituída pelo histórico do Hub (atraso típico de horas, às vezes 1–2 dias); " +
+        "\"Sem data\" = enviado sem que o Hub registrasse a passagem (antes de 23/05/2026, ou enviado e aprovado entre duas leituras). " +
+        "Vazio = ainda não enviado. Prazos: \"Pedido → Envio\" = data do pedido até o envio; \"Envio → Aprovação\" = envio até a aprovação final no Alvo.",
     ],
     ["Requisição", "Espelho das requisições do Alvo (abertura = data/hora de digitação). Aprovação do líder vem do Hub (só requisições criadas no Hub)."],
     ["Estoque", "Laudo concluído = confirmação no estoque (E0000163). Serviço não tem laudo."],

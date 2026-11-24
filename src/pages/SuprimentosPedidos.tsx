@@ -44,6 +44,14 @@ import { Home } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { avisoFalhaEnvioPedido } from "@/lib/pedidoPosEnvio";
+import {
+  diaBrasilia,
+  diasAteEnviar,
+  rotuloOrigemEnvio,
+  situacaoEnvio,
+  textoDias,
+  type EnvioAprovacaoInfo,
+} from "@/lib/envioAprovacao";
 
 // ════════════════════════════════════════════════════════════
 // STATUS CONFIG
@@ -112,6 +120,29 @@ function formatData(iso: string | null | undefined): string {
   }
 }
 
+// LP-ENV (PLANO-PEDIDOS): célula "Envio p/ aprovação" — data registrada pelo Hub e quantos dias depois do pedido.
+function renderEnvioAprovacao(ped: EnvioAprovacaoInfo & { data_pedido?: string | null }) {
+  const situacao = situacaoEnvio(ped);
+  if (situacao === "sem_data") {
+    return (
+      <span className="text-xs text-muted-foreground" title={rotuloOrigemEnvio("desconhecido") ?? undefined}>
+        sem data
+      </span>
+    );
+  }
+  if (situacao === "nao_enviado") return <span className="text-muted-foreground">—</span>;
+  const dias = diasAteEnviar(ped.data_pedido, ped.enviado_aprovacao_em);
+  return (
+    <div title={rotuloOrigemEnvio(ped.enviado_aprovacao_origem) ?? undefined}>
+      {/* formatData lê os 10 primeiros caracteres como data pura: passa o dia de Brasília, não o dia em UTC. */}
+      <span>{formatData(diaBrasilia(ped.enviado_aprovacao_em))}</span>
+      {dias !== null && dias > 0 && (
+        <span className="block text-xs text-muted-foreground">+{textoDias(dias)}</span>
+      )}
+    </div>
+  );
+}
+
 // ════════════════════════════════════════════════════════════
 // CONFIG DE VISUALIZAÇÃO (Cards/Lista) + ORDENAÇÃO
 // ════════════════════════════════════════════════════════════
@@ -135,6 +166,14 @@ const COLUNAS_PEDIDOS: Array<{
 }> = [
   { key: "numero", label: "Nº", sortable: true, sortField: "numero", render: (p) => p.numero },
   { key: "data_pedido", label: "Data", sortable: true, sortField: "data_pedido", render: (p) => p.data_pedido },
+  // LP-ENV (PLANO-PEDIDOS): data em que o Hub registrou o envio para aprovação (o Alvo não guarda).
+  {
+    key: "enviado_aprovacao_em",
+    label: "Envio p/ aprovação",
+    sortable: true,
+    sortField: "enviado_aprovacao_em",
+    render: (p) => p.enviado_aprovacao_em,
+  },
   { key: "status", label: "Status", sortable: false, render: (p) => getStatusPedido(p).label },
   {
     key: "nome_entidade",
@@ -867,6 +906,7 @@ export default function SuprimentosPedidos() {
                           </div>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">{formatData(ped.data_pedido)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{renderEnvioAprovacao(ped)}</td>
                         <td className="px-4 py-3">
                           <Badge
                             variant="outline"

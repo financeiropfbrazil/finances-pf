@@ -58,6 +58,7 @@ import {
 } from "@/services/pedidosService";
 import VincularRequisicaoCard from "@/components/VincularRequisicaoCard";
 import { getStatusPedido } from "@/lib/statusPedido";
+import { diasAteAprovar, diasAteEnviar, rotuloOrigemEnvio, situacaoEnvio, textoDias } from "@/lib/envioAprovacao";
 import { formatarValorMoeda, moedaNaoConfirmada, MOEDA_NAO_CONFIRMADA } from "@/services/moedaPedido";
 import { carregarDetalhesPedido, isPedidoInexistenteNoAlvo } from "@/services/alvoPedCompLoadService";
 import { formatarPercentualUnidades, montarRateioExatoPorValor, type RateioExato } from "@/lib/rateioExato";
@@ -169,6 +170,15 @@ function formatData(iso: string | null | undefined): string {
       }
     }
     return format(new Date(iso), "dd/MM/yyyy", { locale: ptBR });
+  } catch {
+    return "—";
+  }
+}
+
+function formatDataHoraCurta(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    return format(new Date(iso), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
   } catch {
     return "—";
   }
@@ -351,7 +361,7 @@ export default function SuprimentosPedidoDetalhe() {
       const { data, error } = await (supabase as any)
         .from("compras_pedidos")
         .select(
-          "numero, status, status_local, status_aprovacao, enviou_aprovacao, aprovado, comprado, proximo_aprovador, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, valor_mercadoria, valor_servico, valor_frete, valor_desconto, valor_outras_despesas, valor_ipi, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at",
+          "numero, status, status_local, status_aprovacao, enviou_aprovacao, aprovado, comprado, proximo_aprovador, criado_no_hub, codigo_usuario, numero_req_comp, valor_total, valor_mercadoria, valor_servico, valor_frete, valor_desconto, valor_outras_despesas, valor_ipi, data_cadastro, enviado_em, criado_por_nome, created_at, updated_at, enviado_aprovacao_em, enviado_aprovacao_origem, data_aprovacao_alvo",
         )
         .eq("id", id)
         .single();
@@ -549,6 +559,12 @@ export default function SuprimentosPedidoDetalhe() {
     (pedidoComMeta.status_aprovacao === "Em Andamento" ||
       pedidoComMeta.status_aprovacao === "Reavaliar" ||
       (pedidoComMeta.status_aprovacao === "Nenhum" && pedidoComMeta.status === "Aberto"));
+
+  // LP-ENV: dias do pedido até o envio para aprovação, e do envio até a aprovação final no Alvo.
+  const diasEnviar = diasAteEnviar(pedido.data_pedido, pedidoComMeta.enviado_aprovacao_em);
+  const diasAprovar = pedidoComMeta.data_aprovacao_alvo
+    ? diasAteAprovar(pedidoComMeta.enviado_aprovacao_em, pedidoComMeta.data_aprovacao_alvo)
+    : null;
 
   // ── Render ─────────────────────────────────────────────────
   return (
@@ -763,6 +779,39 @@ export default function SuprimentosPedidoDetalhe() {
             <p className="text-xs text-muted-foreground">Validade</p>
             <p className="mt-1 text-sm font-medium">{formatData(pedido.data_validade)}</p>
           </div>
+          {/* LP-ENV (PLANO-PEDIDOS): o Alvo não guarda a data do envio para aprovação — o Hub guarda. */}
+          {numeroVisivel !== "(rascunho)" && (
+            <div>
+              <p className="text-xs text-muted-foreground">Enviado para aprovação</p>
+              {situacaoEnvio(pedidoComMeta) === "com_data" ? (
+                <>
+                  <p className="mt-1 text-sm font-medium">{formatDataHoraCurta(pedidoComMeta.enviado_aprovacao_em)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {rotuloOrigemEnvio(pedidoComMeta.enviado_aprovacao_origem)}
+                  </p>
+                  {diasEnviar !== null && (
+                    <p className="text-xs text-muted-foreground">
+                      {diasEnviar === 0 ? "no dia do pedido" : `${textoDias(diasEnviar)} após o pedido`}
+                      {diasAprovar !== null &&
+                        ` · aprovado ${diasAprovar === 0 ? "no mesmo dia" : `${textoDias(diasAprovar)} depois`}`}
+                    </p>
+                  )}
+                </>
+              ) : situacaoEnvio(pedidoComMeta) === "sem_data" ? (
+                <>
+                  <p className="mt-1 text-sm font-medium">Sem data</p>
+                  <p className="text-xs text-muted-foreground">{rotuloOrigemEnvio("desconhecido")}</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm font-medium">Não enviado</p>
+                  {["Aberto", "Pendente", "Reavaliar"].includes(pedidoComMeta.status) && (
+                    <p className="text-xs text-muted-foreground">o Hub confere o Alvo de hora em hora</p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
