@@ -58,7 +58,14 @@ import {
 } from "@/services/pedidosService";
 import VincularRequisicaoCard from "@/components/VincularRequisicaoCard";
 import { getStatusPedido } from "@/lib/statusPedido";
-import { diasAteAprovar, diasAteEnviar, rotuloOrigemEnvio, situacaoEnvio, textoDias } from "@/lib/envioAprovacao";
+import {
+  dataAprovacaoFinal,
+  diasAteAprovar,
+  diasAteEnviar,
+  rotuloOrigemEnvio,
+  situacaoEnvio,
+  textoDias,
+} from "@/lib/envioAprovacao";
 import { formatarValorMoeda, moedaNaoConfirmada, MOEDA_NAO_CONFIRMADA } from "@/services/moedaPedido";
 import { carregarDetalhesPedido, isPedidoInexistenteNoAlvo } from "@/services/alvoPedCompLoadService";
 import { formatarPercentualUnidades, montarRateioExatoPorValor, type RateioExato } from "@/lib/rateioExato";
@@ -560,11 +567,11 @@ export default function SuprimentosPedidoDetalhe() {
       pedidoComMeta.status_aprovacao === "Reavaliar" ||
       (pedidoComMeta.status_aprovacao === "Nenhum" && pedidoComMeta.status === "Aberto"));
 
-  // LP-ENV: dias do pedido até o envio para aprovação, e do envio até a aprovação final no Alvo.
+  // LP-ENV: dias do pedido até o envio para aprovação, e do envio até a aprovação FINAL no Alvo
+  // (data_aprovacao_alvo sozinha não basta: é preenchida já na 1ª etapa — ver dataAprovacaoFinal).
   const diasEnviar = diasAteEnviar(pedido.data_pedido, pedidoComMeta.enviado_aprovacao_em);
-  const diasAprovar = pedidoComMeta.data_aprovacao_alvo
-    ? diasAteAprovar(pedidoComMeta.enviado_aprovacao_em, pedidoComMeta.data_aprovacao_alvo)
-    : null;
+  const aprovacaoFinal = dataAprovacaoFinal(pedidoComMeta);
+  const diasAprovar = aprovacaoFinal ? diasAteAprovar(pedidoComMeta.enviado_aprovacao_em, aprovacaoFinal) : null;
 
   // ── Render ─────────────────────────────────────────────────
   return (

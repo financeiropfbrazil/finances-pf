@@ -88,6 +88,24 @@ export function diasAteAprovar(
   return diasEntre(enviadoEm, dataAprovacao);
 }
 
+/**
+ * Data da aprovação FINAL do pedido, ou null enquanto ele ainda está em aprovação.
+ *
+ * compras_pedidos.data_aprovacao_alvo vem do item do Alvo (ItemPedCompChildList.DataAprovacao), que é preenchido
+ * já na PRIMEIRA etapa aprovada e atualizado a cada etapa — vale como aprovação final só com o pedido finalizado
+ * (conferido em 25/11/2026: em 393 de 393 pedidos a data mudou quando a aprovação foi finalizada; 22 pedidos
+ * "Em Andamento" tinham a data da etapa intermediária). Achado no pedido 0005317.
+ */
+export function dataAprovacaoFinal(p: {
+  data_aprovacao_alvo?: string | null;
+  status_aprovacao?: string | null;
+  aprovado?: string | null;
+}): string | null {
+  if (!p.data_aprovacao_alvo) return null;
+  const finalizada = p.status_aprovacao === "Finalizada" || p.aprovado === "Total" || p.aprovado === "Parcial";
+  return finalizada ? p.data_aprovacao_alvo : null;
+}
+
 /** "no mesmo dia", "1 dia", "5 dias". */
 export function textoDias(n: number | null): string | null {
   if (n === null) return null;

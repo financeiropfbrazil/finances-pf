@@ -1,6 +1,7 @@
 // LP-ENV (PLANO-PEDIDOS): data do envio do pedido para aprovação e contagem de dias.
 import { describe, expect, it } from "vitest";
 import {
+  dataAprovacaoFinal,
   diaBrasilia,
   diasAteAprovar,
   diasAteEnviar,
@@ -61,6 +62,31 @@ describe("textos", () => {
     expect(origemEnvioTexto("botao_hub")).toBe("Exata (botão do Hub)");
     expect(origemEnvioTexto("desconhecido")).toBe("Sem data");
     expect(origemEnvioTexto(undefined)).toBe("");
+  });
+});
+
+describe("dataAprovacaoFinal", () => {
+  it("pedido ainda em aprovação não tem aprovação final, mesmo com a data da 1ª etapa (caso 0005317)", () => {
+    expect(
+      dataAprovacaoFinal({
+        data_aprovacao_alvo: "2026-11-17T19:16:11.613+00:00",
+        status_aprovacao: "Em Andamento",
+        aprovado: "Não",
+      }),
+    ).toBeNull();
+  });
+
+  it("pedido finalizado devolve a data", () => {
+    expect(
+      dataAprovacaoFinal({ data_aprovacao_alvo: "2026-11-19T12:22:00+00:00", status_aprovacao: "Finalizada", aprovado: "Total" }),
+    ).toBe("2026-11-19T12:22:00+00:00");
+    expect(dataAprovacaoFinal({ data_aprovacao_alvo: "2026-11-19T12:22:00+00:00", aprovado: "Parcial" })).toBe(
+      "2026-11-19T12:22:00+00:00",
+    );
+  });
+
+  it("sem data = null", () => {
+    expect(dataAprovacaoFinal({ data_aprovacao_alvo: null, status_aprovacao: "Finalizada", aprovado: "Total" })).toBeNull();
   });
 });
 
