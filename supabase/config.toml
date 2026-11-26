@@ -108,3 +108,8 @@ verify_jwt = false
 # A auth real é o x-api-key (segredo CBS_EXPORT_KEY) dentro da função.
 [functions.exportar-notas-cbs]
 verify_jwt = false
+
+# exportar-notas-recebidas-cbs (PLANO-NFE, NFE-22): o Cockpit CBS (projeto cbs-api) chama sem JWT do Hub.
+# A auth real é o x-api-key (o mesmo segredo CBS_EXPORT_KEY da VND-10) dentro da função.
+[functions.exportar-notas-recebidas-cbs]
+verify_jwt = false
